@@ -77,7 +77,7 @@ func Execute(name string, args []string) int {
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
-	userRouteManager := routeManagerFromEnv(directRouteManager)
+	userRouteManager := routeManagerFromEnv()
 	cmd := NewRootCommand(commandConfig{
 		name:        name,
 		stdin:       os.Stdin,
@@ -130,10 +130,10 @@ func Execute(name string, args []string) int {
 	return 0
 }
 
-func routeManagerFromEnv(fallback route.Manager) route.Manager {
+func routeManagerFromEnv() route.Manager {
 	brokerURL := strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_URL"))
 	if brokerURL == "" {
-		return fallback
+		return nil
 	}
 	return routebroker.Client{
 		BaseURL:            brokerURL,

@@ -1350,7 +1350,7 @@ func TestRouteManagerFromEnvUsesBrokerClient(t *testing.T) {
 	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY", " /tmp/client.key ")
 	t.Setenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY", " 1 ")
 
-	manager := routeManagerFromEnv(&fakeRouteManager{})
+	manager := routeManagerFromEnv()
 	client, ok := manager.(routebroker.Client)
 	if !ok {
 		t.Fatalf("manager = %T, want routebroker.Client", manager)
@@ -1360,6 +1360,12 @@ func TestRouteManagerFromEnvUsesBrokerClient(t *testing.T) {
 	}
 	if !client.InsecureSkipVerify {
 		t.Fatal("expected insecure skip verify flag")
+	}
+}
+
+func TestRouteManagerFromEnvRequiresBrokerURL(t *testing.T) {
+	if manager := routeManagerFromEnv(); manager != nil {
+		t.Fatalf("manager = %T, want nil without broker URL", manager)
 	}
 }
 

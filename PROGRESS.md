@@ -1498,6 +1498,14 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `make e2e-safe`
+- Tightened the production public-route CLI path so normal `sandcastle route`
+  commands fail closed unless `SANDCASTLE_ROUTE_BROKER_URL` selects the mTLS
+  broker client. The direct Incus route manager remains available only inside
+  the route broker server wiring for authorized infrastructure mutation.
+- Passed: `go test ./internal/cli -run 'Test(Route(Add|Manager)|RouteManagerFromEnv)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `make e2e-safe`
 
 ## Open Scope
 
