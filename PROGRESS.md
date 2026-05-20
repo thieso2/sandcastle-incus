@@ -1490,6 +1490,14 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `make e2e-safe`
+- Hardened admin domain suffix policy validation. Allowed and denied project
+  domain suffix entries now normalize through the same DNS-label checks used by
+  project domain validation, and malformed policy entries fail closed during
+  admin config validation and project planning.
+- Passed: `go test ./internal/domain ./internal/config ./internal/project -run 'Test(ValidateProjectDomain|NormalizePolicySuffix|AdminValidate|PlanCreate)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `make e2e-safe`
 
 ## Open Scope
 

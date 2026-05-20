@@ -15,22 +15,20 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 	if domain == "" {
 		return "", fmt.Errorf("domain is required")
 	}
-	if strings.ContainsAny(domain, "/ ") {
-		return "", fmt.Errorf("invalid project domain %q", value)
+	if err := validateDomainLabels(domain, value, "project domain"); err != nil {
+		return "", err
+	}
+	allowedSuffixes, err := normalizePolicySuffixes("allowed", policy.AllowedSuffixes)
+	if err != nil {
+		return "", err
+	}
+	deniedSuffixes, err := normalizePolicySuffixes("denied", policy.DeniedSuffixes)
+	if err != nil {
+		return "", err
 	}
 	labels := strings.Split(domain, ".")
-	for _, label := range labels {
-		if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
-			return "", fmt.Errorf("invalid project domain %q", value)
-		}
-		for _, r := range label {
-			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
-				return "", fmt.Errorf("invalid project domain %q", value)
-			}
-		}
-	}
 	finalLabel := labels[len(labels)-1]
-	if !suffixAllowed(domain, policy.AllowedSuffixes) {
+	if !suffixAllowed(domain, allowedSuffixes) {
 		if specialUseName := deniedSpecialUseDomain(domain); specialUseName != "" {
 			return "", fmt.Errorf("project domain %q uses denied special-use suffix %q", domain, specialUseName)
 		}
@@ -38,11 +36,7 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 			return "", fmt.Errorf("project domain %q uses denied public TLD %q", domain, finalLabel)
 		}
 	}
-	for _, suffix := range policy.DeniedSuffixes {
-		suffix = strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(suffix)), "."), ".")
-		if suffix == "" {
-			continue
-		}
+	for _, suffix := range deniedSuffixes {
 		if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
 			return "", fmt.Errorf("project domain %q uses admin-denied suffix %q", domain, suffix)
 		}
@@ -50,12 +44,34 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 	return domain, nil
 }
 
-func suffixAllowed(domain string, suffixes []string) bool {
+func NormalizePolicySuffix(value string) (string, error) {
+	suffix := strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), "."), ".")
+	if suffix == "" {
+		return "", fmt.Errorf("domain suffix is required")
+	}
+	if err := validateDomainLabels(suffix, value, "domain suffix"); err != nil {
+		return "", err
+	}
+	return suffix, nil
+}
+
+func normalizePolicySuffixes(kind string, suffixes []string) ([]string, error) {
+	output := make([]string, 0, len(suffixes))
 	for _, suffix := range suffixes {
-		suffix = strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(suffix)), "."), ".")
-		if suffix == "" {
+		if strings.TrimSpace(suffix) == "" {
 			continue
 		}
+		normalized, err := NormalizePolicySuffix(suffix)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s domain suffix %q: %w", kind, suffix, err)
+		}
+		output = append(output, normalized)
+	}
+	return output, nil
+}
+
+func suffixAllowed(domain string, suffixes []string) bool {
+	for _, suffix := range suffixes {
 		if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
 			return true
 		}
@@ -70,4 +86,22 @@ func deniedSpecialUseDomain(domain string) string {
 		}
 	}
 	return ""
+}
+
+func validateDomainLabels(domain string, original string, label string) error {
+	if strings.ContainsAny(domain, "/ ") {
+		return fmt.Errorf("invalid %s %q", label, original)
+	}
+	labels := strings.Split(domain, ".")
+	for _, part := range labels {
+		if part == "" || strings.HasPrefix(part, "-") || strings.HasSuffix(part, "-") {
+			return fmt.Errorf("invalid %s %q", label, original)
+		}
+		for _, r := range part {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+				return fmt.Errorf("invalid %s %q", label, original)
+			}
+		}
+	}
+	return nil
 }

@@ -90,6 +90,19 @@ func TestAdminValidateRejectsInvalidInfrastructureProject(t *testing.T) {
 	}
 }
 
+func TestAdminValidateRejectsInvalidDomainSuffixPolicy(t *testing.T) {
+	config := LoadAdminFromEnv()
+	config.AllowedDomainSuffixes = []string{"bad suffix"}
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected error")
+	}
+	config = LoadAdminFromEnv()
+	config.DeniedDomainSuffixes = []string{"bad/suffix"}
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestAdminValidateAcceptsDefaults(t *testing.T) {
 	config := LoadAdminFromEnv()
 	if err := config.Validate(); err != nil {

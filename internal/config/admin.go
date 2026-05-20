@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	domainrules "github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
@@ -87,6 +88,24 @@ func (c Admin) Validate() error {
 	}
 	if strings.TrimSpace(c.Images.AI) == "" {
 		return fmt.Errorf("AI image alias is required")
+	}
+	if err := validateDomainSuffixes("allowed", c.AllowedDomainSuffixes); err != nil {
+		return err
+	}
+	if err := validateDomainSuffixes("denied", c.DeniedDomainSuffixes); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateDomainSuffixes(kind string, suffixes []string) error {
+	for _, suffix := range suffixes {
+		if strings.TrimSpace(suffix) == "" {
+			continue
+		}
+		if _, err := domainrules.NormalizePolicySuffix(suffix); err != nil {
+			return fmt.Errorf("invalid %s domain suffix %q: %w", kind, suffix, err)
+		}
 	}
 	return nil
 }

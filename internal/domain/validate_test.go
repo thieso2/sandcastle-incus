@@ -44,6 +44,35 @@ func TestValidateProjectDomainAllowsExplicitLabSuffixes(t *testing.T) {
 	}
 }
 
+func TestValidateProjectDomainRejectsMalformedPolicySuffixes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		policy Policy
+	}{
+		{name: "allowed suffix", policy: Policy{AllowedSuffixes: []string{"bad suffix"}}},
+		{name: "denied suffix", policy: Policy{DeniedSuffixes: []string{"bad/suffix"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ValidateProjectDomain("project.project-tld", tc.policy); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
+func TestNormalizePolicySuffix(t *testing.T) {
+	suffix, err := NormalizePolicySuffix(".Lab.Example.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suffix != "lab.example" {
+		t.Fatalf("suffix = %q", suffix)
+	}
+	if _, err := NormalizePolicySuffix("bad_suffix"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestValidateProjectDomainRejectsAdminDeniedSuffixes(t *testing.T) {
 	_, err := ValidateProjectDomain("project.corp.private", Policy{
 		DeniedSuffixes: []string{"corp.private"},
