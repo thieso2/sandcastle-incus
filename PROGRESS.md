@@ -1457,6 +1457,9 @@ development sandboxes.
 - Passed: `go test ./internal/images ./internal/cli ./internal/e2e -run 'Test(Plan(Build|Import)|AdminImage|ImageBuild|LoadConfig)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Re-ran the safe e2e runner tiers at the current head after image command tool
+  validation.
+- Passed: `make e2e-safe`
 
 ## Open Scope
 
