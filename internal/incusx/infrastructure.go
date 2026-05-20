@@ -1,9 +1,11 @@
 package incusx
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -59,6 +61,9 @@ func (c InfrastructureCreator) CreateInfrastructure(ctx context.Context, plan in
 		}
 	}
 	if err := ensureInfrastructureRuntimeFiles(projectServer, plan); err != nil {
+		return err
+	}
+	if err := ensureInfrastructureRuntimeBinaries(projectServer, plan); err != nil {
 		return err
 	}
 	if err := runInfrastructureRuntimeCommands(projectServer, plan); err != nil {
@@ -166,6 +171,25 @@ func ensureInfrastructureRuntimeFiles(server ProjectResourceServer, plan infra.C
 		})
 		if err != nil {
 			return fmt.Errorf("write infrastructure runtime file %s:%s: %w", file.Instance, file.Path, err)
+		}
+	}
+	return nil
+}
+
+func ensureInfrastructureRuntimeBinaries(server ProjectResourceServer, plan infra.CreatePlan) error {
+	for _, binary := range plan.RuntimeBinaries {
+		data, err := os.ReadFile(binary.SourcePath)
+		if err != nil {
+			return fmt.Errorf("read infrastructure runtime binary %s: %w", binary.SourcePath, err)
+		}
+		err = server.CreateInstanceFile(binary.Instance, binary.TargetPath, incus.InstanceFileArgs{
+			Content:   bytes.NewReader(data),
+			Type:      "file",
+			Mode:      binary.Mode,
+			WriteMode: "overwrite",
+		})
+		if err != nil {
+			return fmt.Errorf("write infrastructure runtime binary %s:%s: %w", binary.Instance, binary.TargetPath, err)
 		}
 	}
 	return nil

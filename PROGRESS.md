@@ -277,11 +277,14 @@ development sandboxes.
   present and running.
 - Infrastructure creation now writes bootstrap runtime files. `sc-caddy`
   receives a valid empty-route Caddyfile, and `sc-route-broker` receives a
-  Sandcastle env file plus systemd service file for running the mTLS broker.
+  Sandcastle env file plus broker TLS material for running the mTLS broker.
 - Infrastructure creation now provisions route broker TLS material and runs
-  runtime activation commands inside the infrastructure containers. Caddy is
-  enabled/reloaded, and the route broker gets a self-signed server certificate
-  before its systemd unit is daemon-reloaded and enabled.
+  runtime activation commands inside the infrastructure containers without
+  depending on systemd inside OCI-imported containers. The creator uploads the
+  local `sandcastle` binary to `sc-route-broker`, starts Caddy with
+  `nohup caddy run`, and starts the route broker with
+  `nohup sandcastle admin route-broker serve`. Infrastructure e2e can provide
+  `SANDCASTLE_E2E_SANDCASTLE_BIN`, or build `./cmd/sandcastle` automatically.
 - Added infrastructure deletion and gated real-Incus e2e coverage for
   disposable infrastructure creation. `sandcastle admin infra delete --yes` now
   removes runtime containers and the infrastructure project, and the e2e test
@@ -351,8 +354,8 @@ development sandboxes.
 - Add real-Incus e2e coverage for `sandcastle add` default interactive enter
   behavior once a stable test TTY strategy is available.
 - Add gated full-network Tailscale e2e when an auth key is available.
-- Add route broker HTTP e2e over mTLS once disposable infrastructure images
-  include the `sandcastle` binary and systemd services.
+- Add route broker HTTP e2e over mTLS once disposable infrastructure networking
+  and broker Incus access are wired end-to-end.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -536,6 +539,11 @@ development sandboxes.
   when `SANDCASTLE_E2E` is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'TestTailscaleAttachmentE2E|TestLoadConfig' -count=1 -v` with the expected Tailscale e2e skip when real e2e is unset.
+- Passed: `go test ./internal/infra ./internal/incusx ./internal/e2e`
+- Passed: `go test ./internal/infra -run TestPlanCreate -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'TestDisposableInfrastructureCreateAndDelete|TestLoadConfig' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
+- Passed: `go test ./internal/incusx -run TestInfrastructureCreatorCreatesMissingResources -count=1 -v`
 
 ## Open Scope
 

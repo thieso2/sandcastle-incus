@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -9,6 +10,8 @@ import (
 )
 
 func TestPlanCreate(t *testing.T) {
+	binaryPath := writeRuntimeBinaryForTest(t)
+	t.Setenv("SANDCASTLE_BIN", binaryPath)
 	admin := config.LoadAdminFromEnv()
 	plan, err := PlanCreate(admin, CreateRequest{})
 	if err != nil {
@@ -51,9 +54,11 @@ func TestPlanCreate(t *testing.T) {
 	if !strings.Contains(runtimeFileContent(plan, RouteBrokerName, RouteBrokerKeyPath), "PRIVATE KEY") {
 		t.Fatal("expected route broker private key PEM")
 	}
-	service := runtimeFileContent(plan, RouteBrokerName, RouteBrokerServicePath)
-	if !strings.Contains(service, "admin route-broker serve") {
-		t.Fatalf("service = %q", service)
+	if len(plan.RuntimeBinaries) != 1 {
+		t.Fatalf("runtime binaries = %#v", plan.RuntimeBinaries)
+	}
+	if plan.RuntimeBinaries[0].SourcePath != binaryPath || plan.RuntimeBinaries[0].TargetPath != RouteBrokerBinaryPath {
+		t.Fatalf("runtime binary = %#v", plan.RuntimeBinaries[0])
 	}
 	if len(plan.RuntimeCommands) != 2 {
 		t.Fatalf("runtime commands = %#v", plan.RuntimeCommands)
@@ -61,7 +66,7 @@ func TestPlanCreate(t *testing.T) {
 	if !strings.Contains(strings.Join(plan.RuntimeCommands[0].Command, " "), "caddy reload") {
 		t.Fatalf("caddy command = %#v", plan.RuntimeCommands[0])
 	}
-	if !strings.Contains(strings.Join(plan.RuntimeCommands[1].Command, " "), "sandcastle-route-broker.service") {
+	if !strings.Contains(strings.Join(plan.RuntimeCommands[1].Command, " "), "admin route-broker serve") {
 		t.Fatalf("broker command = %#v", plan.RuntimeCommands[1])
 	}
 }
@@ -89,4 +94,13 @@ func runtimeFileContent(plan CreatePlan, instance string, path string) string {
 		}
 	}
 	return ""
+}
+
+func writeRuntimeBinaryForTest(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir() + "/sandcastle"
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

@@ -2,6 +2,8 @@ package e2e
 
 import (
 	"context"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,6 +23,11 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 	if err := e2eConfig.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	sandcastleBin := strings.TrimSpace(e2eConfig.SandcastleBin)
+	if sandcastleBin == "" {
+		sandcastleBin = buildSandcastleForE2E(t)
+	}
+	t.Setenv("SANDCASTLE_BIN", sandcastleBin)
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
@@ -71,6 +78,16 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 	if err := deleter.DeleteInfrastructure(ctx, deletePlan); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func buildSandcastleForE2E(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "sandcastle")
+	command := exec.Command("go", "build", "-o", path, "./cmd/sandcastle")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandcastle e2e binary: %v\n%s", err, strings.TrimSpace(string(output)))
+	}
+	return path
 }
 
 func e2eInstanceServer(remote string) (incus.InstanceServer, error) {

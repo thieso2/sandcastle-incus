@@ -10,15 +10,16 @@ import (
 const enabledEnv = "SANDCASTLE_E2E"
 
 type Config struct {
-	Enabled      bool
-	Remote       string
-	StoragePool  string
-	CIDRPool     string
-	DomainSuffix string
-	RunID        string
-	Keep         bool
-	Tailscale    TailscaleConfig
-	Images       ImageConfig
+	Enabled       bool
+	Remote        string
+	StoragePool   string
+	CIDRPool      string
+	DomainSuffix  string
+	RunID         string
+	Keep          bool
+	SandcastleBin string
+	Tailscale     TailscaleConfig
+	Images        ImageConfig
 }
 
 type TailscaleConfig struct {
@@ -39,13 +40,14 @@ type ImageConfig struct {
 func LoadConfig() Config {
 	tag := getenv("SANDCASTLE_E2E_TAILSCALE_TAG", "tag:sandcastle")
 	return Config{
-		Enabled:      os.Getenv(enabledEnv) == "1",
-		Remote:       getenv("SANDCASTLE_E2E_REMOTE", "local"),
-		StoragePool:  getenv("SANDCASTLE_E2E_STORAGE_POOL", "default"),
-		CIDRPool:     getenv("SANDCASTLE_E2E_CIDR_POOL", "10.248.0.0/16"),
-		DomainSuffix: strings.TrimPrefix(getenv("SANDCASTLE_E2E_DOMAIN_SUFFIX", "e2e.project-tld"), "."),
-		RunID:        os.Getenv("SANDCASTLE_E2E_RUN_ID"),
-		Keep:         os.Getenv("SANDCASTLE_E2E_KEEP") == "1",
+		Enabled:       os.Getenv(enabledEnv) == "1",
+		Remote:        getenv("SANDCASTLE_E2E_REMOTE", "local"),
+		StoragePool:   getenv("SANDCASTLE_E2E_STORAGE_POOL", "default"),
+		CIDRPool:      getenv("SANDCASTLE_E2E_CIDR_POOL", "10.248.0.0/16"),
+		DomainSuffix:  strings.TrimPrefix(getenv("SANDCASTLE_E2E_DOMAIN_SUFFIX", "e2e.project-tld"), "."),
+		RunID:         os.Getenv("SANDCASTLE_E2E_RUN_ID"),
+		Keep:          os.Getenv("SANDCASTLE_E2E_KEEP") == "1",
+		SandcastleBin: os.Getenv("SANDCASTLE_E2E_SANDCASTLE_BIN"),
 		Tailscale: TailscaleConfig{
 			AuthKey: os.Getenv("SANDCASTLE_E2E_TAILSCALE_AUTHKEY"),
 			Tag:     tag,

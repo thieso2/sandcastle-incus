@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -45,14 +46,14 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerEnvPath] == "" {
 		t.Fatal("expected route broker env file")
 	}
-	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerServicePath] == "" {
-		t.Fatal("expected route broker service file")
-	}
 	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerCertPath] == "" {
 		t.Fatal("expected route broker certificate file")
 	}
 	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerKeyPath] == "" {
 		t.Fatal("expected route broker key file")
+	}
+	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerBinaryPath] == "" {
+		t.Fatal("expected route broker binary file")
 	}
 	if len(resourceServer.execCommands) != 2 {
 		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
@@ -60,7 +61,7 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	if resourceServer.execInstances[0] != route.InfrastructureCaddyName || !strings.Contains(strings.Join(resourceServer.execCommands[0], " "), "caddy reload") {
 		t.Fatalf("first exec = %s %#v", resourceServer.execInstances[0], resourceServer.execCommands[0])
 	}
-	if resourceServer.execInstances[1] != infra.RouteBrokerName || !strings.Contains(strings.Join(resourceServer.execCommands[1], " "), "sandcastle-route-broker.service") {
+	if resourceServer.execInstances[1] != infra.RouteBrokerName || !strings.Contains(strings.Join(resourceServer.execCommands[1], " "), "admin route-broker serve") {
 		t.Fatalf("second exec = %s %#v", resourceServer.execInstances[1], resourceServer.execCommands[1])
 	}
 }
@@ -118,6 +119,11 @@ func TestInfrastructureDeleterDeletesRuntimeAndProject(t *testing.T) {
 
 func infraPlanForTest(t *testing.T) infra.CreatePlan {
 	t.Helper()
+	binaryPath := t.TempDir() + "/sandcastle"
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDCASTLE_BIN", binaryPath)
 	plan, err := infra.PlanCreate(config.LoadAdminFromEnv(), infra.CreateRequest{})
 	if err != nil {
 		t.Fatal(err)

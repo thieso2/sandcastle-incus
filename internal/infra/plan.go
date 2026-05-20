@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -14,12 +15,12 @@ import (
 )
 
 const (
-	RouteBrokerName        = "sc-route-broker"
-	RouteBrokerListen      = ":9443"
-	RouteBrokerCertPath    = "/etc/sandcastle/route-broker/tls.crt"
-	RouteBrokerKeyPath     = "/etc/sandcastle/route-broker/tls.key"
-	RouteBrokerServicePath = "/etc/systemd/system/sandcastle-route-broker.service"
-	RouteBrokerEnvPath     = "/etc/sandcastle/route-broker/env"
+	RouteBrokerName       = "sc-route-broker"
+	RouteBrokerListen     = ":9443"
+	RouteBrokerBinaryPath = "/usr/local/bin/sandcastle"
+	RouteBrokerCertPath   = "/etc/sandcastle/route-broker/tls.crt"
+	RouteBrokerKeyPath    = "/etc/sandcastle/route-broker/tls.key"
+	RouteBrokerEnvPath    = "/etc/sandcastle/route-broker/env"
 )
 
 type CreateRequest struct{}
@@ -37,6 +38,7 @@ type CreatePlan struct {
 	Instances             []InstancePlan     `json:"instances"`
 	RuntimeDirectories    []RuntimeDirectory `json:"runtimeDirectories"`
 	RuntimeFiles          []RuntimeFile      `json:"runtimeFiles"`
+	RuntimeBinaries       []RuntimeBinary    `json:"runtimeBinaries"`
 	RuntimeCommands       []RuntimeCommand   `json:"runtimeCommands"`
 }
 
@@ -62,6 +64,13 @@ type RuntimeFile struct {
 	Path     string `json:"path"`
 	Content  string `json:"content"`
 	Mode     int    `json:"mode"`
+}
+
+type RuntimeBinary struct {
+	Instance   string `json:"instance"`
+	SourcePath string `json:"sourcePath"`
+	TargetPath string `json:"targetPath"`
+	Mode       int    `json:"mode"`
 }
 
 type RuntimeCommand struct {
@@ -112,6 +121,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		},
 		RuntimeDirectories: runtimeDirectories(),
 		RuntimeFiles:       runtimeFiles(brokerTLS),
+		RuntimeBinaries:    runtimeBinaries(),
 		RuntimeCommands:    runtimeCommands(),
 	}, nil
 }
@@ -121,7 +131,6 @@ func runtimeDirectories() []RuntimeDirectory {
 		{Instance: route.InfrastructureCaddyName, Path: "/etc/caddy", Mode: 0o755},
 		{Instance: RouteBrokerName, Path: "/etc/sandcastle", Mode: 0o755},
 		{Instance: RouteBrokerName, Path: "/etc/sandcastle/route-broker", Mode: 0o700},
-		{Instance: RouteBrokerName, Path: "/etc/systemd/system", Mode: 0o755},
 	}
 }
 
@@ -157,24 +166,21 @@ func runtimeFiles(brokerTLS certs.KeyPair) []RuntimeFile {
 			Content:  string(brokerTLS.PrivateKeyPEM),
 			Mode:     0o600,
 		},
-		{
-			Instance: RouteBrokerName,
-			Path:     RouteBrokerServicePath,
-			Content: `[Unit]
-Description=Sandcastle route broker
-After=network-online.target
-Wants=network-online.target
+	}
+}
 
-[Service]
-EnvironmentFile=/etc/sandcastle/route-broker/env
-ExecStart=/usr/local/bin/sandcastle admin route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-`,
-			Mode: 0o644,
-		},
+func runtimeBinaries() []RuntimeBinary {
+	source := strings.TrimSpace(os.Getenv("SANDCASTLE_BIN"))
+	if source == "" {
+		if executable, err := os.Executable(); err == nil {
+			source = executable
+		}
+	}
+	if source == "" {
+		return nil
+	}
+	return []RuntimeBinary{
+		{Instance: RouteBrokerName, SourcePath: source, TargetPath: RouteBrokerBinaryPath, Mode: 0o755},
 	}
 }
 
@@ -182,13 +188,24 @@ func runtimeCommands() []RuntimeCommand {
 	return []RuntimeCommand{
 		{
 			Instance:    route.InfrastructureCaddyName,
-			Description: "enable and reload infrastructure Caddy",
-			Command:     []string{"/bin/sh", "-lc", "systemctl enable --now caddy && caddy reload --config /etc/caddy/Caddyfile"},
+			Description: "start infrastructure Caddy",
+			Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+				"if ! pgrep -x caddy >/dev/null 2>&1; then nohup caddy run --config /etc/caddy/Caddyfile >/var/log/caddy.log 2>&1 & fi",
+				"for i in $(seq 1 50); do caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 && exit 0; sleep 0.1; done",
+				"pgrep -x caddy >/dev/null 2>&1",
+			}, "; ")},
 		},
 		{
 			Instance:    RouteBrokerName,
-			Description: "enable route broker service",
-			Command:     []string{"/bin/sh", "-lc", "systemctl daemon-reload && systemctl enable --now sandcastle-route-broker.service"},
+			Description: "start route broker service",
+			Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+				"set -a",
+				". " + RouteBrokerEnvPath,
+				"set +a",
+				"if ! pgrep -f '" + RouteBrokerBinaryPath + " admin route-broker serve' >/dev/null 2>&1; then nohup " + RouteBrokerBinaryPath + " admin route-broker serve --listen \"${SANDCASTLE_ROUTE_BROKER_LISTEN}\" --cert \"${SANDCASTLE_ROUTE_BROKER_CERT}\" --key \"${SANDCASTLE_ROUTE_BROKER_KEY}\" >/var/log/sandcastle-route-broker.log 2>&1 & fi",
+				"sleep 0.2",
+				"pgrep -f '" + RouteBrokerBinaryPath + " admin route-broker serve' >/dev/null 2>&1",
+			}, "; ")},
 		},
 	}
 }

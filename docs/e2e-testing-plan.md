@@ -43,6 +43,7 @@ SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-...
 SANDCASTLE_E2E_TAILSCALE_TAG=tag:sandcastle
 SANDCASTLE_E2E_DOMAIN_SUFFIX=e2e.project-tld
 SANDCASTLE_E2E_PUBLIC_DOMAIN=*.e2e.example.com
+SANDCASTLE_E2E_SANDCASTLE_BIN=/path/to/sandcastle
 ```
 
 ## Harness Shape
@@ -247,6 +248,9 @@ Test:
 
 1. Create infrastructure project and Caddy.
 2. Start route broker on the private/Tailscale network.
+   The checked-in infrastructure creator uploads the local `sandcastle` binary
+   from `SANDCASTLE_BIN`; infrastructure e2e can use
+   `SANDCASTLE_E2E_SANDCASTLE_BIN`, or build `./cmd/sandcastle` automatically.
 3. Create a sandbox app on port 3000.
 4. Point a disposable public hostname at infrastructure.
 5. As restricted user, call route broker with Incus client certificate mTLS.
