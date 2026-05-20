@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
@@ -178,6 +179,36 @@ func TestPortSetRejectsInvalidPort(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "port", "set", "alice/myproject/codex", "bad")
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestDNSStatusJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "dns", "status", "alice/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload dns.ApplyResult
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.DNSAddress != "10.248.0.53" {
+		t.Fatalf("DNSAddress = %q", payload.DNSAddress)
 	}
 }
 

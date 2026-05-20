@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
@@ -36,6 +37,7 @@ type commandConfig struct {
 	sandboxCreator sandbox.Creator
 	sandboxControl sandbox.Controller
 	sandboxPort    sandbox.PortSetter
+	dnsApplier     dns.Applier
 }
 
 type rootOptions struct {
@@ -60,6 +62,7 @@ func Execute(name string, args []string) int {
 		sandboxCreator: incusx.NewSandboxCreator(adminConfig.Remote),
 		sandboxControl: incusx.NewSandboxController(adminConfig.Remote),
 		sandboxPort:    incusx.NewSandboxPortSetter(adminConfig.Remote),
+		dnsApplier:     incusx.NewDNSManager(adminConfig.Remote),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
@@ -107,6 +110,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "restart", sandbox.ActionRestart, false))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "rm", sandbox.ActionRemove, true))
 	root.AddCommand(newPortCommand(config, opts))
+	root.AddCommand(newDNSCommand(config, opts))
 	root.AddCommand(newAdminCommand(config, opts))
 
 	return root
