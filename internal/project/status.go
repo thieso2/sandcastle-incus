@@ -70,7 +70,7 @@ func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topolog
 					status.Checks = append(status.Checks, Check{Name: "topology", Status: "error", Detail: err.Error()})
 					return status, nil
 				}
-				status.Checks = append(status.Checks, topologyChecks(topology)...)
+				status.Checks = append(status.Checks, TopologyChecks(topology)...)
 			}
 			return status, nil
 		}
@@ -97,7 +97,8 @@ func checkPresent(value string) string {
 	return "ok"
 }
 
-func topologyChecks(topology Topology) []Check {
+// TopologyChecks returns stable project resource checks for status and diagnostics output.
+func TopologyChecks(topology Topology) []Check {
 	checks := []Check{
 		{Name: "network:" + PrivateNetworkName, Status: presentStatus(topology.PrivateNetworkPresent)},
 	}

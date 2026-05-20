@@ -61,7 +61,7 @@ func projectTopologyDiagnostics(ctx context.Context, topologyStore project.Topol
 		return "error=" + err.Error()
 	}
 	var parts []string
-	for _, check := range projectTopologyDiagnosticChecks(topology) {
+	for _, check := range project.TopologyChecks(topology) {
 		value := check.Status
 		if check.Detail != "" {
 			value += "(" + check.Detail + ")"
@@ -69,31 +69,4 @@ func projectTopologyDiagnostics(ctx context.Context, topologyStore project.Topol
 		parts = append(parts, check.Name+"="+value)
 	}
 	return strings.Join(parts, " ")
-}
-
-func projectTopologyDiagnosticChecks(topology project.Topology) []project.Check {
-	status := func(present bool) string {
-		if present {
-			return "ok"
-		}
-		return "missing"
-	}
-	checks := []project.Check{
-		{Name: "network:" + project.PrivateNetworkName, Status: status(topology.PrivateNetworkPresent)},
-	}
-	for _, volume := range []string{project.HomeVolumeName, project.WorkspaceVolumeName, project.CAVolumeName} {
-		checks = append(checks, project.Check{Name: "volume:" + volume, Status: status(topology.DurableVolumes[volume])})
-	}
-	for _, sidecar := range []string{project.TailscaleName, project.DNSName} {
-		sidecarStatus := topology.Sidecars[sidecar]
-		check := project.Check{Name: "sidecar:" + sidecar, Status: status(sidecarStatus.Present), Detail: sidecarStatus.Status}
-		if sidecarStatus.Present && !sidecarStatus.Running {
-			check.Status = "stopped"
-		}
-		if sidecarStatus.Present && sidecarStatus.Running {
-			check.Status = "ok"
-		}
-		checks = append(checks, check)
-	}
-	return checks
 }

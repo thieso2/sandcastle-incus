@@ -84,6 +84,8 @@ development sandboxes.
 - Extended disposable project failure diagnostics with live topology checks for
   the private network, durable volumes, and DNS/Tailscale sidecar status when an
   Incus topology store is available.
+- Reused the same project topology check helper for status output and e2e
+  failure diagnostics so those surfaces stay aligned.
 - Added `sandcastle status <owner/project>` and
   `sandcastle admin project status <owner/project>`, backed by managed project
   metadata and basic metadata/domain/CIDR checks.
@@ -658,6 +660,8 @@ development sandboxes.
 - Passed: `go test ./internal/meta ./internal/routebroker -run 'Test(RouteConfigRoundTrip|ServerAddsAuthorizedRoute)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|ProjectDiagnosticLines|DisposableProjectCreateAndPurge)' -count=1 -v` with the expected disposable project e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/project ./internal/e2e -run 'Test(GetStatus|LogProjectDiagnostics|ProjectDiagnosticLines|DisposableProjectCreateAndPurge)' -count=1 -v` with the expected disposable project e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 
 ## Open Scope
