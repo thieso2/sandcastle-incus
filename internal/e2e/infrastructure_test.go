@@ -9,6 +9,7 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	sharedtls "github.com/lxc/incus/v6/shared/tls"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
@@ -74,10 +75,69 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 	projectServer := server.UseProject(infraProject)
 	assertInstanceExists(t, projectServer, route.InfrastructureCaddyName)
 	assertInstanceExists(t, projectServer, infra.RouteBrokerName)
+	assertRouteBrokerMTLS(t, projectServer)
 
 	if err := deleter.DeleteInfrastructure(ctx, deletePlan); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func assertRouteBrokerMTLS(t *testing.T, server incus.InstanceServer) {
+	t.Helper()
+	certPEM, keyPEM, err := sharedtls.GenerateMemCert(true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCertPath := "/tmp/sandcastle-route-broker-client.crt"
+	clientKeyPath := "/tmp/sandcastle-route-broker-client.key"
+	for _, file := range []struct {
+		path    string
+		content string
+	}{
+		{path: clientCertPath, content: string(certPEM)},
+		{path: clientKeyPath, content: string(keyPEM)},
+	} {
+		if err := server.CreateInstanceFile(infra.RouteBrokerName, file.path, incus.InstanceFileArgs{
+			Content:   strings.NewReader(file.content),
+			Type:      "file",
+			Mode:      0o600,
+			WriteMode: "overwrite",
+		}); err != nil {
+			t.Fatalf("write route broker client TLS file %s: %v", file.path, err)
+		}
+	}
+	output := execInstanceOutput(t, server, infra.RouteBrokerName, []string{
+		"python3", "-c", routeBrokerMTLSProbeScript(clientCertPath, clientKeyPath),
+	})
+	if !strings.Contains(output, "STATUS 404") {
+		t.Fatalf("route broker mTLS probe output = %q, want STATUS 404", output)
+	}
+}
+
+func routeBrokerMTLSProbeScript(certPath string, keyPath string) string {
+	return `
+import ssl, sys, time, urllib.error, urllib.request
+cert_path = ` + pythonQuote(certPath) + `
+key_path = ` + pythonQuote(keyPath) + `
+last = ''
+for _ in range(50):
+    try:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        context.load_cert_chain(cert_path, key_path)
+        urllib.request.urlopen('https://127.0.0.1:9443/routes', context=context, timeout=1)
+        print('STATUS 200')
+        sys.exit(1)
+    except urllib.error.HTTPError as err:
+        print('STATUS', err.code)
+        sys.exit(0 if err.code == 404 else 1)
+    except Exception as err:
+        last = repr(err)
+        time.sleep(0.2)
+print('ERROR', last)
+sys.exit(1)
+`
 }
 
 func buildSandcastleForE2E(t *testing.T) string {

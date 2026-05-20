@@ -268,6 +268,9 @@ Test:
    The checked-in infrastructure creator uploads the local `sandcastle` binary
    from `SANDCASTLE_BIN`; infrastructure e2e can use
    `SANDCASTLE_E2E_SANDCASTLE_BIN`, or build `./cmd/sandcastle` automatically.
+   `TestDisposableInfrastructureCreateAndDelete` verifies the route broker
+   runtime process accepts an mTLS client certificate inside the disposable
+   infrastructure container.
 3. Create a sandbox app on port 3000.
 4. Point a disposable public hostname at infrastructure.
 5. As restricted user, call route broker with Incus client certificate mTLS.

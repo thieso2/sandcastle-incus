@@ -308,6 +308,11 @@ development sandboxes.
   disposable infrastructure creation. `sandcastle admin infra delete --yes` now
   removes runtime containers and the infrastructure project, and the e2e test
   verifies `sc-caddy` plus `sc-route-broker` creation when `SANDCASTLE_E2E=1`.
+- Strengthened disposable infrastructure e2e coverage with a route broker mTLS
+  runtime probe. `TestDisposableInfrastructureCreateAndDelete` now uploads a
+  disposable client certificate into `sc-route-broker` and verifies the broker
+  HTTPS listener accepts mTLS by reaching its `/routes` handler inside the
+  infrastructure container.
 - Added image sync planning and Incus alias execution. `sandcastle admin image
   sync <image-ref>` now resolves an imported image or source alias and creates
   or updates the configured Sandcastle base/AI image aliases.
@@ -558,6 +563,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(RestrictedUser(Token|GrantAccess)E2E|LoadConfig)' -count=1 -v` with the expected restricted-user e2e skips when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'TestRestrictedUser(Token|GrantAccess|SandboxLifecycle)E2E|TestLoadConfig' -count=1 -v` with the expected restricted-user e2e skips when real e2e is unset.
 - Passed: `bash -n scripts/e2e.sh && go test ./...`
+- Passed: `go test ./internal/e2e -run 'TestDisposableInfrastructureCreateAndDelete|TestLoadConfig' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
+- Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected sandbox e2e skips when real e2e is unset.
 - Passed: `go test ./internal/project ./internal/tailscale ./internal/incusx ./internal/e2e`
 - Passed: `scripts/e2e.sh --help`
@@ -596,5 +603,5 @@ development sandboxes.
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
   disposable images in CI/dev, restricted HTTPS-remote e2e in CI/dev,
-  privileged OS resolver/service e2e in a disposable VM, route broker mTLS e2e,
-  and broader real-Incus coverage remain open.
+  privileged OS resolver/service e2e in a disposable VM, authorized route
+  broker mutation e2e, and broader real-Incus coverage remain open.
