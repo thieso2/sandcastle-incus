@@ -306,6 +306,12 @@ development sandboxes.
   creates a disposable `sandcastle-<user>` certificate add token through the
   Incus trust executor and decodes it to verify client name, secret,
   fingerprint, and server addresses without adding a trusted client cert.
+- Added gated restricted-user grant/access e2e coverage.
+  `TestRestrictedUserGrantAccessE2E` bootstraps a disposable restricted client
+  certificate, grants it one disposable Sandcastle metadata project, connects
+  back over HTTPS with that cert, verifies owned project metadata is visible,
+  verifies an ungranted project is not visible, and asserts global project
+  creation is denied.
 - Strengthened gated sandbox creation e2e coverage. The sandbox lifecycle and
   CLI `add --detach` e2e paths now read back the sandbox private Caddyfile and
   TLS cert/key files through Incus, assert the expected hostname and
@@ -319,8 +325,6 @@ development sandboxes.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure images
   include the `sandcastle` binary and systemd services.
-- Add restricted cert grant/access verification after safe disposable client
-  certificate bootstrap is available.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -485,11 +489,13 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected CLI add skip when real e2e is unset.
 - Passed: `go test ./internal/sandbox ./internal/incusx ./internal/cli ./internal/e2e -run 'Test(PlanEnter|SandboxEnterer|EnterCommand|CLIEnterCommandE2E|LoadConfig)' -count=1 -v` with the expected CLI enter e2e skip when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(RestrictedUserTokenE2E|LoadConfig)' -count=1 -v` with the expected restricted-user token e2e skip when real e2e is unset.
+- Passed: `go test ./internal/e2e -run 'Test(RestrictedUser(Token|GrantAccess)E2E|LoadConfig)' -count=1 -v` with the expected restricted-user e2e skips when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected sandbox e2e skips when real e2e is unset.
 
 ## Open Scope
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
-  disposable images in CI/dev, restricted cert grant/access e2e, full Tailscale
-  network e2e, local DNS resolver/forwarder e2e in a disposable VM, route
-  broker mTLS e2e, and broader real-Incus coverage remain open.
+  disposable images in CI/dev, restricted cert grant/access e2e against an HTTPS
+  Incus remote, full Tailscale network e2e, local DNS resolver/forwarder e2e in
+  a disposable VM, route broker mTLS e2e, and broader real-Incus coverage remain
+  open.
