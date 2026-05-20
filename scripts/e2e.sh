@@ -48,6 +48,14 @@ require_env() {
   fi
 }
 
+ensure_run_id() {
+  local tier="$1"
+  if [[ -z "${SANDCASTLE_E2E_RUN_ID:-}" ]]; then
+    export SANDCASTLE_E2E_RUN_ID="e2e-$(date -u +%Y%m%d-%H%M%S)-$$"
+  fi
+  echo "SANDCASTLE_E2E_RUN_ID=$SANDCASTLE_E2E_RUN_ID"
+}
+
 run() {
   echo "+ $*"
   "$@"
@@ -67,6 +75,7 @@ run_local() {
 
 run_local_vm() {
   require_e2e local-vm
+  ensure_run_id local-vm
   if [[ "${SANDCASTLE_E2E_LOCAL_VM:-}" != "1" ]]; then
     echo "error: set SANDCASTLE_E2E_LOCAL_VM=1 to run disposable-VM local mutation tier 'local-vm'" >&2
     exit 2
@@ -76,11 +85,13 @@ run_local_vm() {
 
 run_incus() {
   require_e2e incus
+  ensure_run_id incus
   run go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge|DisposableInfrastructureCreateAndDelete|RouteBrokerAuthorizedMutationE2E|ImageSync.*AliasE2E|ProjectDNSE2E|SandboxLifecycleE2E|HostOverrideE2E|LocalTrustInstallUninstallE2E|CLIAdd.*E2E|CLIEnterCommandE2E)' -count=1 -v
 }
 
 run_restricted() {
   require_e2e restricted
+  ensure_run_id restricted
   require_env restricted SANDCASTLE_E2E_REMOTE
   if [[ "${SANDCASTLE_E2E_REMOTE}" == "local" ]]; then
     echo "error: set SANDCASTLE_E2E_REMOTE to a configured HTTPS Incus remote, not 'local', to run e2e tier 'restricted'" >&2
@@ -93,6 +104,7 @@ run_restricted() {
 
 run_images() {
   require_e2e images
+  ensure_run_id images
   require_env images SANDCASTLE_E2E_IMAGE_BUILD
   if [[ "${SANDCASTLE_E2E_IMAGE_BUILD:-}" != "1" ]]; then
     echo "error: set SANDCASTLE_E2E_IMAGE_BUILD=1 to run real image build tier 'images'" >&2
@@ -106,6 +118,7 @@ run_images() {
 
 run_tailscale() {
   require_e2e tailscale
+  ensure_run_id tailscale
   require_env tailscale SANDCASTLE_E2E_BASE_IMAGE_SOURCE
   require_env tailscale SANDCASTLE_E2E_AI_IMAGE_SOURCE
   require_env tailscale SANDCASTLE_E2E_TAILSCALE_AUTHKEY
@@ -121,12 +134,14 @@ require_route_broker_env() {
 
 run_route_broker() {
   require_e2e route-broker
+  ensure_run_id route-broker
   require_route_broker_env route-broker
   run go test ./internal/e2e -run 'TestRouteBrokerAuthorizedMutationE2E' -count=1 -v
 }
 
 run_public_routes() {
   require_e2e public-routes
+  ensure_run_id public-routes
   require_route_broker_env public-routes
   require_env public-routes SANDCASTLE_E2E_PUBLIC_DOMAIN
   require_env public-routes SANDCASTLE_E2E_INFRA_HOST

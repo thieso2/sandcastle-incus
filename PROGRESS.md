@@ -574,6 +574,10 @@ development sandboxes.
   `SANDCASTLE_E2E_RUN_ID` for non-cleanup runs when no explicit run id is
   provided, while keeping cleanup fail-closed unless a run id input or
   repository variable is present.
+- Updated `scripts/e2e.sh` to select one invocation-wide `SANDCASTLE_E2E_RUN_ID`
+  for destructive non-cleanup tiers when none is provided, while leaving
+  standalone cleanup explicit-run-id only. This makes local runner behavior
+  match the e2e plan's "every run uses a unique run id" safety rule.
 
 ## Next Slice
 
@@ -942,6 +946,19 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `scripts/e2e.sh tailscale` with the expected fail-closed e2e guard
+  before run-id generation when `SANDCASTLE_E2E` is unset.
+- Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh tailscale` with generated
+  `SANDCASTLE_E2E_RUN_ID` and the expected missing
+  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` guard.
+- Passed: `SANDCASTLE_E2E=1 SANDCASTLE_E2E_RUN_ID=e2e-explicit-run scripts/e2e.sh images`
+  with the explicit run id preserved and the expected missing
+  `SANDCASTLE_E2E_IMAGE_BUILD` guard.
+- Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh cleanup` with the expected missing
+  `SANDCASTLE_E2E_RUN_ID` guard.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
