@@ -190,7 +190,7 @@ func formatDNSApply(result dns.ApplyResult) string {
 }
 
 func formatLocalDNSPlan(action string, plan localdns.Plan) string {
-	return fmt.Sprintf("%s local DNS: %s\nDomain: %s\nForwarder: %s\nProject DNS: %s", action, plan.Reference, plan.Domain, plan.Listen, plan.DNSEndpoint)
+	return fmt.Sprintf("%s local DNS: %s\nDomain: %s\nForwarder: %s\nProject DNS: %s\nResolver: %s", action, plan.Reference, plan.Domain, plan.Listen, plan.DNSEndpoint, plan.ResolverStrategy)
 }
 
 func formatLocalDNSResult(result localdns.Result) string {

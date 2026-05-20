@@ -183,6 +183,10 @@ development sandboxes.
   query-name domain suffix, proxies UDP DNS packets to the recorded endpoint,
   and reloads state on each query so `dns refresh` affects routing without live
   Incus lookups per DNS query.
+- Added explicit local DNS resolver strategy planning. macOS uses resolver
+  files, Linux plans systemd-resolved `resolvectl dns` and `resolvectl domain`
+  commands for loopback project-domain routing, and unsupported platforms fall
+  back to file-only state.
 
 ## Next Slice
 
@@ -191,7 +195,7 @@ development sandboxes.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
-- Add Linux resolver strategy for local DNS and service install/reload wrappers.
+- Add local DNS service install/reload wrappers.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -288,6 +292,8 @@ development sandboxes.
 - Passed: `go test ./internal/localdns -run 'TestForwarder|TestQuestion' -count=1 -v`
 - Passed: `go test ./internal/localdns ./internal/cli`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle dns forwarder --help`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/localdns ./internal/cli`
 - Passed: `go test ./...`
 
 ## Open Scope

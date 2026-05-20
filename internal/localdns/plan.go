@@ -33,6 +33,9 @@ type Plan struct {
 	StatePath    string `json:"statePath"`
 	ResolverPath string `json:"resolverPath"`
 	Platform     string `json:"platform"`
+
+	ResolverStrategy string    `json:"resolverStrategy"`
+	ResolverCommands []Command `json:"resolverCommands,omitempty"`
 }
 
 type Result struct {
@@ -78,15 +81,19 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 			if err != nil {
 				return Plan{}, err
 			}
+			platform := runtime.GOOS
+			listen := net.JoinHostPort(DefaultListenIP, fmt.Sprint(DefaultListenPort))
 			return Plan{
-				Reference:    ref.String(),
-				IncusProject: summary.IncusName,
-				Domain:       summary.Domain,
-				DNSEndpoint:  endpoint,
-				Listen:       net.JoinHostPort(DefaultListenIP, fmt.Sprint(DefaultListenPort)),
-				StatePath:    statePath(),
-				ResolverPath: filepath.Join(resolverDir(), summary.Domain),
-				Platform:     runtime.GOOS,
+				Reference:        ref.String(),
+				IncusProject:     summary.IncusName,
+				Domain:           summary.Domain,
+				DNSEndpoint:      endpoint,
+				Listen:           listen,
+				StatePath:        statePath(),
+				ResolverPath:     ResolverPath(platform, summary.Domain),
+				Platform:         platform,
+				ResolverStrategy: ResolverStrategy(platform),
+				ResolverCommands: ResolverCommands(platform, summary.Domain, listen),
 			}, nil
 		}
 	}
@@ -133,11 +140,15 @@ func resolverDir() string {
 }
 
 func DefaultResolverDir() string {
-	if dir := os.Getenv("SANDCASTLE_RESOLVER_DIR"); dir != "" {
+	if dir := resolverDirOverride(); dir != "" {
 		return dir
 	}
 	if runtime.GOOS == "darwin" {
 		return "/etc/resolver"
 	}
 	return "/etc/sandcastle/resolver"
+}
+
+func resolverDirOverride() string {
+	return os.Getenv("SANDCASTLE_RESOLVER_DIR")
 }
