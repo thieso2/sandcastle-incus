@@ -38,6 +38,15 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	if resourceServer.createdInstances[1].Name != infra.RouteBrokerName {
 		t.Fatalf("second instance = %q", resourceServer.createdInstances[1].Name)
 	}
+	if resourceServer.createdFiles[route.InfrastructureCaddyName+":/etc/caddy/Caddyfile"] == "" {
+		t.Fatal("expected bootstrap Caddyfile")
+	}
+	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerEnvPath] == "" {
+		t.Fatal("expected route broker env file")
+	}
+	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerServicePath] == "" {
+		t.Fatal("expected route broker service file")
+	}
 }
 
 func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {

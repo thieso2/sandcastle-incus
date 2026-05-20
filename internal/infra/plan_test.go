@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -34,4 +35,27 @@ func TestPlanCreate(t *testing.T) {
 	if plan.Instances[0].Devices["root"]["pool"] != admin.StoragePool {
 		t.Fatalf("root device = %#v", plan.Instances[0].Devices["root"])
 	}
+	if len(plan.RuntimeDirectories) == 0 {
+		t.Fatal("expected runtime directories")
+	}
+	if runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile") == "" {
+		t.Fatal("expected bootstrap infrastructure Caddyfile")
+	}
+	env := runtimeFileContent(plan, RouteBrokerName, RouteBrokerEnvPath)
+	if !strings.Contains(env, "SANDCASTLE_ROUTE_BROKER_LISTEN=:9443") {
+		t.Fatalf("env = %q", env)
+	}
+	service := runtimeFileContent(plan, RouteBrokerName, RouteBrokerServicePath)
+	if !strings.Contains(service, "admin route-broker serve") {
+		t.Fatalf("service = %q", service)
+	}
+}
+
+func runtimeFileContent(plan CreatePlan, instance string, path string) string {
+	for _, file := range plan.RuntimeFiles {
+		if file.Instance == instance && file.Path == path {
+			return file.Content
+		}
+	}
+	return ""
 }

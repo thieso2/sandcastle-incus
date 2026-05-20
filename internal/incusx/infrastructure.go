@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
@@ -45,6 +47,9 @@ func (c InfrastructureCreator) CreateInfrastructure(ctx context.Context, plan in
 		if err := ensureInfrastructureInstance(projectServer, instance); err != nil {
 			return err
 		}
+	}
+	if err := ensureInfrastructureRuntimeFiles(projectServer, plan); err != nil {
+		return err
 	}
 	return nil
 }
@@ -127,4 +132,28 @@ func infrastructureDevicesMap(devices map[string]infra.Device) api.DevicesMap {
 		output[name] = map[string]string(device)
 	}
 	return output
+}
+
+func ensureInfrastructureRuntimeFiles(server ProjectResourceServer, plan infra.CreatePlan) error {
+	for _, directory := range plan.RuntimeDirectories {
+		err := server.CreateInstanceFile(directory.Instance, directory.Path, incus.InstanceFileArgs{
+			Type: "directory",
+			Mode: directory.Mode,
+		})
+		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
+			return fmt.Errorf("create infrastructure runtime directory %s:%s: %w", directory.Instance, directory.Path, err)
+		}
+	}
+	for _, file := range plan.RuntimeFiles {
+		err := server.CreateInstanceFile(file.Instance, file.Path, incus.InstanceFileArgs{
+			Content:   strings.NewReader(file.Content),
+			Type:      "file",
+			Mode:      file.Mode,
+			WriteMode: "overwrite",
+		})
+		if err != nil {
+			return fmt.Errorf("write infrastructure runtime file %s:%s: %w", file.Instance, file.Path, err)
+		}
+	}
+	return nil
 }

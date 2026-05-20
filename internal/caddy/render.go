@@ -57,6 +57,12 @@ func RenderInfrastructure(routes []meta.Route) File {
 
 `, route.Hostname, route.TargetIP, route.RoutePort)
 	}
+	if content == "" {
+		content = `:80 {
+    respond "sandcastle infrastructure"
+}
+`
+	}
 	return File{
 		Path:    "/etc/caddy/Caddyfile",
 		Mode:    0o644,

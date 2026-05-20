@@ -39,3 +39,10 @@ func TestRenderInfrastructureRoutes(t *testing.T) {
 		t.Fatalf("routes should be sorted: %q", file.Content)
 	}
 }
+
+func TestRenderInfrastructureBootstrap(t *testing.T) {
+	file := RenderInfrastructure(nil)
+	if !strings.Contains(file.Content, `respond "sandcastle infrastructure"`) {
+		t.Fatalf("content = %q", file.Content)
+	}
+}
