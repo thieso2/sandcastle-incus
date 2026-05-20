@@ -381,23 +381,34 @@ Bootstrap:
   <h2>6. Attach Tailscale <span class="badge badge-admin">admin</span></h2>
 
   <div class="step">
-    <h3>Attach Tailscale to a project (interactive)</h3>
-    <p>Opens an interactive <code>tailscale up</code> session inside the sidecar. Complete authentication in the browser.</p>
+    <h3>How it works</h3>
+    <p>Every project gets an <code>sc-tailscale</code> sidecar container created automatically during <code>project create</code>. It sits on the project's private bridge at <code>.2</code> (e.g. <code>10.248.0.2</code>) and has a <code>/dev/net/tun</code> device.</p>
+    <p>The container is started but <strong>Tailscale is not activated yet</strong> — <code>tailscaled</code> and <code>tailscale up</code> are only run when you explicitly call <code>tailscale up</code>.</p>
+    <p>Once activated, the sidecar acts as a <strong>subnet router</strong>: it advertises the entire project private CIDR (e.g. <code>10.248.0.0/24</code>) to your Tailnet. Any device on your Tailnet can then reach all sandboxes in the project directly by their private IP, without needing Tailscale installed in each sandbox.</p>
+    <div class="note"><strong>Tailscale admin console step:</strong> After running <code>tailscale up</code>, approve the advertised route in your Tailscale admin console under the machine's routing settings.</div>
+  </div>
+
+  <div class="step">
+    <h3>Activate Tailscale on a project (interactive)</h3>
+    <p>Starts <code>tailscaled</code> inside the sidecar and runs <code>tailscale up --advertise-routes=&lt;project-cidr&gt;</code>. Opens an interactive browser auth flow if no auth key is provided.</p>
     <pre><code><span class="cmd">sandcastle tailscale up</span> <span class="arg">alice/myproject</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Attach with an auth key (unattended)</h3>
+    <h3>Activate with an auth key (unattended)</h3>
     <pre><code><span class="cmd">sandcastle tailscale up</span> <span class="arg">alice/myproject</span> <span class="flag">--auth-key</span> <span class="arg">tskey-auth-...</span></code></pre>
+    <p>Generate auth keys in the Tailscale admin console. Use a reusable key if you need to re-run this after a container restart.</p>
   </div>
 
   <div class="step">
     <h3>Check Tailscale status</h3>
     <pre><code><span class="cmd">sandcastle tailscale status</span> <span class="arg">alice/myproject</span></code></pre>
+    <p>Reports the Tailscale state, Tailnet name, assigned IPs, and which routes are being advertised.</p>
   </div>
 
   <div class="step">
     <h3>Detach Tailscale</h3>
+    <p>Runs <code>tailscale down</code> inside the sidecar. The container keeps running; only the Tailnet attachment is removed.</p>
     <pre><code><span class="cmd">sandcastle tailscale down</span> <span class="arg">alice/myproject</span></code></pre>
   </div>
 </section>
