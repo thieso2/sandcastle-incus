@@ -1450,6 +1450,13 @@ development sandboxes.
 - Re-ran the safe e2e runner tiers at the current head after DNS proof target
   resolution support.
 - Passed: `make e2e-safe`
+- Tightened image command planning so OCI image builds only accept Docker or
+  Podman-compatible tools, while image import remains limited to the Incus CLI
+  executable. Absolute executable paths are still accepted when their basename
+  matches the supported tool.
+- Passed: `go test ./internal/images ./internal/cli ./internal/e2e -run 'Test(Plan(Build|Import)|AdminImage|ImageBuild|LoadConfig)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

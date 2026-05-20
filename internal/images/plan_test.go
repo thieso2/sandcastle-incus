@@ -60,6 +60,38 @@ func TestPlanBuildBaseImage(t *testing.T) {
 	}
 }
 
+func TestPlanBuildAllowsDockerOrPodmanTools(t *testing.T) {
+	for _, tool := range []string{"docker", "podman", "/usr/local/bin/podman"} {
+		t.Run(tool, func(t *testing.T) {
+			plan, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
+				Template: "base",
+				Tag:      "sandcastle/base:test",
+				Tool:     tool,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Tool != tool {
+				t.Fatalf("Tool = %q", plan.Tool)
+			}
+		})
+	}
+}
+
+func TestPlanBuildRejectsUnsupportedTool(t *testing.T) {
+	_, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
+		Template: "base",
+		Tag:      "sandcastle/base:test",
+		Tool:     "sh",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestPlanBuildAIImageRequiresPinnedToolVersions(t *testing.T) {
 	_, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{Template: "ai"})
 	if err == nil {
@@ -127,6 +159,34 @@ func TestPlanImportBaseImage(t *testing.T) {
 	}
 	if strings.Join(plan.Command, " ") != "incus image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --reuse" {
 		t.Fatalf("Command = %#v", plan.Command)
+	}
+}
+
+func TestPlanImportAllowsIncusExecutablePath(t *testing.T) {
+	plan, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+		Template:  "base",
+		SourceRef: "oci:sandcastle/base:debian-13",
+		Tool:      "/usr/local/bin/incus",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Command[0] != "/usr/local/bin/incus" {
+		t.Fatalf("Command = %#v", plan.Command)
+	}
+}
+
+func TestPlanImportRejectsUnsupportedTool(t *testing.T) {
+	_, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+		Template:  "base",
+		SourceRef: "oci:sandcastle/base:debian-13",
+		Tool:      "docker",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("error = %q", err)
 	}
 }
 

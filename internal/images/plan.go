@@ -118,6 +118,9 @@ func PlanBuild(admin config.Admin, request BuildRequest) (BuildPlan, error) {
 	if tool == "" {
 		tool = "docker"
 	}
+	if err := validateExecutableBase(tool, "image build tool", []string{"docker", "podman"}); err != nil {
+		return BuildPlan{}, err
+	}
 	plan := BuildPlan{
 		Template:   template,
 		Tool:       tool,
@@ -166,6 +169,9 @@ func PlanImport(admin config.Admin, request ImportRequest) (ImportPlan, error) {
 	tool := strings.TrimSpace(request.Tool)
 	if tool == "" {
 		tool = "incus"
+	}
+	if err := validateExecutableBase(tool, "image import tool", []string{"incus"}); err != nil {
+		return ImportPlan{}, err
 	}
 	alias, err := aliasForTemplate(admin, template)
 	if err != nil {
@@ -240,6 +246,16 @@ func buildCommand(plan BuildPlan) []string {
 	}
 	args = append(args, plan.ContextDir)
 	return args
+}
+
+func validateExecutableBase(value string, label string, allowed []string) error {
+	name := filepath.Base(strings.TrimSpace(value))
+	for _, candidate := range allowed {
+		if name == candidate {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s %q is unsupported; expected %s", label, value, strings.Join(allowed, " or "))
 }
 
 func importCommand(plan ImportPlan) []string {
