@@ -105,12 +105,15 @@ development sandboxes.
   and `rm`.
 - Added Incus sandbox lifecycle executor for start/stop/restart/remove, with
   `rm` requiring `--yes` and ignoring already-missing instances.
+- Added `sandcastle port set owner/project/name <port>` planning and executor
+  to update sandbox app-port scalar metadata and the versioned sandbox state
+  blob.
 
 ## Next Slice
 
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
-- Add app port update planning/executor for sandbox Caddy metadata.
+- Add DNS rendering from sandbox metadata and `sandcastle dns apply/status`.
 - Add restricted-user e2e path for certificate/token grant verification after
   token bootstrap can be exercised safely.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -155,6 +158,8 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle rm alice/myproject/codex 2>&1 || true && ./bin/sandcastle start alice/myproject/codex 2>&1 || true` with expected `--yes` guard and local Incus connection failure on macOS.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle port set alice/myproject/codex 5173 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`

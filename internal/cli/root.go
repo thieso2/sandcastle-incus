@@ -35,6 +35,7 @@ type commandConfig struct {
 	trustManager   usertrust.Manager
 	sandboxCreator sandbox.Creator
 	sandboxControl sandbox.Controller
+	sandboxPort    sandbox.PortSetter
 }
 
 type rootOptions struct {
@@ -58,6 +59,7 @@ func Execute(name string, args []string) int {
 		trustManager:   incusx.NewTrustManager(adminConfig.Remote),
 		sandboxCreator: incusx.NewSandboxCreator(adminConfig.Remote),
 		sandboxControl: incusx.NewSandboxController(adminConfig.Remote),
+		sandboxPort:    incusx.NewSandboxPortSetter(adminConfig.Remote),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
@@ -104,6 +106,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "stop", sandbox.ActionStop, false))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "restart", sandbox.ActionRestart, false))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "rm", sandbox.ActionRemove, true))
+	root.AddCommand(newPortCommand(config, opts))
 	root.AddCommand(newAdminCommand(config, opts))
 
 	return root

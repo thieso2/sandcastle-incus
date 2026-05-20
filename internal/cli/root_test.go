@@ -174,6 +174,13 @@ func TestRemoveRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func TestPortSetRejectsInvalidPort(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "port", "set", "alice/myproject/codex", "bad")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
