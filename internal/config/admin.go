@@ -19,6 +19,7 @@ const (
 )
 
 type Admin struct {
+	Owner                  string
 	Remote                 string
 	StoragePool            string
 	CIDRPool               string
@@ -38,6 +39,7 @@ type Images struct {
 
 func LoadAdminFromEnv() Admin {
 	return Admin{
+		Owner:                  os.Getenv("SANDCASTLE_OWNER"),
 		Remote:                 getenv("SANDCASTLE_REMOTE", DefaultRemote),
 		StoragePool:            getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
 		CIDRPool:               getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),

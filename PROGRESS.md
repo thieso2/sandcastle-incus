@@ -615,6 +615,11 @@ development sandboxes.
 - Extended the real CLI add-detach e2e path to run `sandcastle inspect` after
   creating the disposable sandbox and assert the JSON output matches the
   Incus-backed sandbox instance and metadata.
+- Added `SANDCASTLE_OWNER` and normal-user `project/sandbox` shorthand support
+  for sandbox add, inspect, enter, lifecycle, and port planning while preserving
+  explicit `owner/project/sandbox` references for automation and admin-driven
+  tests. The CLI add-detach e2e now creates and inspects the disposable sandbox
+  through the shorthand form.
 
 ## Next Slice
 
@@ -919,6 +924,15 @@ development sandboxes.
   e2e is unset.
 - Passed: `scripts/e2e.sh local` with generated
   `SANDCASTLE_E2E_RUN_ID=e2e-20260520-113148-11135`.
+- Passed: `go test ./internal/config ./internal/sandbox ./internal/cli ./internal/e2e -run 'Test(LoadAdminFromEnv|PlanCreate|PlanEnter|PlanLifecycle|PlanSetPort|Inspect|AddDryRun|CLIAddDetachE2E|LoadConfig)' -count=1 -v`
+  with the expected CLI add-detach e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'TestCLIAddDetachE2E|TestLoadConfig' -count=1 -v`
+  with the expected CLI add-detach e2e skip when real e2e is unset.
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_OWNER=alice ./bin/sandcastle add myproject/codex --dry-run 2>&1 || true`
+  with the expected local Incus connection failure on macOS after shorthand
+  argument parsing.
+- Passed: `git diff --check`
 - Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard
   when `SANDCASTLE_E2E` is unset.
 - Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh local-vm` with the expected

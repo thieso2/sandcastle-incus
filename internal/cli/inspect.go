@@ -10,7 +10,7 @@ import (
 
 func newInspectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "inspect owner/project/name",
+		Use:   "inspect project/name",
 		Short: "Inspect a Sandcastle sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

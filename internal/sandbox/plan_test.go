@@ -63,6 +63,31 @@ func TestPlanCreate(t *testing.T) {
 	}
 }
 
+func TestPlanCreateSupportsProjectNameShorthandWithOwner(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	plan, err := PlanCreate(context.Background(), admin, projectStoreForTest(t), nil, CreateRequest{Reference: "myproject/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Reference != "myproject/codex" {
+		t.Fatalf("Reference = %q", plan.Reference)
+	}
+	if plan.Project.Owner != "alice" || plan.Project.Name != "myproject" || plan.Name != "codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestPlanCreateRejectsProjectNameShorthandWithoutOwner(t *testing.T) {
+	_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{Reference: "myproject/codex"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "SANDCASTLE_OWNER") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestPlanCreateSupportsBaseTemplateAndCustomStorageDirs(t *testing.T) {
 	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{
 		Reference:    "alice/myproject/minimal",

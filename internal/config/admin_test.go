@@ -25,6 +25,7 @@ func TestLoadAdminFromEnvDefaults(t *testing.T) {
 }
 
 func TestLoadAdminFromEnvOverrides(t *testing.T) {
+	t.Setenv("SANDCASTLE_OWNER", "alice")
 	t.Setenv("SANDCASTLE_REMOTE", "prod")
 	t.Setenv("SANDCASTLE_STORAGE_POOL", "fast")
 	t.Setenv("SANDCASTLE_CIDR_POOL", "10.99.0.0/16")
@@ -38,6 +39,9 @@ func TestLoadAdminFromEnvOverrides(t *testing.T) {
 	t.Setenv("SANDCASTLE_AI_IMAGE", "sandcastle/ai:test")
 
 	config := LoadAdminFromEnv()
+	if config.Owner != "alice" {
+		t.Fatalf("Owner = %q, want alice", config.Owner)
+	}
 	if config.Remote != "prod" {
 		t.Fatalf("Remote = %q, want prod", config.Remote)
 	}

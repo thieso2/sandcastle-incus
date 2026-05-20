@@ -496,7 +496,10 @@ binary.
 
 The CLI is implemented in Go with Cobra from the start.
 
-Normal user resource addresses use `project/container`:
+Normal user resource addresses use `project/container`. The CLI resolves the
+owner from local user configuration such as `SANDCASTLE_OWNER`; admin-oriented
+`owner/project/...` references remain accepted where explicit ownership is
+needed.
 
 ```bash
 sandcastle add myproject/codex

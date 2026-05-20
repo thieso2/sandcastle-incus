@@ -10,7 +10,7 @@ import (
 func newSandboxLifecycleCommand(config commandConfig, opts *rootOptions, use string, action sandbox.Action, requireYes bool) *cobra.Command {
 	var yes bool
 	command := &cobra.Command{
-		Use:   use + " owner/project/name",
+		Use:   use + " project/name",
 		Short: string(action) + " a Sandcastle sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

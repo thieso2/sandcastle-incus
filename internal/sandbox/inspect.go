@@ -25,7 +25,7 @@ func Inspect(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if err := admin.Validate(); err != nil {
 		return InspectResult{}, err
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.Reference)
+	projectRef, sandboxName, err := parseSandboxRef(request.Reference, admin.Owner)
 	if err != nil {
 		return InspectResult{}, err
 	}

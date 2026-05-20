@@ -9,7 +9,7 @@ import (
 
 func newEnterCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "enter owner/project/name [-- command...]",
+		Use:   "enter project/name [-- command...]",
 		Short: "Enter a Sandcastle sandbox",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

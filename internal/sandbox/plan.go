@@ -80,7 +80,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.Reference)
+	projectRef, sandboxName, err := parseSandboxRef(request.Reference, admin.Owner)
 	if err != nil {
 		return CreatePlan{}, err
 	}
@@ -249,8 +249,21 @@ func IssueCertificateFilesWithExtraSANs(sandboxName string, domain string, extra
 	}, nil
 }
 
-func parseSandboxRef(value string) (naming.ProjectRef, string, error) {
+func parseSandboxRef(value string, defaultOwner string) (naming.ProjectRef, string, error) {
 	parts := strings.Split(value, "/")
+	if len(parts) == 2 {
+		if strings.TrimSpace(defaultOwner) == "" {
+			return naming.ProjectRef{}, "", fmt.Errorf("sandbox reference must be owner/project/name or set SANDCASTLE_OWNER to use project/name")
+		}
+		projectRef, err := naming.ParseProjectRef(defaultOwner + "/" + parts[0])
+		if err != nil {
+			return naming.ProjectRef{}, "", err
+		}
+		if err := (naming.ProjectRef{Owner: parts[1], Project: "placeholder"}).Validate(); err != nil {
+			return naming.ProjectRef{}, "", fmt.Errorf("invalid sandbox name %q", parts[1])
+		}
+		return projectRef, parts[1], nil
+	}
 	if len(parts) != 3 {
 		return naming.ProjectRef{}, "", fmt.Errorf("sandbox reference must be owner/project/name")
 	}

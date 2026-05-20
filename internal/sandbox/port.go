@@ -34,7 +34,7 @@ func PlanSetPort(ctx context.Context, admin config.Admin, store project.IncusPro
 	if request.AppPort < 1 || request.AppPort > 65535 {
 		return PortSetPlan{}, fmt.Errorf("invalid app port %d", request.AppPort)
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.Reference)
+	projectRef, sandboxName, err := parseSandboxRef(request.Reference, admin.Owner)
 	if err != nil {
 		return PortSetPlan{}, err
 	}

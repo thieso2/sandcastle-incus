@@ -34,6 +34,24 @@ func TestInspectFindsManagedSandbox(t *testing.T) {
 	}
 }
 
+func TestInspectSupportsProjectNameShorthandWithOwner(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	result, err := Inspect(context.Background(), admin, projectStoreForTest(t), fakeSandboxStore{sandboxes: []meta.Sandbox{{
+		Owner:     "alice",
+		Project:   "myproject",
+		Name:      "codex",
+		AppPort:   5173,
+		PrivateIP: "10.248.0.20",
+	}}}, InspectRequest{Reference: "myproject/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Project.Owner != "alice" || result.Project.Name != "myproject" || result.Name != "codex" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestInspectErrorsForMissingSandbox(t *testing.T) {
 	_, err := Inspect(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{}, InspectRequest{Reference: "alice/myproject/missing"})
 	if err == nil {

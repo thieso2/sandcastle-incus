@@ -20,9 +20,10 @@ import (
 func TestCLIAddDetachE2E(t *testing.T) {
 	fixture := setupCLIAddProjectE2E(t, "cli")
 	setSandcastleCLIEnv(t, fixture)
+	shorthandRef := fixture.ProjectName + "/" + fixture.SandboxName
 
 	if exitCode := cli.Execute("sandcastle", []string{
-		"add", fixture.SandboxRef,
+		"add", shorthandRef,
 		"--detach",
 		"--template", "base",
 		"--home-dir", "shared-home",
@@ -51,7 +52,7 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	command := exec.CommandContext(ctx, sandcastleBin, "--output", "json", "inspect", fixture.SandboxRef)
+	command := exec.CommandContext(ctx, sandcastleBin, "--output", "json", "inspect", shorthandRef)
 	command.Env = append(os.Environ(), sandcastleCLIEnv(fixture)...)
 	output, err := command.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -117,6 +118,8 @@ type cliAddFixture struct {
 	Config      Config
 	Server      incus.InstanceServer
 	Project     project.CreatePlan
+	Owner       string
+	ProjectName string
 	SandboxRef  string
 	SandboxName string
 	BaseAlias   string
@@ -207,6 +210,8 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 		Config:      e2eConfig,
 		Server:      server,
 		Project:     createProjectPlan,
+		Owner:       owner,
+		ProjectName: name,
 		SandboxRef:  sandboxRef,
 		SandboxName: sandboxName,
 		BaseAlias:   baseAlias,
@@ -228,6 +233,7 @@ func setSandcastleCLIEnv(t *testing.T, fixture cliAddFixture) {
 func sandcastleCLIEnv(fixture cliAddFixture) []string {
 	return []string{
 		"SANDCASTLE_REMOTE=" + fixture.Config.Remote,
+		"SANDCASTLE_OWNER=" + fixture.Owner,
 		"SANDCASTLE_STORAGE_POOL=" + fixture.Config.StoragePool,
 		"SANDCASTLE_CIDR_POOL=" + fixture.Config.CIDRPool,
 		"SANDCASTLE_PROJECT_PREFIX=" + config.DefaultProjectPrefix,

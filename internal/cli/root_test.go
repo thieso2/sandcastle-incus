@@ -266,6 +266,37 @@ func TestAddDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestAddDryRunSupportsProjectNameShorthandWithOwner(t *testing.T) {
+	t.Setenv("SANDCASTLE_OWNER", "alice")
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "add", "myproject/codex", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sandbox.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Project.Owner != "alice" || payload.Project.Name != "myproject" || payload.Name != "codex" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",

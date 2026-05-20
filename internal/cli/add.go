@@ -17,7 +17,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var workspaceDir string
 	var shareHome bool
 	command := &cobra.Command{
-		Use:   "add owner/project/name",
+		Use:   "add project/name",
 		Short: "Create a Sandcastle container sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

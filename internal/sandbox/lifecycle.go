@@ -41,7 +41,7 @@ func PlanLifecycle(ctx context.Context, admin config.Admin, store project.IncusP
 	if err := validateAction(request.Action); err != nil {
 		return LifecyclePlan{}, err
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.Reference)
+	projectRef, sandboxName, err := parseSandboxRef(request.Reference, admin.Owner)
 	if err != nil {
 		return LifecyclePlan{}, err
 	}

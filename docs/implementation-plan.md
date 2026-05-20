@@ -183,6 +183,10 @@ sandcastle start myproject/codex
 sandcastle rm myproject/codex --yes
 ```
 
+The normal-user `project/sandbox` form resolves ownership from
+`SANDCASTLE_OWNER`; explicit `owner/project/sandbox` remains accepted for
+automation and admin-driven tests.
+
 Exit criteria:
 
 - New containers are reachable on the private bridge.
