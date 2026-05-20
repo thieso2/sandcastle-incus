@@ -108,7 +108,10 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	}
 	routePort := target.AppPort
 	if routePort == 0 {
-		routePort = sandbox.DefaultAppPort
+		routePort, err = sandbox.DefaultAppPortForTemplate(summary.DefaultTemplate)
+		if err != nil {
+			return AddPlan{}, err
+		}
 	}
 	routeMetadata := meta.Route{
 		Hostname:      hostname,

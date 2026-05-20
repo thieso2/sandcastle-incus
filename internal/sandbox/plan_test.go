@@ -124,6 +124,21 @@ func TestPlanCreateSupportsBaseTemplateAndCustomStorageDirs(t *testing.T) {
 	}
 }
 
+func TestDefaultAppPortForTemplate(t *testing.T) {
+	for _, template := range []string{"", TemplateAI, TemplateBase} {
+		port, err := DefaultAppPortForTemplate(template)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if port != DefaultAppPort {
+			t.Fatalf("port = %d for %q", port, template)
+		}
+	}
+	if _, err := DefaultAppPortForTemplate("unknown"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestPlanCreateRejectsUnknownTemplate(t *testing.T) {
 	_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{
 		Reference: "alice/myproject/codex",

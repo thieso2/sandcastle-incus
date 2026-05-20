@@ -109,7 +109,10 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	}
 	appPort := request.AppPort
 	if appPort == 0 {
-		appPort = DefaultAppPort
+		appPort, err = DefaultAppPortForTemplate(template)
+		if err != nil {
+			return CreatePlan{}, err
+		}
 	}
 	if appPort < 1 || appPort > 65535 {
 		return CreatePlan{}, fmt.Errorf("invalid app port %d", appPort)
@@ -207,6 +210,15 @@ func imageAliasForTemplate(admin config.Admin, template string) (string, error) 
 		return admin.Images.Base, nil
 	default:
 		return "", fmt.Errorf("unsupported sandbox template %q", template)
+	}
+}
+
+func DefaultAppPortForTemplate(template string) (int, error) {
+	switch strings.TrimSpace(template) {
+	case "", TemplateAI, TemplateBase:
+		return DefaultAppPort, nil
+	default:
+		return 0, fmt.Errorf("unsupported sandbox template %q", template)
 	}
 }
 

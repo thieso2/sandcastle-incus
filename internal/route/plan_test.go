@@ -77,7 +77,7 @@ func TestPlanAddSupportsProjectNameShorthandWithOwner(t *testing.T) {
 }
 
 func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
-	plan, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{sandbox: meta.Sandbox{
+	plan, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTemplate(t, "base"), fakeSandboxStore{sandbox: meta.Sandbox{
 		Owner:     "alice",
 		Project:   "myproject",
 		Name:      "codex",
@@ -88,6 +88,18 @@ func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
 	}
 	if plan.RoutePort != 3000 {
 		t.Fatalf("RoutePort = %d", plan.RoutePort)
+	}
+}
+
+func TestPlanAddRejectsUnknownTemplateAppPortFallback(t *testing.T) {
+	_, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTemplate(t, "unknown"), fakeSandboxStore{sandbox: meta.Sandbox{
+		Owner:     "alice",
+		Project:   "myproject",
+		Name:      "codex",
+		PrivateIP: "10.248.0.20",
+	}}, AddRequest{Hostname: "app.example.com", TargetReference: "alice/myproject/codex"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 
@@ -125,12 +137,17 @@ func TestProfileName(t *testing.T) {
 
 func projectStoreForTest(t *testing.T) project.MemoryStore {
 	t.Helper()
+	return projectStoreForTemplate(t, "ai")
+}
+
+func projectStoreForTemplate(t *testing.T, template string) project.MemoryStore {
+	t.Helper()
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",
 		Project:         "myproject",
 		Domain:          "myproject.project-tld",
 		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+		DefaultTemplate: template,
 	})
 	if err != nil {
 		t.Fatal(err)

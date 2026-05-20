@@ -1151,6 +1151,12 @@ development sandboxes.
 - Passed: `go test ./internal/meta ./internal/project ./internal/incusx ./internal/cli -run 'Test(ProjectConfigRoundTrip|GetStatus|RouteManager|Status)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Made template app-port fallback explicit so sandbox creation and public route
+  planning resolve omitted ports through the selected/default template before
+  falling back to the built-in 3000 port.
+- Passed: `go test ./internal/sandbox ./internal/route -run 'Test(PlanCreate|DefaultAppPort|PlanAdd)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
