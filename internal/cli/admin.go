@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -15,6 +16,7 @@ func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	admin.AddCommand(newAdminVersionCommand(config, opts))
 	admin.AddCommand(newAdminProjectCommand(config, opts))
+	admin.AddCommand(newAdminUserCommand(config, opts))
 	return admin
 }
 
@@ -170,4 +172,89 @@ func formatDeletePlan(plan project.DeletePlan) string {
 		return fmt.Sprintf("Deleted %s and purged durable state.", plan.Reference)
 	}
 	return fmt.Sprintf("Deleted runtime resources for %s; durable state was preserved.", plan.Reference)
+}
+
+func newAdminUserCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	user := &cobra.Command{
+		Use:   "user",
+		Short: "Manage Sandcastle restricted users",
+	}
+	user.AddCommand(newAdminUserCreateCommand(config, opts))
+	user.AddCommand(newAdminUserGrantCommand(config, opts))
+	user.AddCommand(newAdminUserTokenCommand(config, opts))
+	return user
+}
+
+func newAdminUserCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "create user",
+		Short: "Plan a restricted Sandcastle user certificate",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !dryRun {
+				return fmt.Errorf("restricted user certificate execution is not implemented yet; rerun with --dry-run to inspect the plan")
+			}
+			plan, err := usertrust.PlanCreateUser(args[0])
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the restricted user plan without mutating trust state")
+	return command
+}
+
+func newAdminUserGrantCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "grant user owner/project [owner/project...]",
+		Short: "Plan restricted certificate project grants",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !dryRun {
+				return fmt.Errorf("restricted user grant execution is not implemented yet; rerun with --dry-run to inspect the plan")
+			}
+			plan, err := usertrust.PlanGrant(config.adminConfig, usertrust.GrantRequest{
+				User:     args[0],
+				Projects: args[1:],
+			})
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the grant plan without mutating trust state")
+	return command
+}
+
+func newAdminUserTokenCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "token user",
+		Short: "Plan a restricted certificate add token",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !dryRun {
+				return fmt.Errorf("restricted user token execution is not implemented yet; rerun with --dry-run to inspect the plan")
+			}
+			plan, err := usertrust.PlanToken(args[0])
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the token plan without creating a trust token")
+	return command
+}
+
+func formatUserPlan(plan usertrust.UserPlan) string {
+	projects := "none"
+	if len(plan.Projects) > 0 {
+		projects = strings.Join(plan.Projects, ", ")
+	}
+	return fmt.Sprintf("User: %s\nCertificate: %s\nRestricted: %t\nProjects: %s", plan.User, plan.CertificateName, plan.Restricted, projects)
 }

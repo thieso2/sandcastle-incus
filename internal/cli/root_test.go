@@ -9,6 +9,7 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 func executeForTest(t *testing.T, name string, args ...string) (string, error) {
@@ -212,6 +213,26 @@ func TestAdminProjectDeleteRequiresConfirmation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("error = %q, want --yes hint", err.Error())
+	}
+}
+
+func TestAdminUserGrantDryRunJSON(t *testing.T) {
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "--output", "json", "admin", "user", "grant", "alice", "alice/myproject", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload usertrust.UserPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.CertificateName != "sandcastle-alice" {
+		t.Fatalf("CertificateName = %q", payload.CertificateName)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0] != "sc-alice-myproject" {
+		t.Fatalf("Projects = %#v", payload.Projects)
 	}
 }
 

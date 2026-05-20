@@ -86,11 +86,15 @@ development sandboxes.
   running state.
 - Added `internal/incusx` topology adapter for live Incus network, volume, and
   sidecar reads.
+- Added `internal/usertrust` planning for restricted Incus user certificates,
+  project grants, and token requests.
+- Added dry-run command shape for `sandcastle admin user create`, `grant`, and
+  `token`.
 
 ## Next Slice
 
-- Add user/trust command planning for restricted certificate workflow.
 - Add restricted user certificate executor and admin commands.
+- Add restricted-user e2e path for certificate/token grant verification.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -123,6 +127,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|DisposableProjectCreateAndPurge)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
