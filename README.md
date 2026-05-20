@@ -13,6 +13,21 @@ publish HTTP routes through a shared infrastructure Caddy.
 - [Implementation plan](docs/implementation-plan.md)
 - [End-to-end testing plan](docs/e2e-testing-plan.md)
 
+## Build And Install
+
+Build the product CLI locally:
+
+```bash
+make build
+```
+
+This writes `bin/sandcastle` and installs `bin/sc` as a symlink alias to the
+same binary. Install both commands into `/usr/local/bin` by default:
+
+```bash
+make install
+```
+
 ## Testing
 
 Run the normal test suite:

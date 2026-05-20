@@ -1384,6 +1384,20 @@ development sandboxes.
 - Re-ran the safe e2e runner tiers at the current head after route-broker and
   sandbox-name validation hardening.
 - Passed: `scripts/e2e.sh unit && scripts/e2e.sh gated && scripts/e2e.sh local`
+- Added checked-in build/install support for the product CLI. `make build`
+  builds one `bin/sandcastle` binary and installs `bin/sc` as a symlink alias;
+  `make install` installs the same binary plus `sc` symlink into the configured
+  prefix. The `sandcastle` binary now derives its Cobra command name from
+  `argv[0]`, so a symlink invoked as `sc` reports the alias name.
+- Passed: `make build`
+- Passed: `go test ./cmd/sandcastle ./internal/cli -run 'Test(CommandName|Version)' -count=1 -v`
+- Passed: `./bin/sandcastle --output json version && ./bin/sc --output json version`
+- Passed: `go test ./...`
+- Passed: `make install DESTDIR=/tmp/sandcastle-install-check PREFIX=/usr/local`
+- Passed: `/tmp/sandcastle-install-check/usr/local/bin/sandcastle --output json version`
+- Passed: `/tmp/sandcastle-install-check/usr/local/bin/sc --output json version`
+- Passed: `git diff --check`
+- Passed: `make e2e-safe`
 
 ## Open Scope
 
