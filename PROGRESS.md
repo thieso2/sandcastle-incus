@@ -34,12 +34,14 @@ development sandboxes.
   abstraction.
 - Wired `sandcastle ls` to the project listing service, with current default
   behavior returning an empty list until the real Incus adapter is added.
+- Added `internal/config` admin defaults/env loading for remote, storage pool,
+  CIDR pool, project prefix, infrastructure project, and base/AI image aliases.
+- Extended `.env.default` with the admin/default CLI configuration variables.
 
 ## Next Slice
 
-- Add admin config primitives for storage pool, CIDR pool, naming prefix, image
-  aliases, and infrastructure project name.
 - Add the Incus SDK adapter for project metadata listing.
+- Add command shape for `sandcastle admin project list`.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -54,6 +56,7 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && go build -o bin/sc ./cmd/sc`
 - Passed: `./bin/sandcastle --output json ls`
+- Passed: `go test ./...`
 
 ## Open Scope
 
