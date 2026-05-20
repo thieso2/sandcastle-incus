@@ -1412,6 +1412,9 @@ development sandboxes.
 - Passed: `go test ./internal/naming ./internal/config ./internal/project ./internal/usertrust ./internal/route ./internal/routebroker -run 'Test(ValidateProjectPrefix|IncusProjectName|AdminValidate|LoadAdminFromEnv|PlanCreate|PlanGrant|PlanAdd|PlanRemove|Server|Authorize)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Re-ran the safe e2e runner tiers at the current head after CLI install,
+  env-config, and project-prefix validation changes.
+- Passed: `make e2e-safe`
 
 ## Open Scope
 
