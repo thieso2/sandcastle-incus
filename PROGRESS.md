@@ -1341,6 +1341,15 @@ development sandboxes.
   certificate names must contain a valid Sandcastle owner before they map to a
   public-route principal.
 - Passed: `go test ./internal/incusx -run 'TestRouteBrokerTrustMapper' -count=1 -v`
+- Extended `sandcastle admin tld refresh` to refresh both public TLD and IANA
+  special-use domain snapshots, added the generated special-use snapshot, and
+  changed project domain validation to reject exact special-use domains and
+  their subdomains from the generated map.
+- Passed: `go test ./internal/domain -count=1 -v`
+- Passed: `go test ./internal/cli -run 'TestAdminTLDRefresh|TestAdminProjectCreate' -count=1 -v`
+- Passed: `go run ./cmd/sandcastle --output json admin tld refresh --dry-run`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

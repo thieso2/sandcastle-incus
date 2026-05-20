@@ -410,16 +410,20 @@ func newAdminTLDCommand(config commandConfig, opts *rootOptions) *cobra.Command 
 func newAdminTLDRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var sourceURL string
 	var outputPath string
+	var specialUseSourceURL string
+	var specialUseOutputPath string
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "refresh",
-		Short: "Refresh the embedded public TLD deny-list snapshot",
+		Short: "Refresh embedded public TLD and special-use deny-list snapshots",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := domain.RefreshTLDSnapshot(cmd.Context(), nil, domain.RefreshRequest{
-				SourceURL:  sourceURL,
-				OutputPath: outputPath,
-				DryRun:     dryRun,
+			result, err := domain.RefreshDenyListSnapshots(cmd.Context(), nil, domain.DenyListRefreshRequest{
+				TLDSourceURL:         sourceURL,
+				TLDOutputPath:        outputPath,
+				SpecialUseSourceURL:  specialUseSourceURL,
+				SpecialUseOutputPath: specialUseOutputPath,
+				DryRun:               dryRun,
 			})
 			if err != nil {
 				return err
@@ -429,15 +433,33 @@ func newAdminTLDRefreshCommand(config commandConfig, opts *rootOptions) *cobra.C
 	}
 	command.Flags().StringVar(&sourceURL, "source-url", domain.IANAAlphaTLDURL, "IANA alpha TLD list URL")
 	command.Flags().StringVar(&outputPath, "output-file", domain.DefaultTLDSnapshotOutput, "generated Go source output path")
+	command.Flags().StringVar(&specialUseSourceURL, "special-use-source-url", domain.IANASpecialUseDomainCSVURL, "IANA special-use domain CSV URL")
+	command.Flags().StringVar(&specialUseOutputPath, "special-use-output-file", domain.DefaultSpecialUseSnapshotOutputPath, "generated special-use Go source output path")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "fetch and validate without writing the generated snapshot")
 	return command
 }
 
-func formatTLDRefreshResult(result domain.RefreshResult) string {
-	if result.Written {
-		return fmt.Sprintf("Refreshed %d public TLDs from %s into %s", result.Count, result.SourceURL, result.OutputPath)
+func formatTLDRefreshResult(result domain.DenyListRefreshResult) string {
+	if result.TLD.Written || result.SpecialUse.Written {
+		return fmt.Sprintf(
+			"Refreshed %d public TLDs from %s into %s and %d special-use domains from %s into %s",
+			result.TLD.Count,
+			result.TLD.SourceURL,
+			result.TLD.OutputPath,
+			result.SpecialUse.Count,
+			result.SpecialUse.SourceURL,
+			result.SpecialUse.OutputPath,
+		)
 	}
-	return fmt.Sprintf("Validated %d public TLDs from %s; %s was not written", result.Count, result.SourceURL, result.OutputPath)
+	return fmt.Sprintf(
+		"Validated %d public TLDs from %s and %d special-use domains from %s; %s and %s were not written",
+		result.TLD.Count,
+		result.TLD.SourceURL,
+		result.SpecialUse.Count,
+		result.SpecialUse.SourceURL,
+		result.TLD.OutputPath,
+		result.SpecialUse.OutputPath,
+	)
 }
 
 func newAdminUserCommand(config commandConfig, opts *rootOptions) *cobra.Command {

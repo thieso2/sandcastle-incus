@@ -31,8 +31,8 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 	}
 	finalLabel := labels[len(labels)-1]
 	if !suffixAllowed(domain, policy.AllowedSuffixes) {
-		if specialUseFinalLabels[finalLabel] {
-			return "", fmt.Errorf("project domain %q uses denied suffix %q", domain, finalLabel)
+		if specialUseName := deniedSpecialUseDomain(domain); specialUseName != "" {
+			return "", fmt.Errorf("project domain %q uses denied special-use suffix %q", domain, specialUseName)
 		}
 		if publicTLDs[finalLabel] {
 			return "", fmt.Errorf("project domain %q uses denied public TLD %q", domain, finalLabel)
@@ -63,14 +63,11 @@ func suffixAllowed(domain string, suffixes []string) bool {
 	return false
 }
 
-var specialUseFinalLabels = map[string]bool{
-	// IANA special-use and infrastructure names.
-	"arpa":      true,
-	"example":   true,
-	"home":      true,
-	"invalid":   true,
-	"localhost": true,
-	"local":     true,
-	"onion":     true,
-	"test":      true,
+func deniedSpecialUseDomain(domain string) string {
+	for name := range specialUseNames {
+		if domain == name || strings.HasSuffix(domain, "."+name) {
+			return name
+		}
+	}
+	return ""
 }

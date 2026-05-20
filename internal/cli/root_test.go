@@ -1403,12 +1403,21 @@ func TestAdminProjectCreateRejectsDuplicateDomainForSameOwner(t *testing.T) {
 
 func TestAdminTLDRefreshWritesSnapshot(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("# Version 2026050700\nCOM\nORG\n"))
+		switch r.URL.Path {
+		case "/tlds":
+			_, _ = w.Write([]byte("# Version 2026050700\nCOM\nORG\n"))
+		case "/special-use":
+			_, _ = w.Write([]byte("Name,Reference\nLOCAL.,[RFC6762]\nTEST.,[RFC6761]\n"))
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer server.Close()
 
-	output := filepath.Join(t.TempDir(), "tld_snapshot_generated.go")
-	stdout, err := executeForTest(t, "sandcastle", "admin", "tld", "refresh", "--source-url", server.URL, "--output-file", output)
+	dir := t.TempDir()
+	output := filepath.Join(dir, "tld_snapshot_generated.go")
+	specialUseOutput := filepath.Join(dir, "special_use_snapshot_generated.go")
+	stdout, err := executeForTest(t, "sandcastle", "admin", "tld", "refresh", "--source-url", server.URL+"/tlds", "--output-file", output, "--special-use-source-url", server.URL+"/special-use", "--special-use-output-file", specialUseOutput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1422,28 +1431,47 @@ func TestAdminTLDRefreshWritesSnapshot(t *testing.T) {
 	if !strings.Contains(string(content), `"com": true`) {
 		t.Fatalf("content = %s", string(content))
 	}
+	specialUseContent, err := os.ReadFile(specialUseOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(specialUseContent), `"local": true`) {
+		t.Fatalf("special use content = %s", string(specialUseContent))
+	}
 }
 
 func TestAdminTLDRefreshDryRunJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("COM\nORG\n"))
+		switch r.URL.Path {
+		case "/tlds":
+			_, _ = w.Write([]byte("COM\nORG\n"))
+		case "/special-use":
+			_, _ = w.Write([]byte("Name,Reference\nLOCAL.,[RFC6762]\nTEST.,[RFC6761]\n"))
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer server.Close()
 
-	output := filepath.Join(t.TempDir(), "tld_snapshot_generated.go")
-	stdout, err := executeForTest(t, "sandcastle", "--output", "json", "admin", "tld", "refresh", "--source-url", server.URL, "--output-file", output, "--dry-run")
+	dir := t.TempDir()
+	output := filepath.Join(dir, "tld_snapshot_generated.go")
+	specialUseOutput := filepath.Join(dir, "special_use_snapshot_generated.go")
+	stdout, err := executeForTest(t, "sandcastle", "--output", "json", "admin", "tld", "refresh", "--source-url", server.URL+"/tlds", "--output-file", output, "--special-use-source-url", server.URL+"/special-use", "--special-use-output-file", specialUseOutput, "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload domain.RefreshResult
+	var payload domain.DenyListRefreshResult
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Count != 2 || payload.Written {
+	if payload.TLD.Count != 2 || payload.TLD.Written || payload.SpecialUse.Count != 2 || payload.SpecialUse.Written {
 		t.Fatalf("payload = %#v", payload)
 	}
 	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatalf("expected dry run not to write output, stat err = %v", err)
+	}
+	if _, err := os.Stat(specialUseOutput); !os.IsNotExist(err) {
+		t.Fatalf("expected dry run not to write special-use output, stat err = %v", err)
 	}
 }
 

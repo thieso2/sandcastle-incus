@@ -23,7 +23,7 @@ func TestValidateProjectDomainRejectsMalformedDomain(t *testing.T) {
 }
 
 func TestValidateProjectDomainRejectsDeniedFinalLabels(t *testing.T) {
-	for _, candidate := range []string{"project.com", "project.local", "project.test"} {
+	for _, candidate := range []string{"project.com", "project.local", "project.test", "project.alt", "project.home.arpa"} {
 		t.Run(candidate, func(t *testing.T) {
 			if _, err := ValidateProjectDomain(candidate, Policy{}); err == nil {
 				t.Fatal("expected error")
