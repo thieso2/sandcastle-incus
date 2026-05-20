@@ -94,11 +94,16 @@ development sandboxes.
   certificate add token creation.
 - Wired non-dry-run `sandcastle admin user create`, `grant`, and `token` to the
   Incus trust executor.
+- Added sandbox create planning for `sandcastle add owner/project/name`,
+  including project lookup, default app port 3000, first private container IP,
+  sandbox metadata, AI image alias, and home/workspace/network/root devices.
+- Added `sandcastle add ... --dry-run` command shape.
 
 ## Next Slice
 
-- Add restricted-user e2e path for certificate/token grant verification.
-- Add sandbox lifecycle planning for default container sandboxes.
+- Add sandbox create executor for Incus containers.
+- Add restricted-user e2e path for certificate/token grant verification after
+  token bootstrap can be exercised safely.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -135,6 +140,8 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run && ./bin/sandcastle admin user token alice 2>&1 || true` with expected local Incus connection failure on macOS for non-dry-run token creation.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`

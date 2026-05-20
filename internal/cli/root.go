@@ -94,6 +94,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newVersionCommand(config, opts))
 	root.AddCommand(newListCommand(config, opts))
 	root.AddCommand(newStatusCommand(config, opts))
+	root.AddCommand(newAddCommand(config, opts))
 	root.AddCommand(newAdminCommand(config, opts))
 
 	return root

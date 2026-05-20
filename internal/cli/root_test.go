@@ -9,6 +9,7 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -130,6 +131,36 @@ func TestStatusJSON(t *testing.T) {
 	}
 	if payload.Summary.IncusName != "sc-alice-myproject" {
 		t.Fatalf("IncusName = %q", payload.Summary.IncusName)
+	}
+}
+
+func TestAddDryRunJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "add", "alice/myproject/codex", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sandbox.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.PrivateIP != "10.248.0.20" {
+		t.Fatalf("PrivateIP = %q", payload.PrivateIP)
 	}
 }
 
