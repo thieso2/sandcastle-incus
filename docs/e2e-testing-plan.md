@@ -295,6 +295,9 @@ Test:
    The checked-in `TestLocalTrustInstallUninstallE2E` reads the real project CA
    from a disposable Incus project and installs/uninstalls it through a
    file-backed trust store, avoiding host OS trust mutation.
+   The checked-in `TestLocalTrustPlatformInstallUninstallE2E` uses the same
+   disposable project CA but installs/uninstalls it through the real platform
+   trust backend under the explicit `local-vm` gate.
 2. Add exact host override for a disposable FQDN.
    The checked-in `TestHostOverrideE2E` redirects `/etc/hosts` writes to a
    disposable file, adds an exact override, verifies the host entry, sandbox
