@@ -176,6 +176,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newVersionCommand(config, opts))
 	root.AddCommand(newListCommand(config, opts))
 	root.AddCommand(newStatusCommand(config, opts))
+	root.AddCommand(newInspectCommand(config, opts))
 	root.AddCommand(newAddCommand(config, opts))
 	root.AddCommand(newEnterCommand(config, opts))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "start", sandbox.ActionStart, false))

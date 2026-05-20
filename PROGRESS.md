@@ -608,6 +608,10 @@ development sandboxes.
 - Tightened checked-in e2e runner help and the e2e plan examples so the
   Tailscale, image, and public route tier commands show the same required
   environment variables enforced by `scripts/e2e.sh`.
+- Added `sandcastle inspect owner/project/name`, backed by managed sandbox
+  metadata, so users can inspect a sandbox's instance name, private IP, app
+  port, storage subdirectories, running state, and host override SANs in text
+  or JSON.
 
 ## Next Slice
 
@@ -898,6 +902,11 @@ development sandboxes.
   with the expected CLI add e2e skips when real e2e is unset.
 - Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
 - Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/sandbox ./internal/cli -run 'Test(Inspect|Status|AddDryRun)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle inspect alice/myproject/codex 2>&1 || true`
+  with the expected local Incus connection failure on macOS.
 - Passed: `git diff --check`
 - Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard
   when `SANDCASTLE_E2E` is unset.

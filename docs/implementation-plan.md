@@ -175,6 +175,7 @@ Commands:
 ```text
 sandcastle add myproject/codex
 sandcastle add myproject/claude --home-dir claude --workspace-dir .
+sandcastle inspect myproject/codex
 sandcastle enter myproject/codex
 sandcastle port set myproject/codex 5173
 sandcastle stop myproject/codex

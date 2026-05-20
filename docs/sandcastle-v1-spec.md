@@ -500,6 +500,7 @@ Normal user resource addresses use `project/container`:
 
 ```bash
 sandcastle add myproject/codex
+sandcastle inspect myproject/codex
 sandcastle enter myproject/codex
 sandcastle start myproject/codex
 sandcastle stop myproject/codex

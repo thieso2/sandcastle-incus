@@ -149,6 +149,87 @@ func TestStatusJSON(t *testing.T) {
 	}
 }
 
+func TestInspectJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{sandboxes: []meta.Sandbox{{
+			Owner:        "alice",
+			Project:      "myproject",
+			Name:         "codex",
+			AppPort:      5173,
+			PrivateIP:    "10.248.0.20",
+			HomeDir:      ".",
+			WorkspaceDir: "workspace",
+			Running:      true,
+		}}},
+	}, "--output", "json", "inspect", "alice/myproject/codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sandbox.InspectResult
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.InstanceName != "sc-codex" {
+		t.Fatalf("InstanceName = %q", payload.InstanceName)
+	}
+	if payload.Sandbox.AppPort != 5173 || !payload.Sandbox.Running {
+		t.Fatalf("Sandbox = %#v", payload.Sandbox)
+	}
+}
+
+func TestInspectText(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{sandboxes: []meta.Sandbox{{
+			Owner:        "alice",
+			Project:      "myproject",
+			Name:         "codex",
+			AppPort:      5173,
+			PrivateIP:    "10.248.0.20",
+			HomeDir:      ".",
+			WorkspaceDir: "workspace",
+			ExtraSANs:    []string{"app.example.com"},
+		}}},
+	}, "inspect", "alice/myproject/codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Sandbox: alice/myproject/codex", "Instance: sc-codex", "Private IP: 10.248.0.20", "Extra SANs: app.example.com"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+}
+
 func TestAddDryRunJSON(t *testing.T) {
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",
@@ -1516,6 +1597,14 @@ func (f fakeHostSandboxStore) ListSandboxes(ctx context.Context, summary project
 		return nil, err
 	}
 	return []meta.Sandbox{sandbox}, nil
+}
+
+type fakeSandboxInspectStore struct {
+	sandboxes []meta.Sandbox
+}
+
+func (f fakeSandboxInspectStore) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
+	return f.sandboxes, nil
 }
 
 type fakeHostOverrideManager struct {
