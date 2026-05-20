@@ -274,6 +274,11 @@ development sandboxes.
   executes `incus image copy <source-ref> <remote>: --alias <configured-alias>
   --reuse` for importing OCI/simplestreams image sources into the configured
   Incus remote with the Sandcastle base or AI alias.
+- Added gated real image build e2e coverage. `TestImageBuildBaseE2E` builds a
+  disposable base image tag when `SANDCASTLE_E2E=1` and
+  `SANDCASTLE_E2E_IMAGE_BUILD=1`; `TestImageBuildAIE2E` additionally requires
+  pinned Codex, Claude Code, and Gemini CLI versions and builds both a
+  disposable base tag and disposable AI tag before cleanup.
 
 ## Next Slice
 
@@ -283,7 +288,6 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add real image build verification for Sandcastle base and AI images.
 - Add AI image sync e2e once a disposable AI source image is available.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure images
   include the `sandcastle` binary and systemd services.
@@ -447,10 +451,11 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image build ai --tag sandcastle/ai:debian-13 --codex-version 1.2.3 --claude-version 2.3.4 --gemini-version 3.4.5 --dry-run`
 - Passed: `go test ./internal/images ./internal/cli`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image import base oci:sandcastle/base:debian-13 --dry-run`
+- Passed: `go test ./internal/e2e -run 'Test(ImageBuild|LoadConfig)' -count=1 -v` with the expected image build skips when real e2e/build gates are unset.
 
 ## Open Scope
 
-- Real image build verification, sandbox lifecycle e2e with disposable images,
-  restricted-user e2e, full Tailscale network e2e, local DNS service
-  install/reload wrappers, route broker mTLS e2e, and broader real-Incus
-  coverage remain open.
+- Running the real image build gates in CI/dev, sandbox lifecycle e2e with
+  disposable images, restricted-user e2e, full Tailscale network e2e, local DNS
+  service install/reload wrappers, route broker mTLS e2e, and broader
+  real-Incus coverage remain open.

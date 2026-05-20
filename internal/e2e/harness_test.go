@@ -19,6 +19,12 @@ func TestLoadConfigDefaultsToDisabledAndSandcastleTag(t *testing.T) {
 	if config.DomainSuffix != "e2e.project-tld" {
 		t.Fatalf("DomainSuffix = %q, want e2e.project-tld", config.DomainSuffix)
 	}
+	if config.Images.Build {
+		t.Fatal("Images.Build = true, want false")
+	}
+	if config.Images.BuildTool != "docker" {
+		t.Fatalf("Images.BuildTool = %q, want docker", config.Images.BuildTool)
+	}
 }
 
 func TestValidateFailsClosedWhenE2EDisabled(t *testing.T) {
