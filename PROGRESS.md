@@ -1437,6 +1437,9 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker ./internal/incusx -run 'Test(PrincipalFromFingerprint|Authorize|Server|RouteBrokerTrustMapper)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Re-ran the safe e2e runner tiers at the current head after route-broker
+  principal validation.
+- Passed: `make e2e-safe`
 
 ## Open Scope
 
