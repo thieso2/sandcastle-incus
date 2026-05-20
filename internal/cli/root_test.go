@@ -15,6 +15,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -909,6 +910,36 @@ func TestAdminUserGrantDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestAdminRouteBrokerServeCallsRunner(t *testing.T) {
+	runner := &fakeRouteBrokerRunner{}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		routeBroker: runner,
+	}, "admin", "route-broker", "serve", "--listen", "127.0.0.1:9443", "--cert", "/tmp/broker.crt", "--key", "/tmp/broker.key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.called {
+		t.Fatal("expected route broker runner to be called")
+	}
+	if runner.plan.Address != "127.0.0.1:9443" {
+		t.Fatalf("Address = %q", runner.plan.Address)
+	}
+	if runner.plan.CertFile != "/tmp/broker.crt" || runner.plan.KeyFile != "/tmp/broker.key" {
+		t.Fatalf("plan = %#v", runner.plan)
+	}
+}
+
+func TestAdminRouteBrokerServeRequiresConfiguredRunner(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "admin", "route-broker", "serve", "--cert", "/tmp/broker.crt", "--key", "/tmp/broker.key")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "route broker server") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestRejectsUnknownOutputFormat(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "--output", "yaml", "version")
 	if err == nil {
@@ -1033,6 +1064,17 @@ func (f fakeRouteSandboxStore) FindSandbox(ctx context.Context, summary project.
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",
 	}, nil
+}
+
+type fakeRouteBrokerRunner struct {
+	called bool
+	plan   routebroker.ServePlan
+}
+
+func (f *fakeRouteBrokerRunner) Serve(ctx context.Context, plan routebroker.ServePlan) error {
+	f.called = true
+	f.plan = plan
+	return nil
 }
 
 type fakeHostFiles struct {

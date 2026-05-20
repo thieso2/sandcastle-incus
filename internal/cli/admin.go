@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -17,6 +18,7 @@ func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	admin.AddCommand(newAdminVersionCommand(config, opts))
 	admin.AddCommand(newAdminProjectCommand(config, opts))
 	admin.AddCommand(newAdminUserCommand(config, opts))
+	admin.AddCommand(newAdminRouteBrokerCommand(config))
 	return admin
 }
 
@@ -280,4 +282,44 @@ func formatUserPlan(plan usertrust.UserPlan) string {
 
 func formatTokenResult(result usertrust.TokenResult) string {
 	return fmt.Sprintf("User: %s\nCertificate: %s\nToken: %s", result.User, result.CertificateName, result.Token)
+}
+
+func newAdminRouteBrokerCommand(config commandConfig) *cobra.Command {
+	routeBroker := &cobra.Command{
+		Use:   "route-broker",
+		Short: "Manage the Sandcastle public route broker",
+	}
+	routeBroker.AddCommand(newAdminRouteBrokerServeCommand(config))
+	return routeBroker
+}
+
+func newAdminRouteBrokerServeCommand(config commandConfig) *cobra.Command {
+	var listen string
+	var certFile string
+	var keyFile string
+	command := &cobra.Command{
+		Use:   "serve",
+		Short: "Serve the public route broker API over mTLS",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := routebroker.PlanServe(routebroker.ServeRequest{
+				Address:  listen,
+				CertFile: certFile,
+				KeyFile:  keyFile,
+			})
+			if err != nil {
+				return err
+			}
+			if config.routeBroker == nil {
+				return fmt.Errorf("route broker server is not configured")
+			}
+			return config.routeBroker.Serve(cmd.Context(), plan)
+		},
+	}
+	command.Flags().StringVar(&listen, "listen", ":9443", "route broker listen address")
+	command.Flags().StringVar(&certFile, "cert", "", "route broker TLS certificate file")
+	command.Flags().StringVar(&keyFile, "key", "", "route broker TLS key file")
+	_ = command.MarkFlagRequired("cert")
+	_ = command.MarkFlagRequired("key")
+	return command
 }

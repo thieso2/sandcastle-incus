@@ -229,6 +229,11 @@ development sandboxes.
 - Added an Incus-backed route broker trust mapper. Broker mTLS certificate
   fingerprints can now be resolved against Incus trust state, accepting only
   Sandcastle restricted user certificates named `sandcastle-<owner>`.
+- Added route broker process wiring. `sandcastle admin route-broker serve`
+  now plans and starts the broker HTTPS API with mandatory mTLS client
+  certificates, production dependencies are wired to Incus-backed project,
+  sandbox, route, route metadata, and trust stores, and the Incus route manager
+  can resolve route metadata for broker-authorized deletions.
 
 ## Next Slice
 
@@ -238,7 +243,8 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add route broker process packaging/CLI wiring for deployment in infrastructure.
+- Add infrastructure project creation support for `sc-caddy` and the route
+  broker runtime container.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -345,6 +351,7 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/incusx ./internal/routebroker`
 - Passed: `go test ./...`
+- Passed: `go test ./internal/routebroker ./internal/incusx ./internal/cli`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`
 - Passed: `go test ./...`

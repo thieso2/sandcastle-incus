@@ -33,10 +33,11 @@ type RouteResourceServer interface {
 }
 
 type RouteManager struct {
-	Remote     string
-	ConfigPath string
-	Server     RouteServer
-	Resolver   route.DNSResolver
+	Remote                string
+	ConfigPath            string
+	InfrastructureProject string
+	Server                RouteServer
+	Resolver              route.DNSResolver
 }
 
 func NewRouteManager(remote string) RouteManager {
@@ -216,6 +217,18 @@ func (m RouteManager) List(ctx context.Context, plan route.ListPlan) (route.List
 		return routes[i].Hostname < routes[j].Hostname
 	})
 	return route.ListResult{Routes: routes}, nil
+}
+
+func (m RouteManager) FindRoute(ctx context.Context, hostname string) (meta.Route, error) {
+	server, err := m.server()
+	if err != nil {
+		return meta.Route{}, err
+	}
+	infrastructureProject := strings.TrimSpace(m.InfrastructureProject)
+	if infrastructureProject == "" {
+		return meta.Route{}, fmt.Errorf("infrastructure project is required")
+	}
+	return routeMetadataByHostname(server.UseProject(infrastructureProject), hostname)
 }
 
 func refreshInfrastructureCaddy(server RouteResourceServer) error {

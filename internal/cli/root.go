@@ -16,6 +16,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -54,6 +55,7 @@ type commandConfig struct {
 	localTrust     localtrust.Manager
 	routes         route.Manager
 	routeSandbox   route.SandboxStore
+	routeBroker    routebroker.Runner
 }
 
 type rootOptions struct {
@@ -63,6 +65,8 @@ type rootOptions struct {
 // Execute runs the Sandcastle CLI and returns a process exit code.
 func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadAdminFromEnv()
+	routeManager := incusx.NewRouteManager(adminConfig.Remote)
+	routeManager.InfrastructureProject = adminConfig.InfrastructureProject
 	cmd := NewRootCommand(commandConfig{
 		name:        name,
 		stdin:       os.Stdin,
@@ -87,8 +91,16 @@ func Execute(name string, args []string) int {
 		hostSandbox:    incusx.NewHostOverrideManager(adminConfig.Remote),
 		hostFiles:      hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
 		localTrust:     incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
-		routes:         incusx.NewRouteManager(adminConfig.Remote),
+		routes:         routeManager,
 		routeSandbox:   incusx.NewHostOverrideManager(adminConfig.Remote),
+		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
+			Admin:         adminConfig,
+			Projects:      incusx.NewProjectStore(adminConfig.Remote),
+			Sandboxes:     incusx.NewHostOverrideManager(adminConfig.Remote),
+			Routes:        routeManager,
+			RouteMetadata: routeManager,
+			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),
+		}},
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)

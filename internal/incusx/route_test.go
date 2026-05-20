@@ -202,6 +202,34 @@ func TestRouteManagerListsRouteProfiles(t *testing.T) {
 	}
 }
 
+func TestRouteManagerFindsRouteMetadataByHostname(t *testing.T) {
+	metadata, err := meta.RouteConfig(meta.Route{
+		Hostname:      "app.example.com",
+		TargetOwner:   "alice",
+		TargetProject: "myproject",
+		TargetSandbox: "codex",
+		TargetIP:      "10.248.0.20",
+		RoutePort:     5173,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{
+		"sc-route-app-example-com": {Name: "sc-route-app-example-com", ProfilePut: api.ProfilePut{Config: api.ConfigMap(metadata)}},
+	}}
+	manager := RouteManager{
+		Server:                &fakeRouteServer{resource: resource},
+		InfrastructureProject: "sc-infra",
+	}
+	routeMetadata, err := manager.FindRoute(context.Background(), "app.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if routeMetadata.TargetOwner != "alice" || routeMetadata.TargetSandbox != "codex" {
+		t.Fatalf("routeMetadata = %#v", routeMetadata)
+	}
+}
+
 func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",
