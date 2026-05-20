@@ -17,6 +17,7 @@ const (
 	KeyPrivateCIDR     = Prefix + "private_cidr"
 	KeyDefaultTemplate = Prefix + "default_template"
 	KeyName            = Prefix + "name"
+	KeyRole            = Prefix + "role"
 	KeyHostname        = Prefix + "hostname"
 	KeyAppPort         = Prefix + "app_port"
 	KeyState           = Prefix + "state"

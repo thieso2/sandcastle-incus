@@ -234,6 +234,10 @@ development sandboxes.
   certificates, production dependencies are wired to Incus-backed project,
   sandbox, route, route metadata, and trust stores, and the Incus route manager
   can resolve route metadata for broker-authorized deletions.
+- Added shared infrastructure creation planning and execution. `sandcastle
+  admin infra create` can now create/update the configured infrastructure
+  project and ensure the `sc-caddy` and `sc-route-broker` runtime containers are
+  present and running.
 
 ## Next Slice
 
@@ -243,8 +247,9 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add infrastructure project creation support for `sc-caddy` and the route
-  broker runtime container.
+- Add route broker runtime file/config deployment inside `sc-route-broker`.
+- Add infrastructure Caddy bootstrap config before the first public route is
+  created.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -352,6 +357,8 @@ development sandboxes.
 - Passed: `go test ./internal/incusx ./internal/routebroker`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/routebroker ./internal/incusx ./internal/cli`
+- Passed: `go test ./internal/infra ./internal/incusx ./internal/cli`
+- Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`
 - Passed: `go test ./...`

@@ -10,6 +10,7 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
+	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
@@ -890,6 +891,60 @@ func TestAdminProjectDeleteRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func TestAdminInfraCreateDryRunJSON(t *testing.T) {
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "--output", "json", "admin", "infra", "create", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload infra.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Project != scconfig.DefaultInfrastructureProject {
+		t.Fatalf("Project = %q", payload.Project)
+	}
+	if payload.CaddyInstance != "sc-caddy" {
+		t.Fatalf("CaddyInstance = %q", payload.CaddyInstance)
+	}
+	if payload.RouteBrokerInstance != infra.RouteBrokerName {
+		t.Fatalf("RouteBrokerInstance = %q", payload.RouteBrokerInstance)
+	}
+}
+
+func TestAdminInfraCreateCallsExecutor(t *testing.T) {
+	creator := &fakeInfraCreator{}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:         "sandcastle",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		infraCreator: creator,
+	}, "admin", "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !creator.called {
+		t.Fatal("expected infrastructure creator to be called")
+	}
+	if creator.plan.Project != scconfig.DefaultInfrastructureProject {
+		t.Fatalf("Project = %q", creator.plan.Project)
+	}
+}
+
+func TestAdminInfraCreateRequiresExecutor(t *testing.T) {
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "admin", "infra", "create")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "infrastructure creation executor") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestAdminUserGrantDryRunJSON(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
@@ -962,6 +1017,17 @@ type fakeSandboxEnterer struct {
 }
 
 func (f *fakeSandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
+	f.called = true
+	f.plan = plan
+	return nil
+}
+
+type fakeInfraCreator struct {
+	called bool
+	plan   infra.CreatePlan
+}
+
+func (f *fakeInfraCreator) CreateInfrastructure(ctx context.Context, plan infra.CreatePlan) error {
 	f.called = true
 	f.plan = plan
 	return nil

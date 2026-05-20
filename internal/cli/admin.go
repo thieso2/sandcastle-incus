@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -18,6 +19,7 @@ func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	admin.AddCommand(newAdminVersionCommand(config, opts))
 	admin.AddCommand(newAdminProjectCommand(config, opts))
 	admin.AddCommand(newAdminUserCommand(config, opts))
+	admin.AddCommand(newAdminInfraCommand(config, opts))
 	admin.AddCommand(newAdminRouteBrokerCommand(config))
 	return admin
 }
@@ -174,6 +176,45 @@ func formatDeletePlan(plan project.DeletePlan) string {
 		return fmt.Sprintf("Deleted %s and purged durable state.", plan.Reference)
 	}
 	return fmt.Sprintf("Deleted runtime resources for %s; durable state was preserved.", plan.Reference)
+}
+
+func newAdminInfraCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	infraCommand := &cobra.Command{
+		Use:   "infra",
+		Short: "Manage Sandcastle shared infrastructure",
+	}
+	infraCommand.AddCommand(newAdminInfraCreateCommand(config, opts))
+	return infraCommand
+}
+
+func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "create",
+		Short: "Create Sandcastle shared infrastructure",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := infra.PlanCreate(config.adminConfig, infra.CreateRequest{})
+			if err != nil {
+				return err
+			}
+			if !dryRun {
+				if config.infraCreator == nil {
+					return fmt.Errorf("infrastructure creation executor is not configured")
+				}
+				if err := config.infraCreator.CreateInfrastructure(cmd.Context(), plan); err != nil {
+					return err
+				}
+			}
+			return writeOutput(config.stdout, opts.output, formatInfraCreatePlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the infrastructure creation plan without mutating resources")
+	return command
+}
+
+func formatInfraCreatePlan(plan infra.CreatePlan) string {
+	return fmt.Sprintf("Infrastructure project: %s\nRuntime: %s, %s", plan.Project, plan.CaddyInstance, plan.RouteBrokerInstance)
 }
 
 func newAdminUserCommand(config commandConfig, opts *rootOptions) *cobra.Command {
