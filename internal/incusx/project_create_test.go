@@ -217,14 +217,24 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/zones/db.myproject.project-tld"]; got == "" {
 		t.Fatal("expected CoreDNS zone to be written")
 	}
-	if len(resourceServer.execCommands) != 1 {
+	if len(resourceServer.execCommands) != 3 {
 		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
 	}
-	if resourceServer.execInstances[0] != project.DNSName {
-		t.Fatalf("exec instance = %q", resourceServer.execInstances[0])
+	// First two execs configure networking for tailscale and dns sidecars.
+	for i, name := range []string{project.TailscaleName, project.DNSName} {
+		if resourceServer.execInstances[i] != name {
+			t.Fatalf("exec[%d] instance = %q, want %q", i, resourceServer.execInstances[i], name)
+		}
+		if got := strings.Join(resourceServer.execCommands[i], " "); !strings.Contains(got, "/usr/sbin/ip addr add") {
+			t.Fatalf("exec[%d] command = %q, want /usr/sbin/ip addr add", i, got)
+		}
 	}
-	if got := strings.Join(resourceServer.execCommands[0], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") {
-		t.Fatalf("exec command = %q", got)
+	// Third exec restarts CoreDNS.
+	if resourceServer.execInstances[2] != project.DNSName {
+		t.Fatalf("exec[2] instance = %q, want %q", resourceServer.execInstances[2], project.DNSName)
+	}
+	if got := strings.Join(resourceServer.execCommands[2], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") {
+		t.Fatalf("exec[2] command = %q", got)
 	}
 }
 

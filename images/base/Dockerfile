@@ -11,8 +11,13 @@ RUN apt-get update \
         ca-certificates \
         caddy \
         curl \
+        dbus \
+        iproute2 \
         openssh-server \
+        python3 \
         sudo \
+        systemd \
+        systemd-sysv \
         tar \
     && rm -rf /var/lib/apt/lists/*
 

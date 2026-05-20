@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -38,10 +39,24 @@ type ProjectCreator struct {
 	Remote     string
 	ConfigPath string
 	Server     ProjectCreateServer
+	Log        func(string)
 }
 
 func NewProjectCreator(remote string) ProjectCreator {
 	return ProjectCreator{Remote: remote}
+}
+
+func (c ProjectCreator) WithVerbose(enabled bool, w io.Writer) ProjectCreator {
+	if enabled {
+		c.Log = func(msg string) { fmt.Fprintln(w, "[project-create] "+msg) }
+	}
+	return c
+}
+
+func (c ProjectCreator) log(msg string) {
+	if c.Log != nil {
+		c.Log(msg)
+	}
 }
 
 func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePlan) error {
@@ -62,32 +77,44 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 		server = sdkProjectServer{inner: instanceServer}
 	}
 
+	c.log("ensure project " + plan.IncusProject)
 	if err := ensureProject(server, plan); err != nil {
 		return err
 	}
 	projectServer := server.UseProject(plan.IncusProject)
+	c.log("ensure private network " + plan.PrivateNetwork)
 	if err := ensurePrivateNetwork(projectServer, plan); err != nil {
 		return err
 	}
 	for _, volume := range volumeRequests(plan) {
+		c.log("ensure storage volume " + volume.Name)
 		if err := ensureStorageVolume(projectServer, plan.StoragePool, volume); err != nil {
 			return err
 		}
 	}
+	c.log("ensure project CA")
 	if err := ensureProjectCA(projectServer, plan); err != nil {
 		return err
 	}
 	for _, sidecar := range plan.Sidecars {
+		c.log("ensure sidecar " + sidecar.Name + " (image: " + sidecar.ImageAlias + ")")
 		if err := ensureSidecar(projectServer, sidecar); err != nil {
 			return err
 		}
+		c.log("configure network for sidecar " + sidecar.Name)
+		if err := configureSidecarNetwork(projectServer, sidecar, plan.PrivateCIDR); err != nil {
+			return err
+		}
 	}
+	c.log("ensure DNS files")
 	if err := ensureDNSFiles(projectServer, plan); err != nil {
 		return err
 	}
+	c.log("restart CoreDNS")
 	if err := restartCoreDNS(projectServer); err != nil {
 		return err
 	}
+	c.log("done")
 	return nil
 }
 
@@ -95,11 +122,12 @@ func ensureProject(server ProjectCreateServer, plan project.CreatePlan) error {
 	existing, etag, err := server.GetProject(plan.IncusProject)
 	if err != nil {
 		if api.StatusErrorCheck(err, http.StatusNotFound) {
+			cfg := mergeConfig(map[string]string{"features.images": "false"}, plan.ProjectMetadataConfig)
 			return server.CreateProject(api.ProjectsPost{
 				Name: plan.IncusProject,
 				ProjectPut: api.ProjectPut{
 					Description: "Sandcastle project " + plan.Reference,
-					Config:      api.ConfigMap(plan.ProjectMetadataConfig),
+					Config:      api.ConfigMap(cfg),
 				},
 			})
 		}
@@ -219,24 +247,63 @@ type coreDNSRestarter interface {
 }
 
 func restartCoreDNS(server coreDNSRestarter) error {
+	var stderr strings.Builder
 	dataDone := make(chan bool)
 	op, err := server.ExecInstance(project.DNSName, api.InstanceExecPost{
-		Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+		Command: []string{"/bin/sh", "-c", strings.Join([]string{
 			"pkill -x coredns >/dev/null 2>&1 || true",
-			"nohup coredns -conf /etc/coredns/Corefile >/var/log/coredns.log 2>&1 &",
+			"systemd-run --unit=coredns --collect -- /usr/local/bin/coredns -conf /etc/coredns/Corefile",
 			"sleep 0.2",
 			"pgrep -x coredns >/dev/null 2>&1",
-		}, "; ")},
+		}, " && ")},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{
 		Stdin:    strings.NewReader(""),
+		Stderr:   &stderr,
 		DataDone: dataDone,
 	})
 	if err != nil {
 		return fmt.Errorf("restart CoreDNS in %s: %w", project.DNSName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for CoreDNS restart in %s: %w", project.DNSName, err)
+		return fmt.Errorf("wait for CoreDNS restart in %s (stderr: %s): %w", project.DNSName, stderr.String(), err)
+	}
+	<-dataDone
+	return nil
+}
+
+func configureSidecarNetwork(server ProjectResourceServer, sidecar project.SidecarPlan, privateCIDR string) error {
+	if sidecar.Address == "" || privateCIDR == "" {
+		return nil
+	}
+	prefix, err := netip.ParsePrefix(privateCIDR)
+	if err != nil {
+		return fmt.Errorf("parse private CIDR %s: %w", privateCIDR, err)
+	}
+	ipWithPrefix := sidecar.Address + fmt.Sprintf("/%d", prefix.Bits())
+	gateway, err := gatewayIPFromCIDR(privateCIDR)
+	if err != nil {
+		return err
+	}
+	var stderr strings.Builder
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(sidecar.Name, api.InstanceExecPost{
+		Command: []string{"/bin/sh", "-c", strings.Join([]string{
+			"/usr/sbin/ip link set eth0 up",
+			"/usr/sbin/ip addr add " + ipWithPrefix + " dev eth0 2>/dev/null || true",
+			"/usr/sbin/ip route add default via " + gateway + " 2>/dev/null || true",
+		}, " && ")},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		Stderr:   &stderr,
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("configure network for sidecar %s: %w", sidecar.Name, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for sidecar %s network config (stderr: %s): %w", sidecar.Name, stderr.String(), err)
 	}
 	<-dataDone
 	return nil
@@ -321,6 +388,16 @@ func gatewayCIDR(projectCIDR string) string {
 	base := prefix.Masked().Addr().As4()
 	base[3] = 1
 	return netip.AddrFrom4(base).String() + fmt.Sprintf("/%d", prefix.Bits())
+}
+
+func gatewayIPFromCIDR(cidr string) (string, error) {
+	prefix, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return "", fmt.Errorf("parse CIDR %s: %w", cidr, err)
+	}
+	base := prefix.Masked().Addr().As4()
+	base[3] = 1
+	return netip.AddrFrom4(base).String(), nil
 }
 
 func mergeConfig(existing map[string]string, managed map[string]string) map[string]string {

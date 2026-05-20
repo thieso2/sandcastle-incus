@@ -60,11 +60,7 @@ func (e SandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan
 			"USER": plan.LinuxUser,
 		},
 	}
-	if exec.Interactive {
-		exec.RecordOutput = false
-	} else {
-		exec.RecordOutput = true
-	}
+	exec.RecordOutput = false
 	if exec.Interactive {
 		if file, ok := session.Stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
 			width, height, err := term.GetSize(int(file.Fd()))

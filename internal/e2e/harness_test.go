@@ -67,6 +67,7 @@ func TestLoadConfigReadsLocalVMGate(t *testing.T) {
 }
 
 func TestValidateFailsClosedWhenE2EDisabled(t *testing.T) {
+	t.Setenv("SANDCASTLE_E2E", "")
 	config := LoadConfig()
 	err := config.Validate()
 	if err == nil {

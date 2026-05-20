@@ -157,7 +157,7 @@ func TestPlanImportBaseImage(t *testing.T) {
 	if plan.Alias != config.DefaultBaseImageAlias {
 		t.Fatalf("Alias = %q", plan.Alias)
 	}
-	if strings.Join(plan.Command, " ") != "incus image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --reuse" {
+	if strings.Join(plan.Command, " ") != "incus image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --copy-aliases --reuse" {
 		t.Fatalf("Command = %#v", plan.Command)
 	}
 }
@@ -222,7 +222,7 @@ func TestLocalImporterRunsPlannedCommand(t *testing.T) {
 		Remote:    "local",
 		Alias:     "sandcastle/base:latest",
 		Tool:      "incus",
-		Command:   []string{"incus", "image", "copy", "oci:sandcastle/base:debian-13", "local:", "--alias", "sandcastle/base:latest", "--reuse"},
+		Command:   []string{"incus", "image", "copy", "oci:sandcastle/base:debian-13", "local:", "--alias", "sandcastle/base:latest", "--copy-aliases", "--reuse"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +230,7 @@ func TestLocalImporterRunsPlannedCommand(t *testing.T) {
 	if !result.Imported {
 		t.Fatal("expected imported result")
 	}
-	if runner.name != "incus" || strings.Join(runner.args, " ") != "image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --reuse" {
+	if runner.name != "incus" || strings.Join(runner.args, " ") != "image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --copy-aliases --reuse" {
 		t.Fatalf("runner = %#v", runner)
 	}
 }

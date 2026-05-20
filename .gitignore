@@ -7,3 +7,6 @@
 /tmp/
 /coverage/
 *.test
+
+# Local jot push context
+.jot/

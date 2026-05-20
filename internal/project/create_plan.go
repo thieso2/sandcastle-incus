@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"net/netip"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 )
 
 const (
-	PrivateNetworkName  = "sc-private"
 	HomeVolumeName      = "sc-home"
 	WorkspaceVolumeName = "sc-workspace"
 	CAVolumeName        = "sc-ca"
@@ -25,6 +25,15 @@ const (
 	TailscaleName       = "sc-tailscale"
 	DNSName             = "sc-dns"
 )
+
+// PrivateNetworkName returns a project-unique bridge network name derived from the Incus project
+// name via FNV-32a hash. Bridge networks share the default namespace, so each project needs a
+// unique name to avoid cross-project conflicts.
+func PrivateNetworkName(incusProjectName string) string {
+	h := fnv.New32a()
+	h.Write([]byte(incusProjectName))
+	return fmt.Sprintf("sc-%08x", h.Sum32())
+}
 
 type CreateRequest struct {
 	Reference     string
@@ -146,7 +155,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		IncusProject:      incusName,
 		Domain:            projectDomain,
 		PrivateCIDR:       projectCIDR.String(),
-		PrivateNetwork:    PrivateNetworkName,
+		PrivateNetwork:    PrivateNetworkName(incusName),
 		StoragePool:       admin.StoragePool,
 		HomeVolume:        HomeVolumeName,
 		WorkspaceVolume:   WorkspaceVolumeName,
@@ -157,8 +166,8 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		DNSAddress:        dnsAddress.String(),
 		DefaultTemplate:   projectMetadata.DefaultTemplate,
 		Sidecars: []SidecarPlan{
-			sidecarPlan(ref, admin, TailscaleName, "tailscale", tailscaleAddress.String()),
-			sidecarPlan(ref, admin, DNSName, "dns", dnsAddress.String()),
+			sidecarPlan(ref, admin, incusName, TailscaleName, "tailscale", tailscaleAddress.String()),
+			sidecarPlan(ref, admin, incusName, DNSName, "dns", dnsAddress.String()),
 		},
 		DNSFiles: dnsFiles,
 		ProjectCA: ProjectCA{
@@ -199,7 +208,7 @@ func validateDomainClaim(ref naming.ProjectRef, domain string, claims []DomainCl
 	return nil
 }
 
-func sidecarPlan(ref naming.ProjectRef, admin config.Admin, name string, role string, address string) SidecarPlan {
+func sidecarPlan(ref naming.ProjectRef, admin config.Admin, incusName string, name string, role string, address string) SidecarPlan {
 	return SidecarPlan{
 		Name:       name,
 		Role:       role,
@@ -212,12 +221,12 @@ func sidecarPlan(ref naming.ProjectRef, admin config.Admin, name string, role st
 			meta.KeyName:    name,
 			meta.KeyVersion: "1",
 		},
-		Devices: sidecarDevices(admin, role, address),
+		Devices: sidecarDevices(admin, incusName, role, address),
 		Start:   true,
 	}
 }
 
-func sidecarDevices(admin config.Admin, role string, address string) map[string]Device {
+func sidecarDevices(admin config.Admin, incusName string, role string, address string) map[string]Device {
 	devices := map[string]Device{
 		"root": {
 			"type": "disk",
@@ -227,7 +236,7 @@ func sidecarDevices(admin config.Admin, role string, address string) map[string]
 		"eth0": {
 			"type":         "nic",
 			"nictype":      "bridged",
-			"parent":       PrivateNetworkName,
+			"parent":       PrivateNetworkName(incusName),
 			"ipv4.address": address,
 		},
 	}

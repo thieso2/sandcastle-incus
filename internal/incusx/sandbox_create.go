@@ -1,10 +1,12 @@
 package incusx
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -31,10 +33,24 @@ type SandboxCreator struct {
 	Remote     string
 	ConfigPath string
 	Server     SandboxCreateServer
+	Log        func(string)
 }
 
 func NewSandboxCreator(remote string) SandboxCreator {
 	return SandboxCreator{Remote: remote}
+}
+
+func (c SandboxCreator) WithVerbose(enabled bool, w io.Writer) SandboxCreator {
+	if enabled {
+		c.Log = func(msg string) { fmt.Fprintln(w, "[sandbox-create] "+msg) }
+	}
+	return c
+}
+
+func (c SandboxCreator) log(msg string) {
+	if c.Log != nil {
+		c.Log(msg)
+	}
 }
 
 func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePlan) error {
@@ -48,16 +64,20 @@ func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePl
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
+		c.log("connect to Incus remote " + remote)
 		instanceServer, err := loaded.GetInstanceServer(remote)
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
 		server = sdkSandboxServer{inner: instanceServer}
 	}
+	c.log("use project " + plan.Project.IncusName)
 	projectServer := server.UseProject(plan.Project.IncusName)
+	c.log("get instance " + plan.InstanceName)
 	instance, _, err := projectServer.GetInstance(plan.InstanceName)
 	if err == nil {
 		if plan.StartsByDefault && !instance.IsActive() {
+			c.log("start instance " + plan.InstanceName)
 			op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
 			if err != nil {
 				return fmt.Errorf("start sandbox %s: %w", plan.InstanceName, err)
@@ -66,11 +86,13 @@ func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePl
 				return err
 			}
 		}
+		c.log("ensure sandbox files for " + plan.InstanceName)
 		return ensureSandboxFiles(projectServer, plan)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get sandbox %s: %w", plan.InstanceName, err)
 	}
+	c.log("create instance " + plan.InstanceName + " (image: " + plan.ImageAlias + ")")
 	op, err := projectServer.CreateInstance(sandboxRequest(plan))
 	if err != nil {
 		return fmt.Errorf("create sandbox %s: %w", plan.InstanceName, err)
@@ -78,6 +100,7 @@ func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePl
 	if err := op.Wait(); err != nil {
 		return err
 	}
+	c.log("ensure sandbox files for " + plan.InstanceName)
 	return ensureSandboxFiles(projectServer, plan)
 }
 
@@ -93,7 +116,11 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 			return err
 		}
 	}
-	for _, directory := range []string{"/etc/caddy", "/etc/caddy/certs"} {
+	for _, directory := range []string{
+		"/etc/caddy",
+		"/etc/caddy/certs",
+		"/etc/systemd/system/caddy.service.d",
+	} {
 		err := server.CreateInstanceFile(plan.InstanceName, directory, incus.InstanceFileArgs{
 			Type: "directory",
 			Mode: 0o755,
@@ -101,6 +128,14 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
 			return fmt.Errorf("create sandbox config directory %s: %w", directory, err)
 		}
+	}
+	if err := server.CreateInstanceFile(plan.InstanceName, "/etc/systemd/system/caddy.service.d/sandbox.conf", incus.InstanceFileArgs{
+		Content:   strings.NewReader("[Service]\nUser=root\nGroup=root\n"),
+		Type:      "file",
+		Mode:      0o644,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("write Caddy service override: %w", err)
 	}
 	if err := server.CreateInstanceFile(plan.InstanceName, plan.CaddyFile.Path, incus.InstanceFileArgs{
 		Content:   strings.NewReader(plan.CaddyFile.Content),
@@ -120,7 +155,26 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 			return fmt.Errorf("write sandbox certificate file %s: %w", file.Path, err)
 		}
 	}
-	return restartSandboxCaddy(server, plan.InstanceName)
+	ipWithPrefix, gateway, err := sandboxNetworkParams(plan)
+	if err != nil {
+		return err
+	}
+	return restartSandboxCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
+}
+
+func sandboxNetworkParams(plan sandbox.CreatePlan) (string, string, error) {
+	if plan.PrivateIP == "" || plan.Project.PrivateCIDR == "" {
+		return "", "", fmt.Errorf("sandbox plan missing private IP or CIDR")
+	}
+	prefix, err := netip.ParsePrefix(plan.Project.PrivateCIDR)
+	if err != nil {
+		return "", "", fmt.Errorf("parse sandbox CIDR %s: %w", plan.Project.PrivateCIDR, err)
+	}
+	ipWithPrefix := plan.PrivateIP + fmt.Sprintf("/%d", prefix.Bits())
+	base := prefix.Masked().Addr().As4()
+	base[3] = 1
+	gateway := netip.AddrFrom4(base).String()
+	return ipWithPrefix, gateway, nil
 }
 
 func bootstrapSandboxUser(server SandboxResourceServer, plan sandbox.CreatePlan) error {
@@ -151,24 +205,37 @@ type sandboxCaddyRestarter interface {
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
-func restartSandboxCaddy(server sandboxCaddyRestarter, instanceName string) error {
+func restartSandboxCaddy(server sandboxCaddyRestarter, instanceName string, privateIPWithPrefix string, gateway string) error {
+	var cmds []string
+	if privateIPWithPrefix != "" && gateway != "" {
+		cmds = append(cmds,
+			"/usr/sbin/ip link set eth0 up",
+			"/usr/sbin/ip addr add "+privateIPWithPrefix+" dev eth0 2>/dev/null || true",
+			"/usr/sbin/ip route add default via "+gateway+" 2>/dev/null || true",
+		)
+	}
+	cmds = append(cmds,
+		"install -d /etc/caddy",
+		"systemctl daemon-reload",
+		"systemctl restart caddy",
+		"for i in $(seq 1 50); do systemctl is-active caddy >/dev/null 2>&1 && exit 0; sleep 0.1; done",
+		"systemctl is-active caddy",
+	)
+	var stderr bytes.Buffer
 	dataDone := make(chan bool)
 	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
-		Command: []string{"/bin/sh", "-lc", strings.Join([]string{
-			"if pgrep -x caddy >/dev/null 2>&1; then caddy reload --config /etc/caddy/Caddyfile; else nohup caddy run --config /etc/caddy/Caddyfile >/var/log/caddy.log 2>&1 & fi",
-			"for i in $(seq 1 50); do caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 && exit 0; sleep 0.1; done",
-			"pgrep -x caddy >/dev/null 2>&1",
-		}, "; ")},
+		Command:   []string{"/bin/sh", "-c", strings.Join(cmds, " && ")},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{
 		Stdin:    strings.NewReader(""),
+		Stderr:   &stderr,
 		DataDone: dataDone,
 	})
 	if err != nil {
 		return fmt.Errorf("restart sandbox Caddy in %s: %w", instanceName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for sandbox Caddy restart in %s: %w", instanceName, err)
+		return fmt.Errorf("wait for sandbox Caddy restart in %s (stderr: %s): %w", instanceName, stderr.String(), err)
 	}
 	<-dataDone
 	return nil

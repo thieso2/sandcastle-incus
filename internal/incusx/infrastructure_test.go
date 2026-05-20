@@ -58,10 +58,10 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	if len(resourceServer.execCommands) != 2 {
 		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
 	}
-	if resourceServer.execInstances[0] != route.InfrastructureCaddyName || !strings.Contains(strings.Join(resourceServer.execCommands[0], " "), "caddy reload") {
+	if resourceServer.execInstances[0] != route.InfrastructureCaddyName || !strings.Contains(strings.Join(resourceServer.execCommands[0], " "), "systemctl restart caddy") {
 		t.Fatalf("first exec = %s %#v", resourceServer.execInstances[0], resourceServer.execCommands[0])
 	}
-	if resourceServer.execInstances[1] != infra.RouteBrokerName || !strings.Contains(strings.Join(resourceServer.execCommands[1], " "), "admin route-broker serve") {
+	if resourceServer.execInstances[1] != infra.RouteBrokerName || !strings.Contains(strings.Join(resourceServer.execCommands[1], " "), "sandcastle-route-broker") {
 		t.Fatalf("second exec = %s %#v", resourceServer.execInstances[1], resourceServer.execCommands[1])
 	}
 }

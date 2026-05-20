@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sandcastle Usage Guide</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3e;
+      --accent: #6c8ef5;
+      --accent2: #5dd8a0;
+      --text: #d4d8f0;
+      --muted: #7a7f99;
+      --tag-bg: #1e2233;
+      --code-bg: #131620;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      padding: 2rem;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .page-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .page-header h1 { font-size: 1.6rem; color: var(--accent); letter-spacing: 0.03em; }
+    .page-header p  { color: var(--muted); margin-top: 0.4rem; }
+
+    nav {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 2.5rem;
+    }
+    nav h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 0.75rem; }
+    nav ol { padding-left: 1.2rem; }
+    nav li { margin: 0.25rem 0; }
+
+    section { margin-bottom: 3rem; }
+    section h2 {
+      font-size: 1.1rem;
+      color: var(--accent2);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .step {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .step h3 { font-size: 0.95rem; color: var(--text); margin-bottom: 0.75rem; }
+    .step p  { color: var(--muted); margin-bottom: 0.75rem; }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.85rem 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0;
+    }
+    code { color: var(--accent2); }
+    pre code { color: inherit; }
+
+    .comment { color: var(--muted); }
+    .cmd     { color: #f0c070; }
+    .flag    { color: #80c8ff; }
+    .arg     { color: var(--accent2); }
+    .env     { color: #d88aff; }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      vertical-align: middle;
+      margin-left: 0.5rem;
+    }
+    .badge-admin { background: #3a1f4a; color: #d88aff; }
+    .badge-user  { background: #1a2f1a; color: var(--accent2); }
+
+    .note {
+      border-left: 3px solid var(--accent);
+      background: #1a2040;
+      padding: 0.75rem 1rem;
+      border-radius: 0 6px 6px 0;
+      margin: 0.75rem 0;
+      color: var(--muted);
+    }
+    .note strong { color: var(--text); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.75rem;
+    }
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    td:first-child { color: var(--accent2); white-space: nowrap; }
+    td:last-child  { color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1>Sandcastle Usage Guide</h1>
+  <p>CLI reference and recipes for managing projects, sandboxes, users, and routes.</p>
+</header>
+
+<nav>
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#env">Environment setup</a></li>
+    <li><a href="#projects">Create &amp; manage projects</a></li>
+    <li><a href="#users">Create users &amp; credentials</a></li>
+    <li><a href="#sandboxes">Create &amp; manage containers</a></li>
+    <li><a href="#trust">Install local CA trust</a></li>
+    <li><a href="#tailscale">Attach Tailscale</a></li>
+    <li><a href="#routes">Publish public routes</a></li>
+    <li><a href="#infra">Shared infrastructure</a></li>
+    <li><a href="#images">Manage images</a></li>
+    <li><a href="#reference">Quick reference</a></li>
+  </ol>
+</nav>
+
+<!-- ─── 1. Environment setup ──────────────────────────────────────────── -->
+<section id="env">
+  <h2>1. Environment setup</h2>
+
+  <div class="step">
+    <h3>Required environment variables</h3>
+    <p>Set these before running any <code>sandcastle admin</code> command.</p>
+    <pre><code><span class="comment"># Incus remote name (default: local)</span>
+<span class="env">export SANDCASTLE_REMOTE</span>=big
+
+<span class="comment"># Storage pool name in Incus</span>
+<span class="env">export SANDCASTLE_STORAGE_POOL</span>=default
+
+<span class="comment"># Private CIDR pool for project networks (optional; default 10.248.0.0/16)</span>
+<span class="env">export SANDCASTLE_PRIVATE_CIDR_POOL</span>=10.248.0.0/16
+
+<span class="comment"># Infrastructure Incus project name (for route broker / shared Caddy)</span>
+<span class="env">export SANDCASTLE_INFRASTRUCTURE_PROJECT</span>=sc-infra
+
+<span class="comment"># Let's Encrypt email for shared Caddy TLS</span>
+<span class="env">export SANDCASTLE_LETSENCRYPT_EMAIL</span>=ops@example.com</code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Restricted user variables (non-admin)</h3>
+    <p>After adding a restricted Incus remote, set these to use <code>sandcastle add</code> and related commands.</p>
+    <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=alice        <span class="comment"># restricted remote added via `incus remote add`</span>
+<span class="env">export SANDCASTLE_OWNER</span>=alice          <span class="comment"># your username (matches the project owner)</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Enable verbose output</h3>
+    <pre><code><span class="env">export VERBOSE</span>=1
+<span class="cmd">sandcastle</span> <span class="arg">add alice/myproject</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 2. Projects ───────────────────────────────────────────────────── -->
+<section id="projects">
+  <h2>2. Create &amp; manage projects <span class="badge badge-admin">admin</span></h2>
+
+  <div class="step">
+    <h3>List projects</h3>
+    <pre><code><span class="cmd">sandcastle admin project list</span>
+<span class="cmd">sandcastle admin project ls</span>          <span class="comment"># alias</span>
+<span class="cmd">sandcastle admin project list</span> <span class="flag">--json</span>  <span class="comment"># JSON output</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Create a project</h3>
+    <p>Provisions an Incus project with private bridge network, storage volumes, Tailscale sidecar, and CoreDNS sidecar.</p>
+    <pre><code><span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span></code></pre>
+    <div class="note"><strong>Note:</strong> The <code>--domain</code> flag is required. It sets the private DNS zone for all sandboxes in the project (e.g. <code>mysandbox.myproject.dev.example.com</code>).</div>
+    <pre><code><span class="comment"># Preview what will be created without mutating anything</span>
+<span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--dry-run</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Project status</h3>
+    <pre><code><span class="cmd">sandcastle admin project status</span> <span class="arg">alice/myproject</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Delete a project (keep volumes)</h3>
+    <p>Stops runtime resources (sidecars, network) but preserves home/workspace volumes.</p>
+    <pre><code><span class="cmd">sandcastle admin project delete</span> <span class="arg">alice/myproject</span> <span class="flag">--yes</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Purge a project (destroy everything)</h3>
+    <pre><code><span class="cmd">sandcastle admin project delete</span> <span class="arg">alice/myproject</span> <span class="flag">--yes</span> <span class="flag">--purge</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 3. Users & credentials ───────────────────────────────────────── -->
+<section id="users">
+  <h2>3. Create users &amp; credentials <span class="badge badge-admin">admin</span></h2>
+
+  <div class="step">
+    <h3>Create a restricted user certificate</h3>
+    <p>Issues a client certificate for <code>alice</code> and registers it as an Incus restricted trust entry. Prints a bootstrap token.</p>
+    <pre><code><span class="cmd">sandcastle admin user create</span> <span class="arg">alice</span></code></pre>
+    <p>Example output:</p>
+    <pre><code>User: alice
+Certificate: sc-alice
+Remote: sc-alice
+Token: 7f3a...
+Bootstrap:
+  incus remote add sc-alice &lt;token&gt;
+  export SANDCASTLE_REMOTE=sc-alice
+  export SANDCASTLE_OWNER=alice</code></pre>
+    <div class="note"><strong>Share the bootstrap commands with the user.</strong> They run them on their machine to register the restricted Incus remote.</div>
+  </div>
+
+  <div class="step">
+    <h3>Grant a user access to a project</h3>
+    <p>Adds the Incus project to the user's certificate restriction list.</p>
+    <pre><code><span class="cmd">sandcastle admin user grant</span> <span class="arg">alice alice/myproject</span>
+<span class="cmd">sandcastle admin user grant</span> <span class="arg">alice alice/myproject alice/otherproject</span>  <span class="comment"># multiple</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Issue a new add-token for an existing user</h3>
+    <p>Use this if the user lost their token or you need to re-register the remote.</p>
+    <pre><code><span class="cmd">sandcastle admin user token</span> <span class="arg">alice</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>User bootstrap (on the user's machine)</h3>
+    <p>Run these commands after receiving the bootstrap output from admin.</p>
+    <pre><code><span class="comment"># Add the restricted Incus remote</span>
+<span class="cmd">incus remote add</span> <span class="arg">sc-alice</span> <span class="arg">&lt;token-from-admin&gt;</span>
+
+<span class="comment"># Configure Sandcastle environment</span>
+<span class="env">export SANDCASTLE_REMOTE</span>=sc-alice
+<span class="env">export SANDCASTLE_OWNER</span>=alice
+
+<span class="comment"># Verify access</span>
+<span class="cmd">sandcastle ls</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 4. Sandboxes / containers ─────────────────────────────────────── -->
+<section id="sandboxes">
+  <h2>4. Create &amp; manage containers</h2>
+
+  <div class="step">
+    <h3>Create and enter a sandbox <span class="badge badge-user">user</span></h3>
+    <p>Creates an Incus container from the configured base image and drops you into a shell.</p>
+    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/mysandbox</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Create in background <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/mysandbox</span> <span class="flag">--detach</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Choose a template <span class="badge badge-user">user</span></h3>
+    <p>Use <code>ai</code> for an AI-tool-equipped image, <code>base</code> for the minimal image.</p>
+    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/ai-box</span> <span class="flag">--template</span> <span class="arg">ai</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Enable nested container tools (Docker/Incus inside sandbox) <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/builder</span> <span class="flag">--container-tools</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Set a shared home subdirectory <span class="badge badge-user">user</span></h3>
+    <p>Multiple sandboxes can share the same home-volume subdirectory (requires <code>--share-home</code> when a conflicting sandbox already exists).</p>
+    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/box1</span> <span class="flag">--home-dir</span> <span class="arg">shared</span>
+<span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/box2</span> <span class="flag">--home-dir</span> <span class="arg">shared</span> <span class="flag">--share-home</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Expose an app port <span class="badge badge-user">user</span></h3>
+    <p>Configures Caddy inside the sandbox to reverse-proxy port <code>3000</code> at the sandbox's private URL.</p>
+    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/webapp</span> <span class="flag">--app-port</span> <span class="arg">3000</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Change app port on an existing sandbox <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle port set</span> <span class="arg">alice/myproject/webapp</span> <span class="arg">8080</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Preview the creation plan without creating <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/mysandbox</span> <span class="flag">--dry-run</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Enter a running sandbox <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle enter</span> <span class="arg">alice/myproject/mysandbox</span>
+
+<span class="comment"># Run a specific command</span>
+<span class="cmd">sandcastle enter</span> <span class="arg">alice/myproject/mysandbox</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Lifecycle commands <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle start</span>   <span class="arg">alice/myproject/mysandbox</span>
+<span class="cmd">sandcastle stop</span>    <span class="arg">alice/myproject/mysandbox</span>
+<span class="cmd">sandcastle restart</span> <span class="arg">alice/myproject/mysandbox</span>
+<span class="cmd">sandcastle rm</span>      <span class="arg">alice/myproject/mysandbox</span> <span class="flag">--yes</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Inspect a sandbox <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle inspect</span> <span class="arg">alice/myproject/mysandbox</span>
+<span class="cmd">sandcastle inspect</span> <span class="arg">alice/myproject/mysandbox</span> <span class="flag">--json</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>List all sandboxes <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle ls</span>
+<span class="cmd">sandcastle list</span>      <span class="comment"># alias</span>
+<span class="cmd">sandcastle ls</span> <span class="flag">--json</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 5. Trust ──────────────────────────────────────────────────────── -->
+<section id="trust">
+  <h2>5. Install local CA trust</h2>
+
+  <div class="step">
+    <h3>Trust the project CA on your machine <span class="badge badge-admin">admin</span></h3>
+    <p>Makes the project's self-signed CA trusted by your OS/browser so sandbox HTTPS URLs work without warnings.</p>
+    <pre><code><span class="cmd">sandcastle trust install</span> <span class="arg">alice/myproject</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Remove the CA from local trust <span class="badge badge-admin">admin</span></h3>
+    <pre><code><span class="cmd">sandcastle trust uninstall</span> <span class="arg">alice/myproject</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Preview trust changes</h3>
+    <pre><code><span class="cmd">sandcastle trust install</span>   <span class="arg">alice/myproject</span> <span class="flag">--dry-run</span>
+<span class="cmd">sandcastle trust uninstall</span> <span class="arg">alice/myproject</span> <span class="flag">--dry-run</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 6. Tailscale ─────────────────────────────────────────────────── -->
+<section id="tailscale">
+  <h2>6. Attach Tailscale <span class="badge badge-admin">admin</span></h2>
+
+  <div class="step">
+    <h3>Attach Tailscale to a project (interactive)</h3>
+    <p>Opens an interactive <code>tailscale up</code> session inside the sidecar. Complete authentication in the browser.</p>
+    <pre><code><span class="cmd">sandcastle tailscale up</span> <span class="arg">alice/myproject</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Attach with an auth key (unattended)</h3>
+    <pre><code><span class="cmd">sandcastle tailscale up</span> <span class="arg">alice/myproject</span> <span class="flag">--auth-key</span> <span class="arg">tskey-auth-...</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Check Tailscale status</h3>
+    <pre><code><span class="cmd">sandcastle tailscale status</span> <span class="arg">alice/myproject</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Detach Tailscale</h3>
+    <pre><code><span class="cmd">sandcastle tailscale down</span> <span class="arg">alice/myproject</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 7. Routes ─────────────────────────────────────────────────────── -->
+<section id="routes">
+  <h2>7. Publish public routes</h2>
+
+  <div class="step">
+    <h3>Add a public HTTP route <span class="badge badge-user">user</span></h3>
+    <p>Routes external HTTPS traffic for <code>myapp.example.com</code> to the sandbox's app port through the shared Caddy infrastructure.</p>
+    <pre><code><span class="comment"># Requires SANDCASTLE_ROUTE_BROKER_URL to be set</span>
+<span class="cmd">sandcastle route add</span> <span class="arg">myapp.example.com alice/myproject/webapp</span></code></pre>
+    <div class="note"><strong>DNS proof required:</strong> The route broker will tell you which DNS record to create before the route is activated.</div>
+  </div>
+
+  <div class="step">
+    <h3>List active routes <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle route list</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Remove a route <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle route rm</span> <span class="arg">myapp.example.com</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 8. Infrastructure ─────────────────────────────────────────────── -->
+<section id="infra">
+  <h2>8. Shared infrastructure <span class="badge badge-admin">admin</span></h2>
+
+  <div class="step">
+    <h3>Create shared infrastructure</h3>
+    <p>Provisions the shared Caddy reverse proxy and route broker inside a dedicated Incus project.</p>
+    <pre><code><span class="cmd">sandcastle admin infra create</span>
+<span class="cmd">sandcastle admin infra create</span> <span class="flag">--dry-run</span>   <span class="comment"># preview only</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Delete shared infrastructure</h3>
+    <pre><code><span class="cmd">sandcastle admin infra delete</span> <span class="flag">--yes</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Serve the route broker</h3>
+    <pre><code><span class="cmd">sandcastle admin route-broker serve</span> \
+  <span class="flag">--listen</span> <span class="arg">:9443</span> \
+  <span class="flag">--cert</span>   <span class="arg">/etc/caddy/certs/broker.crt</span> \
+  <span class="flag">--key</span>    <span class="arg">/etc/caddy/certs/broker.key</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 9. Images ─────────────────────────────────────────────────────── -->
+<section id="images">
+  <h2>9. Manage images <span class="badge badge-admin">admin</span></h2>
+
+  <div class="step">
+    <h3>Build an image locally</h3>
+    <pre><code><span class="cmd">sandcastle admin image build</span> <span class="arg">base</span>
+<span class="cmd">sandcastle admin image build</span> <span class="arg">ai</span>
+<span class="cmd">sandcastle admin image build</span> <span class="arg">ai</span> <span class="flag">--claude-version</span> <span class="arg">1.2.3</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Import an OCI image into Incus</h3>
+    <pre><code><span class="cmd">sandcastle admin image import</span> <span class="arg">base</span> <span class="arg">docker://ghcr.io/example/sandcastle-base:latest</span>
+<span class="cmd">sandcastle admin image import</span> <span class="arg">ai</span>   <span class="arg">docker://ghcr.io/example/sandcastle-ai:latest</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Sync an already-imported image to the alias</h3>
+    <pre><code><span class="cmd">sandcastle admin image sync</span> <span class="arg">sandcastle/base:debian-13</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 10. Quick reference ───────────────────────────────────────────── -->
+<section id="reference">
+  <h2>10. Quick reference</h2>
+
+  <div class="step">
+    <h3>All commands at a glance</h3>
+    <table>
+      <thead>
+        <tr><th>Command</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>sandcastle ls</td><td>List all projects and sandboxes</td></tr>
+        <tr><td>sandcastle status</td><td>Show system status</td></tr>
+        <tr><td>sandcastle add &lt;ref&gt;</td><td>Create and enter a sandbox</td></tr>
+        <tr><td>sandcastle enter &lt;ref&gt;</td><td>Enter an existing sandbox</td></tr>
+        <tr><td>sandcastle inspect &lt;ref&gt;</td><td>Show sandbox details</td></tr>
+        <tr><td>sandcastle start/stop/restart &lt;ref&gt;</td><td>Control sandbox power state</td></tr>
+        <tr><td>sandcastle rm &lt;ref&gt; --yes</td><td>Delete a sandbox container</td></tr>
+        <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change sandbox app port</td></tr>
+        <tr><td>sandcastle trust install &lt;proj&gt;</td><td>Trust project CA locally</td></tr>
+        <tr><td>sandcastle trust uninstall &lt;proj&gt;</td><td>Remove project CA trust</td></tr>
+        <tr><td>sandcastle tailscale up &lt;proj&gt;</td><td>Attach Tailscale to project</td></tr>
+        <tr><td>sandcastle tailscale status &lt;proj&gt;</td><td>Check Tailscale state</td></tr>
+        <tr><td>sandcastle tailscale down &lt;proj&gt;</td><td>Detach Tailscale</td></tr>
+        <tr><td>sandcastle route add &lt;host&gt; &lt;ref&gt;</td><td>Publish public HTTP route</td></tr>
+        <tr><td>sandcastle route list</td><td>List published routes</td></tr>
+        <tr><td>sandcastle route rm &lt;host&gt;</td><td>Remove a public route</td></tr>
+        <tr><td>sandcastle admin project create</td><td>Create a new project</td></tr>
+        <tr><td>sandcastle admin project delete</td><td>Delete a project</td></tr>
+        <tr><td>sandcastle admin user create &lt;user&gt;</td><td>Create restricted user certificate</td></tr>
+        <tr><td>sandcastle admin user grant &lt;user&gt; &lt;proj&gt;...</td><td>Grant project access to user</td></tr>
+        <tr><td>sandcastle admin user token &lt;user&gt;</td><td>Re-issue add-token for user</td></tr>
+        <tr><td>sandcastle admin infra create</td><td>Create shared infrastructure</td></tr>
+        <tr><td>sandcastle admin infra delete</td><td>Delete shared infrastructure</td></tr>
+        <tr><td>sandcastle admin image build</td><td>Build sandbox OCI image</td></tr>
+        <tr><td>sandcastle admin image import</td><td>Import OCI image into Incus</td></tr>
+        <tr><td>sandcastle admin image sync</td><td>Sync imported image to alias</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h3>Reference: owner/project/name</h3>
+    <p>Sandcastle uses slash-separated references throughout the CLI.</p>
+    <table>
+      <thead><tr><th>Format</th><th>Meaning</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>owner/project</td><td>Project reference</td><td>alice/myproject</td></tr>
+        <tr><td>owner/project/sandbox</td><td>Sandbox reference</td><td>alice/myproject/mysandbox</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h3>Useful flags available on all commands</h3>
+    <table>
+      <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>--json</td><td>Output JSON instead of plain text</td></tr>
+        <tr><td>--dry-run</td><td>Preview what would happen without mutating anything</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</body>
+</html>

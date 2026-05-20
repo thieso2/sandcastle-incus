@@ -59,6 +59,12 @@ func (c SandboxController) ApplyLifecycle(ctx context.Context, plan sandbox.Life
 		op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "restart", Timeout: -1, Force: true}, "")
 		return waitOperation(op, err, "restart sandbox "+plan.InstanceName)
 	case sandbox.ActionRemove:
+		stopOp, stopErr := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "stop", Timeout: -1, Force: true}, "")
+		if stopErr == nil {
+			if err := stopOp.Wait(); err != nil {
+				return fmt.Errorf("stop sandbox %s before remove: %w", plan.InstanceName, err)
+			}
+		}
 		op, err := projectServer.DeleteInstance(plan.InstanceName)
 		if api.StatusErrorCheck(err, http.StatusNotFound) {
 			return nil

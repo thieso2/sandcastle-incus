@@ -92,7 +92,7 @@ func TestSandboxEntererExecsCommandNonInteractively(t *testing.T) {
 	if resource.exec.Interactive {
 		t.Fatal("expected non-interactive exec")
 	}
-	if !resource.exec.RecordOutput {
-		t.Fatal("non-interactive exec should record output")
+	if resource.exec.RecordOutput {
+		t.Fatal("exec should not record output (incompatible with WaitForWS in Incus 7.0)")
 	}
 }

@@ -33,6 +33,14 @@ type fakeDeleteResourceServer struct {
 	deletedVolumes   []string
 }
 
+func (s *fakeDeleteResourceServer) GetInstances(instanceType api.InstanceType) ([]api.Instance, error) {
+	var result []api.Instance
+	for _, instance := range s.instances {
+		result = append(result, *instance)
+	}
+	return result, nil
+}
+
 func (s *fakeDeleteResourceServer) GetInstance(name string) (*api.Instance, string, error) {
 	if instance := s.instances[name]; instance != nil {
 		return instance, "etag", nil
@@ -89,7 +97,7 @@ func TestProjectDeleterPurgesProjectResources(t *testing.T) {
 	if len(resourceServer.deletedInstances) != 2 {
 		t.Fatalf("deleted instances = %#v", resourceServer.deletedInstances)
 	}
-	if resourceServer.deletedNetwork != project.PrivateNetworkName {
+	if resourceServer.deletedNetwork != project.PrivateNetworkName(plan.IncusProject) {
 		t.Fatalf("deleted network = %q", resourceServer.deletedNetwork)
 	}
 	if len(resourceServer.deletedVolumes) != 3 {

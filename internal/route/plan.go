@@ -139,7 +139,7 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		RoutePort:             routePort,
 		TargetIP:              target.PrivateIP,
 		IngressDevice:         ProfileName(hostname),
-		IngressNetwork:        project.PrivateNetworkName,
+		IngressNetwork:        project.PrivateNetworkName(summary.IncusName),
 		MetadataConfig:        metadataConfig,
 		RequiresBroker:        true,
 		DNSProof: DNSProof{

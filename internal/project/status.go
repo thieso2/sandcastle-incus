@@ -114,7 +114,7 @@ func checkPresent(value string) string {
 // TopologyChecks returns stable project resource checks for status and diagnostics output.
 func TopologyChecks(topology Topology) []Check {
 	checks := []Check{
-		{Name: "network:" + PrivateNetworkName, Status: presentStatus(topology.PrivateNetworkPresent)},
+		{Name: "network:sc-private", Status: presentStatus(topology.PrivateNetworkPresent)},
 	}
 	for _, volume := range []string{HomeVolumeName, WorkspaceVolumeName, CAVolumeName} {
 		checks = append(checks, Check{Name: "volume:" + volume, Status: presentStatus(topology.DurableVolumes[volume])})

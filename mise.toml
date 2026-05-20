@@ -1,0 +1,46 @@
+[tools]
+go = "1.25.6"
+
+[tasks.build]
+description = "Build the sandcastle CLI and sc alias"
+run = "make build"
+
+[tasks."image:deps"]
+description = "Check local tools required for image upload"
+run = "for tool in docker incus tar xz; do command -v \"$tool\" >/dev/null || { echo \"$tool is required for image upload\" >&2; exit 127; }; done"
+
+[tasks."image:base:build"]
+description = "Build the Sandcastle base OCI image"
+env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
+run = [
+  "make build",
+  "./bin/sandcastle admin image build base --tag ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest}",
+]
+
+[tasks."image:base:upload"]
+description = "Upload the Sandcastle base OCI image into Incus"
+env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
+run = [
+  "mise run image:deps",
+  "make build",
+  "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} \"$SANDCASTLE_REMOTE\"",
+]
+
+[tasks."image:base:import"]
+description = "Import the locally built Sandcastle base OCI image into Incus"
+env = { SANDCASTLE_REMOTE = "big" }
+run = [
+  "mise run image:deps",
+  "make build",
+  "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} \"$SANDCASTLE_REMOTE\"",
+]
+
+[tasks."image:base:build-upload"]
+description = "Build and upload the Sandcastle base OCI image"
+env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
+run = [
+  "mise run image:deps",
+  "make build",
+  "./bin/sandcastle admin image build base --tag ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest}",
+  "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} \"$SANDCASTLE_REMOTE\"",
+]

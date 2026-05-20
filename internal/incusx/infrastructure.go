@@ -197,19 +197,21 @@ func ensureInfrastructureRuntimeBinaries(server ProjectResourceServer, plan infr
 
 func runInfrastructureRuntimeCommands(server ProjectResourceServer, plan infra.CreatePlan) error {
 	for _, command := range plan.RuntimeCommands {
+		var stderr bytes.Buffer
 		dataDone := make(chan bool)
 		op, err := server.ExecInstance(command.Instance, api.InstanceExecPost{
 			Command:   command.Command,
 			WaitForWS: true,
 		}, &incus.InstanceExecArgs{
 			Stdin:    strings.NewReader(""),
+			Stderr:   &stderr,
 			DataDone: dataDone,
 		})
 		if err != nil {
 			return fmt.Errorf("%s: %w", command.Description, err)
 		}
 		if err := op.Wait(); err != nil {
-			return fmt.Errorf("wait for %s: %w", command.Description, err)
+			return fmt.Errorf("wait for %s: %w (stderr: %s)", command.Description, err, stderr.String())
 		}
 		<-dataDone
 	}

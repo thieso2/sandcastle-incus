@@ -70,6 +70,10 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Pre-cleanup: remove any leaked project with the same name from a previous run.
+	if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		t.Logf("pre-cleanup for %s: %v", ref, err)
+	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
 			t.Logf("keeping disposable project %s", ref)

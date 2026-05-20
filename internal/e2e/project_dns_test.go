@@ -71,6 +71,9 @@ func TestProjectDNSE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		t.Logf("pre-cleanup for %s: %v", ref, err)
+	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
 			t.Logf("keeping disposable project %s", ref)
@@ -106,7 +109,7 @@ func TestProjectDNSE2E(t *testing.T) {
 	if err := sandboxCreator.CreateSandbox(ctx, createFirstSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
-	createSecondSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: secondSandboxRef})
+	createSecondSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: secondSandboxRef, ShareHome: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -224,7 +224,7 @@ sys.exit(1)
 func buildSandcastleForE2E(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sandcastle")
-	command := exec.Command("go", "build", "-o", path, "./cmd/sandcastle")
+	command := exec.Command("go", "build", "-o", path, "github.com/thieso2/sandcastle-incus/cmd/sandcastle")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build sandcastle e2e binary: %v\n%s", err, strings.TrimSpace(string(output)))
 	}

@@ -267,6 +267,7 @@ func importCommand(plan ImportPlan) []string {
 		plan.Remote + ":",
 		"--alias",
 		plan.Alias,
+		"--copy-aliases",
 		"--reuse",
 	}
 }

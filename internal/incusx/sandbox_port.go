@@ -83,7 +83,7 @@ func (s SandboxPortSetter) SetAppPort(ctx context.Context, plan sandbox.PortSetP
 	if err := writeSandboxCaddyfile(projectServer, plan); err != nil {
 		return err
 	}
-	return restartSandboxCaddy(projectServer, plan.InstanceName)
+	return restartSandboxCaddy(projectServer, plan.InstanceName, "", "")
 }
 
 func writeSandboxCaddyfile(server SandboxPortResourceServer, plan sandbox.PortSetPlan) error {

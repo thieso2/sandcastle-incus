@@ -67,7 +67,7 @@ func (r fakeTopologyResource) GetInstanceFile(instanceName string, filePath stri
 
 func TestTopologyStoreGetTopology(t *testing.T) {
 	store := TopologyStore{Server: fakeTopologyServer{resource: &fakeTopologyResource{
-		networks: map[string]*api.Network{project.PrivateNetworkName: {Name: project.PrivateNetworkName}},
+		networks: map[string]*api.Network{project.PrivateNetworkName("sc-alice-myproject"): {Name: project.PrivateNetworkName("sc-alice-myproject")}},
 		volumes: map[string]*api.StorageVolume{
 			project.HomeVolumeName: {Name: project.HomeVolumeName},
 			project.CAVolumeName:   {Name: project.CAVolumeName},

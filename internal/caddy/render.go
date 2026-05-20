@@ -39,7 +39,11 @@ func RenderSandboxHosts(hostnames []string, appPort int, certPath string, keyPat
 	return File{
 		Path: "/etc/caddy/Caddyfile",
 		Mode: 0o644,
-		Content: fmt.Sprintf(`%s {
+		Content: fmt.Sprintf(`{
+    admin 127.0.0.1:2019
+}
+
+%s {
     tls %s %s
     reverse_proxy 127.0.0.1:%d
 }

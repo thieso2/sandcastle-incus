@@ -61,10 +61,11 @@ func (s TopologyStore) GetTopology(ctx context.Context, request project.Topology
 		DurableVolumes: map[string]bool{},
 		Sidecars:       map[string]project.SidecarStatus{},
 	}
-	if _, _, err := projectServer.GetNetwork(project.PrivateNetworkName); err == nil {
+	privateNetworkName := project.PrivateNetworkName(request.IncusProject)
+	if _, _, err := projectServer.GetNetwork(privateNetworkName); err == nil {
 		topology.PrivateNetworkPresent = true
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
-		return project.Topology{}, fmt.Errorf("get private network %s: %w", project.PrivateNetworkName, err)
+		return project.Topology{}, fmt.Errorf("get private network %s: %w", privateNetworkName, err)
 	}
 	for _, volume := range []string{project.HomeVolumeName, project.WorkspaceVolumeName, project.CAVolumeName} {
 		if _, _, err := projectServer.GetStoragePoolVolume(request.StoragePool, "custom", volume); err == nil {

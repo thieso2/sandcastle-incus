@@ -22,6 +22,7 @@ const (
 	RouteBrokerCertPath        = "/etc/sandcastle/route-broker/tls.crt"
 	RouteBrokerKeyPath         = "/etc/sandcastle/route-broker/tls.key"
 	RouteBrokerEnvPath         = "/etc/sandcastle/route-broker/env"
+	RouteBrokerUnitPath        = "/etc/systemd/system/sandcastle-route-broker.service"
 	RouteBrokerIncusSocketPath = "/var/lib/incus/unix.socket"
 )
 
@@ -103,9 +104,10 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		return CreatePlan{}, fmt.Errorf("infrastructure project is required")
 	}
 	projectConfig := map[string]string{
-		meta.KeyKind:    "infrastructure",
-		meta.KeyVersion: "1",
-		meta.KeyName:    project,
+		meta.KeyKind:        "infrastructure",
+		meta.KeyVersion:     "1",
+		meta.KeyName:        project,
+		"features.images":   "false",
 	}
 	brokerTLS, err := certs.GenerateSelfSignedServer("Sandcastle route broker", []string{RouteBrokerName, "localhost"}, time.Now().UTC())
 	if err != nil {
@@ -177,6 +179,12 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 			Content:  string(brokerTLS.PrivateKeyPEM),
 			Mode:     0o600,
 		},
+		{
+			Instance: RouteBrokerName,
+			Path:     RouteBrokerUnitPath,
+			Content: "[Unit]\nDescription=Sandcastle route broker\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + RouteBrokerEnvPath + "\nExecStart=" + RouteBrokerBinaryPath + " admin route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			Mode:    0o644,
+		},
 	}
 }
 
@@ -209,21 +217,21 @@ func runtimeCommands() []RuntimeCommand {
 			Instance:    route.InfrastructureCaddyName,
 			Description: "start infrastructure Caddy",
 			Command: []string{"/bin/sh", "-lc", strings.Join([]string{
-				"if ! pgrep -x caddy >/dev/null 2>&1; then nohup caddy run --config /etc/caddy/Caddyfile >/var/log/caddy.log 2>&1 & fi",
-				"for i in $(seq 1 50); do caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 && exit 0; sleep 0.1; done",
-				"pgrep -x caddy >/dev/null 2>&1",
+				"install -d /etc/caddy",
+				"systemctl restart caddy",
+				"for i in $(seq 1 50); do systemctl is-active caddy >/dev/null 2>&1 && exit 0; sleep 0.1; done",
+				"systemctl is-active caddy",
 			}, "; ")},
 		},
 		{
 			Instance:    RouteBrokerName,
 			Description: "start route broker service",
 			Command: []string{"/bin/sh", "-lc", strings.Join([]string{
-				"set -a",
-				". " + RouteBrokerEnvPath,
-				"set +a",
-				"if ! pgrep -f '" + RouteBrokerBinaryPath + " admin route-broker serve' >/dev/null 2>&1; then nohup " + RouteBrokerBinaryPath + " admin route-broker serve --listen \"${SANDCASTLE_ROUTE_BROKER_LISTEN}\" --cert \"${SANDCASTLE_ROUTE_BROKER_CERT}\" --key \"${SANDCASTLE_ROUTE_BROKER_KEY}\" >/var/log/sandcastle-route-broker.log 2>&1 & fi",
-				"sleep 0.2",
-				"pgrep -f '" + RouteBrokerBinaryPath + " admin route-broker serve' >/dev/null 2>&1",
+				"systemctl daemon-reload",
+				"systemctl enable sandcastle-route-broker",
+				"systemctl restart sandcastle-route-broker",
+				"for i in $(seq 1 50); do systemctl is-active sandcastle-route-broker >/dev/null 2>&1 && exit 0; sleep 0.1; done",
+				"systemctl is-active sandcastle-route-broker",
 			}, "; ")},
 		},
 	}

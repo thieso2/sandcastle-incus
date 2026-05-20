@@ -251,7 +251,7 @@ func writeHostOverrideSandboxFiles(server HostOverrideResourceServer, plan hosto
 			return fmt.Errorf("write sandbox certificate file %s: %w", file.Path, err)
 		}
 	}
-	return restartSandboxCaddy(server, plan.InstanceName)
+	return restartSandboxCaddy(server, plan.InstanceName, "", "")
 }
 
 func issueHostOverrideCertificateFiles(server HostOverrideResourceServer, plan hostoverride.AddPlan, extraSANs []string) ([]sandbox.File, error) {

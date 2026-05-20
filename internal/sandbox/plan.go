@@ -187,16 +187,18 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 			"eth0": {
 				"type":         "nic",
 				"nictype":      "bridged",
-				"parent":       project.PrivateNetworkName,
+				"parent":       project.PrivateNetworkName(summary.IncusName),
 				"ipv4.address": privateIP,
 			},
 			"home": {
 				"type":   "disk",
+				"pool":   admin.StoragePool,
 				"source": project.HomeVolumeName + "/" + homeDir,
 				"path":   "/home/" + linuxUser,
 			},
 			"workspace": {
 				"type":   "disk",
+				"pool":   admin.StoragePool,
 				"source": project.WorkspaceVolumeName + "/" + workspaceDir,
 				"path":   "/workspace",
 			},

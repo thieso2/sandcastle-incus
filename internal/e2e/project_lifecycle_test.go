@@ -45,6 +45,10 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Pre-cleanup: remove any leaked project with the same name from a previous run.
+	if err := deleter.DeleteProject(ctx, deletePlan); err != nil {
+		t.Logf("pre-cleanup for %s: %v", ref, err)
+	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
 			t.Logf("keeping disposable project %s", ref)
@@ -85,8 +89,8 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 
 func safeProjectName(value string) string {
 	value = safeToken(value)
-	if len(value) > 40 {
-		value = value[:40]
+	if len(value) > 27 {
+		value = value[:27]
 	}
 	return strings.Trim(value, "-")
 }

@@ -84,10 +84,10 @@ func TestPlanCreate(t *testing.T) {
 	if len(plan.RuntimeCommands) != 2 {
 		t.Fatalf("runtime commands = %#v", plan.RuntimeCommands)
 	}
-	if !strings.Contains(strings.Join(plan.RuntimeCommands[0].Command, " "), "caddy reload") {
+	if !strings.Contains(strings.Join(plan.RuntimeCommands[0].Command, " "), "systemctl restart caddy") {
 		t.Fatalf("caddy command = %#v", plan.RuntimeCommands[0])
 	}
-	if !strings.Contains(strings.Join(plan.RuntimeCommands[1].Command, " "), "admin route-broker serve") {
+	if !strings.Contains(strings.Join(plan.RuntimeCommands[1].Command, " "), "sandcastle-route-broker") {
 		t.Fatalf("broker command = %#v", plan.RuntimeCommands[1])
 	}
 }
