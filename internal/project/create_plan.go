@@ -84,7 +84,8 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		return CreatePlan{}, err
 	}
 	projectDomain, err := domainrules.ValidateProjectDomain(request.Domain, domainrules.Policy{
-		DeniedSuffixes: admin.DeniedDomainSuffixes,
+		AllowedSuffixes: admin.AllowedDomainSuffixes,
+		DeniedSuffixes:  admin.DeniedDomainSuffixes,
 	})
 	if err != nil {
 		return CreatePlan{}, err

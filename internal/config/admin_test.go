@@ -34,6 +34,7 @@ func TestLoadAdminFromEnvOverrides(t *testing.T) {
 	t.Setenv("SANDCASTLE_INFRA_HOST", "203.0.113.10")
 	t.Setenv("SANDCASTLE_LETSENCRYPT_EMAIL", "ops@example.com")
 	t.Setenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET", "/var/lib/incus/unix.socket")
+	t.Setenv("SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES", "lab.example, test ")
 	t.Setenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES", "corp.example, internal.example ")
 	t.Setenv("SANDCASTLE_BASE_IMAGE", "images:debian/13")
 	t.Setenv("SANDCASTLE_AI_IMAGE", "sandcastle/ai:test")
@@ -56,6 +57,9 @@ func TestLoadAdminFromEnvOverrides(t *testing.T) {
 	}
 	if config.RouteBrokerIncusSocket != "/var/lib/incus/unix.socket" {
 		t.Fatalf("RouteBrokerIncusSocket = %q", config.RouteBrokerIncusSocket)
+	}
+	if len(config.AllowedDomainSuffixes) != 2 || config.AllowedDomainSuffixes[0] != "lab.example" {
+		t.Fatalf("AllowedDomainSuffixes = %#v", config.AllowedDomainSuffixes)
 	}
 	if len(config.DeniedDomainSuffixes) != 2 || config.DeniedDomainSuffixes[0] != "corp.example" {
 		t.Fatalf("DeniedDomainSuffixes = %#v", config.DeniedDomainSuffixes)

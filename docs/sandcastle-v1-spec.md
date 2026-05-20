@@ -68,7 +68,7 @@ with an embedded snapshot of public TLDs and special-use names, refreshed from
 authoritative IANA data by an admin command. Project domains are rejected when
 their final label is a current public TLD, an IANA special-use name, or an
 admin-denied local suffix. Admins may add local deny-list entries and explicit
-lab overrides.
+allowed suffixes for lab overrides.
 
 Each project contains:
 

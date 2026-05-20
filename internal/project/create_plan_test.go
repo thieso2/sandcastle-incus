@@ -96,3 +96,18 @@ func TestPlanCreateRejectsDeniedProjectDomain(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestPlanCreateAllowsExplicitLabDomainOverride(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.AllowedDomainSuffixes = []string{"test"}
+	plan, err := PlanCreate(admin, CreateRequest{
+		Reference: "alice/myproject",
+		Domain:    "myproject.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Domain != "myproject.test" {
+		t.Fatalf("Domain = %q", plan.Domain)
+	}
+}

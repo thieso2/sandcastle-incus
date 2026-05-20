@@ -1113,6 +1113,12 @@ development sandboxes.
 - Passed: `go test ./internal/cli -run 'TestAdd(Detach|Background|Enters)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Added explicit lab domain suffix overrides via
+  `SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES`, preserving default public/special-use
+  TLD rejection and admin-denied suffix enforcement.
+- Passed: `go test ./internal/config ./internal/domain ./internal/project -run 'Test(LoadAdminFromEnvOverrides|ValidateProjectDomain|PlanCreate)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

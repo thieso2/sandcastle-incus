@@ -32,6 +32,18 @@ func TestValidateProjectDomainRejectsDeniedFinalLabels(t *testing.T) {
 	}
 }
 
+func TestValidateProjectDomainAllowsExplicitLabSuffixes(t *testing.T) {
+	domain, err := ValidateProjectDomain("Project.Test", Policy{
+		AllowedSuffixes: []string{"test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if domain != "project.test" {
+		t.Fatalf("domain = %q", domain)
+	}
+}
+
 func TestValidateProjectDomainRejectsAdminDeniedSuffixes(t *testing.T) {
 	_, err := ValidateProjectDomain("project.corp.private", Policy{
 		DeniedSuffixes: []string{"corp.private"},

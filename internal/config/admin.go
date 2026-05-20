@@ -28,6 +28,7 @@ type Admin struct {
 	InfrastructureHost     string
 	LetsEncryptEmail       string
 	RouteBrokerIncusSocket string
+	AllowedDomainSuffixes  []string
 	DeniedDomainSuffixes   []string
 	Images                 Images
 }
@@ -48,6 +49,7 @@ func LoadAdminFromEnv() Admin {
 		InfrastructureHost:     getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
 		LetsEncryptEmail:       getenv("SANDCASTLE_LETSENCRYPT_EMAIL", DefaultLetsEncryptEmail),
 		RouteBrokerIncusSocket: os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"),
+		AllowedDomainSuffixes:  splitList(os.Getenv("SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES")),
 		DeniedDomainSuffixes:   splitList(os.Getenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES")),
 		Images: Images{
 			Base: getenv("SANDCASTLE_BASE_IMAGE", DefaultBaseImageAlias),

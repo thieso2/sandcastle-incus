@@ -6,7 +6,8 @@ import (
 )
 
 type Policy struct {
-	DeniedSuffixes []string
+	AllowedSuffixes []string
+	DeniedSuffixes  []string
 }
 
 func ValidateProjectDomain(value string, policy Policy) (string, error) {
@@ -29,11 +30,13 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 		}
 	}
 	finalLabel := labels[len(labels)-1]
-	if specialUseFinalLabels[finalLabel] {
-		return "", fmt.Errorf("project domain %q uses denied suffix %q", domain, finalLabel)
-	}
-	if publicTLDs[finalLabel] {
-		return "", fmt.Errorf("project domain %q uses denied public TLD %q", domain, finalLabel)
+	if !suffixAllowed(domain, policy.AllowedSuffixes) {
+		if specialUseFinalLabels[finalLabel] {
+			return "", fmt.Errorf("project domain %q uses denied suffix %q", domain, finalLabel)
+		}
+		if publicTLDs[finalLabel] {
+			return "", fmt.Errorf("project domain %q uses denied public TLD %q", domain, finalLabel)
+		}
 	}
 	for _, suffix := range policy.DeniedSuffixes {
 		suffix = strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(suffix)), "."), ".")
@@ -45,6 +48,19 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 		}
 	}
 	return domain, nil
+}
+
+func suffixAllowed(domain string, suffixes []string) bool {
+	for _, suffix := range suffixes {
+		suffix = strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(suffix)), "."), ".")
+		if suffix == "" {
+			continue
+		}
+		if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 var specialUseFinalLabels = map[string]bool{
