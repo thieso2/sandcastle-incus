@@ -112,12 +112,16 @@ development sandboxes.
   per-sandbox wildcard records, with no project-wide wildcard.
 - Added `sandcastle dns status` and `sandcastle dns apply`; apply reads
   sandbox metadata from Incus instances and writes CoreDNS files to `sc-dns`.
+- Added certificate foundation for project CA generation and sandbox leaf
+  certificate issuance with exact sandbox SAN, per-sandbox wildcard SAN, and
+  extra SANs for future host overrides.
 
 ## Next Slice
 
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
-- Add Caddy/certificate planning for private sandbox HTTPS.
+- Wire project CA and sandbox leaf certificate material into project/sandbox
+  executors.
 - Add restricted-user e2e path for certificate/token grant verification after
   token bootstrap can be exercised safely.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -166,6 +170,7 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle port set alice/myproject/codex 5173 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle dns status alice/myproject 2>&1 || true && ./bin/sandcastle dns apply alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./...`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
