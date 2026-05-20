@@ -578,6 +578,10 @@ development sandboxes.
   for destructive non-cleanup tiers when none is provided, while leaving
   standalone cleanup explicit-run-id only. This makes local runner behavior
   match the e2e plan's "every run uses a unique run id" safety rule.
+- Expanded failed-project e2e diagnostics so run-id matching includes the
+  project domain as well as owner, project, and Incus project name. This keeps
+  diagnostics aligned with the e2e plan rule that disposable domains include the
+  run id.
 
 ## Next Slice
 
@@ -957,6 +961,9 @@ development sandboxes.
   `SANDCASTLE_E2E_IMAGE_BUILD` guard.
 - Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh cleanup` with the expected missing
   `SANDCASTLE_E2E_RUN_ID` guard.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'Test(ProjectDiagnostic|LogProjectDiagnostics)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 

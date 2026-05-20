@@ -52,7 +52,10 @@ func projectDiagnosticLines(ctx context.Context, projects []project.Summary, top
 }
 
 func matchesProjectRun(summary project.Summary, runID string) bool {
-	return strings.Contains(summary.Owner, runID) || strings.Contains(summary.Name, runID) || strings.Contains(summary.IncusName, runID)
+	return strings.Contains(summary.Owner, runID) ||
+		strings.Contains(summary.Name, runID) ||
+		strings.Contains(summary.IncusName, runID) ||
+		strings.Contains(summary.Domain, runID)
 }
 
 func projectTopologyDiagnostics(ctx context.Context, topologyStore project.TopologyStore, storagePool string, incusProject string) string {

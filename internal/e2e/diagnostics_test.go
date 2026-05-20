@@ -70,6 +70,33 @@ func TestProjectDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
 	}
 }
 
+func TestProjectDiagnosticLinesMatchRunIDInDomain(t *testing.T) {
+	config, err := meta.ProjectConfig(meta.Project{
+		Owner:           "owner",
+		Project:         "project",
+		Domain:          "project.e2e-domain-only.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
+		Name:   "sc-owner-project",
+		Config: config,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := projectDiagnosticLines(context.Background(), summaries, nil, "", "e2e-domain-only")
+	if len(lines) != 1 {
+		t.Fatalf("lines = %#v, want one diagnostic line", lines)
+	}
+	if !strings.Contains(lines[0], "project.e2e-domain-only.project-tld") {
+		t.Fatalf("diagnostic line missing domain:\n%s", lines[0])
+	}
+}
+
 func diagnosticProjectStore(t *testing.T) project.MemoryStore {
 	t.Helper()
 	config, err := meta.ProjectConfig(meta.Project{
