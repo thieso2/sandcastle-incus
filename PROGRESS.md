@@ -419,6 +419,16 @@ development sandboxes.
   `public-routes`. The workflow wires repository variables/secrets into
   `scripts/e2e.sh`, supports a configurable runner label for self-hosted Incus
   environments, and still relies on the checked-in fail-closed tier guards.
+- Added an explicit `scripts/e2e.sh restricted` tier for restricted-client token,
+  grant, and sandbox lifecycle coverage through a configured HTTPS Incus remote.
+  It fails closed unless `SANDCASTLE_E2E=1`, `SANDCASTLE_E2E_REMOTE` is set to a
+  non-`local` remote name, and disposable base/AI image sources are set.
+- Split restricted-client tests out of the broad `incus` runner tier so a local
+  Unix socket Incus run cannot hide restricted HTTPS remote coverage behind Go
+  test skips.
+- Added the `restricted` choice to the manual destructive e2e GitHub Actions
+  workflow and documented the required remote/image environment in the README
+  and e2e plan.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -783,6 +793,16 @@ development sandboxes.
 - Passed: `scripts/e2e.sh local`
 - Passed: `git diff --check`
 - Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `scripts/e2e.sh restricted` with the expected fail-closed e2e guard
+  when `SANDCASTLE_E2E` is unset.
+- Passed: `SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=local scripts/e2e.sh restricted`
+  with the expected non-local HTTPS remote guard.
+- Passed: `SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=remote-incus scripts/e2e.sh restricted`
+  with the expected missing `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` guard.
+- Passed: `go test ./internal/e2e -run 'TestRestrictedUser(Token|GrantAccess|SandboxLifecycle)E2E|TestLoadConfig' -count=1 -v`
+  with the expected restricted-user e2e skips when real e2e is unset.
+- Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/incusx -run 'TestRouteManager' -count=1 -v`

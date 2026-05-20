@@ -11,15 +11,17 @@ Tiers:
   local     Run unprivileged local e2e flows with SANDCASTLE_E2E=1.
   local-vm  Run local DNS/trust/hosts e2e intended for disposable VMs. Requires SANDCASTLE_E2E=1 and SANDCASTLE_E2E_LOCAL_VM=1.
   incus     Run destructive real-Incus e2e flows. Requires SANDCASTLE_E2E=1.
+  restricted Run restricted-client HTTPS remote e2e. Requires SANDCASTLE_E2E=1, non-local SANDCASTLE_E2E_REMOTE, and image source env.
   tailscale Run real Tailscale routed-access e2e. Requires SANDCASTLE_E2E=1, image source env, and auth key env.
   images    Run real image build e2e. Requires SANDCASTLE_E2E=1 and image build env.
   public-routes Run public route broker mutation e2e. Requires SANDCASTLE_E2E=1, image source env, broker socket env, and public route env.
-  all       Run unit, gated, local, local-vm, incus, tailscale, images, and public-routes tiers.
+  all       Run unit, gated, local, local-vm, incus, restricted, tailscale, images, and public-routes tiers.
 
 Examples:
   scripts/e2e.sh unit
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=local scripts/e2e.sh incus
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_LOCAL_VM=1 scripts/e2e.sh local-vm
+  SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=remote-incus SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh restricted
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
   SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com SANDCASTLE_E2E_INFRA_HOST=203.0.113.10 SANDCASTLE_E2E_LETSENCRYPT_EMAIL=ops@example.com scripts/e2e.sh public-routes
@@ -70,7 +72,19 @@ run_local_vm() {
 
 run_incus() {
   require_e2e incus
-  run go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge|DisposableInfrastructureCreateAndDelete|RouteBrokerAuthorizedMutationE2E|ImageSync.*AliasE2E|ProjectDNSE2E|SandboxLifecycleE2E|HostOverrideE2E|LocalTrustInstallUninstallE2E|CLIAddDetachE2E|CLIEnterCommandE2E|RestrictedUser(Token|GrantAccess|SandboxLifecycle)E2E)' -count=1 -v
+  run go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge|DisposableInfrastructureCreateAndDelete|RouteBrokerAuthorizedMutationE2E|ImageSync.*AliasE2E|ProjectDNSE2E|SandboxLifecycleE2E|HostOverrideE2E|LocalTrustInstallUninstallE2E|CLIAddDetachE2E|CLIEnterCommandE2E)' -count=1 -v
+}
+
+run_restricted() {
+  require_e2e restricted
+  require_env restricted SANDCASTLE_E2E_REMOTE
+  if [[ "${SANDCASTLE_E2E_REMOTE}" == "local" ]]; then
+    echo "error: set SANDCASTLE_E2E_REMOTE to a configured HTTPS Incus remote, not 'local', to run e2e tier 'restricted'" >&2
+    exit 2
+  fi
+  require_env restricted SANDCASTLE_E2E_BASE_IMAGE_SOURCE
+  require_env restricted SANDCASTLE_E2E_AI_IMAGE_SOURCE
+  run go test ./internal/e2e -run 'TestRestrictedUser(Token|GrantAccess|SandboxLifecycle)E2E' -count=1 -v
 }
 
 run_images() {
@@ -122,6 +136,9 @@ case "$tier" in
   incus)
     run_incus
     ;;
+  restricted)
+    run_restricted
+    ;;
   tailscale)
     run_tailscale
     ;;
@@ -137,6 +154,7 @@ case "$tier" in
     run_local
     run_local_vm
     run_incus
+    run_restricted
     run_tailscale
     run_images
     run_public_routes

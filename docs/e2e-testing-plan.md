@@ -62,6 +62,9 @@ infrastructure DNS proof target, and Let's Encrypt contact email are all set.
 The checked-in `scripts/e2e.sh local-vm` tier fails closed unless
 `SANDCASTLE_E2E_LOCAL_VM=1` is set, keeping local resolver, trust, and hosts
 mutation coverage opt-in for disposable VM runs.
+The checked-in `scripts/e2e.sh restricted` tier fails closed unless a non-local
+`SANDCASTLE_E2E_REMOTE` and disposable image sources are set, keeping
+restricted certificate lifecycle checks on an HTTPS Incus remote.
 
 The checked-in runner keeps common tiers reproducible:
 
@@ -71,6 +74,7 @@ scripts/e2e.sh gated
 scripts/e2e.sh local
 SANDCASTLE_E2E=1 scripts/e2e.sh incus
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_LOCAL_VM=1 scripts/e2e.sh local-vm
+SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=remote-incus SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh restricted
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
 ```
@@ -85,6 +89,10 @@ Tier meanings:
 - `local-vm`: disposable-VM local mutation flows for local DNS, local CA trust,
   and host override coverage. Requires `SANDCASTLE_E2E_LOCAL_VM=1`.
 - `incus`: destructive real-Incus flows, requiring `SANDCASTLE_E2E=1`.
+- `restricted`: restricted-client token, grant, and sandbox lifecycle flows
+  through an HTTPS Incus remote, requiring `SANDCASTLE_E2E=1`, a non-local
+  `SANDCASTLE_E2E_REMOTE`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, and
+  `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
 - `tailscale`: destructive real-Incus plus real-tailnet flow, requiring
   `SANDCASTLE_E2E=1`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`,
   `SANDCASTLE_E2E_AI_IMAGE_SOURCE`, and `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
@@ -96,9 +104,10 @@ GitHub Actions:
 - `.github/workflows/ci.yml` runs only safe tiers on push and pull request:
   `unit`, `gated`, and unprivileged `local`.
 - `.github/workflows/e2e-gates.yml` is manual (`workflow_dispatch`) for real
-  environment gates: `incus`, `tailscale`, `images`, `local-vm`, and
-  `public-routes`. It sets `SANDCASTLE_E2E=1` and relies on `scripts/e2e.sh` to
-  fail closed when a selected tier's required variables are missing.
+  environment gates: `incus`, `restricted`, `tailscale`, `images`, `local-vm`,
+  and `public-routes`. It sets `SANDCASTLE_E2E=1` and relies on
+  `scripts/e2e.sh` to fail closed when a selected tier's required variables are
+  missing.
 - Configure non-secret values as repository or environment variables using the
   same names as the local shell environment, such as
   `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, `SANDCASTLE_E2E_AI_IMAGE_SOURCE`,
