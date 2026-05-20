@@ -55,6 +55,9 @@ func projectDiagnosticLines(ctx context.Context, projects []project.Summary, top
 		if topologyStore != nil {
 			line += "\n  topology: " + projectTopologyDiagnostics(ctx, topologyStore, storagePool, summary.IncusName)
 		}
+		if tailscaleLine := projectTailscaleDiagnostics(summary); tailscaleLine != "" {
+			line += "\n  tailscale: " + tailscaleLine
+		}
 		lines = append(lines, line)
 	}
 	return lines
@@ -84,4 +87,48 @@ func projectTopologyDiagnostics(ctx context.Context, topologyStore project.Topol
 		parts = append(parts, check.Name+"="+value)
 	}
 	return strings.Join(parts, " ")
+}
+
+func projectTailscaleDiagnostics(summary project.Summary) string {
+	state := strings.TrimSpace(summary.Tailscale.State)
+	tailnet := strings.TrimSpace(summary.Tailscale.Tailnet)
+	hostname := strings.TrimSpace(summary.Tailscale.Hostname)
+	routes := summary.Tailscale.AdvertisedRoutes
+	ips := summary.Tailscale.TailscaleIPs
+	checkedAt := strings.TrimSpace(summary.Tailscale.LastCheckedAt)
+	if state == "" && tailnet == "" && hostname == "" && len(routes) == 0 && len(ips) == 0 && checkedAt == "" {
+		return ""
+	}
+	parts := []string{}
+	if state != "" {
+		parts = append(parts, "state="+redactDiagnosticValue(state))
+	}
+	if tailnet != "" {
+		parts = append(parts, "tailnet="+redactDiagnosticValue(tailnet))
+	}
+	if hostname != "" {
+		parts = append(parts, "hostname="+redactDiagnosticValue(hostname))
+	}
+	if len(routes) > 0 {
+		parts = append(parts, "routes="+redactDiagnosticValue(strings.Join(routes, ",")))
+	}
+	if len(ips) > 0 {
+		parts = append(parts, fmt.Sprintf("ips=%d", len(ips)))
+	}
+	if checkedAt != "" {
+		parts = append(parts, "lastCheckedAt="+redactDiagnosticValue(checkedAt))
+	}
+	return strings.Join(parts, " ")
+}
+
+func redactDiagnosticValue(value string) string {
+	lower := strings.ToLower(value)
+	if strings.Contains(lower, "login.tailscale.com") ||
+		strings.Contains(lower, "tskey-") ||
+		strings.Contains(lower, "authkey") ||
+		strings.Contains(lower, "token") ||
+		strings.Contains(lower, "secret") {
+		return "<redacted>"
+	}
+	return value
 }

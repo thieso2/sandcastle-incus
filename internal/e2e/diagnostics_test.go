@@ -55,6 +55,88 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 	}
 }
 
+func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
+	config, err := meta.ProjectConfig(meta.Project{
+		Owner:           "owner-e2e-test",
+		Project:         "project-e2e-test",
+		Domain:          "project.e2e.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+		Tailscale: meta.Tailscale{
+			State:            "Running",
+			Tailnet:          "dev.example",
+			Hostname:         "sc-project.tailnet.example",
+			AdvertisedRoutes: []string{"10.248.0.0/24"},
+			TailscaleIPs:     []string{"100.80.12.34", "fd7a:115c:a1e0::1"},
+			LastCheckedAt:    "2026-05-20T12:00:00Z",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
+		Name:   "sc-owner-e2e-test-project-e2e-test",
+		Config: config,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := projectDiagnosticLines(context.Background(), summaries, nil, "", "e2e-test")
+	if len(lines) != 1 {
+		t.Fatalf("lines = %#v, want one diagnostic line", lines)
+	}
+	for _, want := range []string{
+		"tailscale:",
+		"state=Running",
+		"tailnet=dev.example",
+		"hostname=sc-project.tailnet.example",
+		"routes=10.248.0.0/24",
+		"ips=2",
+		"lastCheckedAt=2026-05-20T12:00:00Z",
+	} {
+		if !strings.Contains(lines[0], want) {
+			t.Fatalf("diagnostic line missing %q:\n%s", want, lines[0])
+		}
+	}
+}
+
+func TestProjectDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
+	config, err := meta.ProjectConfig(meta.Project{
+		Owner:           "owner-e2e-test",
+		Project:         "project-e2e-test",
+		Domain:          "project.e2e.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+		Tailscale: meta.Tailscale{
+			State:    "NeedsLogin",
+			Tailnet:  "https://login.tailscale.com/a/secret-token",
+			Hostname: "tskey-auth-secret",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
+		Name:   "sc-owner-e2e-test-project-e2e-test",
+		Config: config,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := projectDiagnosticLines(context.Background(), summaries, nil, "", "e2e-test")
+	if len(lines) != 1 {
+		t.Fatalf("lines = %#v, want one diagnostic line", lines)
+	}
+	for _, forbidden := range []string{"login.tailscale.com", "secret-token", "tskey-auth-secret"} {
+		if strings.Contains(lines[0], forbidden) {
+			t.Fatalf("diagnostic line leaked %q:\n%s", forbidden, lines[0])
+		}
+	}
+	if !strings.Contains(lines[0], "tailnet=<redacted>") || !strings.Contains(lines[0], "hostname=<redacted>") {
+		t.Fatalf("diagnostic line missing redaction markers:\n%s", lines[0])
+	}
+}
+
 func TestProjectDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
 	store := diagnosticProjectStore(t)
 	summaries, err := project.List(context.Background(), store)

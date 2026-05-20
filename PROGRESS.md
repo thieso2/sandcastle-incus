@@ -1206,6 +1206,12 @@ development sandboxes.
 - Passed: `go test ./internal/tailscale ./internal/cli -run 'Test(TailscaleUp|PlanUp)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Expanded e2e failure diagnostics to include observed Tailscale metadata
+  alongside project topology, with defensive redaction for login URLs,
+  auth-key-like values, tokens, and secrets.
+- Passed: `go test ./internal/e2e -run 'Test(ProjectDiagnostic|LogProjectDiagnostic)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
