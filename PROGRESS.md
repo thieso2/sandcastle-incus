@@ -597,6 +597,9 @@ development sandboxes.
 - The manual destructive e2e workflow cleanup follow-up is now explicitly
   `continue-on-error`, keeping cleanup best-effort and preserving the original
   failing tier as the primary failure signal.
+- Default Go e2e harness run ids now include nanosecond timestamp precision,
+  reducing collision risk when multiple destructive tests derive disposable
+  names inside the same process without an explicit `SANDCASTLE_E2E_RUN_ID`.
 
 ## Next Slice
 
@@ -996,6 +999,9 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'Test(DisposableRunID|LoadConfig|Validate)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 

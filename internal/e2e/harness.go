@@ -112,7 +112,7 @@ func (c Config) DisposableRunID() string {
 	if c.RunID != "" {
 		return safeToken(c.RunID)
 	}
-	return "e2e-" + time.Now().UTC().Format("20060102-150405")
+	return "e2e-" + time.Now().UTC().Format("20060102-150405-000000000")
 }
 
 func safeToken(value string) string {

@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -90,5 +91,14 @@ func TestDisposableRunIDUsesSafeOverride(t *testing.T) {
 	config := LoadConfig()
 	if got := config.DisposableRunID(); got != "test-run-1" {
 		t.Fatalf("DisposableRunID = %q, want test-run-1", got)
+	}
+}
+
+func TestDisposableRunIDDefaultIncludesSubsecondEntropy(t *testing.T) {
+	t.Setenv("SANDCASTLE_E2E_RUN_ID", "")
+	config := LoadConfig()
+	got := config.DisposableRunID()
+	if !regexp.MustCompile(`^e2e-[0-9]{8}-[0-9]{6}-[0-9]{9}$`).MatchString(got) {
+		t.Fatalf("DisposableRunID = %q, want nanosecond timestamp run id", got)
 	}
 }
