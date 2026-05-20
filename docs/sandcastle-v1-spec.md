@@ -200,6 +200,20 @@ project private CIDR advertised. The project owner chooses the tailnet by
 authenticating that Tailscale login. The project has exactly one active
 Tailscale attachment.
 
+For unattended automation and e2e, Sandcastle can pass an auth key and an
+advertised tag to `tailscale up`. The default automation tag is
+`tag:sandcastle`, so tailnet policies can auto-approve the advertised project
+subnet route for Sandcastle sidecars.
+
+Example automation shape:
+
+```bash
+tailscale up \
+  --auth-key="$SANDCASTLE_E2E_TAILSCALE_AUTHKEY" \
+  --advertise-tags=tag:sandcastle \
+  --advertise-routes=10.88.17.0/24
+```
+
 Sandcastle records observed Tailscale status in project metadata:
 
 ```json

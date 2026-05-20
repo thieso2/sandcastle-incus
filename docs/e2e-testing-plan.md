@@ -17,8 +17,9 @@ Optional but required for full network tests:
 
 - `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`, an ephemeral or reusable auth key for a
   test tailnet.
-- A tailnet policy that auto-approves the advertised test subnet route, or a
-  documented manual approval step for non-CI runs.
+- `SANDCASTLE_E2E_TAILSCALE_TAG`, defaulting to `tag:sandcastle`.
+- A tailnet policy that auto-approves the advertised test subnet route for
+  `tag:sandcastle`, or a documented manual approval step for non-CI runs.
 - A public test domain or delegated subdomain for infrastructure Caddy tests.
 
 Safety:
@@ -39,6 +40,7 @@ SANDCASTLE_E2E_REMOTE=local
 SANDCASTLE_E2E_STORAGE_POOL=default
 SANDCASTLE_E2E_CIDR_POOL=10.248.0.0/16
 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-...
+SANDCASTLE_E2E_TAILSCALE_TAG=tag:sandcastle
 SANDCASTLE_E2E_DOMAIN_SUFFIX=e2e.project-tld
 SANDCASTLE_E2E_PUBLIC_DOMAIN=*.e2e.example.com
 ```
@@ -151,7 +153,8 @@ Requires `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
 
 Test:
 
-1. Run `sandcastle tailscale up <project>` with the auth key.
+1. Run `sandcastle tailscale up <project>` with the auth key and
+   `tag:sandcastle` advertised.
 2. Verify sidecar reaches connected state.
 3. Verify project private CIDR is advertised.
 4. From the test runner, query CoreDNS through the Tailscale-routed private IP.
@@ -161,6 +164,8 @@ Test:
 Primary assertions:
 
 - Tailscale auth secrets are not stored in metadata.
+- Tailscale sidecars are tagged with `tag:sandcastle` during automation so
+  tailnet auto-approvers can approve the advertised private CIDR route.
 - DNS and HTTPS work over the advertised route.
 
 Core e2e must still pass without this phase when no Tailscale auth key is

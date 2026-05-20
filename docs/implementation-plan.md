@@ -219,6 +219,8 @@ Deliverables:
 
 - Prepared Tailscale sidecar can run `tailscale up` from the user CLI.
 - Optional auth key input for e2e/automation.
+- Optional advertised tag input for e2e/automation, defaulting to
+  `tag:sandcastle`.
 - Tailscale status collection and metadata recording.
 - Route availability checks for the project private CIDR.
 
@@ -233,6 +235,8 @@ sandcastle tailscale down myproject
 Exit criteria:
 
 - With an auth key, e2e can connect the project sidecar unattended.
+- Automation connects the sidecar with `--advertise-tags=tag:sandcastle` so
+  tailnet route auto-approvers can approve the advertised project subnet.
 - The project private CIDR is advertised.
 - Tailscale status metadata records non-secret observed state.
 
