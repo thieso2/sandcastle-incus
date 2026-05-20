@@ -164,6 +164,16 @@ func TestAddDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestRemoveRequiresConfirmation(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "rm", "alice/myproject/codex")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("error = %q, want --yes hint", err.Error())
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
