@@ -1165,7 +1165,8 @@ func TestRouteAddDryRunJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
+		name:        "sandcastle",
+		adminConfig: routeAdminConfigForTest(),
 		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
 			Name:   "sc-alice-myproject",
 			Config: configMap,
@@ -1199,7 +1200,8 @@ func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
+		name:        "sandcastle",
+		adminConfig: routeAdminConfigForTest(),
 		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
 			Name:   "sc-alice-myproject",
 			Config: configMap,
@@ -1212,6 +1214,12 @@ func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
 	if !strings.Contains(err.Error(), "route broker") {
 		t.Fatalf("error = %q", err.Error())
 	}
+}
+
+func routeAdminConfigForTest() scconfig.Admin {
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureHost = "203.0.113.10"
+	return admin
 }
 
 func TestRouteManagerFromEnvUsesBrokerClient(t *testing.T) {

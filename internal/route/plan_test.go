@@ -18,7 +18,7 @@ func (s fakeSandboxStore) FindSandbox(ctx context.Context, summary project.Summa
 }
 
 func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
-	plan, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{sandbox: meta.Sandbox{
+	plan, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTest(t), fakeSandboxStore{sandbox: meta.Sandbox{
 		Owner:     "alice",
 		Project:   "myproject",
 		Name:      "codex",
@@ -46,6 +46,9 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 	if !plan.DNSProof.Required || plan.DNSProof.Hostname != "app.example.com" {
 		t.Fatalf("DNSProof = %#v", plan.DNSProof)
 	}
+	if plan.DNSProof.ExpectedTarget != "203.0.113.10" {
+		t.Fatalf("DNSProof.ExpectedTarget = %q", plan.DNSProof.ExpectedTarget)
+	}
 	routeMetadata, err := meta.ParseRouteConfig(plan.MetadataConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +62,7 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 }
 
 func TestPlanAddSupportsProjectNameShorthandWithOwner(t *testing.T) {
-	admin := scconfig.LoadAdminFromEnv()
+	admin := routeAdminForTest()
 	admin.Owner = "alice"
 	plan, err := PlanAdd(context.Background(), admin, projectStoreForTest(t), fakeSandboxStore{sandbox: meta.Sandbox{
 		Owner:     "alice",
@@ -77,7 +80,7 @@ func TestPlanAddSupportsProjectNameShorthandWithOwner(t *testing.T) {
 }
 
 func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
-	plan, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTemplate(t, "base"), fakeSandboxStore{sandbox: meta.Sandbox{
+	plan, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTemplate(t, "base"), fakeSandboxStore{sandbox: meta.Sandbox{
 		Owner:     "alice",
 		Project:   "myproject",
 		Name:      "codex",
@@ -92,7 +95,7 @@ func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
 }
 
 func TestPlanAddRejectsUnknownTemplateAppPortFallback(t *testing.T) {
-	_, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTemplate(t, "unknown"), fakeSandboxStore{sandbox: meta.Sandbox{
+	_, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTemplate(t, "unknown"), fakeSandboxStore{sandbox: meta.Sandbox{
 		Owner:     "alice",
 		Project:   "myproject",
 		Name:      "codex",
@@ -104,8 +107,18 @@ func TestPlanAddRejectsUnknownTemplateAppPortFallback(t *testing.T) {
 }
 
 func TestPlanAddRejectsWildcardRoute(t *testing.T) {
-	_, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{}, AddRequest{
+	_, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTest(t), fakeSandboxStore{}, AddRequest{
 		Hostname:        "*.example.com",
+		TargetReference: "alice/myproject/codex",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestPlanAddRequiresInfrastructureHost(t *testing.T) {
+	_, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{}, AddRequest{
+		Hostname:        "app.example.com",
 		TargetReference: "alice/myproject/codex",
 	})
 	if err == nil {
@@ -138,6 +151,12 @@ func TestProfileName(t *testing.T) {
 func projectStoreForTest(t *testing.T) project.MemoryStore {
 	t.Helper()
 	return projectStoreForTemplate(t, "ai")
+}
+
+func routeAdminForTest() scconfig.Admin {
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureHost = "203.0.113.10"
+	return admin
 }
 
 func projectStoreForTemplate(t *testing.T, template string) project.MemoryStore {

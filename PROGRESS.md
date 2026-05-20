@@ -1272,6 +1272,12 @@ development sandboxes.
 - Passed: `go test ./internal/incusx ./internal/e2e -run 'Test(TopologyStoreGetTopology|ProjectDiagnostic|LogProjectDiagnostic)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened public route planning so route adds require an infrastructure DNS
+  proof target before producing a plan, making CLI dry-runs and broker requests
+  fail early when `SANDCASTLE_INFRA_HOST`/e2e infrastructure host is missing.
+- Passed: `go test ./internal/route ./internal/routebroker ./internal/cli -run 'Test(PlanAdd|Server|HTTPRunner|RouteAdd)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

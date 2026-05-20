@@ -280,8 +280,10 @@ func TestServerRequiresMTLSCertificate(t *testing.T) {
 
 func brokerServerForTest(t *testing.T, routes route.Manager, metadata RouteMetadataStore) Server {
 	t.Helper()
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureHost = "203.0.113.10"
 	return Server{
-		Admin:         scconfig.LoadAdminFromEnv(),
+		Admin:         admin,
 		Projects:      projectStoreForBrokerTest(t),
 		Sandboxes:     fakeBrokerSandboxStore{},
 		Routes:        routes,

@@ -84,6 +84,10 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if err := admin.Validate(); err != nil {
 		return AddPlan{}, err
 	}
+	infrastructureHost := strings.TrimSpace(admin.InfrastructureHost)
+	if infrastructureHost == "" {
+		return AddPlan{}, fmt.Errorf("infrastructure host is required for public route DNS proof")
+	}
 	hostname, err := normalizePublicHostname(request.Hostname)
 	if err != nil {
 		return AddPlan{}, err
@@ -141,7 +145,7 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		DNSProof: DNSProof{
 			Required:       true,
 			Hostname:       hostname,
-			ExpectedTarget: strings.TrimSpace(admin.InfrastructureHost),
+			ExpectedTarget: infrastructureHost,
 			Message:        "Broker must verify public DNS points at Sandcastle infrastructure before accepting this route.",
 		},
 	}, nil
