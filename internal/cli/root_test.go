@@ -1683,6 +1683,19 @@ func TestAdminUserGrantDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestAdminUserGrantRejectsCrossOwnerProject(t *testing.T) {
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "admin", "user", "grant", "alice", "bob/myproject", "--dry-run")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "owned by bob") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestAdminRouteBrokerServeCallsRunner(t *testing.T) {
 	runner := &fakeRouteBrokerRunner{}
 	_, err := executeForTestWithConfig(t, commandConfig{

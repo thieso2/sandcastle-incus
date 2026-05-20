@@ -64,6 +64,9 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 		if err != nil {
 			return UserPlan{}, err
 		}
+		if ref.Owner != base.User {
+			return UserPlan{}, fmt.Errorf("user %s cannot be granted project owned by %s", base.User, ref.Owner)
+		}
 		name, err := naming.IncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
 		if err != nil {
 			return UserPlan{}, err

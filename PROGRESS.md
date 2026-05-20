@@ -1326,6 +1326,12 @@ development sandboxes.
 - Passed: `go test ./internal/incusx ./internal/usertrust ./internal/cli -run 'Test(TrustManager|PlanGrant|AdminUserGrant)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Enforced the v1 single-owner access model in restricted-user grant planning by
+  rejecting grants where the requested project owner differs from the restricted
+  user being granted.
+- Passed: `go test ./internal/usertrust ./internal/cli ./internal/e2e -run 'Test(PlanGrant|AdminUserGrant|RestrictedUserGrantAccessE2E)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

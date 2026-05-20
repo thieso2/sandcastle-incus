@@ -54,3 +54,13 @@ func TestPlanGrantRequiresProject(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestPlanGrantRejectsProjectOwnedByAnotherUser(t *testing.T) {
+	_, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{
+		User:     "alice",
+		Projects: []string{"bob/myproject"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
