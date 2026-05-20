@@ -1368,6 +1368,12 @@ development sandboxes.
 - Passed: `go run ./cmd/sandcastle admin user create alice --dry-run`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened route broker list filtering so broker responses only include
+  well-formed `owner/project/sandbox` target references that are owned by the
+  principal and covered by the restricted certificate project grants.
+- Passed: `go test ./internal/routebroker -run 'TestServerListsOnlyPrincipalRoutes|TestServerAddsAuthorizedRoute|TestServerRejectsUnownedRouteAdd' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

@@ -280,6 +280,8 @@ func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
 	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{
 		{Hostname: "app.example.com", TargetReference: "alice/myproject/codex", RoutePort: 3000},
 		{Hostname: "other-alice.example.com", TargetReference: "alice/other/codex", RoutePort: 3000},
+		{Hostname: "missing-sandbox.example.com", TargetReference: "alice/myproject", RoutePort: 3000},
+		{Hostname: "invalid-sandbox.example.com", TargetReference: "alice/myproject/bad_name", RoutePort: 3000},
 		{Hostname: "other.example.com", TargetReference: "bob/myproject/codex", RoutePort: 3000},
 	}}}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})

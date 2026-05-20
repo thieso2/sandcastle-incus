@@ -196,7 +196,8 @@ func filterRoutesForPrincipal(result route.ListResult, principal Principal, proj
 	filtered := make([]route.Route, 0, len(result.Routes))
 	prefix := principal.Owner + "/"
 	for _, publicRoute := range result.Routes {
-		if strings.HasPrefix(publicRoute.TargetReference, prefix) && principalCanAccessProject(principal, targetIncusProject(publicRoute.TargetReference, projectPrefix)) {
+		incusProject := targetIncusProject(publicRoute.TargetReference, projectPrefix)
+		if strings.HasPrefix(publicRoute.TargetReference, prefix) && incusProject != "" && principalCanAccessProject(principal, incusProject) {
 			filtered = append(filtered, publicRoute)
 		}
 	}
@@ -205,7 +206,10 @@ func filterRoutesForPrincipal(result route.ListResult, principal Principal, proj
 
 func targetIncusProject(targetReference string, projectPrefix string) string {
 	parts := strings.Split(targetReference, "/")
-	if len(parts) < 2 {
+	if len(parts) != 3 {
+		return ""
+	}
+	if err := (naming.ProjectRef{Owner: parts[2], Project: "placeholder"}).Validate(); err != nil {
 		return ""
 	}
 	incusProject, err := naming.IncusProjectNameWithPrefix(projectPrefix, naming.ProjectRef{Owner: parts[0], Project: parts[1]})
