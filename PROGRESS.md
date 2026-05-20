@@ -1405,6 +1405,13 @@ development sandboxes.
 - Passed: `go test ./internal/config ./internal/cli -run 'Test(LoadAdminFromEnv|RouteManagerFromEnv|Status|AddDryRun)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Added shared project-prefix validation for Incus project-name derivation and
+  admin config validation, rejecting malformed `SANDCASTLE_PROJECT_PREFIX`
+  values before they affect project names, user grants, or route broker
+  authorization.
+- Passed: `go test ./internal/naming ./internal/config ./internal/project ./internal/usertrust ./internal/route ./internal/routebroker -run 'Test(ValidateProjectPrefix|IncusProjectName|AdminValidate|LoadAdminFromEnv|PlanCreate|PlanGrant|PlanAdd|PlanRemove|Server|Authorize)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

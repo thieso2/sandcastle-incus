@@ -64,6 +64,26 @@ func TestIncusProjectName(t *testing.T) {
 	}
 }
 
+func TestIncusProjectNameRejectsInvalidPrefix(t *testing.T) {
+	_, err := IncusProjectNameWithPrefix("bad_prefix", ProjectRef{Owner: "alice", Project: "myproject"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestValidateProjectPrefix(t *testing.T) {
+	if err := ValidateProjectPrefix("dev"); err != nil {
+		t.Fatal(err)
+	}
+	for _, prefix := range []string{"", "s", "Bad", "bad_prefix", "bad.prefix"} {
+		t.Run(prefix, func(t *testing.T) {
+			if err := ValidateProjectPrefix(prefix); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
 func TestReservedSandboxNames(t *testing.T) {
 	for _, name := range []string{"ca", "dns", "tailscale", "sc-ca", "sc-dns", "sc-tailscale"} {
 		if !IsReservedSandboxName(name) {

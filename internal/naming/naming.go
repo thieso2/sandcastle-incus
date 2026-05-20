@@ -58,8 +58,9 @@ func IncusProjectName(ref ProjectRef) (string, error) {
 }
 
 func IncusProjectNameWithPrefix(prefix string, ref ProjectRef) (string, error) {
-	if prefix == "" {
-		return "", fmt.Errorf("project prefix is required")
+	prefix = strings.TrimSpace(prefix)
+	if err := ValidateProjectPrefix(prefix); err != nil {
+		return "", err
 	}
 	if err := ref.Validate(); err != nil {
 		return "", err
@@ -69,6 +70,16 @@ func IncusProjectNameWithPrefix(prefix string, ref ProjectRef) (string, error) {
 		return "", fmt.Errorf("incus project name %q exceeds 63 characters", name)
 	}
 	return name, nil
+}
+
+func ValidateProjectPrefix(prefix string) error {
+	if strings.TrimSpace(prefix) == "" {
+		return fmt.Errorf("project prefix is required")
+	}
+	if !safeNamePattern.MatchString(prefix) {
+		return fmt.Errorf("invalid project prefix %q", prefix)
+	}
+	return nil
 }
 
 func ValidateSandboxName(name string) error {

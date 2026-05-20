@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
 const (
@@ -70,6 +72,9 @@ func (c Admin) Validate() error {
 	}
 	if strings.TrimSpace(c.ProjectPrefix) == "" {
 		return fmt.Errorf("project prefix is required")
+	}
+	if err := naming.ValidateProjectPrefix(c.ProjectPrefix); err != nil {
+		return err
 	}
 	if strings.TrimSpace(c.InfrastructureProject) == "" {
 		return fmt.Errorf("infrastructure project is required")
