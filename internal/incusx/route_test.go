@@ -116,7 +116,10 @@ func (s *fakeRouteResourceServer) ExecInstance(instanceName string, exec api.Ins
 func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
 	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
-	manager := RouteManager{Server: &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"}}
+	manager := RouteManager{
+		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
+		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
+	}
 	plan := routePlanForTest(t)
 	if err := manager.Add(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -149,6 +152,24 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	}
 	if device := target.updated.Devices["sc-route-app-example-com"]; device["parent"] != "sc-private" || device["user.sandcastle.hostname"] != "app.example.com" {
 		t.Fatalf("ingress device = %#v", device)
+	}
+}
+
+func TestRouteManagerRejectsRouteWhenDNSProofFails(t *testing.T) {
+	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	manager := RouteManager{
+		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
+		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.11"}},
+	}
+	if err := manager.Add(context.Background(), routePlanForTest(t)); err == nil {
+		t.Fatal("expected DNS proof error")
+	}
+	if target.updated != nil {
+		t.Fatal("target sandbox should not be mutated when DNS proof fails")
+	}
+	if resource.createdProfile != nil {
+		t.Fatal("route metadata should not be created when DNS proof fails")
 	}
 }
 
@@ -241,9 +262,22 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 		IngressDevice:         "sc-route-app-example-com",
 		IngressNetwork:        "sc-private",
 		MetadataConfig:        metadata,
+		DNSProof: route.DNSProof{
+			Required:       true,
+			Hostname:       "app.example.com",
+			ExpectedTarget: "203.0.113.10",
+		},
 	}
 }
 
 func projectSummaryForRouteTest() project.Summary {
 	return project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject"}
+}
+
+type fakeRouteDNSResolver struct {
+	hosts []string
+}
+
+func (r fakeRouteDNSResolver) LookupHost(ctx context.Context, hostname string) ([]string, error) {
+	return r.hosts, nil
 }

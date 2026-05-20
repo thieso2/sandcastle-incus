@@ -43,6 +43,9 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 	if plan.IngressDevice != "sc-route-app-example-com" {
 		t.Fatalf("IngressDevice = %q", plan.IngressDevice)
 	}
+	if !plan.DNSProof.Required || plan.DNSProof.Hostname != "app.example.com" {
+		t.Fatalf("DNSProof = %#v", plan.DNSProof)
+	}
 	routeMetadata, err := meta.ParseRouteConfig(plan.MetadataConfig)
 	if err != nil {
 		t.Fatal(err)

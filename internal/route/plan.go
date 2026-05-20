@@ -37,7 +37,15 @@ type AddPlan struct {
 	IngressNetwork        string            `json:"ingressNetwork"`
 	MetadataConfig        map[string]string `json:"metadataConfig"`
 	RequiresBroker        bool              `json:"requiresBroker"`
-	DNSProof              string            `json:"dnsProof"`
+	DNSProof              DNSProof          `json:"dnsProof"`
+}
+
+type DNSProof struct {
+	Required        bool     `json:"required"`
+	Hostname        string   `json:"hostname"`
+	ExpectedTarget  string   `json:"expectedTarget,omitempty"`
+	ResolvedTargets []string `json:"resolvedTargets,omitempty"`
+	Message         string   `json:"message"`
 }
 
 type RemovePlan struct {
@@ -127,7 +135,12 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		IngressNetwork:        project.PrivateNetworkName,
 		MetadataConfig:        metadataConfig,
 		RequiresBroker:        true,
-		DNSProof:              "Broker must verify public DNS points at Sandcastle infrastructure before accepting this route.",
+		DNSProof: DNSProof{
+			Required:       true,
+			Hostname:       hostname,
+			ExpectedTarget: strings.TrimSpace(admin.InfrastructureHost),
+			Message:        "Broker must verify public DNS points at Sandcastle infrastructure before accepting this route.",
+		},
 	}, nil
 }
 

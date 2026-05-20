@@ -12,6 +12,7 @@ const (
 	DefaultCIDRPool              = "10.248.0.0/16"
 	DefaultProjectPrefix         = "sc"
 	DefaultInfrastructureProject = "sc-infra"
+	DefaultInfrastructureHost    = ""
 	DefaultBaseImageAlias        = "sandcastle/base:latest"
 	DefaultAIImageAlias          = "sandcastle/ai:latest"
 )
@@ -22,6 +23,7 @@ type Admin struct {
 	CIDRPool              string
 	ProjectPrefix         string
 	InfrastructureProject string
+	InfrastructureHost    string
 	Images                Images
 }
 
@@ -37,6 +39,7 @@ func LoadAdminFromEnv() Admin {
 		CIDRPool:              getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
 		ProjectPrefix:         getenv("SANDCASTLE_PROJECT_PREFIX", DefaultProjectPrefix),
 		InfrastructureProject: getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
+		InfrastructureHost:    getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
 		Images: Images{
 			Base: getenv("SANDCASTLE_BASE_IMAGE", DefaultBaseImageAlias),
 			AI:   getenv("SANDCASTLE_AI_IMAGE", DefaultAIImageAlias),

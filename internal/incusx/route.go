@@ -36,6 +36,7 @@ type RouteManager struct {
 	Remote     string
 	ConfigPath string
 	Server     RouteServer
+	Resolver   route.DNSResolver
 }
 
 func NewRouteManager(remote string) RouteManager {
@@ -49,6 +50,9 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 	}
 	projectServer := server.UseProject(plan.InfrastructureProject)
 	targetProjectServer := server.UseProject(plan.Project.IncusName)
+	if _, err := route.VerifyDNSProof(ctx, m.Resolver, plan.DNSProof); err != nil {
+		return err
+	}
 	if err := ensureRouteIngressAttachment(targetProjectServer, plan); err != nil {
 		return err
 	}

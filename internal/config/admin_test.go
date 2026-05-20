@@ -30,6 +30,7 @@ func TestLoadAdminFromEnvOverrides(t *testing.T) {
 	t.Setenv("SANDCASTLE_CIDR_POOL", "10.99.0.0/16")
 	t.Setenv("SANDCASTLE_PROJECT_PREFIX", "dev")
 	t.Setenv("SANDCASTLE_INFRA_PROJECT", "dev-infra")
+	t.Setenv("SANDCASTLE_INFRA_HOST", "203.0.113.10")
 	t.Setenv("SANDCASTLE_BASE_IMAGE", "images:debian/13")
 	t.Setenv("SANDCASTLE_AI_IMAGE", "sandcastle/ai:test")
 
@@ -39,6 +40,9 @@ func TestLoadAdminFromEnvOverrides(t *testing.T) {
 	}
 	if config.Images.Base != "images:debian/13" {
 		t.Fatalf("Base image = %q", config.Images.Base)
+	}
+	if config.InfrastructureHost != "203.0.113.10" {
+		t.Fatalf("InfrastructureHost = %q", config.InfrastructureHost)
 	}
 }
 
