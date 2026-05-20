@@ -71,11 +71,20 @@ func (f Forwarder) upstreamFor(packet []byte) (string, error) {
 		return "", err
 	}
 	qname = strings.TrimSuffix(strings.ToLower(qname), ".")
+	matchDomain := ""
+	matchEndpoint := ""
 	for _, project := range state.Projects {
 		domain := strings.TrimSuffix(strings.ToLower(project.Domain), ".")
 		if qname == domain || strings.HasSuffix(qname, "."+domain) {
-			return net.JoinHostPort(project.DNSEndpoint.IP, fmt.Sprint(project.DNSEndpoint.Port)), nil
+			if len(domain) <= len(matchDomain) {
+				continue
+			}
+			matchDomain = domain
+			matchEndpoint = net.JoinHostPort(project.DNSEndpoint.IP, fmt.Sprint(project.DNSEndpoint.Port))
 		}
+	}
+	if matchEndpoint != "" {
+		return matchEndpoint, nil
 	}
 	return "", fmt.Errorf("no local DNS project for %q", qname)
 }

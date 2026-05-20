@@ -46,6 +46,40 @@ func TestForwarderRoutesByStateAndReloads(t *testing.T) {
 	}
 }
 
+func TestForwarderUsesMostSpecificMatchingDomain(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "dns.yaml")
+	parent := startUDPResponder(t, []byte{0x01, 0x01})
+	child := startUDPResponder(t, []byte{0x02, 0x02})
+	writeForwarderStateEntries(t, statePath, []forwarderStateEntry{
+		{domain: "project-tld", endpoint: parent},
+		{domain: "sub.project-tld", endpoint: child},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listen := localUDPAddr(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- Forwarder{StatePath: statePath, Listen: listen, Timeout: time.Second}.Serve(ctx)
+	}()
+	waitForUDP(t, listen)
+
+	response := queryForwarder(t, listen, dnsQuery("codex.sub.project-tld"))
+	if string(response) != string([]byte{0x02, 0x02}) {
+		t.Fatalf("response = %#v, want child project response", response)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("forwarder did not stop")
+	}
+}
+
 func TestQuestionNameParsesDNSQuestion(t *testing.T) {
 	name, err := questionName(dnsQuery("codex.myproject.project-tld"))
 	if err != nil {
@@ -139,19 +173,31 @@ func queryForwarderOnce(addr string, packet []byte) ([]byte, error) {
 
 func writeForwarderState(t *testing.T, path string, domain string, endpoint string) {
 	t.Helper()
-	host, port, err := net.SplitHostPort(endpoint)
-	if err != nil {
-		t.Fatal(err)
+	writeForwarderStateEntries(t, path, []forwarderStateEntry{{domain: domain, endpoint: endpoint}})
+}
+
+type forwarderStateEntry struct {
+	domain   string
+	endpoint string
+}
+
+func writeForwarderStateEntries(t *testing.T, path string, entries []forwarderStateEntry) {
+	t.Helper()
+	content := "projects:\n"
+	for index, entry := range entries {
+		host, port, err := net.SplitHostPort(entry.endpoint)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content += "- owner: alice\n" +
+			"  project: project" + string(rune('a'+index)) + "\n" +
+			"  domain: " + entry.domain + "\n" +
+			"  dnsEndpoint:\n" +
+			"    ip: " + host + "\n" +
+			"    port: " + port + "\n" +
+			"  resolver:\n" +
+			"    listen: 127.0.0.1:53541\n"
 	}
-	content := "projects:\n" +
-		"- owner: alice\n" +
-		"  project: myproject\n" +
-		"  domain: " + domain + "\n" +
-		"  dnsEndpoint:\n" +
-		"    ip: " + host + "\n" +
-		"    port: " + port + "\n" +
-		"  resolver:\n" +
-		"    listen: 127.0.0.1:53541\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

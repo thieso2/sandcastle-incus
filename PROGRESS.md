@@ -1218,6 +1218,12 @@ development sandboxes.
 - Passed: `go test ./internal/cli -run 'TestTrust|TestListText|TestStatusJSON|TestAdd(DryRunRejectsUnsafeStorageFlags|DetachSkipsEnter|BackgroundSkipsEnter)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Fixed local DNS forwarding for overlapping installed project domains by
+  routing queries to the longest matching suffix from CLI-managed state instead
+  of the first matching project entry.
+- Passed: `go test ./internal/localdns -run 'TestForwarder' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
