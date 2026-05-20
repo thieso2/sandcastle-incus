@@ -60,6 +60,16 @@ func List(ctx context.Context, store IncusProjectStore) ([]Summary, error) {
 	return summaries, nil
 }
 
+func OccupiedCIDRs(projects []Summary) []string {
+	cidrs := make([]string, 0, len(projects))
+	for _, project := range projects {
+		if project.PrivateCIDR != "" {
+			cidrs = append(cidrs, project.PrivateCIDR)
+		}
+	}
+	return cidrs
+}
+
 type MemoryStore struct {
 	Projects []IncusProject
 }

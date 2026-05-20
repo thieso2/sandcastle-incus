@@ -65,15 +65,29 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 		Short: "Create a Sandcastle project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var occupiedCIDRs []string
 			if !dryRun {
-				return fmt.Errorf("project creation execution is not implemented yet; rerun with --dry-run to inspect the plan")
+				existingProjects, err := listProjects(cmd.Context(), config.projectStore)
+				if err != nil {
+					return err
+				}
+				occupiedCIDRs = project.OccupiedCIDRs(existingProjects)
 			}
 			plan, err := project.PlanCreate(config.adminConfig, project.CreateRequest{
-				Reference: args[0],
-				Domain:    domain,
+				Reference:     args[0],
+				Domain:        domain,
+				OccupiedCIDRs: occupiedCIDRs,
 			})
 			if err != nil {
 				return err
+			}
+			if !dryRun {
+				if config.projectCreator == nil {
+					return fmt.Errorf("project creation executor is not configured")
+				}
+				if err := config.projectCreator.CreateProject(cmd.Context(), plan); err != nil {
+					return err
+				}
 			}
 			return writeOutput(config.stdout, opts.output, formatCreatePlan(plan), plan)
 		},

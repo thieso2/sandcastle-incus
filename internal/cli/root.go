@@ -22,11 +22,12 @@ const (
 )
 
 type commandConfig struct {
-	name         string
-	stdout       io.Writer
-	stderr       io.Writer
-	projectStore project.IncusProjectStore
-	adminConfig  scconfig.Admin
+	name           string
+	stdout         io.Writer
+	stderr         io.Writer
+	projectStore   project.IncusProjectStore
+	adminConfig    scconfig.Admin
+	projectCreator project.Creator
 }
 
 type rootOptions struct {
@@ -44,6 +45,7 @@ func Execute(name string, args []string) int {
 		projectStore: incusx.NewProjectStore(
 			adminConfig.Remote,
 		),
+		projectCreator: incusx.NewProjectCreator(adminConfig.Remote),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)

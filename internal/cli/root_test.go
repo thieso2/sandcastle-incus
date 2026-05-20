@@ -165,13 +165,13 @@ func TestAdminProjectCreateDryRunJSON(t *testing.T) {
 	}
 }
 
-func TestAdminProjectCreateRequiresDryRunUntilExecutorExists(t *testing.T) {
+func TestAdminProjectCreateRequiresExecutor(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "admin", "project", "create", "alice/myproject", "--domain", "myproject.project-tld")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "--dry-run") {
-		t.Fatalf("error = %q, want --dry-run hint", err.Error())
+	if !strings.Contains(err.Error(), "executor") {
+		t.Fatalf("error = %q, want executor hint", err.Error())
 	}
 }
 

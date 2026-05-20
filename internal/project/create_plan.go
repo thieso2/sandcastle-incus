@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -42,6 +43,10 @@ type CreatePlan struct {
 	DNSAddress            string            `json:"dnsAddress"`
 	DefaultTemplate       string            `json:"defaultTemplate"`
 	ProjectMetadataConfig map[string]string `json:"projectMetadataConfig"`
+}
+
+type Creator interface {
+	CreateProject(context.Context, CreatePlan) error
 }
 
 func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {

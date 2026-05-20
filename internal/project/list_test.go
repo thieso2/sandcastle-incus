@@ -63,3 +63,17 @@ func TestListReportsInvalidManagedMetadata(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestOccupiedCIDRs(t *testing.T) {
+	cidrs := OccupiedCIDRs([]Summary{
+		{PrivateCIDR: "10.248.0.0/24"},
+		{},
+		{PrivateCIDR: "10.248.1.0/24"},
+	})
+	if len(cidrs) != 2 {
+		t.Fatalf("len(cidrs) = %d, want 2", len(cidrs))
+	}
+	if cidrs[0] != "10.248.0.0/24" || cidrs[1] != "10.248.1.0/24" {
+		t.Fatalf("cidrs = %#v", cidrs)
+	}
+}
