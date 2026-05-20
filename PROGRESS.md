@@ -1182,6 +1182,12 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker ./internal/route -run 'Test(Server|PlanRemove|Client)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened route broker authorization so the mTLS client certificate mapping
+  carries the trusted Incus certificate's restricted project list, and route
+  add/remove/list only operate on projects present in that certificate scope.
+- Passed: `go test ./internal/routebroker ./internal/incusx -run 'Test(RouteBroker|Authorize|Principal|Server|HTTPRunner)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

@@ -12,21 +12,27 @@ import (
 )
 
 type fakeTrustMapper struct {
-	owner string
-	err   error
+	principal Principal
+	err       error
 }
 
-func (m fakeTrustMapper) OwnerForFingerprint(ctx context.Context, fingerprint string) (string, error) {
-	return m.owner, m.err
+func (m fakeTrustMapper) PrincipalForFingerprint(ctx context.Context, fingerprint string) (Principal, error) {
+	return m.principal, m.err
 }
 
 func TestPrincipalFromFingerprintMapsOwner(t *testing.T) {
-	principal, err := PrincipalFromFingerprint(context.Background(), fakeTrustMapper{owner: "alice"}, " abc123 ")
+	principal, err := PrincipalFromFingerprint(context.Background(), fakeTrustMapper{principal: Principal{
+		Owner:    "alice",
+		Projects: []string{" sc-alice-myproject ", "", "sc-alice-myproject"},
+	}}, " abc123 ")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if principal.Fingerprint != "abc123" || principal.Owner != "alice" {
 		t.Fatalf("principal = %#v", principal)
+	}
+	if len(principal.Projects) != 1 || principal.Projects[0] != "sc-alice-myproject" {
+		t.Fatalf("projects = %#v", principal.Projects)
 	}
 }
 
@@ -48,26 +54,46 @@ func TestPrincipalFromFingerprintReturnsMapperError(t *testing.T) {
 }
 
 func TestAuthorizeAddAllowsOwner(t *testing.T) {
-	err := AuthorizeAdd(Principal{Owner: "alice"}, route.AddPlan{Project: project.Summary{Owner: "alice"}})
+	err := AuthorizeAdd(Principal{Owner: "alice", Projects: []string{"sc-alice-myproject"}}, route.AddPlan{Project: project.Summary{Owner: "alice", IncusName: "sc-alice-myproject"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestAuthorizeAddRejectsDifferentOwner(t *testing.T) {
-	err := AuthorizeAdd(Principal{Owner: "bob"}, route.AddPlan{Project: project.Summary{Owner: "alice"}})
+	err := AuthorizeAdd(Principal{Owner: "bob", Projects: []string{"sc-alice-myproject"}}, route.AddPlan{Project: project.Summary{Owner: "alice", IncusName: "sc-alice-myproject"}})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
+func TestAuthorizeAddRejectsProjectOutsideCertificateScope(t *testing.T) {
+	err := AuthorizeAdd(Principal{Owner: "alice", Projects: []string{"sc-alice-other"}}, route.AddPlan{Project: project.Summary{Owner: "alice", IncusName: "sc-alice-myproject"}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not granted") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestAuthorizeRemoveUsesStoredRouteOwner(t *testing.T) {
-	err := AuthorizeRemove(Principal{Owner: "alice"}, meta.Route{TargetOwner: "alice"})
+	err := AuthorizeRemove(Principal{Owner: "alice", Projects: []string{"sc-alice-myproject"}}, meta.Route{TargetOwner: "alice", TargetProject: "myproject"}, "sc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = AuthorizeRemove(Principal{Owner: "bob"}, meta.Route{TargetOwner: "alice"})
+	err = AuthorizeRemove(Principal{Owner: "bob", Projects: []string{"sc-alice-myproject"}}, meta.Route{TargetOwner: "alice", TargetProject: "myproject"}, "sc")
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAuthorizeRemoveRejectsProjectOutsideCertificateScope(t *testing.T) {
+	err := AuthorizeRemove(Principal{Owner: "alice", Projects: []string{"sc-alice-other"}}, meta.Route{TargetOwner: "alice", TargetProject: "myproject"}, "sc")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not granted") {
+		t.Fatalf("error = %q", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 )
 
 type RouteBrokerTrustServer interface {
@@ -23,12 +24,12 @@ func NewRouteBrokerTrustMapper(remote string) RouteBrokerTrustMapper {
 	return RouteBrokerTrustMapper{Remote: remote}
 }
 
-func (m RouteBrokerTrustMapper) OwnerForFingerprint(ctx context.Context, fingerprint string) (string, error) {
+func (m RouteBrokerTrustMapper) PrincipalForFingerprint(ctx context.Context, fingerprint string) (routebroker.Principal, error) {
 	server := m.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
 		if err != nil {
-			return "", fmt.Errorf("load Incus config: %w", err)
+			return routebroker.Principal{}, fmt.Errorf("load Incus config: %w", err)
 		}
 		remote := m.Remote
 		if remote == "" {
@@ -36,13 +37,13 @@ func (m RouteBrokerTrustMapper) OwnerForFingerprint(ctx context.Context, fingerp
 		}
 		instanceServer, err := loaded.GetInstanceServer(remote)
 		if err != nil {
-			return "", fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+			return routebroker.Principal{}, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
 		server = instanceServer
 	}
 	certificates, err := server.GetCertificates()
 	if err != nil {
-		return "", fmt.Errorf("list Incus certificates: %w", err)
+		return routebroker.Principal{}, fmt.Errorf("list Incus certificates: %w", err)
 	}
 	normalized := normalizeFingerprint(fingerprint)
 	for _, certificate := range certificates {
@@ -51,11 +52,15 @@ func (m RouteBrokerTrustMapper) OwnerForFingerprint(ctx context.Context, fingerp
 		}
 		owner := ownerFromCertificate(certificate)
 		if owner == "" {
-			return "", fmt.Errorf("certificate %s is not a Sandcastle restricted user certificate", fingerprint)
+			return routebroker.Principal{}, fmt.Errorf("certificate %s is not a Sandcastle restricted user certificate", fingerprint)
 		}
-		return owner, nil
+		return routebroker.Principal{
+			Fingerprint: normalized,
+			Owner:       owner,
+			Projects:    append([]string{}, certificate.Projects...),
+		}, nil
 	}
-	return "", fmt.Errorf("certificate fingerprint %s is not trusted", fingerprint)
+	return routebroker.Principal{}, fmt.Errorf("certificate fingerprint %s is not trusted", fingerprint)
 }
 
 func ownerFromCertificate(certificate api.Certificate) string {

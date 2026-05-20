@@ -24,15 +24,19 @@ func TestRouteBrokerTrustMapperMapsSandcastleCertificateName(t *testing.T) {
 			Name:       "sandcastle-alice",
 			Type:       api.CertificateTypeClient,
 			Restricted: true,
+			Projects:   []string{"sc-alice-myproject"},
 		},
 		Fingerprint: "AB:CD",
 	}}}}
-	owner, err := mapper.OwnerForFingerprint(context.Background(), "abcd")
+	principal, err := mapper.PrincipalForFingerprint(context.Background(), "abcd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if owner != "alice" {
-		t.Fatalf("owner = %q", owner)
+	if principal.Owner != "alice" {
+		t.Fatalf("owner = %q", principal.Owner)
+	}
+	if len(principal.Projects) != 1 || principal.Projects[0] != "sc-alice-myproject" {
+		t.Fatalf("projects = %#v", principal.Projects)
 	}
 }
 
@@ -45,7 +49,7 @@ func TestRouteBrokerTrustMapperRejectsNonSandcastleCertificate(t *testing.T) {
 		},
 		Fingerprint: "abcd",
 	}}}}
-	_, err := mapper.OwnerForFingerprint(context.Background(), "abcd")
+	_, err := mapper.PrincipalForFingerprint(context.Background(), "abcd")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -63,7 +67,7 @@ func TestRouteBrokerTrustMapperRejectsUnrestrictedCertificate(t *testing.T) {
 		},
 		Fingerprint: "abcd",
 	}}}}
-	_, err := mapper.OwnerForFingerprint(context.Background(), "abcd")
+	_, err := mapper.PrincipalForFingerprint(context.Background(), "abcd")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -81,7 +85,7 @@ func TestRouteBrokerTrustMapperRejectsNonClientCertificate(t *testing.T) {
 		},
 		Fingerprint: "abcd",
 	}}}}
-	_, err := mapper.OwnerForFingerprint(context.Background(), "abcd")
+	_, err := mapper.PrincipalForFingerprint(context.Background(), "abcd")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -92,7 +96,7 @@ func TestRouteBrokerTrustMapperRejectsNonClientCertificate(t *testing.T) {
 
 func TestRouteBrokerTrustMapperRejectsUnknownFingerprint(t *testing.T) {
 	mapper := RouteBrokerTrustMapper{Server: fakeRouteBrokerTrustServer{}}
-	_, err := mapper.OwnerForFingerprint(context.Background(), "abcd")
+	_, err := mapper.PrincipalForFingerprint(context.Background(), "abcd")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -100,7 +104,7 @@ func TestRouteBrokerTrustMapperRejectsUnknownFingerprint(t *testing.T) {
 
 func TestRouteBrokerTrustMapperWrapsListErrors(t *testing.T) {
 	mapper := RouteBrokerTrustMapper{Server: fakeRouteBrokerTrustServer{err: errors.New("boom")}}
-	_, err := mapper.OwnerForFingerprint(context.Background(), "abcd")
+	_, err := mapper.PrincipalForFingerprint(context.Background(), "abcd")
 	if err == nil {
 		t.Fatal("expected error")
 	}

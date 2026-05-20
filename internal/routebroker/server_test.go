@@ -85,7 +85,22 @@ func TestServerAddsAuthorizedRoute(t *testing.T) {
 func TestServerRejectsUnownedRouteAdd(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
-	server.Trust = fakeTrustMapper{owner: "bob"}
+	server.Trust = fakeTrustMapper{principal: Principal{Owner: "bob", Projects: []string{"sc-bob-myproject"}}}
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if routes.added != nil {
+		t.Fatal("route should not be added")
+	}
+}
+
+func TestServerRejectsRouteAddOutsideCertificateProjectScope(t *testing.T) {
+	routes := &fakeBrokerRoutes{}
+	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
+	server.Trust = fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-alice-other"}}}
 	response := httptest.NewRecorder()
 	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
 	server.ServeHTTP(response, request)
@@ -127,6 +142,26 @@ func TestServerRemovesAuthorizedRoute(t *testing.T) {
 	}
 	if routes.removed == nil || routes.removed.Hostname != "app.example.com" {
 		t.Fatalf("removed = %#v", routes.removed)
+	}
+}
+
+func TestServerRejectsRouteRemoveOutsideCertificateProjectScope(t *testing.T) {
+	routes := &fakeBrokerRoutes{}
+	server := brokerServerForTest(t, routes, fakeBrokerMetadata{route: meta.Route{
+		Hostname:      "app.example.com",
+		TargetOwner:   "alice",
+		TargetProject: "myproject",
+		TargetSandbox: "codex",
+	}})
+	server.Trust = fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-alice-other"}}}
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodDelete, "/routes/app.example.com", "")
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if routes.removed != nil {
+		t.Fatal("route should not be removed")
 	}
 }
 
@@ -179,6 +214,7 @@ func TestServerNormalizesRemoveRouteHostnameBeforeLookup(t *testing.T) {
 func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
 	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{
 		{Hostname: "app.example.com", TargetReference: "alice/myproject/codex", RoutePort: 3000},
+		{Hostname: "other-alice.example.com", TargetReference: "alice/other/codex", RoutePort: 3000},
 		{Hostname: "other.example.com", TargetReference: "bob/myproject/codex", RoutePort: 3000},
 	}}}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
@@ -215,7 +251,7 @@ func brokerServerForTest(t *testing.T, routes route.Manager, metadata RouteMetad
 		Sandboxes:     fakeBrokerSandboxStore{},
 		Routes:        routes,
 		RouteMetadata: metadata,
-		Trust:         fakeTrustMapper{owner: "alice"},
+		Trust:         fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-alice-myproject"}}},
 	}
 }
 

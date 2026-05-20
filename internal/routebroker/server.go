@@ -13,6 +13,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 )
@@ -130,7 +131,7 @@ func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	if err := AuthorizeRemove(principal, routeMetadata); err != nil {
+	if err := AuthorizeRemove(principal, routeMetadata, plan.ProjectPrefix); err != nil {
 		writeError(w, http.StatusForbidden, err)
 		return
 	}
@@ -165,18 +166,30 @@ func (s Server) handleList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, filterRoutesForPrincipal(result, principal))
+	writeJSON(w, http.StatusOK, filterRoutesForPrincipal(result, principal, s.Admin.ProjectPrefix))
 }
 
-func filterRoutesForPrincipal(result route.ListResult, principal Principal) route.ListResult {
+func filterRoutesForPrincipal(result route.ListResult, principal Principal, projectPrefix string) route.ListResult {
 	filtered := make([]route.Route, 0, len(result.Routes))
 	prefix := principal.Owner + "/"
 	for _, publicRoute := range result.Routes {
-		if strings.HasPrefix(publicRoute.TargetReference, prefix) {
+		if strings.HasPrefix(publicRoute.TargetReference, prefix) && principalCanAccessProject(principal, targetIncusProject(publicRoute.TargetReference, projectPrefix)) {
 			filtered = append(filtered, publicRoute)
 		}
 	}
 	return route.ListResult{Routes: filtered}
+}
+
+func targetIncusProject(targetReference string, projectPrefix string) string {
+	parts := strings.Split(targetReference, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	incusProject, err := naming.IncusProjectNameWithPrefix(projectPrefix, naming.ProjectRef{Owner: parts[0], Project: parts[1]})
+	if err != nil {
+		return ""
+	}
+	return incusProject
 }
 
 func routeMutationErrorStatus(err error) int {
