@@ -1,0 +1,49 @@
+package naming
+
+import "testing"
+
+func TestParseProjectRef(t *testing.T) {
+	ref, err := ParseProjectRef("alice/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Owner != "alice" || ref.Project != "myproject" {
+		t.Fatalf("ref = %#v", ref)
+	}
+}
+
+func TestParseProjectRefRejectsMissingOwner(t *testing.T) {
+	_, err := ParseProjectRef("/myproject")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestParseProjectRefRejectsUnsafeCase(t *testing.T) {
+	_, err := ParseProjectRef("Alice/myproject")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestIncusProjectName(t *testing.T) {
+	ref := ProjectRef{Owner: "alice", Project: "myproject"}
+	name, err := IncusProjectName(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "sc-alice-myproject" {
+		t.Fatalf("name = %q, want sc-alice-myproject", name)
+	}
+}
+
+func TestReservedSandboxNames(t *testing.T) {
+	for _, name := range []string{"ca", "dns", "tailscale", "sc-ca", "sc-dns", "sc-tailscale"} {
+		if !IsReservedSandboxName(name) {
+			t.Fatalf("%q should be reserved", name)
+		}
+	}
+	if IsReservedSandboxName("codex") {
+		t.Fatal("codex should not be reserved")
+	}
+}

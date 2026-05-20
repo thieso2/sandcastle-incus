@@ -23,12 +23,16 @@ development sandboxes.
 - Added e2e config loader/gate that refuses destructive e2e unless
   `SANDCASTLE_E2E=1` and defaults `SANDCASTLE_E2E_TAILSCALE_TAG` to
   `tag:sandcastle`.
+- Added `internal/naming` for owner/project references, Incus project names, and
+  reserved sandbox names.
+- Added `internal/meta` for Sandcastle scalar metadata keys, versioned project
+  and sandbox state blobs, and unmanaged-resource detection.
 
 ## Next Slice
 
-- Add naming and metadata packages for owner/project parsing, Incus project
-  names, scalar metadata keys, and versioned JSON state blobs.
 - Wire read-only project listing to an Incus access abstraction.
+- Add CIDR allocation primitives for persisted project networks and live
+  network collision checks.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -38,6 +42,7 @@ development sandboxes.
 - Passed: `go build -o bin/sc ./cmd/sc`
 - Passed: `./bin/sandcastle version`
 - Passed: `./bin/sc --output json ls`
+- Passed: `go test ./...`
 
 ## Open Scope
 
