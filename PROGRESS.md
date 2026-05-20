@@ -1278,6 +1278,11 @@ development sandboxes.
 - Passed: `go test ./internal/route ./internal/routebroker ./internal/cli -run 'Test(PlanAdd|Server|HTTPRunner|RouteAdd)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened route broker list clients so broker responses are bounded, decoded
+  with unknown-field rejection, and rejected when extra JSON values are present.
+- Passed: `go test ./internal/routebroker -run 'Test(Client|Server)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

@@ -27,6 +27,8 @@ type routeRequest struct {
 	TargetReference string `json:"targetReference"`
 }
 
+const maxListResponseBytes = 1 << 20
+
 func (c Client) Add(ctx context.Context, plan route.AddPlan) error {
 	client, baseURL, err := c.client()
 	if err != nil {
@@ -73,9 +75,33 @@ func (c Client) List(ctx context.Context, plan route.ListPlan) (route.ListResult
 		return route.ListResult{}, err
 	}
 	defer response.Body.Close()
-	var result route.ListResult
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	result, err := decodeListResponse(response.Body)
+	if err != nil {
 		return route.ListResult{}, fmt.Errorf("decode route broker list response: %w", err)
+	}
+	return result, nil
+}
+
+func decodeListResponse(body io.Reader) (route.ListResult, error) {
+	payload, err := io.ReadAll(io.LimitReader(body, maxListResponseBytes+1))
+	if err != nil {
+		return route.ListResult{}, err
+	}
+	if len(payload) > maxListResponseBytes {
+		return route.ListResult{}, fmt.Errorf("response exceeds %d bytes", maxListResponseBytes)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	var result route.ListResult
+	if err := decoder.Decode(&result); err != nil {
+		return route.ListResult{}, err
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return route.ListResult{}, fmt.Errorf("response contains multiple JSON values")
+		}
+		return route.ListResult{}, err
 	}
 	return result, nil
 }

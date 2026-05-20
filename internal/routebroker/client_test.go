@@ -80,6 +80,61 @@ func TestClientListsRoutesThroughBroker(t *testing.T) {
 	}
 }
 
+func TestClientRejectsListResponseUnknownFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/routes" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"routes":[{"hostname":"app.example.com","targetReference":"alice/myproject/codex","routePort":3000,"extra":true}]}`))
+	}))
+	defer server.Close()
+
+	_, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).List(context.Background(), route.ListPlan{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestClientRejectsOversizedListResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/routes" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"routes":[]}`))
+		_, _ = w.Write([]byte(strings.Repeat(" ", maxListResponseBytes)))
+	}))
+	defer server.Close()
+
+	_, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).List(context.Background(), route.ListPlan{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "response exceeds") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestClientRejectsMultipleJSONListResponseValues(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/routes" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"routes":[]}{"routes":[]}`))
+	}))
+	defer server.Close()
+
+	_, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).List(context.Background(), route.ListPlan{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "multiple JSON values") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestClientRequiresBrokerURL(t *testing.T) {
 	err := (Client{}).Add(context.Background(), route.AddPlan{})
 	if err == nil {
