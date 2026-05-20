@@ -1144,6 +1144,13 @@ development sandboxes.
 - Passed: `go test ./internal/tailscale ./internal/incusx -run 'Test(ParseStatus|TailscaleManagerRunsStatus)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Added display-only public route backlinks to project metadata and project
+  status output while keeping infrastructure route profiles authoritative.
+  Route creation records the backlink; route removal clears it and still
+  tolerates missing target projects/sandboxes during stale global cleanup.
+- Passed: `go test ./internal/meta ./internal/project ./internal/incusx ./internal/cli -run 'Test(ProjectConfigRoundTrip|GetStatus|RouteManager|Status)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

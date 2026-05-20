@@ -14,6 +14,11 @@ func TestGetStatus(t *testing.T) {
 		Domain:          "myproject.project-tld",
 		PrivateCIDR:     "10.248.0.0/24",
 		DefaultTemplate: "ai",
+		PublicRoutes: []meta.PublicRoute{{
+			Hostname:  "app.example.com",
+			Sandbox:   "codex",
+			RoutePort: 5173,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -27,6 +32,9 @@ func TestGetStatus(t *testing.T) {
 	}
 	if status.Summary.IncusName != "sc-alice-myproject" {
 		t.Fatalf("IncusName = %q", status.Summary.IncusName)
+	}
+	if len(status.Summary.PublicRoutes) != 1 {
+		t.Fatalf("public routes = %#v", status.Summary.PublicRoutes)
 	}
 	if len(status.Checks) != 4 {
 		t.Fatalf("checks = %d, want 4", len(status.Checks))

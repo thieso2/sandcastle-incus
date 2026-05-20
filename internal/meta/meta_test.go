@@ -13,6 +13,11 @@ func TestProjectConfigRoundTrip(t *testing.T) {
 			State:            "connected",
 			AdvertisedRoutes: []string{"10.88.17.0/24"},
 		},
+		PublicRoutes: []PublicRoute{{
+			Hostname:  "app.example.com",
+			Sandbox:   "codex",
+			RoutePort: 5173,
+		}},
 	}
 	config, err := ProjectConfig(input)
 	if err != nil {
@@ -33,6 +38,9 @@ func TestProjectConfigRoundTrip(t *testing.T) {
 	}
 	if len(output.Tailscale.AdvertisedRoutes) != 1 {
 		t.Fatalf("advertised routes = %#v", output.Tailscale.AdvertisedRoutes)
+	}
+	if len(output.PublicRoutes) != 1 || output.PublicRoutes[0].Hostname != "app.example.com" {
+		t.Fatalf("public routes = %#v", output.PublicRoutes)
 	}
 }
 

@@ -32,13 +32,14 @@ const (
 )
 
 type Project struct {
-	Owner           string       `json:"owner"`
-	Project         string       `json:"project"`
-	Domain          string       `json:"domain"`
-	PrivateCIDR     string       `json:"privateCIDR"`
-	DefaultTemplate string       `json:"defaultTemplate"`
-	Tailscale       Tailscale    `json:"tailscale,omitempty"`
-	Sandboxes       []SandboxRef `json:"sandboxes,omitempty"`
+	Owner           string        `json:"owner"`
+	Project         string        `json:"project"`
+	Domain          string        `json:"domain"`
+	PrivateCIDR     string        `json:"privateCIDR"`
+	DefaultTemplate string        `json:"defaultTemplate"`
+	Tailscale       Tailscale     `json:"tailscale,omitempty"`
+	Sandboxes       []SandboxRef  `json:"sandboxes,omitempty"`
+	PublicRoutes    []PublicRoute `json:"publicRoutes,omitempty"`
 }
 
 type Tailscale struct {
@@ -53,6 +54,12 @@ type Tailscale struct {
 type SandboxRef struct {
 	Name string `json:"name"`
 	IP   string `json:"ip"`
+}
+
+type PublicRoute struct {
+	Hostname  string `json:"hostname"`
+	Sandbox   string `json:"sandbox"`
+	RoutePort int    `json:"routePort"`
 }
 
 type Sandbox struct {

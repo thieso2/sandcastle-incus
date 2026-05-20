@@ -18,6 +18,8 @@ import (
 
 type RouteServer interface {
 	UseProject(name string) RouteResourceServer
+	GetProject(name string) (*api.Project, string, error)
+	UpdateProject(name string, project api.ProjectPut, etag string) error
 }
 
 type RouteResourceServer interface {
@@ -80,6 +82,9 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 			Config:      api.ConfigMap(plan.MetadataConfig),
 		},
 	}); err != nil {
+		return err
+	}
+	if err := addRouteBacklink(server, plan); err != nil {
 		return err
 	}
 	return refreshInfrastructureCaddy(projectServer, m.LetsEncryptEmail)
@@ -191,6 +196,9 @@ func (m RouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
 		if err := removeRouteIngressAttachment(server, plan, routeMetadata); err != nil {
 			return err
 		}
+		if err := removeRouteBacklink(server, plan, routeMetadata); err != nil {
+			return err
+		}
 	}
 	if err := projectServer.DeleteProfile(route.ProfileName(plan.Hostname)); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("delete route metadata %s: %w", plan.Hostname, err)
@@ -232,6 +240,75 @@ func (m RouteManager) FindRoute(ctx context.Context, hostname string) (meta.Rout
 		return meta.Route{}, fmt.Errorf("infrastructure project is required")
 	}
 	return routeMetadataByHostname(server.UseProject(infrastructureProject), hostname)
+}
+
+func addRouteBacklink(server RouteServer, plan route.AddPlan) error {
+	return updateProjectRoutes(server, plan.Project.IncusName, false, func(routes []meta.PublicRoute) []meta.PublicRoute {
+		next := make([]meta.PublicRoute, 0, len(routes)+1)
+		for _, existing := range routes {
+			if existing.Hostname == plan.Hostname {
+				continue
+			}
+			next = append(next, existing)
+		}
+		next = append(next, meta.PublicRoute{
+			Hostname:  plan.Hostname,
+			Sandbox:   plan.Sandbox.Name,
+			RoutePort: plan.RoutePort,
+		})
+		sort.Slice(next, func(i, j int) bool {
+			return next[i].Hostname < next[j].Hostname
+		})
+		return next
+	})
+}
+
+func removeRouteBacklink(server RouteServer, plan route.RemovePlan, routeMetadata meta.Route) error {
+	projectRef := naming.ProjectRef{Owner: routeMetadata.TargetOwner, Project: routeMetadata.TargetProject}
+	incusProject, err := naming.IncusProjectNameWithPrefix(plan.ProjectPrefix, projectRef)
+	if err != nil {
+		return err
+	}
+	return updateProjectRoutes(server, incusProject, true, func(routes []meta.PublicRoute) []meta.PublicRoute {
+		next := make([]meta.PublicRoute, 0, len(routes))
+		for _, existing := range routes {
+			if existing.Hostname == routeMetadata.Hostname {
+				continue
+			}
+			next = append(next, existing)
+		}
+		return next
+	})
+}
+
+func updateProjectRoutes(server RouteServer, projectName string, tolerateMissing bool, update func([]meta.PublicRoute) []meta.PublicRoute) error {
+	incusProject, etag, err := server.GetProject(projectName)
+	if api.StatusErrorCheck(err, http.StatusNotFound) && tolerateMissing {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get project route backlinks for %s: %w", projectName, err)
+	}
+	managed, err := meta.ParseProjectConfig(map[string]string(incusProject.Config))
+	if err != nil {
+		return fmt.Errorf("parse project route backlinks for %s: %w", projectName, err)
+	}
+	managed.PublicRoutes = update(managed.PublicRoutes)
+	config, err := meta.ProjectConfig(managed)
+	if err != nil {
+		return err
+	}
+	put := incusProject.Writable()
+	if put.Config == nil {
+		put.Config = api.ConfigMap{}
+	}
+	for key, value := range config {
+		put.Config[key] = value
+	}
+	if err := server.UpdateProject(projectName, put, etag); err != nil {
+		return fmt.Errorf("update project route backlinks for %s: %w", projectName, err)
+	}
+	return nil
 }
 
 func refreshInfrastructureCaddy(server RouteResourceServer, letsEncryptEmail string) error {
@@ -323,6 +400,14 @@ type sdkRouteServer struct {
 
 func (s sdkRouteServer) UseProject(name string) RouteResourceServer {
 	return sdkRouteResourceServer{inner: s.inner.UseProject(name)}
+}
+
+func (s sdkRouteServer) GetProject(name string) (*api.Project, string, error) {
+	return s.inner.GetProject(name)
+}
+
+func (s sdkRouteServer) UpdateProject(name string, project api.ProjectPut, etag string) error {
+	return s.inner.UpdateProject(name, project, etag)
 }
 
 type sdkRouteResourceServer struct {

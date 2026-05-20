@@ -18,14 +18,15 @@ type IncusProjectStore interface {
 }
 
 type Summary struct {
-	IncusName       string         `json:"incusName"`
-	Owner           string         `json:"owner"`
-	Name            string         `json:"name"`
-	Domain          string         `json:"domain,omitempty"`
-	PrivateCIDR     string         `json:"privateCIDR,omitempty"`
-	DefaultTemplate string         `json:"defaultTemplate,omitempty"`
-	Status          string         `json:"status"`
-	Tailscale       meta.Tailscale `json:"tailscale,omitempty"`
+	IncusName       string             `json:"incusName"`
+	Owner           string             `json:"owner"`
+	Name            string             `json:"name"`
+	Domain          string             `json:"domain,omitempty"`
+	PrivateCIDR     string             `json:"privateCIDR,omitempty"`
+	DefaultTemplate string             `json:"defaultTemplate,omitempty"`
+	Status          string             `json:"status"`
+	Tailscale       meta.Tailscale     `json:"tailscale,omitempty"`
+	PublicRoutes    []meta.PublicRoute `json:"publicRoutes,omitempty"`
 }
 
 func List(ctx context.Context, store IncusProjectStore) ([]Summary, error) {
@@ -51,6 +52,7 @@ func List(ctx context.Context, store IncusProjectStore) ([]Summary, error) {
 			DefaultTemplate: project.DefaultTemplate,
 			Status:          "managed",
 			Tailscale:       project.Tailscale,
+			PublicRoutes:    append([]meta.PublicRoute{}, project.PublicRoutes...),
 		})
 	}
 	sort.Slice(summaries, func(i, j int) bool {

@@ -15,11 +15,13 @@ import (
 )
 
 type fakeRouteServer struct {
-	resource       *fakeRouteResourceServer
-	targetResource *fakeRouteResourceServer
-	project        string
-	targetProject  string
-	infrastructure string
+	resource        *fakeRouteResourceServer
+	targetResource  *fakeRouteResourceServer
+	project         string
+	targetProject   string
+	infrastructure  string
+	projectMetadata *api.Project
+	updatedProject  *api.ProjectPut
 }
 
 func (s *fakeRouteServer) UseProject(name string) RouteResourceServer {
@@ -31,6 +33,19 @@ func (s *fakeRouteServer) UseProject(name string) RouteResourceServer {
 	}
 	s.project = name
 	return s.resource
+}
+
+func (s *fakeRouteServer) GetProject(name string) (*api.Project, string, error) {
+	if s.projectMetadata != nil {
+		return s.projectMetadata, "etag", nil
+	}
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
+func (s *fakeRouteServer) UpdateProject(name string, project api.ProjectPut, etag string) error {
+	s.updatedProject = &project
+	s.projectMetadata = &api.Project{Name: name, ProjectPut: project}
+	return nil
 }
 
 type fakeRouteResourceServer struct {
@@ -116,8 +131,14 @@ func (s *fakeRouteResourceServer) ExecInstance(instanceName string, exec api.Ins
 func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
 	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	server := &fakeRouteServer{
+		resource:        resource,
+		targetResource:  target,
+		infrastructure:  "sc-infra",
+		projectMetadata: projectMetadataForRouteTest(t, nil),
+	}
 	manager := RouteManager{
-		Server:           &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
+		Server:           server,
 		Resolver:         fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
 		LetsEncryptEmail: "ops@example.com",
 	}
@@ -156,6 +177,19 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	}
 	if device := target.updated.Devices["sc-route-app-example-com"]; device["parent"] != "sc-private" || device["user.sandcastle.hostname"] != "app.example.com" {
 		t.Fatalf("ingress device = %#v", device)
+	}
+	if server.updatedProject == nil {
+		t.Fatal("expected target project route backlink update")
+	}
+	projectMetadata, err := meta.ParseProjectConfig(map[string]string(server.updatedProject.Config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projectMetadata.PublicRoutes) != 1 {
+		t.Fatalf("public routes = %#v", projectMetadata.PublicRoutes)
+	}
+	if projectMetadata.PublicRoutes[0].Hostname != "app.example.com" || projectMetadata.PublicRoutes[0].Sandbox != "codex" || projectMetadata.PublicRoutes[0].RoutePort != 5173 {
+		t.Fatalf("public route backlink = %#v", projectMetadata.PublicRoutes[0])
 	}
 }
 
@@ -309,7 +343,13 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 		"eth0":                     {"type": "nic"},
 		"sc-route-app-example-com": {"type": "nic", "parent": "sc-private"},
 	}}}}
-	manager := RouteManager{Server: &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"}}
+	server := &fakeRouteServer{
+		resource:        resource,
+		targetResource:  target,
+		infrastructure:  "sc-infra",
+		projectMetadata: projectMetadataForRouteTest(t, []meta.PublicRoute{{Hostname: "app.example.com", Sandbox: "codex", RoutePort: 5173}}),
+	}
+	manager := RouteManager{Server: server}
 	if err := manager.Remove(context.Background(), route.RemovePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra", ProjectPrefix: "sc"}); err != nil {
 		t.Fatal(err)
 	}
@@ -324,6 +364,16 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	}
 	if target.updated.Devices["sc-route-app-example-com"] != nil {
 		t.Fatalf("devices = %#v", target.updated.Devices)
+	}
+	if server.updatedProject == nil {
+		t.Fatal("expected target project route backlink update")
+	}
+	projectMetadata, err := meta.ParseProjectConfig(map[string]string(server.updatedProject.Config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projectMetadata.PublicRoutes) != 0 {
+		t.Fatalf("public routes = %#v", projectMetadata.PublicRoutes)
 	}
 }
 
@@ -378,6 +428,7 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 		Sandbox:               meta.Sandbox{Name: "codex"},
 		TargetInstanceName:    "sc-codex",
 		InfrastructureProject: "sc-infra",
+		RoutePort:             5173,
 		IngressDevice:         "sc-route-app-example-com",
 		IngressNetwork:        "sc-private",
 		MetadataConfig:        metadata,
@@ -391,6 +442,22 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 
 func projectSummaryForRouteTest() project.Summary {
 	return project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject"}
+}
+
+func projectMetadataForRouteTest(t *testing.T, publicRoutes []meta.PublicRoute) *api.Project {
+	t.Helper()
+	config, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+		PublicRoutes:    publicRoutes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &api.Project{Name: "sc-alice-myproject", ProjectPut: api.ProjectPut{Config: api.ConfigMap(config)}}
 }
 
 type fakeRouteDNSResolver struct {

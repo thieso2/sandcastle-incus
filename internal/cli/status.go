@@ -40,6 +40,9 @@ func formatProjectStatus(status project.Status) string {
 	fmt.Fprintf(&builder, "Incus project: %s\n", status.Summary.IncusName)
 	fmt.Fprintf(&builder, "Domain: %s\n", status.Summary.Domain)
 	fmt.Fprintf(&builder, "Private CIDR: %s\n", status.Summary.PrivateCIDR)
+	for _, publicRoute := range status.Summary.PublicRoutes {
+		fmt.Fprintf(&builder, "Route: %s -> %s:%d\n", publicRoute.Hostname, publicRoute.Sandbox, publicRoute.RoutePort)
+	}
 	for _, check := range status.Checks {
 		if check.Detail == "" {
 			fmt.Fprintf(&builder, "%s: %s\n", check.Name, check.Status)
