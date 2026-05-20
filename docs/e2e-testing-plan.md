@@ -91,6 +91,25 @@ Tier meanings:
 - `images`: real image build flows, requiring `SANDCASTLE_E2E=1`,
   `SANDCASTLE_E2E_IMAGE_BUILD=1`, and pinned AI CLI versions for the AI image.
 
+GitHub Actions:
+
+- `.github/workflows/ci.yml` runs only safe tiers on push and pull request:
+  `unit`, `gated`, and unprivileged `local`.
+- `.github/workflows/e2e-gates.yml` is manual (`workflow_dispatch`) for real
+  environment gates: `incus`, `tailscale`, `images`, `local-vm`, and
+  `public-routes`. It sets `SANDCASTLE_E2E=1` and relies on `scripts/e2e.sh` to
+  fail closed when a selected tier's required variables are missing.
+- Configure non-secret values as repository or environment variables using the
+  same names as the local shell environment, such as
+  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, `SANDCASTLE_E2E_AI_IMAGE_SOURCE`,
+  `SANDCASTLE_E2E_PUBLIC_DOMAIN`, and
+  `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET`.
+- Configure `SANDCASTLE_E2E_TAILSCALE_AUTHKEY` as a repository or environment
+  secret.
+- Use the `runner` workflow input to target a self-hosted runner when Incus,
+  host resolver mutation, or public ingress is not available on GitHub-hosted
+  runners.
+
 The harness should:
 
 - create a run context with owner, project, domain, and CIDR names;

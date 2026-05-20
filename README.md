@@ -36,4 +36,6 @@ SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
 
 The destructive tiers refuse to run unless their required environment variables
 are set. See the e2e testing plan for Incus, image, Tailscale, public route, and
-disposable VM requirements.
+disposable VM requirements. Safe tiers run automatically in GitHub Actions; real
+environment gates are available through the manual `Destructive e2e gates`
+workflow.

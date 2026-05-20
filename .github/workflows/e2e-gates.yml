@@ -1,0 +1,60 @@
+name: Destructive e2e gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: e2e tier to run
+        required: true
+        type: choice
+        options:
+          - incus
+          - tailscale
+          - images
+          - local-vm
+          - public-routes
+      runner:
+        description: GitHub Actions runner label
+        required: true
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-gate:
+    name: ${{ inputs.tier }}
+    runs-on: ${{ inputs.runner }}
+    env:
+      SANDCASTLE_E2E: "1"
+      SANDCASTLE_E2E_REMOTE: ${{ vars.SANDCASTLE_E2E_REMOTE || 'local' }}
+      SANDCASTLE_E2E_STORAGE_POOL: ${{ vars.SANDCASTLE_E2E_STORAGE_POOL || 'default' }}
+      SANDCASTLE_E2E_CIDR_POOL: ${{ vars.SANDCASTLE_E2E_CIDR_POOL || '10.248.0.0/16' }}
+      SANDCASTLE_E2E_DOMAIN_SUFFIX: ${{ vars.SANDCASTLE_E2E_DOMAIN_SUFFIX || 'e2e.project-tld' }}
+      SANDCASTLE_E2E_KEEP: ${{ vars.SANDCASTLE_E2E_KEEP || '0' }}
+      SANDCASTLE_E2E_LOCAL_VM: ${{ inputs.tier == 'local-vm' && '1' || vars.SANDCASTLE_E2E_LOCAL_VM }}
+      SANDCASTLE_E2E_BASE_IMAGE_SOURCE: ${{ vars.SANDCASTLE_E2E_BASE_IMAGE_SOURCE }}
+      SANDCASTLE_E2E_AI_IMAGE_SOURCE: ${{ vars.SANDCASTLE_E2E_AI_IMAGE_SOURCE }}
+      SANDCASTLE_E2E_IMAGE_BUILD: ${{ vars.SANDCASTLE_E2E_IMAGE_BUILD }}
+      SANDCASTLE_E2E_IMAGE_BUILD_TOOL: ${{ vars.SANDCASTLE_E2E_IMAGE_BUILD_TOOL || 'docker' }}
+      SANDCASTLE_E2E_CODEX_VERSION: ${{ vars.SANDCASTLE_E2E_CODEX_VERSION }}
+      SANDCASTLE_E2E_CLAUDE_CODE_VERSION: ${{ vars.SANDCASTLE_E2E_CLAUDE_CODE_VERSION }}
+      SANDCASTLE_E2E_GEMINI_CLI_VERSION: ${{ vars.SANDCASTLE_E2E_GEMINI_CLI_VERSION }}
+      SANDCASTLE_E2E_TAILSCALE_TAG: ${{ vars.SANDCASTLE_E2E_TAILSCALE_TAG || 'tag:sandcastle' }}
+      SANDCASTLE_E2E_TAILSCALE_AUTHKEY: ${{ secrets.SANDCASTLE_E2E_TAILSCALE_AUTHKEY }}
+      SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET: ${{ vars.SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET }}
+      SANDCASTLE_E2E_PUBLIC_DOMAIN: ${{ vars.SANDCASTLE_E2E_PUBLIC_DOMAIN }}
+      SANDCASTLE_E2E_INFRA_HOST: ${{ vars.SANDCASTLE_E2E_INFRA_HOST }}
+      SANDCASTLE_E2E_LETSENCRYPT_EMAIL: ${{ vars.SANDCASTLE_E2E_LETSENCRYPT_EMAIL }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run destructive e2e tier
+        run: scripts/e2e.sh "${{ inputs.tier }}"

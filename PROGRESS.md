@@ -414,6 +414,11 @@ development sandboxes.
   in `unit`, `gated`, and unprivileged `local` e2e runner tiers on push and pull
   requests, while leaving destructive Incus/Tailscale/image/public route tiers
   gated by their explicit environments.
+- Added a manual GitHub Actions `Destructive e2e gates` workflow for the real
+  environment tiers: `incus`, `tailscale`, `images`, `local-vm`, and
+  `public-routes`. The workflow wires repository variables/secrets into
+  `scripts/e2e.sh`, supports a configurable runner label for self-hosted Incus
+  environments, and still relies on the checked-in fail-closed tier guards.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -776,6 +781,8 @@ development sandboxes.
 - Passed: `git diff --check`
 - Passed: `bash -n scripts/e2e.sh && go test ./...`
 - Passed: `scripts/e2e.sh local`
+- Passed: `git diff --check`
+- Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/incusx -run 'TestRouteManager' -count=1 -v`
