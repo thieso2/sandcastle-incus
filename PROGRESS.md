@@ -129,11 +129,17 @@ development sandboxes.
 - `sandcastle port set` plans a matching Caddyfile and the Incus executor
   overwrites the sandbox Caddyfile after metadata updates, keeping the private
   HTTPS reverse proxy aligned with the configured app port.
+- Added `sandcastle enter owner/project/name` planning and Incus interactive
+  exec support for `/bin/bash -l` in `/workspace`. Non-dry-run `sandcastle add`
+  now enters the sandbox by default after creation and supports `--detach` for
+  automation/background creation.
 
 ## Next Slice
 
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
+- Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
+  `--detach` once disposable images can support interactive exec safely.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -177,6 +183,9 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run && ./bin/sandcastle admin user token alice 2>&1 || true` with expected local Incus connection failure on macOS for non-dry-run token creation.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --detach 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle enter alice/myproject/codex 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle port set alice/myproject/codex 5173 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`

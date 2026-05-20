@@ -1,0 +1,35 @@
+package cli
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+)
+
+func newEnterCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "enter owner/project/name",
+		Short: "Enter a Sandcastle sandbox",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, sandbox.EnterRequest{
+				Reference: args[0],
+			})
+			if err != nil {
+				return err
+			}
+			if config.sandboxEnterer == nil {
+				return fmt.Errorf("sandbox enter executor is not configured")
+			}
+			if err := config.sandboxEnterer.EnterSandbox(cmd.Context(), plan, sandbox.EnterSession{
+				Stdin:  config.stdin,
+				Stdout: config.stdout,
+				Stderr: config.stderr,
+			}); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+}

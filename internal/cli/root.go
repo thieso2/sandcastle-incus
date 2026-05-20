@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
@@ -26,6 +27,7 @@ const (
 
 type commandConfig struct {
 	name           string
+	stdin          io.Reader
 	stdout         io.Writer
 	stderr         io.Writer
 	projectStore   project.IncusProjectStore
@@ -35,6 +37,7 @@ type commandConfig struct {
 	topologyStore  project.TopologyStore
 	trustManager   usertrust.Manager
 	sandboxCreator sandbox.Creator
+	sandboxEnterer sandbox.Enterer
 	sandboxControl sandbox.Controller
 	sandboxPort    sandbox.PortSetter
 	dnsApplier     dns.Applier
@@ -49,6 +52,7 @@ func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadAdminFromEnv()
 	cmd := NewRootCommand(commandConfig{
 		name:        name,
+		stdin:       os.Stdin,
 		stdout:      os.Stdout,
 		stderr:      os.Stderr,
 		adminConfig: adminConfig,
@@ -60,6 +64,7 @@ func Execute(name string, args []string) int {
 		topologyStore:  incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:   incusx.NewTrustManager(adminConfig.Remote),
 		sandboxCreator: incusx.NewSandboxCreator(adminConfig.Remote),
+		sandboxEnterer: incusx.NewSandboxEnterer(adminConfig.Remote),
 		sandboxControl: incusx.NewSandboxController(adminConfig.Remote),
 		sandboxPort:    incusx.NewSandboxPortSetter(adminConfig.Remote),
 		dnsApplier:     incusx.NewDNSManager(adminConfig.Remote),
@@ -81,6 +86,9 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	}
 	if config.stdout == nil {
 		config.stdout = io.Discard
+	}
+	if config.stdin == nil {
+		config.stdin = strings.NewReader("")
 	}
 	if config.stderr == nil {
 		config.stderr = io.Discard
@@ -105,6 +113,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newListCommand(config, opts))
 	root.AddCommand(newStatusCommand(config, opts))
 	root.AddCommand(newAddCommand(config, opts))
+	root.AddCommand(newEnterCommand(config, opts))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "start", sandbox.ActionStart, false))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "stop", sandbox.ActionStop, false))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "restart", sandbox.ActionRestart, false))

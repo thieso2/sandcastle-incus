@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -165,6 +166,106 @@ func TestAddDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestAddDetachSkipsEnter(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeSandboxCreator{}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		sandboxCreator: creator,
+		sandboxEnterer: enterer,
+	}, "add", "alice/myproject/codex", "--detach")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creator.plan.InstanceName != "sc-codex" {
+		t.Fatalf("created instance = %q", creator.plan.InstanceName)
+	}
+	if enterer.called {
+		t.Fatal("expected add --detach to skip enter")
+	}
+}
+
+func TestAddEntersAfterCreateByDefault(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeSandboxCreator{}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		sandboxCreator: creator,
+		sandboxEnterer: enterer,
+	}, "add", "alice/myproject/codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creator.plan.InstanceName != "sc-codex" {
+		t.Fatalf("created instance = %q", creator.plan.InstanceName)
+	}
+	if !enterer.called {
+		t.Fatal("expected add to enter sandbox")
+	}
+	if enterer.plan.InstanceName != "sc-codex" {
+		t.Fatalf("entered instance = %q", enterer.plan.InstanceName)
+	}
+}
+
+func TestEnterCommandUsesEnterer(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		sandboxEnterer: enterer,
+	}, "enter", "alice/myproject/codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enterer.called {
+		t.Fatal("expected enterer call")
+	}
+	if enterer.plan.InstanceName != "sc-codex" {
+		t.Fatalf("entered instance = %q", enterer.plan.InstanceName)
+	}
+}
+
 func TestRemoveRequiresConfirmation(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "rm", "alice/myproject/codex")
 	if err == nil {
@@ -320,4 +421,24 @@ func TestRejectsUnknownOutputFormat(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
+}
+
+type fakeSandboxCreator struct {
+	plan sandbox.CreatePlan
+}
+
+func (f *fakeSandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePlan) error {
+	f.plan = plan
+	return nil
+}
+
+type fakeSandboxEnterer struct {
+	called bool
+	plan   sandbox.EnterPlan
+}
+
+func (f *fakeSandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
+	f.called = true
+	f.plan = plan
+	return nil
 }

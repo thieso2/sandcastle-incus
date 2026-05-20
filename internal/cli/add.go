@@ -10,6 +10,7 @@ import (
 
 func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
+	var detach bool
 	var appPort int
 	var homeDir string
 	var workspaceDir string
@@ -34,11 +35,28 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if err := config.sandboxCreator.CreateSandbox(cmd.Context(), plan); err != nil {
 					return err
 				}
+				if !detach {
+					if config.sandboxEnterer == nil {
+						return fmt.Errorf("sandbox enter executor is not configured")
+					}
+					enterPlan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, sandbox.EnterRequest{Reference: args[0]})
+					if err != nil {
+						return err
+					}
+					if err := config.sandboxEnterer.EnterSandbox(cmd.Context(), enterPlan, sandbox.EnterSession{
+						Stdin:  config.stdin,
+						Stdout: config.stdout,
+						Stderr: config.stderr,
+					}); err != nil {
+						return err
+					}
+				}
 			}
 			return writeOutput(config.stdout, opts.output, formatSandboxPlan(plan), plan)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the sandbox creation plan without creating a container")
+	command.Flags().BoolVar(&detach, "detach", false, "create the sandbox without entering it")
 	command.Flags().IntVar(&appPort, "app-port", 0, "application port proxied by sandbox Caddy")
 	command.Flags().StringVar(&homeDir, "home-dir", "", "project home volume subdirectory")
 	command.Flags().StringVar(&workspaceDir, "workspace-dir", "", "project workspace volume subdirectory")
