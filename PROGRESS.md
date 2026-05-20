@@ -43,10 +43,18 @@ development sandboxes.
   the existing Incus CLI config and `GetProjects()`.
 - Wired production `sandcastle`/`sc` execution to use the Incus-backed project
   store by default, while unit tests still inject fake stores.
+- Added admin project creation planning that derives the Incus project name,
+  private CIDR, `sc-private` network, durable volume names, DNS/Tailscale
+  sidecar names and addresses, default template, and project metadata config.
+- Added `sandcastle admin project create <owner/project> --domain ... --dry-run`
+  to render the creation plan in text or JSON. Non-dry-run execution still
+  fails explicitly until the Incus executor is implemented.
 
 ## Next Slice
 
-- Add initial admin project create planning/orchestration types.
+- Add the real Incus executor for idempotent project creation: project metadata,
+  private bridge network, home/workspace/CA volumes, and initial sidecar
+  placeholders.
 - Add real-Incus e2e detection for project listing, gated by
   `SANDCASTLE_E2E=1`.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -69,6 +77,8 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && go build -o bin/sc ./cmd/sc`
 - Passed: `./bin/sandcastle version && ./bin/sc version`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 
 ## Open Scope
 

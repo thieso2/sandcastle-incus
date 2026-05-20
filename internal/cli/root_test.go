@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 )
@@ -141,6 +142,36 @@ func TestAdminProjectListJSON(t *testing.T) {
 	}
 	if payload.Projects[0].IncusName != "sc-alice-myproject" {
 		t.Fatalf("IncusName = %q", payload.Projects[0].IncusName)
+	}
+}
+
+func TestAdminProjectCreateDryRunJSON(t *testing.T) {
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "--output", "json", "admin", "project", "create", "alice/myproject", "--domain", "myproject.project-tld", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload project.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.IncusProject != "sc-alice-myproject" {
+		t.Fatalf("IncusProject = %q", payload.IncusProject)
+	}
+	if payload.PrivateCIDR != "10.248.0.0/24" {
+		t.Fatalf("PrivateCIDR = %q", payload.PrivateCIDR)
+	}
+}
+
+func TestAdminProjectCreateRequiresDryRunUntilExecutorExists(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "admin", "project", "create", "alice/myproject", "--domain", "myproject.project-tld")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--dry-run") {
+		t.Fatalf("error = %q, want --dry-run hint", err.Error())
 	}
 }
 

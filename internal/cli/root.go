@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/thieso2/sandcastle-incus/internal/config"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 )
@@ -26,6 +26,7 @@ type commandConfig struct {
 	stdout       io.Writer
 	stderr       io.Writer
 	projectStore project.IncusProjectStore
+	adminConfig  scconfig.Admin
 }
 
 type rootOptions struct {
@@ -34,11 +35,12 @@ type rootOptions struct {
 
 // Execute runs the Sandcastle CLI and returns a process exit code.
 func Execute(name string, args []string) int {
-	adminConfig := config.LoadAdminFromEnv()
+	adminConfig := scconfig.LoadAdminFromEnv()
 	cmd := NewRootCommand(commandConfig{
-		name:   name,
-		stdout: os.Stdout,
-		stderr: os.Stderr,
+		name:        name,
+		stdout:      os.Stdout,
+		stderr:      os.Stderr,
+		adminConfig: adminConfig,
 		projectStore: incusx.NewProjectStore(
 			adminConfig.Remote,
 		),
@@ -66,6 +68,9 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	}
 	if config.projectStore == nil {
 		config.projectStore = project.MemoryStore{}
+	}
+	if config.adminConfig.Remote == "" {
+		config.adminConfig = scconfig.LoadAdminFromEnv()
 	}
 
 	opts := &rootOptions{output: outputText}
