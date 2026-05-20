@@ -29,9 +29,10 @@ func TestTrustManagerGrant(t *testing.T) {
 	server := &fakeTrustServer{certificates: []api.Certificate{{
 		Fingerprint: "abc",
 		CertificatePut: api.CertificatePut{
-			Name:     "sandcastle-alice",
-			Type:     api.CertificateTypeClient,
-			Projects: []string{"sc-alice-existing"},
+			Name:       "sandcastle-alice",
+			Type:       api.CertificateTypeClient,
+			Restricted: true,
+			Projects:   []string{"sc-alice-existing"},
 		},
 	}}}
 	manager := TrustManager{Server: server}
@@ -53,6 +54,31 @@ func TestTrustManagerGrant(t *testing.T) {
 	}
 	if len(server.updated.Projects) != 2 {
 		t.Fatalf("Projects = %#v", server.updated.Projects)
+	}
+}
+
+func TestTrustManagerGrantRejectsUnrestrictedCertificate(t *testing.T) {
+	server := &fakeTrustServer{certificates: []api.Certificate{{
+		Fingerprint: "abc",
+		CertificatePut: api.CertificatePut{
+			Name:       "sandcastle-alice",
+			Type:       api.CertificateTypeClient,
+			Restricted: false,
+		},
+	}}}
+	manager := TrustManager{Server: server}
+	err := manager.Grant(context.Background(), usertrust.UserPlan{
+		User:            "alice",
+		CertificateName: "sandcastle-alice",
+		Restricted:      true,
+		Projects:        []string{"sc-alice-new"},
+		Description:     "Sandcastle restricted user alice",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if server.updated != nil {
+		t.Fatal("certificate should not be updated")
 	}
 }
 

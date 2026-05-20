@@ -35,6 +35,9 @@ func (m TrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) error 
 	if err != nil {
 		return err
 	}
+	if err := validateGrantCertificate(cert, plan.CertificateName); err != nil {
+		return err
+	}
 	projects := mergeProjects(cert.Projects, plan.Projects)
 	return server.UpdateCertificate(cert.Fingerprint, api.CertificatePut{
 		Name:        cert.Name,
@@ -108,6 +111,16 @@ func findCertificate(server TrustServer, name string) (api.Certificate, error) {
 		}
 	}
 	return api.Certificate{}, fmt.Errorf("restricted certificate %q not found; create a token first and add the client certificate", name)
+}
+
+func validateGrantCertificate(certificate api.Certificate, name string) error {
+	if certificate.Type != api.CertificateTypeClient {
+		return fmt.Errorf("restricted certificate %q is %q, want client certificate", name, certificate.Type)
+	}
+	if !certificate.Restricted {
+		return fmt.Errorf("restricted certificate %q is not restricted", name)
+	}
+	return nil
 }
 
 func mergeProjects(existing []string, added []string) []string {

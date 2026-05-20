@@ -1320,6 +1320,12 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened restricted-user project grants so an admin grant refuses to mutate an
+  existing `sandcastle-<user>` trust entry unless it is already a restricted
+  Incus client certificate.
+- Passed: `go test ./internal/incusx ./internal/usertrust ./internal/cli -run 'Test(TrustManager|PlanGrant|AdminUserGrant)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
