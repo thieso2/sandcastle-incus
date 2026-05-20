@@ -80,6 +80,59 @@ func TestForwarderUsesMostSpecificMatchingDomain(t *testing.T) {
 	}
 }
 
+func TestForwarderSkipsInvalidStateEntries(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "dns.yaml")
+	parent := startUDPResponder(t, []byte{0x01, 0x01})
+	host, port, err := net.SplitHostPort(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "projects:\n" +
+		"- owner: alice\n" +
+		"  project: broken\n" +
+		"  domain: sub.project-tld\n" +
+		"  dnsEndpoint:\n" +
+		"    ip: 127.0.0.1\n" +
+		"    port: 0\n" +
+		"  resolver:\n" +
+		"    listen: 127.0.0.1:53541\n" +
+		"- owner: alice\n" +
+		"  project: parent\n" +
+		"  domain: project-tld\n" +
+		"  dnsEndpoint:\n" +
+		"    ip: " + host + "\n" +
+		"    port: " + port + "\n" +
+		"  resolver:\n" +
+		"    listen: 127.0.0.1:53541\n"
+	if err := os.WriteFile(statePath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listen := localUDPAddr(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- Forwarder{StatePath: statePath, Listen: listen, Timeout: time.Second}.Serve(ctx)
+	}()
+	waitForUDP(t, listen)
+
+	response := queryForwarder(t, listen, dnsQuery("codex.sub.project-tld"))
+	if string(response) != string([]byte{0x01, 0x01}) {
+		t.Fatalf("response = %#v, want parent project response", response)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("forwarder did not stop")
+	}
+}
+
 func TestQuestionNameParsesDNSQuestion(t *testing.T) {
 	name, err := questionName(dnsQuery("codex.myproject.project-tld"))
 	if err != nil {

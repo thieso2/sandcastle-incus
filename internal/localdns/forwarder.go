@@ -75,18 +75,36 @@ func (f Forwarder) upstreamFor(packet []byte) (string, error) {
 	matchEndpoint := ""
 	for _, project := range state.Projects {
 		domain := strings.TrimSuffix(strings.ToLower(project.Domain), ".")
+		endpoint, ok := projectUpstreamEndpoint(project)
+		if !ok {
+			continue
+		}
 		if qname == domain || strings.HasSuffix(qname, "."+domain) {
 			if len(domain) <= len(matchDomain) {
 				continue
 			}
 			matchDomain = domain
-			matchEndpoint = net.JoinHostPort(project.DNSEndpoint.IP, fmt.Sprint(project.DNSEndpoint.Port))
+			matchEndpoint = endpoint
 		}
 	}
 	if matchEndpoint != "" {
 		return matchEndpoint, nil
 	}
 	return "", fmt.Errorf("no local DNS project for %q", qname)
+}
+
+func projectUpstreamEndpoint(project ProjectState) (string, bool) {
+	domain := strings.TrimSuffix(strings.ToLower(project.Domain), ".")
+	if domain == "" {
+		return "", false
+	}
+	if net.ParseIP(project.DNSEndpoint.IP) == nil {
+		return "", false
+	}
+	if project.DNSEndpoint.Port <= 0 || project.DNSEndpoint.Port > 65535 {
+		return "", false
+	}
+	return net.JoinHostPort(project.DNSEndpoint.IP, fmt.Sprint(project.DNSEndpoint.Port)), true
 }
 
 func exchange(ctx context.Context, upstream string, packet []byte, timeout time.Duration) ([]byte, error) {

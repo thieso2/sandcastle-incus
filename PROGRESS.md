@@ -1224,6 +1224,12 @@ development sandboxes.
 - Passed: `go test ./internal/localdns -run 'TestForwarder' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened local DNS forwarding against malformed CLI-managed state entries so
+  empty domains, invalid DNS IPs, and out-of-range DNS ports are ignored instead
+  of shadowing a valid less-specific project domain.
+- Passed: `go test ./internal/localdns -run 'TestForwarder' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
