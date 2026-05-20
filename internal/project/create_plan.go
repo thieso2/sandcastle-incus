@@ -124,6 +124,9 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		Domain:          projectDomain,
 		PrivateCIDR:     projectCIDR.String(),
 		DefaultTemplate: "ai",
+		Tailscale: meta.Tailscale{
+			State: meta.TailscaleStateRunningLoggedOut,
+		},
 	}
 	metadataConfig, err := meta.ProjectConfig(projectMetadata)
 	if err != nil {

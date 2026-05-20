@@ -102,7 +102,7 @@ func ParseStatus(reference string, summary project.Summary, data []byte, now tim
 func normalizeState(state string) string {
 	switch strings.ToLower(strings.TrimSpace(state)) {
 	case "needslogin", "needsmachineauth":
-		return "running-logged-out"
+		return meta.TailscaleStateRunningLoggedOut
 	default:
 		return state
 	}

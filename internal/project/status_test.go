@@ -71,6 +71,32 @@ func TestGetStatusReportsTailscaleRoute(t *testing.T) {
 	}
 }
 
+func TestGetStatusReportsUnauthenticatedTailscaleRouteAsUnknown(t *testing.T) {
+	config, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+		Tailscale: meta.Tailscale{
+			State: meta.TailscaleStateRunningLoggedOut,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{{
+		Name:   "sc-alice-myproject",
+		Config: config,
+	}}}, "alice/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Checks[3].Name != "tailscale:route" || status.Checks[3].Status != "unknown" {
+		t.Fatalf("tailscale route check = %#v", status.Checks[3])
+	}
+}
+
 func TestGetStatusWithTopology(t *testing.T) {
 	config, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",

@@ -29,6 +29,8 @@ const (
 	KindRoute   = "route"
 
 	Version = 1
+
+	TailscaleStateRunningLoggedOut = "running-logged-out"
 )
 
 type Project struct {

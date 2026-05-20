@@ -39,6 +39,13 @@ func TestPlanCreate(t *testing.T) {
 	if plan.ProjectMetadataConfig[meta.KeyKind] != meta.KindProject {
 		t.Fatalf("metadata kind = %q", plan.ProjectMetadataConfig[meta.KeyKind])
 	}
+	metadata, err := meta.ParseProjectConfig(plan.ProjectMetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Tailscale.State != meta.TailscaleStateRunningLoggedOut {
+		t.Fatalf("tailscale state = %q", metadata.Tailscale.State)
+	}
 	if len(plan.Sidecars) != 2 {
 		t.Fatalf("sidecars = %d, want 2", len(plan.Sidecars))
 	}

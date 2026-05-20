@@ -1506,6 +1506,14 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `make e2e-safe`
+- Recorded the pre-authentication Tailscale sidecar state in new project
+  metadata as `running-logged-out`, reused that state name for parsed
+  Tailscale backend status, and kept project status from reporting a missing
+  advertised route before Tailscale has authenticated.
+- Passed: `go test ./internal/project ./internal/tailscale ./internal/meta -run 'Test(PlanCreate|GetStatus|PlanStatusAndParseStatus|ParseStatusDoesNotPersistLoginURLs|ProjectConfig)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `make e2e-safe`
 
 ## Open Scope
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
@@ -91,6 +92,9 @@ func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topolog
 func tailscaleRouteCheck(summary Summary) Check {
 	if summary.Tailscale.State == "" {
 		return Check{Name: "tailscale:route", Status: "unknown", Detail: "no Tailscale status recorded"}
+	}
+	if summary.Tailscale.State == meta.TailscaleStateRunningLoggedOut {
+		return Check{Name: "tailscale:route", Status: "unknown", Detail: "Tailscale sidecar is running but not authenticated"}
 	}
 	for _, route := range summary.Tailscale.AdvertisedRoutes {
 		if route == summary.PrivateCIDR {
