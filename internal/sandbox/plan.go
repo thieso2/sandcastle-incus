@@ -39,6 +39,10 @@ type CreatePlan struct {
 
 type Device map[string]string
 
+type Creator interface {
+	CreateSandbox(context.Context, CreatePlan) error
+}
+
 func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err

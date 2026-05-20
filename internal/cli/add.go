@@ -28,7 +28,12 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			if !dryRun {
-				return fmt.Errorf("sandbox creation execution is not implemented yet; rerun with --dry-run to inspect the plan")
+				if config.sandboxCreator == nil {
+					return fmt.Errorf("sandbox creation executor is not configured")
+				}
+				if err := config.sandboxCreator.CreateSandbox(cmd.Context(), plan); err != nil {
+					return err
+				}
 			}
 			return writeOutput(config.stdout, opts.output, formatSandboxPlan(plan), plan)
 		},

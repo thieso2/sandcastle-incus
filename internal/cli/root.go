@@ -10,6 +10,7 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -32,6 +33,7 @@ type commandConfig struct {
 	projectDeleter project.Deleter
 	topologyStore  project.TopologyStore
 	trustManager   usertrust.Manager
+	sandboxCreator sandbox.Creator
 }
 
 type rootOptions struct {
@@ -53,6 +55,7 @@ func Execute(name string, args []string) int {
 		projectDeleter: incusx.NewProjectDeleter(adminConfig.Remote),
 		topologyStore:  incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:   incusx.NewTrustManager(adminConfig.Remote),
+		sandboxCreator: incusx.NewSandboxCreator(adminConfig.Remote),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
