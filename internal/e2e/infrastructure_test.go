@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 	}
 	sandcastleBin := strings.TrimSpace(e2eConfig.SandcastleBin)
 	if sandcastleBin == "" {
-		sandcastleBin = buildSandcastleForE2E(t)
+		sandcastleBin = buildSandcastleForRemote(t, e2eConfig.Remote)
 	}
 	t.Setenv("SANDCASTLE_BIN", sandcastleBin)
 
@@ -229,6 +230,40 @@ func buildSandcastleForE2E(t *testing.T) string {
 		t.Fatalf("build sandcastle e2e binary: %v\n%s", err, strings.TrimSpace(string(output)))
 	}
 	return path
+}
+
+func buildSandcastleForRemote(t *testing.T, remote string) string {
+	t.Helper()
+	goarch := remoteGOARCH(t, remote)
+	path := filepath.Join(t.TempDir(), "sandcastle-linux-"+goarch)
+	command := exec.Command("go", "build", "-o", path, "github.com/thieso2/sandcastle-incus/cmd/sandcastle")
+	command.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+goarch)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandcastle e2e binary (linux/%s): %v\n%s", goarch, err, strings.TrimSpace(string(output)))
+	}
+	return path
+}
+
+func remoteGOARCH(t *testing.T, remote string) string {
+	t.Helper()
+	server, err := e2eInstanceServer(remote)
+	if err != nil {
+		t.Fatalf("connect to incus remote %q: %v", remote, err)
+	}
+	info, _, err := server.GetServer()
+	if err != nil {
+		t.Fatalf("get incus server info for %q: %v", remote, err)
+	}
+	switch info.Environment.KernelArchitecture {
+	case "x86_64":
+		return "amd64"
+	case "aarch64", "arm64":
+		return "arm64"
+	case "armv7l":
+		return "arm"
+	default:
+		return "amd64"
+	}
 }
 
 func e2eInstanceServer(remote string) (incus.InstanceServer, error) {

@@ -170,8 +170,6 @@ func ensureProject(server ProjectCreateServer, plan project.CreatePlan) error {
 func isolatedProjectFeatureConfig() map[string]string {
 	return map[string]string{
 		"features.images":          "true",
-		"features.networks":        "true",
-		"features.networks.zones":  "true",
 		"features.profiles":        "true",
 		"features.storage.buckets": "true",
 		"features.storage.volumes": "true",

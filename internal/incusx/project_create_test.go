@@ -308,8 +308,6 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	for _, key := range []string{
 		"features.images",
 		"features.profiles",
-		"features.networks",
-		"features.networks.zones",
 		"features.storage.buckets",
 		"features.storage.volumes",
 	} {

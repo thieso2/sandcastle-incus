@@ -25,6 +25,10 @@ type ProjectDeleteResourceServer interface {
 	DeleteInstance(name string) (incus.Operation, error)
 	DeleteNetwork(name string) error
 	DeleteStoragePoolVolume(pool string, volType string, name string) error
+	GetImages() ([]api.Image, error)
+	DeleteImage(fingerprint string) (incus.Operation, error)
+	GetProfiles() ([]api.Profile, error)
+	DeleteProfile(name string) error
 }
 
 type ProjectDeleter struct {
@@ -79,6 +83,19 @@ func (d ProjectDeleter) DeleteProject(ctx context.Context, plan project.DeletePl
 			return err
 		}
 	}
+	profiles, err := projectServer.GetProfiles()
+	if err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("list profiles in project %s: %w", plan.IncusProject, err)
+	}
+	for _, profile := range profiles {
+		if profile.Name == "default" {
+			continue
+		}
+		d.log("delete project profile " + profile.Name)
+		if err := ignoreNotFound(projectServer.DeleteProfile(profile.Name)); err != nil {
+			return fmt.Errorf("delete profile %s: %w", profile.Name, err)
+		}
+	}
 	d.log("delete private network " + plan.PrivateNetwork)
 	if err := ignoreNotFound(projectServer.DeleteNetwork(plan.PrivateNetwork)); err != nil {
 		return fmt.Errorf("delete private network %s: %w", plan.PrivateNetwork, err)
@@ -88,6 +105,20 @@ func (d ProjectDeleter) DeleteProject(ctx context.Context, plan project.DeletePl
 			d.log("delete durable volume " + volume)
 			if err := ignoreNotFound(projectServer.DeleteStoragePoolVolume(plan.StoragePool, "custom", volume)); err != nil {
 				return fmt.Errorf("delete durable volume %s: %w", volume, err)
+			}
+		}
+		images, err := projectServer.GetImages()
+		if err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
+			return fmt.Errorf("list images in project %s: %w", plan.IncusProject, err)
+		}
+		for _, image := range images {
+			d.log("delete project image " + image.Fingerprint[:8])
+			op, err := projectServer.DeleteImage(image.Fingerprint)
+			if err != nil {
+				return fmt.Errorf("delete image %s: %w", image.Fingerprint[:8], err)
+			}
+			if err := op.Wait(); err != nil {
+				return fmt.Errorf("wait for image %s delete: %w", image.Fingerprint[:8], err)
 			}
 		}
 		d.log("delete Incus project " + plan.IncusProject)
@@ -165,4 +196,16 @@ func (s sdkDeleteResourceServer) DeleteInstance(name string) (incus.Operation, e
 func (s sdkDeleteResourceServer) DeleteNetwork(name string) error { return s.inner.DeleteNetwork(name) }
 func (s sdkDeleteResourceServer) DeleteStoragePoolVolume(pool string, volType string, name string) error {
 	return s.inner.DeleteStoragePoolVolume(pool, volType, name)
+}
+func (s sdkDeleteResourceServer) GetImages() ([]api.Image, error) {
+	return s.inner.GetImages()
+}
+func (s sdkDeleteResourceServer) DeleteImage(fingerprint string) (incus.Operation, error) {
+	return s.inner.DeleteImage(fingerprint)
+}
+func (s sdkDeleteResourceServer) GetProfiles() ([]api.Profile, error) {
+	return s.inner.GetProfiles()
+}
+func (s sdkDeleteResourceServer) DeleteProfile(name string) error {
+	return s.inner.DeleteProfile(name)
 }

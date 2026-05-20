@@ -76,6 +76,10 @@ func (s *fakeDeleteResourceServer) DeleteStoragePoolVolume(pool string, volType 
 	s.deletedVolumes = append(s.deletedVolumes, name)
 	return nil
 }
+func (s *fakeDeleteResourceServer) GetImages() ([]api.Image, error)                    { return nil, nil }
+func (s *fakeDeleteResourceServer) DeleteImage(fp string) (incus.Operation, error)      { return fakeOperation{}, nil }
+func (s *fakeDeleteResourceServer) GetProfiles() ([]api.Profile, error)                { return nil, nil }
+func (s *fakeDeleteResourceServer) DeleteProfile(name string) error                     { return nil }
 
 func TestProjectDeleterPurgesProjectResources(t *testing.T) {
 	plan, err := project.PlanDelete(config.LoadAdminFromEnv(), project.DeleteRequest{
