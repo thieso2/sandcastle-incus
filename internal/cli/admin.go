@@ -36,6 +36,7 @@ func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 		Short: "Manage Sandcastle projects",
 	}
 	project.AddCommand(newAdminProjectListCommand(config, opts))
+	project.AddCommand(newAdminProjectStatusCommand(config, opts))
 	project.AddCommand(newAdminProjectCreateCommand(config, opts))
 	project.AddCommand(newAdminProjectDeleteCommand(config, opts))
 	return project
@@ -54,6 +55,21 @@ func newAdminProjectListCommand(config commandConfig, opts *rootOptions) *cobra.
 			}
 			payload := listPayload{Projects: projects}
 			return writeOutput(config.stdout, opts.output, formatProjectList(projects), payload)
+		},
+	}
+}
+
+func newAdminProjectStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status owner/project",
+		Short: "Show Sandcastle-managed Incus project status",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			status, err := project.GetStatus(cmd.Context(), config.projectStore, args[0])
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatProjectStatus(status), status)
 		},
 	}
 }
