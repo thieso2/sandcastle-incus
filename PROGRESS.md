@@ -181,6 +181,11 @@ development sandboxes.
 - Added host override list/remove support. List reads sandbox `extraSANs`
   metadata, while remove deletes the hostname from sandbox metadata, reissues
   sandbox TLS/Caddy without that SAN, and removes the managed hosts-file block.
+- Added gated host override e2e coverage. `TestHostOverrideE2E` creates a
+  disposable project and sandbox, redirects hosts-file mutation to a temp file,
+  adds an exact override, verifies the managed hosts entry, sandbox Caddy
+  routing, certificate SAN, list output, removal, and post-removal Caddy/cert
+  cleanup.
 - Added local project CA trust planning and `sandcastle trust install` /
   `sandcastle trust uninstall`. Plans resolve the managed project, CA volume,
   CA certificate path, platform, trust name, and explicit trust warning.
@@ -631,6 +636,8 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/routebroker -run 'TestHTTPRunnerServesAuthorizedRouteOverMTLS|TestClient|TestServer' -count=1 -v`
 - Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'TestHostOverrideE2E|TestLoadConfig' -count=1 -v` with the expected host override e2e skip when real e2e is unset.
+- Passed: `bash -n scripts/e2e.sh && go test ./...`
 
 ## Open Scope
 

@@ -248,6 +248,9 @@ Test:
 
 1. Install project CA trust.
 2. Add exact host override for a disposable FQDN.
+   The checked-in `TestHostOverrideE2E` redirects `/etc/hosts` writes to a
+   disposable file, adds an exact override, verifies the host entry, sandbox
+   Caddy routing, and the extra certificate SAN, then removes the override.
 3. Verify `/etc/hosts` contains a managed entry.
 4. Verify sandbox certificate includes the extra SAN.
 5. Curl `https://<override-host>` successfully.
