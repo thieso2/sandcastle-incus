@@ -12,6 +12,7 @@ RUN apt-get update \
         caddy \
         curl \
         dbus \
+        ethtool \
         iproute2 \
         openssh-server \
         python3 \

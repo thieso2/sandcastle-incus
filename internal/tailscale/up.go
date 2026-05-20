@@ -96,6 +96,7 @@ func command(plan UpPlan, redact bool) []string {
 func tailscaledBootstrapScript() string {
 	return strings.Join([]string{
 		"install -d /run/tailscale /var/lib/tailscale",
+		"ethtool -K eth0 rx-udp-gro-forwarding on rx-gro-list off 2>/dev/null || true",
 		"if ! pgrep -x tailscaled >/dev/null 2>&1; then tailscaled --state=/var/lib/tailscale/tailscaled.state >/var/log/tailscaled.log 2>&1 & fi",
 		"for i in $(seq 1 50); do tailscale status >/dev/null 2>&1 && break; sleep 0.1; done",
 	}, "; ")
