@@ -205,6 +205,9 @@ development sandboxes.
   add/update/remove, the Incus route manager renders all managed route profiles
   into deterministic infrastructure Caddy reverse-proxy config and writes it to
   the `sc-caddy` instance.
+- Infrastructure Caddy refresh now reloads the running Caddy process after the
+  Caddyfile is written by execing `caddy reload --config /etc/caddy/Caddyfile`
+  in the `sc-caddy` instance.
 
 ## Next Slice
 
@@ -215,7 +218,7 @@ development sandboxes.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
 - Add route broker authorization, ingress attachment, and infrastructure Caddy
-  process reload after route metadata changes.
+  ingress attachment.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -316,6 +319,9 @@ development sandboxes.
 - Passed: `go test ./internal/route ./internal/incusx ./internal/cli`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route list 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./internal/incusx ./internal/route ./internal/cli`
+- Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./internal/incusx ./internal/route`
 - Passed: `go test ./...`

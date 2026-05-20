@@ -26,6 +26,7 @@ type RouteResourceServer interface {
 	UpdateProfile(name string, profile api.ProfilePut, ETag string) error
 	DeleteProfile(name string) error
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
 type RouteManager struct {
@@ -125,6 +126,28 @@ func refreshInfrastructureCaddy(server RouteResourceServer) error {
 	}); err != nil {
 		return fmt.Errorf("write infrastructure Caddyfile: %w", err)
 	}
+	if err := reloadInfrastructureCaddy(server); err != nil {
+		return err
+	}
+	return nil
+}
+
+func reloadInfrastructureCaddy(server RouteResourceServer) error {
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(route.InfrastructureCaddyName, api.InstanceExecPost{
+		Command:   []string{"caddy", "reload", "--config", "/etc/caddy/Caddyfile"},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("reload infrastructure Caddy: %w", err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for infrastructure Caddy reload: %w", err)
+	}
+	<-dataDone
 	return nil
 }
 
@@ -203,4 +226,8 @@ func (s sdkRouteResourceServer) DeleteProfile(name string) error {
 
 func (s sdkRouteResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateInstanceFile(instanceName, path, args)
+}
+
+func (s sdkRouteResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	return s.inner.ExecInstance(instanceName, exec, args)
 }

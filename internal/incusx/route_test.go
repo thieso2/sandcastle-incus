@@ -29,6 +29,8 @@ type fakeRouteResourceServer struct {
 	updatedProfile *api.ProfilePut
 	deletedProfile string
 	createdFiles   map[string]string
+	execInstance   string
+	exec           api.InstanceExecPost
 }
 
 func (s *fakeRouteResourceServer) GetProfile(name string) (*api.Profile, string, error) {
@@ -77,6 +79,15 @@ func (s *fakeRouteResourceServer) CreateInstanceFile(instanceName string, path s
 	return nil
 }
 
+func (s *fakeRouteResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	s.execInstance = instanceName
+	s.exec = exec
+	if args.DataDone != nil {
+		close(args.DataDone)
+	}
+	return fakeOperation{}, nil
+}
+
 func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
 	manager := RouteManager{Server: &fakeRouteServer{resource: resource}}
@@ -100,6 +111,12 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	caddyfile := resource.createdFiles["sc-caddy:/etc/caddy/Caddyfile"]
 	if !strings.Contains(caddyfile, "app.example.com") || !strings.Contains(caddyfile, "10.248.0.20:5173") {
 		t.Fatalf("Caddyfile = %q", caddyfile)
+	}
+	if resource.execInstance != route.InfrastructureCaddyName {
+		t.Fatalf("reload instance = %q", resource.execInstance)
+	}
+	if got := strings.Join(resource.exec.Command, " "); got != "caddy reload --config /etc/caddy/Caddyfile" {
+		t.Fatalf("reload command = %q", got)
 	}
 }
 
