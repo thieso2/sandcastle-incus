@@ -642,6 +642,30 @@ func TestDNSInstallDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
+	output := formatLocalDNSPlan("Install", localdns.Plan{
+		Reference:        "alice/myproject",
+		Domain:           "myproject.project-tld",
+		DNSEndpoint:      "10.248.0.53:53",
+		Listen:           "127.0.0.1:53541",
+		ResolverStrategy: localdns.StrategySystemdResolve,
+		ResolverCommands: []localdns.Command{
+			{Args: []string{"resolvectl", "dns", "lo", "127.0.0.1:53541"}},
+			{Args: []string{"resolvectl", "domain", "lo", "~myproject.project-tld"}},
+		},
+	})
+	for _, want := range []string{
+		"Resolver: systemd-resolved",
+		"Resolver commands:",
+		"resolvectl dns lo 127.0.0.1:53541",
+		"resolvectl domain lo ~myproject.project-tld",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",

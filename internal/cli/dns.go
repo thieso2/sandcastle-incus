@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
@@ -286,7 +287,14 @@ func formatDNSApply(result dns.ApplyResult) string {
 }
 
 func formatLocalDNSPlan(action string, plan localdns.Plan) string {
-	return fmt.Sprintf("%s local DNS: %s\nDomain: %s\nForwarder: %s\nProject DNS: %s\nResolver: %s", action, plan.Reference, plan.Domain, plan.Listen, plan.DNSEndpoint, plan.ResolverStrategy)
+	output := fmt.Sprintf("%s local DNS: %s\nDomain: %s\nForwarder: %s\nProject DNS: %s\nResolver: %s", action, plan.Reference, plan.Domain, plan.Listen, plan.DNSEndpoint, plan.ResolverStrategy)
+	if len(plan.ResolverCommands) > 0 {
+		output += "\nResolver commands:"
+		for _, command := range plan.ResolverCommands {
+			output += "\n  " + strings.Join(command.Args, " ")
+		}
+	}
+	return output
 }
 
 func formatLocalDNSResult(result localdns.Result) string {

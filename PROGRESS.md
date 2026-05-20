@@ -1302,6 +1302,12 @@ development sandboxes.
 - Passed: `go test ./internal/localdns ./internal/cli -run 'Test(Local|DNS|FileManager|Resolver|PlanService)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Extended local DNS human dry-run output to list planned resolver mutation
+  commands, making systemd-resolved changes visible before non-dry-run install
+  or refresh operations.
+- Passed: `go test ./internal/cli ./internal/localdns -run 'Test(DNS|FormatLocalDNS|Resolver|FileManager)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
