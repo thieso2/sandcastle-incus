@@ -7,7 +7,7 @@ run = "make build"
 
 [tasks."image:deps"]
 description = "Check local tools required for image upload"
-run = "for tool in docker incus tar xz; do command -v \"$tool\" >/dev/null || { echo \"$tool is required for image upload\" >&2; exit 127; }; done"
+run = "for tool in docker incus tar zstd; do command -v \"$tool\" >/dev/null || { echo \"$tool is required for image upload\" >&2; exit 127; }; done"
 
 [tasks."image:base:build"]
 description = "Build the Sandcastle base OCI image"

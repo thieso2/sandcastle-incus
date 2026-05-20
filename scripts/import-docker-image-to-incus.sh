@@ -10,7 +10,7 @@ image_ref="$1"
 alias_name="$2"
 remote="${3:-${SANDCASTLE_REMOTE:-local}}"
 
-for tool in docker incus tar xz; do
+for tool in docker incus tar zstd; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "$tool is required" >&2
     exit 127
@@ -39,9 +39,9 @@ cleanup() {
 trap cleanup EXIT
 
 container_id="$(docker create --platform "linux/$arch" "$image_ref" /bin/true)"
-echo "Exporting and compressing rootfs (this may take a minute)..."
-docker export "$container_id" | gzip -1 -c >"$tmpdir/rootfs.tar.gz"
-echo "Rootfs size: $(du -sh "$tmpdir/rootfs.tar.gz" | cut -f1)"
+echo "Exporting and compressing rootfs..."
+docker export "$container_id" | zstd -T0 -c >"$tmpdir/rootfs.tar.zst"
+echo "Rootfs size: $(du -sh "$tmpdir/rootfs.tar.zst" | cut -f1)"
 
 serial="$(date -u +%Y%m%d%H%M%S)"
 cat >"$tmpdir/metadata.yaml" <<EOF
@@ -57,10 +57,10 @@ properties:
 templates: {}
 EOF
 
-tar -C "$tmpdir" -czf "$tmpdir/metadata.tar.gz" metadata.yaml
+tar -C "$tmpdir" --zstd -cf "$tmpdir/metadata.tar.zst" metadata.yaml
 
 echo "Importing into Incus remote $remote..."
-incus image import "$tmpdir/metadata.tar.gz" "$tmpdir/rootfs.tar.gz" "$remote:" \
+incus image import "$tmpdir/metadata.tar.zst" "$tmpdir/rootfs.tar.zst" "$remote:" \
   --alias "$alias_name" \
   --reuse
 echo "Done."
