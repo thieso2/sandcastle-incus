@@ -13,6 +13,7 @@ func newConfigCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 		Short: "Show or modify Sandcastle configuration",
 	}
 	cmd.AddCommand(newConfigShowCommand(config))
+	cmd.AddCommand(newConfigSetCommand(config))
 	return cmd
 }
 
@@ -33,6 +34,38 @@ func newConfigShowCommand(config commandConfig) *cobra.Command {
 			fmt.Fprintf(config.stdout, "  owner:      %q\n", config.adminConfig.Owner)
 			fmt.Fprintf(config.stdout, "  remote:     %q\n", config.adminConfig.Remote)
 			fmt.Fprintf(config.stdout, "  configPath: %q\n", config.adminConfig.ConfigPath)
+			return nil
+		},
+	}
+}
+
+func newConfigSetCommand(_ commandConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Set a value in ~/.config/sandcastle/config.yml",
+		Long: `Set a configuration value. Supported keys:
+  owner   default owner name (e.g. alice)
+  remote  default Sandcastle remote name (e.g. sc-alice)`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key, value := args[0], args[1]
+			cfgPath := scconfig.DefaultConfigPath()
+			cfg, err := scconfig.LoadSandcastleConfig(cfgPath)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			switch key {
+			case "owner":
+				cfg.Owner = value
+			case "remote":
+				cfg.Remote = value
+			default:
+				return fmt.Errorf("unknown config key %q; supported keys: owner, remote", key)
+			}
+			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
+				return fmt.Errorf("save config: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Set %s = %q in %s\n", key, value, cfgPath)
 			return nil
 		},
 	}
