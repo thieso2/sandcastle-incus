@@ -1398,6 +1398,13 @@ development sandboxes.
 - Passed: `/tmp/sandcastle-install-check/usr/local/bin/sc --output json version`
 - Passed: `git diff --check`
 - Passed: `make e2e-safe`
+- Hardened env-backed admin config loading by trimming scalar values at the
+  boundary, so accidental surrounding whitespace in owner, remote, project
+  prefix, infrastructure host/email/socket, storage pool, CIDR pool, or image
+  aliases does not leak into Incus or route-broker operations.
+- Passed: `go test ./internal/config ./internal/cli -run 'Test(LoadAdminFromEnv|RouteManagerFromEnv|Status|AddDryRun)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

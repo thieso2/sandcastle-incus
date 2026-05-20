@@ -40,7 +40,7 @@ type Images struct {
 
 func LoadAdminFromEnv() Admin {
 	return Admin{
-		Owner:                  os.Getenv("SANDCASTLE_OWNER"),
+		Owner:                  strings.TrimSpace(os.Getenv("SANDCASTLE_OWNER")),
 		Remote:                 getenv("SANDCASTLE_REMOTE", DefaultRemote),
 		StoragePool:            getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
 		CIDRPool:               getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
@@ -48,7 +48,7 @@ func LoadAdminFromEnv() Admin {
 		InfrastructureProject:  getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
 		InfrastructureHost:     getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
 		LetsEncryptEmail:       getenv("SANDCASTLE_LETSENCRYPT_EMAIL", DefaultLetsEncryptEmail),
-		RouteBrokerIncusSocket: os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"),
+		RouteBrokerIncusSocket: strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET")),
 		AllowedDomainSuffixes:  splitList(os.Getenv("SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES")),
 		DeniedDomainSuffixes:   splitList(os.Getenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES")),
 		Images: Images{
@@ -84,7 +84,7 @@ func (c Admin) Validate() error {
 }
 
 func getenv(key, fallback string) string {
-	value := os.Getenv(key)
+	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
 		return fallback
 	}
