@@ -25,18 +25,27 @@ type TopologyStore interface {
 type TopologyRequest struct {
 	IncusProject string
 	StoragePool  string
+	Domain       string
 }
 
 type Topology struct {
 	PrivateNetworkPresent bool
 	DurableVolumes        map[string]bool
 	Sidecars              map[string]SidecarStatus
+	DiagnosticFiles       []DiagnosticFile
 }
 
 type SidecarStatus struct {
 	Present bool
 	Running bool
 	Status  string
+}
+
+type DiagnosticFile struct {
+	Instance string `json:"instance"`
+	Path     string `json:"path"`
+	Content  string `json:"content,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 func GetStatus(ctx context.Context, store IncusProjectStore, reference string) (Status, error) {
@@ -65,6 +74,7 @@ func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topolog
 			}
 			if topologyStore != nil {
 				topologyRequest.IncusProject = summary.IncusName
+				topologyRequest.Domain = summary.Domain
 				topology, err := topologyStore.GetTopology(ctx, topologyRequest)
 				if err != nil {
 					status.Checks = append(status.Checks, Check{Name: "topology", Status: "error", Detail: err.Error()})

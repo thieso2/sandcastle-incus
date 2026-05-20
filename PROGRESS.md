@@ -1254,6 +1254,12 @@ development sandboxes.
 - Passed: `go test ./internal/e2e ./internal/tailscale -run 'Test(LoadConfig|Validate|PlanUp|TailscaleUp)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Extended Incus topology diagnostics to read bounded CoreDNS sidecar config
+  files, including the rendered `Corefile` and project zone file, so DNS e2e
+  failures log the actual rendered resolver state alongside topology checks.
+- Passed: `go test ./internal/project ./internal/incusx ./internal/e2e -run 'Test(GetStatusWithTopology|TopologyStoreGetTopology|ProjectDiagnostic|LogProjectDiagnostic|LocalDNSDiagnostic)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

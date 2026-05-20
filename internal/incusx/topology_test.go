@@ -2,9 +2,12 @@ package incusx
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 )
@@ -21,6 +24,7 @@ type fakeTopologyResource struct {
 	networks  map[string]*api.Network
 	volumes   map[string]*api.StorageVolume
 	instances map[string]*api.Instance
+	files     map[string]string
 }
 
 func (r fakeTopologyResource) GetNetwork(name string) (*api.Network, string, error) {
@@ -44,6 +48,13 @@ func (r fakeTopologyResource) GetInstance(name string) (*api.Instance, string, e
 	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
 }
 
+func (r fakeTopologyResource) GetInstanceFile(instanceName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	if content, ok := r.files[instanceName+":"+filePath]; ok {
+		return io.NopCloser(strings.NewReader(content)), &incus.InstanceFileResponse{Type: "file"}, nil
+	}
+	return nil, nil, api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
 func TestTopologyStoreGetTopology(t *testing.T) {
 	store := TopologyStore{Server: fakeTopologyServer{resource: &fakeTopologyResource{
 		networks: map[string]*api.Network{project.PrivateNetworkName: {Name: project.PrivateNetworkName}},
@@ -55,10 +66,15 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 			project.TailscaleName: {Name: project.TailscaleName, Status: "Stopped", StatusCode: api.Stopped},
 			project.DNSName:       {Name: project.DNSName, Status: "Running", StatusCode: api.Running},
 		},
+		files: map[string]string{
+			project.DNSName + ":/etc/coredns/Corefile":                       ".:53 {\n  errors\n}\n",
+			project.DNSName + ":/etc/coredns/zones/db.myproject.project-tld": "$ORIGIN myproject.project-tld.\n",
+		},
 	}}}
 	topology, err := store.GetTopology(context.Background(), project.TopologyRequest{
 		IncusProject: "sc-alice-myproject",
 		StoragePool:  "default",
+		Domain:       "myproject.project-tld",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -77,5 +93,14 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 	}
 	if !topology.Sidecars[project.DNSName].Running {
 		t.Fatal("dns sidecar should be running")
+	}
+	if len(topology.DiagnosticFiles) != 2 {
+		t.Fatalf("DiagnosticFiles = %#v, want CoreDNS Corefile and zone", topology.DiagnosticFiles)
+	}
+	if topology.DiagnosticFiles[0].Path != "/etc/coredns/Corefile" || !strings.Contains(topology.DiagnosticFiles[0].Content, "errors") {
+		t.Fatalf("Corefile diagnostic = %#v", topology.DiagnosticFiles[0])
+	}
+	if topology.DiagnosticFiles[1].Path != "/etc/coredns/zones/db.myproject.project-tld" || !strings.Contains(topology.DiagnosticFiles[1].Content, "$ORIGIN") {
+		t.Fatalf("zone diagnostic = %#v", topology.DiagnosticFiles[1])
 	}
 }

@@ -62,7 +62,7 @@ func projectDiagnosticLines(ctx context.Context, projects []project.Summary, top
 			summary.Status,
 		)
 		if topologyStore != nil {
-			line += "\n  topology: " + projectTopologyDiagnostics(ctx, topologyStore, storagePool, summary.IncusName)
+			line += "\n  topology: " + projectTopologyDiagnostics(ctx, topologyStore, storagePool, summary)
 		}
 		if tailscaleLine := projectTailscaleDiagnostics(summary); tailscaleLine != "" {
 			line += "\n  tailscale: " + tailscaleLine
@@ -82,8 +82,12 @@ func matchesProjectRun(summary project.Summary, runID string) bool {
 		strings.Contains(summary.Domain, runID)
 }
 
-func projectTopologyDiagnostics(ctx context.Context, topologyStore project.TopologyStore, storagePool string, incusProject string) string {
-	topology, err := topologyStore.GetTopology(ctx, project.TopologyRequest{IncusProject: incusProject, StoragePool: storagePool})
+func projectTopologyDiagnostics(ctx context.Context, topologyStore project.TopologyStore, storagePool string, summary project.Summary) string {
+	topology, err := topologyStore.GetTopology(ctx, project.TopologyRequest{
+		IncusProject: summary.IncusName,
+		StoragePool:  storagePool,
+		Domain:       summary.Domain,
+	})
 	if err != nil {
 		return "error=" + err.Error()
 	}
@@ -95,7 +99,37 @@ func projectTopologyDiagnostics(ctx context.Context, topologyStore project.Topol
 		}
 		parts = append(parts, check.Name+"="+value)
 	}
-	return strings.Join(parts, " ")
+	output := strings.Join(parts, " ")
+	if files := topologyDiagnosticFiles(topology.DiagnosticFiles); files != "" {
+		output += "\n  files:\n" + files
+	}
+	return output
+}
+
+func topologyDiagnosticFiles(files []project.DiagnosticFile) string {
+	var parts []string
+	for _, file := range files {
+		label := file.Instance + ":" + file.Path
+		if file.Error != "" {
+			parts = append(parts, "    "+label+" error="+redactDiagnosticValue(file.Error))
+			continue
+		}
+		content := strings.TrimSpace(file.Content)
+		if content == "" {
+			parts = append(parts, "    "+label+" empty")
+			continue
+		}
+		parts = append(parts, "    "+label+"\n"+indentDiagnosticContent(redactDiagnosticValue(content), "      "))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func indentDiagnosticContent(content string, prefix string) string {
+	lines := strings.Split(content, "\n")
+	for index := range lines {
+		lines[index] = prefix + lines[index]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func projectTailscaleDiagnostics(summary project.Summary) string {

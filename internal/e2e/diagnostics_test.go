@@ -38,6 +38,10 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 				project.TailscaleName: {Present: true, Running: true, Status: "Running"},
 				project.DNSName:       {Present: true, Running: false, Status: "Stopped"},
 			},
+			DiagnosticFiles: []project.DiagnosticFile{
+				{Instance: project.DNSName, Path: "/etc/coredns/Corefile", Content: ".:53 {\n  errors\n}"},
+				{Instance: project.DNSName, Path: "/etc/coredns/zones/db.project.e2e.project-tld", Error: "missing"},
+			},
 		},
 	}, "default", "e2e-test")
 	if len(lines) != 1 {
@@ -50,6 +54,10 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 		"volume:sc-workspace=missing",
 		"sidecar:sc-tailscale=ok(Running)",
 		"sidecar:sc-dns=stopped(Stopped)",
+		"files:",
+		"sc-dns:/etc/coredns/Corefile",
+		"  errors",
+		"sc-dns:/etc/coredns/zones/db.project.e2e.project-tld error=missing",
 	} {
 		if !strings.Contains(lines[0], want) {
 			t.Fatalf("diagnostic line missing %q:\n%s", want, lines[0])
