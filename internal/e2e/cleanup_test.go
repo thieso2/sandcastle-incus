@@ -3,14 +3,17 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 const infrastructureKind = "infrastructure"
@@ -42,6 +45,10 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 	ctx := context.Background()
 	store := incusx.NewProjectStore(e2eConfig.Remote)
 	projects, err := store.ListProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := e2eInstanceServer(e2eConfig.Remote)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +92,15 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 			deletedInfrastructure++
 		}
 	}
-	t.Logf("cleanup run %q removed %d project(s) and %d infrastructure project(s)", runToken, deletedProjects, deletedInfrastructure)
+	deletedCertificates, err := cleanupDisposableCertificates(server, runToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedImageAliases, err := cleanupDisposableImageAliases(server, runToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("cleanup run %q removed %d project(s), %d infrastructure project(s), %d certificate(s), and %d image alias(es)", runToken, deletedProjects, deletedInfrastructure, deletedCertificates, deletedImageAliases)
 }
 
 func cleanupRunToken(config Config) (string, error) {
@@ -120,6 +135,72 @@ func managedInfrastructureMatchesRun(incusProject project.IncusProject, runToken
 		return true
 	}
 	return strings.Contains(incusProject.Config[meta.KeyName], runToken)
+}
+
+type cleanupResourceServer interface {
+	GetCertificates() ([]api.Certificate, error)
+	DeleteCertificate(fingerprint string) error
+	GetImageAliases() ([]api.ImageAliasesEntry, error)
+	DeleteImageAlias(name string) error
+}
+
+func cleanupDisposableCertificates(server cleanupResourceServer, runToken string) (int, error) {
+	certificates, err := server.GetCertificates()
+	if err != nil {
+		return 0, fmt.Errorf("list Incus certificates for cleanup: %w", err)
+	}
+	deleted := 0
+	for _, certificate := range certificates {
+		if !managedCertificateMatchesRun(certificate, runToken) {
+			continue
+		}
+		if err := server.DeleteCertificate(certificate.Fingerprint); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
+			return deleted, fmt.Errorf("delete certificate %s: %w", certificate.Name, err)
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
+func cleanupDisposableImageAliases(server cleanupResourceServer, runToken string) (int, error) {
+	aliases, err := server.GetImageAliases()
+	if err != nil {
+		return 0, fmt.Errorf("list Incus image aliases for cleanup: %w", err)
+	}
+	deleted := 0
+	for _, alias := range aliases {
+		if !managedImageAliasMatchesRun(alias, runToken) {
+			continue
+		}
+		if err := server.DeleteImageAlias(alias.Name); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
+			return deleted, fmt.Errorf("delete image alias %s: %w", alias.Name, err)
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
+func managedCertificateMatchesRun(certificate api.Certificate, runToken string) bool {
+	if !strings.HasPrefix(certificate.Name, usertrust.CertificateNamePrefix) && !strings.Contains(certificate.Description, "Sandcastle") {
+		return false
+	}
+	return stringFieldsContainRun(runToken, append([]string{certificate.Name, certificate.Description}, certificate.Projects...))
+}
+
+func managedImageAliasMatchesRun(alias api.ImageAliasesEntry, runToken string) bool {
+	if !strings.HasPrefix(alias.Name, "sandcastle/base:") && !strings.HasPrefix(alias.Name, "sandcastle/ai:") {
+		return false
+	}
+	return stringFieldsContainRun(runToken, []string{alias.Name, alias.Description})
+}
+
+func stringFieldsContainRun(runToken string, fields []string) bool {
+	for _, field := range fields {
+		if strings.Contains(field, runToken) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCleanupRunTokenRequiresExplicitLongRunID(t *testing.T) {
@@ -171,5 +252,49 @@ func TestCleanupInfrastructureSelectionMatchesOnlyRunID(t *testing.T) {
 	}
 	if managedInfrastructureMatchesRun(project, "e2e-19990101-000000") {
 		t.Fatal("unexpected infrastructure cleanup match")
+	}
+}
+
+func TestCleanupCertificateSelectionMatchesOnlySandcastleRunID(t *testing.T) {
+	certificate := api.Certificate{
+		Fingerprint: "abcd",
+		CertificatePut: api.CertificatePut{
+			Name:        "sandcastle-owner-e2e-20260520-120000",
+			Type:        api.CertificateTypeClient,
+			Restricted:  true,
+			Description: "Sandcastle restricted user owner-e2e-20260520-120000",
+			Projects:    []string{"sc-owner-e2e-20260520-120000-project"},
+		},
+	}
+	if !managedCertificateMatchesRun(certificate, "e2e-20260520-120000") {
+		t.Fatal("expected certificate cleanup match")
+	}
+	if managedCertificateMatchesRun(certificate, "e2e-19990101-000000") {
+		t.Fatal("unexpected certificate cleanup match")
+	}
+	certificate.Name = "admin-e2e-20260520-120000"
+	certificate.Description = "manual admin cert e2e-20260520-120000"
+	if managedCertificateMatchesRun(certificate, "e2e-20260520-120000") {
+		t.Fatal("unexpected unmanaged certificate cleanup match")
+	}
+}
+
+func TestCleanupImageAliasSelectionMatchesOnlySandcastleRunID(t *testing.T) {
+	alias := api.ImageAliasesEntry{
+		Name: "sandcastle/base:e2e-20260520-120000",
+		ImageAliasesEntryPut: api.ImageAliasesEntryPut{
+			Description: "Sandcastle e2e base alias e2e-20260520-120000",
+			Target:      "abc123",
+		},
+	}
+	if !managedImageAliasMatchesRun(alias, "e2e-20260520-120000") {
+		t.Fatal("expected image alias cleanup match")
+	}
+	if managedImageAliasMatchesRun(alias, "e2e-19990101-000000") {
+		t.Fatal("unexpected image alias cleanup match")
+	}
+	alias.Name = "ubuntu:e2e-20260520-120000"
+	if managedImageAliasMatchesRun(alias, "e2e-20260520-120000") {
+		t.Fatal("unexpected unmanaged image alias cleanup match")
 	}
 }

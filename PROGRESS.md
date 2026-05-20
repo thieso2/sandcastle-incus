@@ -565,6 +565,11 @@ development sandboxes.
 - Exposed the cleanup tier in the manual destructive GitHub Actions workflow and
   added an optional `run_id` workflow input that maps to `SANDCASTLE_E2E_RUN_ID`
   for cleanup or correlated disposable runs.
+- Extended standalone e2e cleanup to remove matching Sandcastle restricted
+  certificates and disposable `sandcastle/base:<run>` /
+  `sandcastle/ai:<run>` image aliases in addition to project and infrastructure
+  projects. Selection remains guarded by explicit long run IDs and Incus-free
+  tests cover managed/unmanaged matching for certificates and image aliases.
 
 ## Next Slice
 
@@ -926,6 +931,10 @@ development sandboxes.
 - Passed: `git diff --check`
 - Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
 - Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'Test(Cleanup|LoadConfig)' -count=1 -v`
+  with the expected cleanup e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 
