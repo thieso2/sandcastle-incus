@@ -244,8 +244,7 @@ Certificate: sc-alice
 Remote: sc-alice
 Token: 7f3a...
 Bootstrap:
-  sc remote add sc-alice &lt;join-token&gt;
-  # then edit ~/.config/sandcastle/config.yml and add:  owner: alice</code></pre>
+  sc remote add sc-alice &lt;join-token&gt; --owner alice</code></pre>
     <div class="note"><strong>Share the bootstrap commands with the user.</strong> They run <code>sc remote add</code> on their machine — this registers the remote and saves it as the default in <code>~/.config/sandcastle/config.yml</code>.</div>
   </div>
 
@@ -265,17 +264,12 @@ Bootstrap:
   <div class="step">
     <h3>User bootstrap (on the user's machine)</h3>
     <p>Run these commands after receiving the bootstrap output from admin.</p>
-    <pre><code><span class="comment"># Add the remote — the join token already contains the server address.</span>
-<span class="comment"># Creates ~/.config/sandcastle/sc-alice/incus/ with certs</span>
-<span class="comment"># and sets sc-alice as the default remote in ~/.config/sandcastle/config.yml</span>
-<span class="cmd">sc remote add</span> <span class="arg">sc-alice</span> <span class="arg">&lt;join-token-from-admin&gt;</span>
+    <pre><code><span class="comment"># One command sets up the remote and writes owner + remote to config</span>
+<span class="cmd">sc remote add</span> <span class="arg">sc-alice</span> <span class="arg">&lt;join-token-from-admin&gt;</span> <span class="flag">--owner</span> <span class="arg">alice</span>
 
-<span class="comment"># Set your owner name in the config file</span>
-<span class="comment"># Edit ~/.config/sandcastle/config.yml and add:  owner: alice</span>
-
-<span class="comment"># Verify access — no env vars needed</span>
+<span class="comment"># Verify — no env vars needed</span>
 <span class="cmd">sc ls</span></code></pre>
-    <div class="note"><strong>One-time setup.</strong> After <code>sc remote add</code> the remote is saved to <code>~/.config/sandcastle/config.yml</code> and all subsequent <code>sc</code> commands use it automatically — no <code>export SANDCASTLE_REMOTE=…</code> needed.</div>
+    <div class="note"><strong>One-time setup.</strong> <code>sc remote add</code> creates <code>~/.config/sandcastle/sc-alice/incus/</code> with Incus TLS certs and saves owner + remote to <code>~/.config/sandcastle/config.yml</code>. All subsequent <code>sc</code> commands pick up the config automatically.</div>
   </div>
 
   <div class="step">

@@ -19,17 +19,22 @@ func newRemoteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 }
 
 func newRemoteAddCommand(config commandConfig, _ *rootOptions) *cobra.Command {
-	return &cobra.Command{
+	var owner string
+	cmd := &cobra.Command{
 		Use:   "add <name> <join-token>",
 		Short: "Add a Sandcastle remote using an Incus join token",
 		Long: `Add a Sandcastle remote.
 
-<join-token> is the token produced by "sandcastle admin user create" (or
+<join-token> is the token produced by "sc admin user create" (or
 "incus config trust add --generate-certificate" on the server). The token
 already contains the server address — no separate address argument is needed.
 
 Incus certs are stored in ~/.config/sandcastle/<name>/incus/ and the remote
-is saved as the default in ~/.config/sandcastle/config.yml.`,
+is saved as the default in ~/.config/sandcastle/config.yml.
+
+Use --owner to also set your default owner name in one step:
+
+  sc remote add sc-alice JOIN_TOKEN --owner alice`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, joinToken := args[0], args[1]
@@ -68,11 +73,19 @@ is saved as the default in ~/.config/sandcastle/config.yml.`,
 				cfg.Remote = name
 				fmt.Fprintf(config.stdout, "Default remote set to %q\n", name)
 			}
+			if owner != "" {
+				cfg.Owner = owner
+			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save sandcastle config: %w", err)
 			}
 			fmt.Fprintf(config.stdout, "Remote %q added. Incus config: %s\n", name, incusDir)
+			if cfg.Owner != "" {
+				fmt.Fprintf(config.stdout, "Default owner set to %q\n", cfg.Owner)
+			}
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&owner, "owner", "", "Set the default owner name in ~/.config/sandcastle/config.yml")
+	return cmd
 }

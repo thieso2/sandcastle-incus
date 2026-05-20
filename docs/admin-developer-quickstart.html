@@ -337,11 +337,7 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
         <tbody>
           <tr>
             <td>Remote add command</td>
-            <td><code>sc remote add sandcastle-alice JOIN_TOKEN</code></td>
-          </tr>
-          <tr>
-            <td>Owner to set in config</td>
-            <td>Edit <code>~/.config/sandcastle/config.yml</code> and add <code>owner: alice</code></td>
+            <td><code>sc remote add sandcastle-alice JOIN_TOKEN --owner alice</code></td>
           </tr>
           <tr>
             <td>Project reference</td>
@@ -369,12 +365,8 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
 make install</code></pre>
 
       <h3>2. Add the restricted remote</h3>
-      <pre><code>sc remote add sandcastle-alice JOIN_TOKEN_FROM_ADMIN</code></pre>
-      <p>This creates <code>~/.config/sandcastle/sandcastle-alice/incus/</code> with the Incus TLS certs and saves <code>sandcastle-alice</code> as the default remote in <code>~/.config/sandcastle/config.yml</code>. No env var exports needed.</p>
-      <p>Then set your owner name once:</p>
-      <pre><code># ~/.config/sandcastle/config.yml
-owner: alice
-remote: sandcastle-alice  # already set by sc remote add</code></pre>
+      <pre><code>sc remote add sandcastle-alice JOIN_TOKEN_FROM_ADMIN --owner alice</code></pre>
+      <p>This creates <code>~/.config/sandcastle/sandcastle-alice/incus/</code> with the Incus TLS certs and writes <code>~/.config/sandcastle/config.yml</code> with the remote and owner set. No env var exports needed — all subsequent <code>sc</code> commands pick up the config automatically.</p>
 
       <h3>3. Check project visibility</h3>
       <pre><code>sc ls
