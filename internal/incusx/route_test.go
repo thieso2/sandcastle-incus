@@ -327,6 +327,37 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	}
 }
 
+func TestRouteManagerRemovesRouteProfileWhenTargetSandboxIsGone(t *testing.T) {
+	metadata, err := meta.RouteConfig(meta.Route{
+		Hostname:      "app.example.com",
+		TargetOwner:   "alice",
+		TargetProject: "myproject",
+		TargetSandbox: "codex",
+		TargetIP:      "10.248.0.20",
+		RoutePort:     5173,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{
+		"sc-route-app-example-com": {Name: "sc-route-app-example-com", ProfilePut: api.ProfilePut{Config: api.ConfigMap(metadata)}},
+	}}
+	target := &fakeRouteResourceServer{}
+	manager := RouteManager{Server: &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"}}
+	if err := manager.Remove(context.Background(), route.RemovePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra", ProjectPrefix: "sc"}); err != nil {
+		t.Fatal(err)
+	}
+	if resource.deletedProfile != "sc-route-app-example-com" {
+		t.Fatalf("deleted profile = %q", resource.deletedProfile)
+	}
+	if target.updated != nil {
+		t.Fatalf("target sandbox should not be updated when missing: %#v", target.updated)
+	}
+	if _, ok := resource.createdFiles["sc-caddy:/etc/caddy/Caddyfile"]; !ok {
+		t.Fatal("expected infrastructure Caddyfile rewrite")
+	}
+}
+
 func routePlanForTest(t *testing.T) route.AddPlan {
 	t.Helper()
 	metadata, err := meta.RouteConfig(meta.Route{

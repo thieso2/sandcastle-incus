@@ -1125,6 +1125,12 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|ProjectDiagnostic|DisposableProjectCreateAndPurge|ProjectDNSE2E|SandboxLifecycleE2E|CLIAdd|CLIEnter|HostOverride|Tailscale|RestrictedUserSandboxLifecycle|RouteBrokerAuthorizedMutation|LocalTrust)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened public route removal so stale global route metadata can still be
+  deleted and infrastructure Caddy refreshed when the target sandbox has
+  already been removed.
+- Passed: `go test ./internal/incusx -run 'TestRouteManagerRemovesRouteProfile' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

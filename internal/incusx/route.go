@@ -132,6 +132,9 @@ func removeRouteIngressAttachment(server RouteServer, plan route.RemovePlan, rou
 	projectServer := server.UseProject(incusProject)
 	instanceName := "sc-" + routeMetadata.TargetSandbox
 	instance, etag, err := projectServer.GetInstance(instanceName)
+	if api.StatusErrorCheck(err, http.StatusNotFound) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("get route target sandbox %s/%s/%s: %w", routeMetadata.TargetOwner, routeMetadata.TargetProject, routeMetadata.TargetSandbox, err)
 	}
