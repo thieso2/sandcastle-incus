@@ -97,6 +97,22 @@ func TestProjectDiagnosticLinesMatchRunIDInDomain(t *testing.T) {
 	}
 }
 
+func TestProjectDiagnosticLinesRequireRunID(t *testing.T) {
+	store := diagnosticProjectStore(t)
+	summaries, err := project.List(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := projectDiagnosticLines(context.Background(), summaries, nil, "", "")
+	if len(lines) != 0 {
+		t.Fatalf("lines = %#v, want no diagnostics for empty run id", lines)
+	}
+	lines = projectDiagnosticLines(context.Background(), summaries, nil, "", "   ")
+	if len(lines) != 0 {
+		t.Fatalf("lines = %#v, want no diagnostics for blank run id", lines)
+	}
+}
+
 func diagnosticProjectStore(t *testing.T) project.MemoryStore {
 	t.Helper()
 	config, err := meta.ProjectConfig(meta.Project{

@@ -582,6 +582,8 @@ development sandboxes.
   project domain as well as owner, project, and Incus project name. This keeps
   diagnostics aligned with the e2e plan rule that disposable domains include the
   run id.
+- Tightened failed-project e2e diagnostics so an empty or blank run id matches
+  no projects instead of broadening to every managed project.
 
 ## Next Slice
 
@@ -961,6 +963,9 @@ development sandboxes.
   `SANDCASTLE_E2E_IMAGE_BUILD` guard.
 - Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh cleanup` with the expected missing
   `SANDCASTLE_E2E_RUN_ID` guard.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'Test(ProjectDiagnostic|LogProjectDiagnostics)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `go test ./internal/e2e -run 'Test(ProjectDiagnostic|LogProjectDiagnostics)' -count=1 -v`

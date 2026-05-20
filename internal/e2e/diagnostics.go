@@ -52,6 +52,9 @@ func projectDiagnosticLines(ctx context.Context, projects []project.Summary, top
 }
 
 func matchesProjectRun(summary project.Summary, runID string) bool {
+	if strings.TrimSpace(runID) == "" {
+		return false
+	}
 	return strings.Contains(summary.Owner, runID) ||
 		strings.Contains(summary.Name, runID) ||
 		strings.Contains(summary.IncusName, runID) ||
