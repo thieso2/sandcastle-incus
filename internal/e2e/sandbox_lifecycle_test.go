@@ -2,10 +2,12 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/images"
@@ -106,7 +108,24 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
 	assertInstanceExists(t, projectServer, createSandboxPlan.InstanceName)
-	assertSandboxIngressFiles(t, projectServer, createSandboxPlan.InstanceName, sandboxName+"."+createProjectPlan.Domain, createSandboxPlan.AppPort)
+	hostname := sandboxName + "." + createProjectPlan.Domain
+	assertSandboxIngressFiles(t, projectServer, createSandboxPlan.InstanceName, hostname, createSandboxPlan.AppPort)
+	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-app-3000")
+	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-app-3000")
+
+	portPlan, err := sandbox.PlanSetPort(ctx, adminConfig, store, sandbox.PortSetRequest{
+		Reference: sandboxRef,
+		AppPort:   5173,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := incusx.NewSandboxPortSetter(e2eConfig.Remote).SetAppPort(ctx, portPlan); err != nil {
+		t.Fatal(err)
+	}
+	assertSandboxIngressFiles(t, projectServer, createSandboxPlan.InstanceName, hostname, 5173)
+	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, 5173, "sandcastle-app-5173")
+	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-app-5173")
 
 	controller := incusx.NewSandboxController(e2eConfig.Remote)
 	for _, action := range []sandbox.Action{sandbox.ActionStop, sandbox.ActionStart, sandbox.ActionRestart, sandbox.ActionRemove} {
@@ -124,6 +143,39 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	if _, _, err := projectServer.GetInstance(createSandboxPlan.InstanceName); !api.StatusErrorCheck(err, http.StatusNotFound) {
 		t.Fatalf("expected sandbox %s to be removed, err = %v", createSandboxPlan.InstanceName, err)
 	}
+}
+
+func startSandboxHTTPApp(t *testing.T, server interface {
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
+}, instance string, port int, body string) {
+	t.Helper()
+	command := []string{"/bin/sh", "-lc", fmt.Sprintf(
+		"install -d /tmp/sandcastle-app-%d && printf %%s %s >/tmp/sandcastle-app-%d/index.html && cd /tmp/sandcastle-app-%d && nohup python3 -m http.server %d --bind 127.0.0.1 >/tmp/sandcastle-app-%d.log 2>&1 & for i in $(seq 1 50); do curl -fsS http://127.0.0.1:%d/ >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1",
+		port,
+		shellQuote(body),
+		port,
+		port,
+		port,
+		port,
+		port,
+	)}
+	_ = execInstanceOutput(t, server, instance, command)
+}
+
+func assertSandboxCaddyProxy(t *testing.T, server interface {
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
+}, instance string, hostname string, want string) {
+	t.Helper()
+	output := execInstanceOutput(t, server, instance, []string{
+		"curl", "-ksS", "--resolve", hostname + ":443:127.0.0.1", "https://" + hostname + "/",
+	})
+	if !strings.Contains(output, want) {
+		t.Fatalf("sandbox Caddy proxy output = %q, want %q", output, want)
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func syncImageAlias(t *testing.T, ctx context.Context, manager incusx.ImageManager, adminConfig config.Admin, source string) {

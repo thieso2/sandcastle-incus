@@ -153,7 +153,11 @@ func assertCoreDNSNoAnswer(t *testing.T, server incus.InstanceServer, instance s
 	}
 }
 
-func execInstanceOutput(t *testing.T, server incus.InstanceServer, instance string, command []string) string {
+type instanceExecServer interface {
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
+}
+
+func execInstanceOutput(t *testing.T, server instanceExecServer, instance string, command []string) string {
 	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

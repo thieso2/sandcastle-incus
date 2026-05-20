@@ -24,6 +24,7 @@ type SandboxResourceServer interface {
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
 type SandboxCreator struct {
@@ -116,6 +117,33 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 			return fmt.Errorf("write sandbox certificate file %s: %w", file.Path, err)
 		}
 	}
+	return restartSandboxCaddy(server, plan.InstanceName)
+}
+
+type sandboxCaddyRestarter interface {
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
+}
+
+func restartSandboxCaddy(server sandboxCaddyRestarter, instanceName string) error {
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
+		Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+			"if pgrep -x caddy >/dev/null 2>&1; then caddy reload --config /etc/caddy/Caddyfile; else nohup caddy run --config /etc/caddy/Caddyfile >/var/log/caddy.log 2>&1 & fi",
+			"for i in $(seq 1 50); do caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 && exit 0; sleep 0.1; done",
+			"pgrep -x caddy >/dev/null 2>&1",
+		}, "; ")},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("restart sandbox Caddy in %s: %w", instanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for sandbox Caddy restart in %s: %w", instanceName, err)
+	}
+	<-dataDone
 	return nil
 }
 
@@ -200,4 +228,8 @@ func (s sdkSandboxResourceServer) CreateInstanceFile(instanceName string, path s
 
 func (s sdkSandboxResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
 	return s.inner.GetStorageVolumeFile(pool, volumeType, volumeName, filePath)
+}
+
+func (s sdkSandboxResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	return s.inner.ExecInstance(instanceName, exec, args)
 }

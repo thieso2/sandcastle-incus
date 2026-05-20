@@ -143,6 +143,8 @@ Test:
 5. Start a small HTTP app on port 3000.
 6. Verify private Caddy proxies to the app.
 7. Change app port to 5173 and verify Caddy reconfiguration.
+   The checked-in `TestSandboxLifecycleE2E` covers Caddy startup, HTTPS
+   proxying to a sandbox-local app, and proxy retargeting after `port set`.
 8. Stop, start, enter/check command execution, and remove.
 
 Primary assertions:

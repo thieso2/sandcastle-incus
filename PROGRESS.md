@@ -128,6 +128,9 @@ development sandboxes.
   hostname and can issue sandbox leaf certificate/key files when project CA
   material is supplied. The Incus sandbox executor writes the Caddyfile and TLS
   files into the sandbox instance with overwrite semantics.
+- Sandbox creation, `sandcastle port set`, and host override rewrites now
+  start or reload Caddy inside the sandbox after writing Caddy/TLS files, so the
+  private HTTPS proxy is live instead of only configured on disk.
 - Non-dry-run sandbox creation now records the project CA volume in the plan and
   reads `ca.crt`/`ca.key` from that volume when certificate files are not
   already present, so real `sandcastle add` can issue sandbox certs from stored
@@ -359,6 +362,10 @@ development sandboxes.
   TLS cert/key files through Incus, assert the expected hostname and
   `reverse_proxy` target, and verify the certificate SAN matches the sandbox
   hostname.
+- Strengthened gated sandbox lifecycle e2e coverage again by starting a small
+  sandbox-local HTTP app, curling it through sandbox Caddy over HTTPS, changing
+  the app port to 5173, and verifying Caddy is reloaded to proxy the new app
+  port.
 
 ## Next Slice
 
@@ -563,6 +570,10 @@ development sandboxes.
 - Passed: `go test ./internal/sandbox -run 'TestPlanCreate(AllocatesNextFreeSandboxIP|ReusesExistingSandboxIP|$)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'TestProjectDNSE2E|TestLoadConfig' -count=1 -v` with the expected project DNS e2e skip when real e2e is unset.
+- Passed: `go test ./internal/incusx ./internal/e2e`
+- Passed: `go test ./internal/e2e -run 'TestSandboxLifecycleE2E|TestLoadConfig' -count=1 -v` with the expected sandbox lifecycle e2e skip when real e2e is unset.
+- Passed: `go test ./internal/incusx -run 'Test(SandboxCreatorCreatesInstance|SandboxPortSetterUpdatesMetadata|HostOverrideManagerAddUpdatesMetadataAndWritesFiles)' -count=1 -v`
+- Passed: `go test ./...`
 
 ## Open Scope
 

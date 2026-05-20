@@ -31,6 +31,7 @@ type fakeSandboxResource struct {
 	started      bool
 	createdFiles map[string]string
 	caFiles      map[string]string
+	execCommands [][]string
 }
 
 func (r *fakeSandboxResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -76,6 +77,14 @@ func (r *fakeSandboxResource) GetStorageVolumeFile(pool string, volumeType strin
 	return io.NopCloser(strings.NewReader(content)), &incus.InstanceFileResponse{Type: "file"}, nil
 }
 
+func (r *fakeSandboxResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	r.execCommands = append(r.execCommands, exec.Command)
+	if args.DataDone != nil {
+		close(args.DataDone)
+	}
+	return fakeOperation{}, nil
+}
+
 func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	plan := sandboxPlanForTest(t)
 	resource := fakeSandboxResourceWithCA(t)
@@ -100,6 +109,9 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	}
 	if resource.createdFiles[sandbox.SandboxCertKeyPath] == "" {
 		t.Fatal("expected private key write")
+	}
+	if len(resource.execCommands) != 1 || !strings.Contains(strings.Join(resource.execCommands[0], " "), "caddy") {
+		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
 }
 

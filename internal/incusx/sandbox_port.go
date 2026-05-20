@@ -22,6 +22,7 @@ type SandboxPortResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
 type SandboxPortSetter struct {
@@ -79,7 +80,10 @@ func (s SandboxPortSetter) SetAppPort(ctx context.Context, plan sandbox.PortSetP
 	if err := op.Wait(); err != nil {
 		return err
 	}
-	return writeSandboxCaddyfile(projectServer, plan)
+	if err := writeSandboxCaddyfile(projectServer, plan); err != nil {
+		return err
+	}
+	return restartSandboxCaddy(projectServer, plan.InstanceName)
 }
 
 func writeSandboxCaddyfile(server SandboxPortResourceServer, plan sandbox.PortSetPlan) error {
@@ -123,4 +127,8 @@ func (s sdkSandboxPortResourceServer) UpdateInstance(name string, instance api.I
 
 func (s sdkSandboxPortResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateInstanceFile(instanceName, path, args)
+}
+
+func (s sdkSandboxPortResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	return s.inner.ExecInstance(instanceName, exec, args)
 }

@@ -27,6 +27,7 @@ type HostOverrideResourceServer interface {
 	UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
 type HostOverrideManager struct {
@@ -249,7 +250,7 @@ func writeHostOverrideSandboxFiles(server HostOverrideResourceServer, plan hosto
 			return fmt.Errorf("write sandbox certificate file %s: %w", file.Path, err)
 		}
 	}
-	return nil
+	return restartSandboxCaddy(server, plan.InstanceName)
 }
 
 func issueHostOverrideCertificateFiles(server HostOverrideResourceServer, plan hostoverride.AddPlan, extraSANs []string) ([]sandbox.File, error) {

@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -25,6 +26,7 @@ type fakeSandboxPortResource struct {
 	instance     *api.Instance
 	updated      *api.InstancePut
 	createdFiles map[string]string
+	execCommands [][]string
 }
 
 func (r *fakeSandboxPortResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -50,6 +52,14 @@ func (r *fakeSandboxPortResource) CreateInstanceFile(instanceName string, path s
 	}
 	r.createdFiles[path] = string(content)
 	return nil
+}
+
+func (r *fakeSandboxPortResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	r.execCommands = append(r.execCommands, exec.Command)
+	if args.DataDone != nil {
+		close(args.DataDone)
+	}
+	return fakeOperation{}, nil
 }
 
 func TestSandboxPortSetterUpdatesMetadata(t *testing.T) {
@@ -96,5 +106,8 @@ func TestSandboxPortSetterUpdatesMetadata(t *testing.T) {
 	}
 	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
 		t.Fatal("expected Caddyfile write")
+	}
+	if len(resource.execCommands) != 1 || !strings.Contains(strings.Join(resource.execCommands[0], " "), "caddy") {
+		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
 }

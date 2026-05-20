@@ -29,6 +29,7 @@ type fakeHostOverrideResource struct {
 	updated      *api.InstancePut
 	createdFiles map[string]string
 	caFiles      map[string]string
+	execCommands [][]string
 }
 
 func (r *fakeHostOverrideResource) GetInstances(instanceType api.InstanceType) ([]api.Instance, error) {
@@ -63,6 +64,14 @@ func (r *fakeHostOverrideResource) CreateInstanceFile(instanceName string, path 
 func (r *fakeHostOverrideResource) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
 	content := r.caFiles[filePath]
 	return io.NopCloser(strings.NewReader(content)), &incus.InstanceFileResponse{Type: "file"}, nil
+}
+
+func (r *fakeHostOverrideResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	r.execCommands = append(r.execCommands, exec.Command)
+	if args.DataDone != nil {
+		close(args.DataDone)
+	}
+	return fakeOperation{}, nil
 }
 
 func TestHostOverrideManagerFindsSandbox(t *testing.T) {
@@ -143,6 +152,9 @@ func TestHostOverrideManagerAddUpdatesMetadataAndWritesFiles(t *testing.T) {
 	}
 	if resource.createdFiles["/etc/caddy/certs/tls.crt"] == "" {
 		t.Fatal("expected certificate write")
+	}
+	if len(resource.execCommands) != 1 || !strings.Contains(strings.Join(resource.execCommands[0], " "), "caddy") {
+		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
 }
 
