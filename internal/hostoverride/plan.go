@@ -109,8 +109,12 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if sandbox.PrivateIP == "" {
 		return AddPlan{}, fmt.Errorf("sandbox %s has no private IP", request.Reference)
 	}
+	if err := validateHostnameAvailable(ctx, sandboxStore, summary, sandboxName, hostname); err != nil {
+		return AddPlan{}, err
+	}
+	canonicalReference := summary.Owner + "/" + summary.Name + "/" + sandboxName
 	return AddPlan{
-		Reference:         request.Reference,
+		Reference:         canonicalReference,
 		Project:           summary,
 		Sandbox:           sandbox,
 		InstanceName:      "sc-" + sandboxName,
@@ -119,7 +123,7 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		Hostname:          hostname,
 		IPAddress:         sandbox.PrivateIP,
 		ExtraSANs:         []string{hostname},
-		HostsEntry:        RenderHostsEntry(request.Reference, hostname, sandbox.PrivateIP),
+		HostsEntry:        RenderHostsEntry(canonicalReference, hostname, sandbox.PrivateIP),
 		TrustWarning:      "Trust the project CA before relying on HTTPS for this host override.",
 		RequiresReissue:   true,
 		RequiresHostsEdit: true,
@@ -149,15 +153,16 @@ func PlanRemove(ctx context.Context, admin config.Admin, projectStore project.In
 	if err != nil {
 		return RemovePlan{}, err
 	}
+	canonicalReference := summary.Owner + "/" + summary.Name + "/" + sandboxName
 	return RemovePlan{
-		Reference:         request.Reference,
+		Reference:         canonicalReference,
 		Project:           summary,
 		Sandbox:           sandbox,
 		InstanceName:      "sc-" + sandboxName,
 		StoragePool:       admin.StoragePool,
 		CAVolume:          project.CAVolumeName,
 		Hostname:          hostname,
-		HostsEntry:        RenderHostsEntry(request.Reference, hostname, sandbox.PrivateIP),
+		HostsEntry:        RenderHostsEntry(canonicalReference, hostname, sandbox.PrivateIP),
 		RequiresReissue:   true,
 		RequiresHostsEdit: true,
 	}, nil
@@ -203,6 +208,24 @@ func RenderHostsEntry(reference string, hostname string, ipAddress string) Hosts
 		Line:      strings.TrimSpace(ipAddress) + " " + strings.ToLower(strings.TrimSpace(hostname)),
 		EndLine:   "# sandcastle host-override end " + id,
 	}
+}
+
+func validateHostnameAvailable(ctx context.Context, sandboxStore SandboxStore, summary project.Summary, sandboxName string, hostname string) error {
+	sandboxes, err := sandboxStore.ListSandboxes(ctx, summary)
+	if err != nil {
+		return err
+	}
+	for _, sandbox := range sandboxes {
+		if sandbox.Name == sandboxName {
+			continue
+		}
+		for _, existing := range sandbox.ExtraSANs {
+			if strings.EqualFold(existing, hostname) {
+				return fmt.Errorf("host override %s is already assigned to %s/%s/%s", hostname, summary.Owner, summary.Name, sandbox.Name)
+			}
+		}
+	}
+	return nil
 }
 
 func normalizeExactHostname(value string) (string, error) {

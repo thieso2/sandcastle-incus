@@ -1157,6 +1157,14 @@ development sandboxes.
 - Passed: `go test ./internal/sandbox ./internal/route -run 'Test(PlanCreate|DefaultAppPort|PlanAdd)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened exact host override planning so managed `/etc/hosts` markers use
+  canonical `owner/project/sandbox` references even when users add/remove with
+  shorthand, preventing stale local hosts blocks. Host override planning also
+  now rejects assigning the same exact hostname to a different sandbox in the
+  same project.
+- Passed: `go test ./internal/hostoverride ./internal/cli -run 'Test(Plan(Add|Remove)|HostOverride)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

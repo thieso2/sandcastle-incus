@@ -48,6 +48,48 @@ func TestPlanAddSupportsProjectNameShorthandWithOwner(t *testing.T) {
 	if plan.Project.Owner != "alice" || plan.Project.Name != "myproject" || plan.Sandbox.Name != "codex" {
 		t.Fatalf("plan = %#v", plan)
 	}
+	if plan.Reference != "alice/myproject/codex" {
+		t.Fatalf("Reference = %q", plan.Reference)
+	}
+	if !strings.Contains(plan.HostsEntry.BeginLine, "alice/myproject/codex example.com") {
+		t.Fatalf("HostsEntry = %#v", plan.HostsEntry)
+	}
+}
+
+func TestPlanRemoveUsesCanonicalHostsEntry(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	plan, err := PlanRemove(context.Background(), admin, projectStoreForTest(t), sandboxStoreForTest{}, RemoveRequest{
+		Reference: "myproject/codex",
+		Hostname:  "example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Reference != "alice/myproject/codex" {
+		t.Fatalf("Reference = %q", plan.Reference)
+	}
+	if !strings.Contains(plan.HostsEntry.BeginLine, "alice/myproject/codex example.com") {
+		t.Fatalf("HostsEntry = %#v", plan.HostsEntry)
+	}
+}
+
+func TestPlanAddRejectsHostnameAssignedToAnotherSandbox(t *testing.T) {
+	_, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreWithSandboxes{
+		sandboxes: []meta.Sandbox{
+			{Name: "codex", PrivateIP: "10.248.0.20"},
+			{Name: "web", PrivateIP: "10.248.0.21", ExtraSANs: []string{"example.com"}},
+		},
+	}, AddRequest{
+		Reference: "alice/myproject/codex",
+		Hostname:  "example.com",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "already assigned") {
+		t.Fatalf("error = %q", err)
+	}
 }
 
 func TestPlanAddRejectsWildcardHostname(t *testing.T) {
@@ -130,6 +172,25 @@ func (s sandboxStoreForTest) ListSandboxes(ctx context.Context, summary project.
 		return nil, err
 	}
 	return []meta.Sandbox{sandbox}, nil
+}
+
+type sandboxStoreWithSandboxes struct {
+	sandboxes []meta.Sandbox
+}
+
+func (s sandboxStoreWithSandboxes) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
+	for _, sandbox := range s.sandboxes {
+		if sandbox.Name == name {
+			sandbox.Owner = summary.Owner
+			sandbox.Project = summary.Name
+			return sandbox, nil
+		}
+	}
+	return meta.Sandbox{}, nil
+}
+
+func (s sandboxStoreWithSandboxes) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
+	return s.sandboxes, nil
 }
 
 func projectStoreForTest(t *testing.T) project.MemoryStore {
