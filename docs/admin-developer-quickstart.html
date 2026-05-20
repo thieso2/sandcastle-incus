@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sandcastle Admin and Developer Quickstart</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #16211f;
+      --muted: #5b6764;
+      --line: #cfd8d5;
+      --paper: #f7f8f6;
+      --panel: #ffffff;
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --warn: #8a5a12;
+      --code: #10201d;
+      --code-bg: #e8efec;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 40px 0 28px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 5vw, 4rem);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 820px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.08rem;
+    }
+
+    nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0 0 22px;
+    }
+
+    nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: var(--panel);
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 0.93rem;
+    }
+
+    main {
+      padding: 26px 0 48px;
+    }
+
+    section {
+      margin: 0 0 30px;
+      padding: 0;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.55rem;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 1.1rem;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      padding: 12px 14px;
+      background: #eef7f4;
+      border-radius: 4px;
+    }
+
+    .warn {
+      border-left-color: var(--warn);
+      background: #fff7e8;
+    }
+
+    ol, ul {
+      margin: 8px 0 0;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      color: var(--code);
+      background: var(--code-bg);
+      padding: 0.08rem 0.28rem;
+      border-radius: 4px;
+      font-size: 0.94em;
+    }
+
+    pre {
+      margin: 10px 0 16px;
+      padding: 14px;
+      overflow-x: auto;
+      color: #edf7f3;
+      background: #10201d;
+      border-radius: 8px;
+      border: 1px solid #0a1412;
+      font-size: 0.9rem;
+    }
+
+    pre code {
+      color: inherit;
+      background: transparent;
+      padding: 0;
+      border-radius: 0;
+      font-size: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      display: block;
+    }
+
+    tbody, thead, tr {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #eef2f0;
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      color: var(--accent-strong);
+      background: #dff3ee;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 24px 0 36px;
+      color: var(--muted);
+      background: var(--panel);
+    }
+
+    @media (max-width: 760px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        padding-top: 28px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <p class="tag">Quickstart</p>
+      <h1>Sandcastle admin and developer onboarding</h1>
+      <p class="lede">A short operating guide for creating an Incus-backed Sandcastle project, granting a developer restricted access, and getting that developer productive on their own machine.</p>
+    </div>
+    <nav class="wrap" aria-label="Quickstart sections">
+      <a href="#assumptions">Assumptions</a>
+      <a href="#admin">Admin setup</a>
+      <a href="#handoff">Handoff</a>
+      <a href="#developer">Developer machine</a>
+      <a href="#verify">Verification</a>
+      <a href="#cleanup">Cleanup</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="assumptions">
+      <h2>Assumptions</h2>
+      <div class="grid">
+        <div class="panel">
+          <h3>Admin machine</h3>
+          <ul>
+            <li>Has an unrestricted Incus remote configured.</li>
+            <li>Can build or import Sandcastle base and AI images.</li>
+            <li>Has the Sandcastle repo or installed CLI available.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Developer machine</h3>
+          <ul>
+            <li>Has the Incus client installed.</li>
+            <li>Can reach the admin-provided Incus remote over HTTPS.</li>
+            <li>Has Tailscale available for project private network access.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="callout warn">Use real values for placeholders such as <code>REMOTE</code>, <code>alice</code>, <code>myproject</code>, and <code>myproject.project-tld</code>. Run destructive commands only against disposable or intended resources.</p>
+    </section>
+
+    <section id="admin">
+      <h2>Admin setup</h2>
+      <p>Run these commands from an admin environment with broad Incus permissions.</p>
+
+      <h3>1. Build the CLI</h3>
+      <pre><code>make build
+./bin/sc version</code></pre>
+
+      <h3>2. Select the admin remote and project defaults</h3>
+      <pre><code>export SANDCASTLE_REMOTE=REMOTE
+export SANDCASTLE_STORAGE_POOL=default
+export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
+export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
+
+      <h3>3. Prepare images</h3>
+      <p>Projects use the base image for sidecars and the AI image as the default sandbox template. If local mise tasks are available, build and import the base image with:</p>
+      <pre><code>mise run image:base:build-upload</code></pre>
+      <p>Build or import the AI image before onboarding developers, or set <code>SANDCASTLE_AI_IMAGE</code> to an existing compatible image.</p>
+      <pre><code>./bin/sc admin image build ai \
+  --codex-version VERSION \
+  --claude-version VERSION \
+  --gemini-version VERSION \
+  --tag "$SANDCASTLE_AI_IMAGE"
+
+./bin/sc admin image import ai SOURCE_REF</code></pre>
+
+      <h3>4. Create the project</h3>
+      <pre><code>./bin/sc admin project create alice/myproject \
+  --domain myproject.project-tld</code></pre>
+      <p>This creates the Incus project, project-local private network, isolated home/workspace/CA volumes, CoreDNS sidecar, Tailscale sidecar, and project metadata.</p>
+
+      <h3>5. Create the developer certificate token</h3>
+      <pre><code>./bin/sc admin user create alice</code></pre>
+      <p>Copy the printed <code>incus remote add</code> command and environment exports into the handoff notes. The developer must add the remote before the admin can grant access to the actual client certificate.</p>
+
+      <h3>6. Grant project access after the developer adds the remote</h3>
+      <pre><code>./bin/sc admin user grant alice alice/myproject</code></pre>
+      <p>The grant updates the developer's restricted Incus certificate so normal commands can operate only inside allowed projects.</p>
+    </section>
+
+    <section id="handoff">
+      <h2>Admin handoff checklist</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Give the developer</th>
+            <th>Example</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Restricted Incus remote add command</td>
+            <td><code>incus remote add sandcastle-alice TOKEN</code></td>
+          </tr>
+          <tr>
+            <td>Environment exports</td>
+            <td><code>SANDCASTLE_REMOTE=sandcastle-alice</code><br><code>SANDCASTLE_OWNER=alice</code></td>
+          </tr>
+          <tr>
+            <td>Project reference</td>
+            <td><code>alice/myproject</code>, or <code>myproject</code> when <code>SANDCASTLE_OWNER</code> is set.</td>
+          </tr>
+          <tr>
+            <td>Project domain</td>
+            <td><code>myproject.project-tld</code></td>
+          </tr>
+          <tr>
+            <td>Expected trust warning</td>
+            <td>Trusting the project CA lets that project mint certificates trusted by the developer machine.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="developer">
+      <h2>Developer machine setup</h2>
+      <p>Run these commands on the developer's own workstation.</p>
+
+      <h3>1. Install or build the CLI</h3>
+      <pre><code>make build
+# Optional:
+make install</code></pre>
+
+      <h3>2. Add the restricted Incus remote</h3>
+      <pre><code>incus remote add sandcastle-alice TOKEN_FROM_ADMIN
+export SANDCASTLE_REMOTE=sandcastle-alice
+export SANDCASTLE_OWNER=alice</code></pre>
+      <p class="small">Persist the exports in the developer's shell profile after the first successful run.</p>
+
+      <h3>3. Check project visibility</h3>
+      <pre><code>sc ls
+sc status myproject</code></pre>
+
+      <h3>4. Attach the project to the developer's Tailscale network</h3>
+      <pre><code>sc tailscale up myproject</code></pre>
+      <p>The command runs <code>tailscale up</code> inside the project Tailscale sidecar and advertises the project private CIDR. For unattended environments, use an auth key supplied through the supported CLI flag or environment flow.</p>
+
+      <h3>5. Install local DNS forwarding</h3>
+      <pre><code>sc dns install myproject
+sc dns refresh myproject</code></pre>
+      <p>The local DNS forwarder routes project-domain lookups from the developer machine to the project DNS sidecar over the Tailscale-routed private CIDR.</p>
+
+      <h3>6. Trust the project CA for private HTTPS</h3>
+      <pre><code>sc trust install myproject</code></pre>
+      <p class="callout warn">This is explicit local-machine trust. Only install trust for projects the developer owns and understands.</p>
+
+      <h3>7. Create and enter a sandbox</h3>
+      <pre><code>sc add myproject/codex
+# Automation-friendly:
+sc add myproject/codex --detach</code></pre>
+      <p>By default, Sandcastle uses the project default template, currently <code>ai</code>. Use <code>--template base</code> for a smaller sandbox.</p>
+    </section>
+
+    <section id="verify">
+      <h2>Verification</h2>
+      <div class="grid">
+        <div class="panel">
+          <h3>Admin checks</h3>
+          <pre><code>./bin/sc admin project status alice/myproject
+incus project show REMOTE:sc-alice-myproject
+incus list REMOTE: --project sc-alice-myproject</code></pre>
+        </div>
+        <div class="panel">
+          <h3>Developer checks</h3>
+          <pre><code>sc status myproject
+sc inspect myproject/codex
+sc enter myproject/codex</code></pre>
+        </div>
+      </div>
+      <h3>Expected healthy shape</h3>
+      <ul>
+        <li>Project metadata check is <code>ok</code>.</li>
+        <li>Private CIDR and domain checks are <code>ok</code>.</li>
+        <li>Project network and volumes are present.</li>
+        <li><code>sc-tailscale</code> and <code>sc-dns</code> sidecars are running.</li>
+        <li>Tailscale route check becomes <code>ok</code> after authentication and route approval.</li>
+      </ul>
+    </section>
+
+    <section id="cleanup">
+      <h2>Cleanup and recovery</h2>
+      <h3>Developer cleanup</h3>
+      <pre><code>sc rm myproject/codex --yes
+sc trust uninstall myproject
+sc dns uninstall myproject
+sc tailscale down myproject</code></pre>
+
+      <h3>Admin cleanup</h3>
+      <pre><code>./bin/sc admin project delete alice/myproject --yes
+# For disposable projects only:
+./bin/sc admin project delete alice/myproject --yes --purge</code></pre>
+      <p><code>--purge</code> removes durable project state. Omit it when preserving home/workspace/CA volumes is required.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p>Related docs: <a href="sandcastle-v1-spec.md">Sandcastle v1 specification</a>, <a href="implementation-plan.md">Implementation plan</a>, <a href="e2e-testing-plan.md">E2E testing plan</a>.</p>
+    </div>
+  </footer>
+</body>
+</html>
