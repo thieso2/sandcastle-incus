@@ -1357,6 +1357,9 @@ development sandboxes.
 - Passed: `go run ./cmd/sandcastle --output json admin tld refresh --dry-run >/tmp/sandcastle-tld-refresh.json && rg '"count": 42|"specialUse"|"written": false' /tmp/sandcastle-tld-refresh.json`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Re-ran the safe e2e runner tiers at the current head after the deny-list
+  refresh changes.
+- Passed: `scripts/e2e.sh unit && scripts/e2e.sh gated && scripts/e2e.sh local`
 
 ## Open Scope
 
