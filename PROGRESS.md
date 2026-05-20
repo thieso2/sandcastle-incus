@@ -249,6 +249,9 @@ development sandboxes.
   disposable infrastructure creation. `sandcastle admin infra delete --yes` now
   removes runtime containers and the infrastructure project, and the e2e test
   verifies `sc-caddy` plus `sc-route-broker` creation when `SANDCASTLE_E2E=1`.
+- Added image sync planning and Incus alias execution. `sandcastle admin image
+  sync <image-ref>` now resolves an imported image or source alias and creates
+  or updates the configured Sandcastle base/AI image aliases.
 
 ## Next Slice
 
@@ -258,7 +261,7 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add image/template sync definitions for Sandcastle base and AI images.
+- Add actual OCI image import/build support for Sandcastle base and AI images.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure images
   include the `sandcastle` binary and systemd services.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
@@ -378,6 +381,8 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run TestDisposableInfrastructureCreateAndDelete -count=1 -v` with the expected skip when `SANDCASTLE_E2E` is not enabled.
 - Passed: `go test ./internal/infra ./internal/incusx ./internal/cli ./internal/e2e`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/images ./internal/incusx ./internal/cli`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`

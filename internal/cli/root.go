@@ -11,6 +11,7 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
+	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
@@ -43,6 +44,7 @@ type commandConfig struct {
 	projectDeleter project.Deleter
 	infraCreator   infra.Creator
 	infraDeleter   infra.Deleter
+	imageManager   images.Manager
 	topologyStore  project.TopologyStore
 	trustManager   usertrust.Manager
 	sandboxCreator sandbox.Creator
@@ -83,6 +85,7 @@ func Execute(name string, args []string) int {
 		projectDeleter: incusx.NewProjectDeleter(adminConfig.Remote),
 		infraCreator:   incusx.NewInfrastructureCreator(adminConfig.Remote),
 		infraDeleter:   incusx.NewInfrastructureDeleter(adminConfig.Remote),
+		imageManager:   incusx.NewImageManager(adminConfig.Remote),
 		topologyStore:  incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:   incusx.NewTrustManager(adminConfig.Remote),
 		sandboxCreator: incusx.NewSandboxCreator(adminConfig.Remote),

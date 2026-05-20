@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
@@ -20,6 +21,7 @@ func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	admin.AddCommand(newAdminProjectCommand(config, opts))
 	admin.AddCommand(newAdminUserCommand(config, opts))
 	admin.AddCommand(newAdminInfraCommand(config, opts))
+	admin.AddCommand(newAdminImageCommand(config, opts))
 	admin.AddCommand(newAdminRouteBrokerCommand(config))
 	return admin
 }
@@ -247,6 +249,51 @@ func newAdminInfraDeleteCommand(config commandConfig, opts *rootOptions) *cobra.
 
 func formatInfraDeletePlan(plan infra.DeletePlan) string {
 	return fmt.Sprintf("Deleted infrastructure project: %s", plan.Project)
+}
+
+func newAdminImageCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	imageCommand := &cobra.Command{
+		Use:   "image",
+		Short: "Manage Sandcastle image aliases",
+	}
+	imageCommand.AddCommand(newAdminImageSyncCommand(config, opts))
+	return imageCommand
+}
+
+func newAdminImageSyncCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "sync image-ref",
+		Short: "Sync an imported image into a Sandcastle image alias",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := images.PlanSync(config.adminConfig, images.SyncRequest{SourceRef: args[0]})
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatImageSyncPlan(plan), plan)
+			}
+			if config.imageManager == nil {
+				return fmt.Errorf("image sync executor is not configured")
+			}
+			result, err := config.imageManager.SyncImage(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatImageSyncResult(result), result)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the image sync plan without mutating aliases")
+	return command
+}
+
+func formatImageSyncPlan(plan images.SyncPlan) string {
+	return fmt.Sprintf("Image: %s\nTemplate: %s\nAlias: %s", plan.SourceRef, plan.Template, plan.Alias)
+}
+
+func formatImageSyncResult(result images.SyncResult) string {
+	return fmt.Sprintf("Image: %s\nAlias: %s\nFingerprint: %s\nAction: %s", result.SourceRef, result.Alias, result.Fingerprint, result.Action)
 }
 
 func newAdminUserCommand(config commandConfig, opts *rootOptions) *cobra.Command {

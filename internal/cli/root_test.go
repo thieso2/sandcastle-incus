@@ -10,6 +10,7 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
+	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
@@ -976,6 +977,44 @@ func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
 	}
 }
 
+func TestAdminImageSyncDryRunJSON(t *testing.T) {
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "--output", "json", "admin", "image", "sync", "sandcastle/base:debian-13", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload images.SyncPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Template != "base" {
+		t.Fatalf("Template = %q", payload.Template)
+	}
+	if payload.Alias != scconfig.DefaultBaseImageAlias {
+		t.Fatalf("Alias = %q", payload.Alias)
+	}
+}
+
+func TestAdminImageSyncCallsExecutor(t *testing.T) {
+	manager := &fakeImageManager{result: images.SyncResult{Fingerprint: "abc123", Action: "created"}}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:         "sandcastle",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		imageManager: manager,
+	}, "admin", "image", "sync", "sandcastle/ai:debian-13")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.called {
+		t.Fatal("expected image manager to be called")
+	}
+	if manager.plan.Alias != scconfig.DefaultAIImageAlias {
+		t.Fatalf("Alias = %q", manager.plan.Alias)
+	}
+}
+
 func TestAdminUserGrantDryRunJSON(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
@@ -1073,6 +1112,19 @@ func (f *fakeInfraDeleter) DeleteInfrastructure(ctx context.Context, plan infra.
 	f.called = true
 	f.plan = plan
 	return nil
+}
+
+type fakeImageManager struct {
+	called bool
+	plan   images.SyncPlan
+	result images.SyncResult
+}
+
+func (f *fakeImageManager) SyncImage(ctx context.Context, plan images.SyncPlan) (images.SyncResult, error) {
+	f.called = true
+	f.plan = plan
+	f.result.SyncPlan = plan
+	return f.result, nil
 }
 
 type fakeTailscaleRunner struct {
