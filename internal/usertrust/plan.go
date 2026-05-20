@@ -1,6 +1,7 @@
 package usertrust
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -20,6 +21,19 @@ type UserPlan struct {
 type GrantRequest struct {
 	User     string
 	Projects []string
+}
+
+type TokenResult struct {
+	User            string   `json:"user"`
+	CertificateName string   `json:"certificateName"`
+	Restricted      bool     `json:"restricted"`
+	Projects        []string `json:"projects"`
+	Token           string   `json:"token"`
+}
+
+type Manager interface {
+	Grant(context.Context, UserPlan) error
+	CreateToken(context.Context, UserPlan) (TokenResult, error)
 }
 
 func PlanCreateUser(user string) (UserPlan, error) {

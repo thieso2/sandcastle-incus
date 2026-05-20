@@ -189,15 +189,22 @@ func newAdminUserCreateCommand(config commandConfig, opts *rootOptions) *cobra.C
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "create user",
-		Short: "Plan a restricted Sandcastle user certificate",
+		Short: "Create a restricted Sandcastle user certificate token",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !dryRun {
-				return fmt.Errorf("restricted user certificate execution is not implemented yet; rerun with --dry-run to inspect the plan")
-			}
 			plan, err := usertrust.PlanCreateUser(args[0])
 			if err != nil {
 				return err
+			}
+			if !dryRun {
+				if config.trustManager == nil {
+					return fmt.Errorf("restricted user certificate executor is not configured")
+				}
+				result, err := config.trustManager.CreateToken(cmd.Context(), plan)
+				if err != nil {
+					return err
+				}
+				return writeOutput(config.stdout, opts.output, formatTokenResult(result), result)
 			}
 			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
 		},
@@ -213,15 +220,20 @@ func newAdminUserGrantCommand(config commandConfig, opts *rootOptions) *cobra.Co
 		Short: "Plan restricted certificate project grants",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !dryRun {
-				return fmt.Errorf("restricted user grant execution is not implemented yet; rerun with --dry-run to inspect the plan")
-			}
 			plan, err := usertrust.PlanGrant(config.adminConfig, usertrust.GrantRequest{
 				User:     args[0],
 				Projects: args[1:],
 			})
 			if err != nil {
 				return err
+			}
+			if !dryRun {
+				if config.trustManager == nil {
+					return fmt.Errorf("restricted user grant executor is not configured")
+				}
+				if err := config.trustManager.Grant(cmd.Context(), plan); err != nil {
+					return err
+				}
 			}
 			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
 		},
@@ -237,12 +249,19 @@ func newAdminUserTokenCommand(config commandConfig, opts *rootOptions) *cobra.Co
 		Short: "Plan a restricted certificate add token",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !dryRun {
-				return fmt.Errorf("restricted user token execution is not implemented yet; rerun with --dry-run to inspect the plan")
-			}
 			plan, err := usertrust.PlanToken(args[0])
 			if err != nil {
 				return err
+			}
+			if !dryRun {
+				if config.trustManager == nil {
+					return fmt.Errorf("restricted user token executor is not configured")
+				}
+				result, err := config.trustManager.CreateToken(cmd.Context(), plan)
+				if err != nil {
+					return err
+				}
+				return writeOutput(config.stdout, opts.output, formatTokenResult(result), result)
 			}
 			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
 		},
@@ -257,4 +276,8 @@ func formatUserPlan(plan usertrust.UserPlan) string {
 		projects = strings.Join(plan.Projects, ", ")
 	}
 	return fmt.Sprintf("User: %s\nCertificate: %s\nRestricted: %t\nProjects: %s", plan.User, plan.CertificateName, plan.Restricted, projects)
+}
+
+func formatTokenResult(result usertrust.TokenResult) string {
+	return fmt.Sprintf("User: %s\nCertificate: %s\nToken: %s", result.User, result.CertificateName, result.Token)
 }
