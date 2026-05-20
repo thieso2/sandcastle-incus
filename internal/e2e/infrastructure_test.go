@@ -109,8 +109,8 @@ func assertRouteBrokerMTLS(t *testing.T, server incus.InstanceServer) {
 	output := execInstanceOutput(t, server, infra.RouteBrokerName, []string{
 		"python3", "-c", routeBrokerMTLSProbeScript(clientCertPath, clientKeyPath),
 	})
-	if !strings.Contains(output, "STATUS 404") {
-		t.Fatalf("route broker mTLS probe output = %q, want STATUS 404", output)
+	if !strings.Contains(output, "STATUS 401") {
+		t.Fatalf("route broker mTLS probe output = %q, want STATUS 401", output)
 	}
 }
 
@@ -131,7 +131,7 @@ for _ in range(50):
         sys.exit(1)
     except urllib.error.HTTPError as err:
         print('STATUS', err.code)
-        sys.exit(0 if err.code == 404 else 1)
+        sys.exit(0 if err.code == 401 else 1)
     except Exception as err:
         last = repr(err)
         time.sleep(0.2)

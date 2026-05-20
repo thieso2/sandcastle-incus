@@ -120,7 +120,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 			instancePlan(admin, RouteBrokerName, "route-broker"),
 		},
 		RuntimeDirectories: runtimeDirectories(),
-		RuntimeFiles:       runtimeFiles(brokerTLS),
+		RuntimeFiles:       runtimeFiles(admin, brokerTLS),
 		RuntimeBinaries:    runtimeBinaries(),
 		RuntimeCommands:    runtimeCommands(),
 	}, nil
@@ -134,7 +134,7 @@ func runtimeDirectories() []RuntimeDirectory {
 	}
 }
 
-func runtimeFiles(brokerTLS certs.KeyPair) []RuntimeFile {
+func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 	caddyFile := caddy.RenderInfrastructure(nil)
 	return []RuntimeFile{
 		{
@@ -147,9 +147,17 @@ func runtimeFiles(brokerTLS certs.KeyPair) []RuntimeFile {
 			Instance: RouteBrokerName,
 			Path:     RouteBrokerEnvPath,
 			Content: strings.Join([]string{
-				"SANDCASTLE_ROUTE_BROKER_LISTEN=" + RouteBrokerListen,
-				"SANDCASTLE_ROUTE_BROKER_CERT=" + RouteBrokerCertPath,
-				"SANDCASTLE_ROUTE_BROKER_KEY=" + RouteBrokerKeyPath,
+				envLine("SANDCASTLE_ROUTE_BROKER_LISTEN", RouteBrokerListen),
+				envLine("SANDCASTLE_ROUTE_BROKER_CERT", RouteBrokerCertPath),
+				envLine("SANDCASTLE_ROUTE_BROKER_KEY", RouteBrokerKeyPath),
+				envLine("SANDCASTLE_REMOTE", admin.Remote),
+				envLine("SANDCASTLE_STORAGE_POOL", admin.StoragePool),
+				envLine("SANDCASTLE_CIDR_POOL", admin.CIDRPool),
+				envLine("SANDCASTLE_PROJECT_PREFIX", admin.ProjectPrefix),
+				envLine("SANDCASTLE_INFRA_PROJECT", admin.InfrastructureProject),
+				envLine("SANDCASTLE_INFRA_HOST", admin.InfrastructureHost),
+				envLine("SANDCASTLE_BASE_IMAGE", admin.Images.Base),
+				envLine("SANDCASTLE_AI_IMAGE", admin.Images.AI),
 				"",
 			}, "\n"),
 			Mode: 0o600,
@@ -167,6 +175,14 @@ func runtimeFiles(brokerTLS certs.KeyPair) []RuntimeFile {
 			Mode:     0o600,
 		},
 	}
+}
+
+func envLine(key string, value string) string {
+	return key + "=" + shellQuote(value)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func runtimeBinaries() []RuntimeBinary {

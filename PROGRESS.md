@@ -341,6 +341,10 @@ development sandboxes.
 - Infrastructure creation now writes bootstrap runtime files. `sc-caddy`
   receives a valid empty-route Caddyfile, and `sc-route-broker` receives a
   Sandcastle env file plus broker TLS material for running the mTLS broker.
+- The route broker env file now includes the effective Sandcastle admin config,
+  so disposable infrastructure brokers use the configured remote, storage pool,
+  project prefix, infrastructure project, infrastructure DNS target, and image
+  aliases instead of process defaults.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -356,7 +360,8 @@ development sandboxes.
   runtime probe. `TestDisposableInfrastructureCreateAndDelete` now uploads a
   disposable client certificate into `sc-route-broker` and verifies the broker
   HTTPS listener accepts mTLS by reaching its `/routes` handler inside the
-  infrastructure container.
+  infrastructure container and receiving the expected unauthorized response for
+  an untrusted client certificate.
 - Added image sync planning and Incus alias execution. `sandcastle admin image
   sync <image-ref>` now resolves an imported image or source alias and creates
   or updates the configured Sandcastle base/AI image aliases.
@@ -667,6 +672,9 @@ development sandboxes.
 - Passed: `go test ./internal/project ./internal/e2e -run 'Test(GetStatus|LogProjectDiagnostics|ProjectDiagnosticLines|DisposableProjectCreateAndPurge)' -count=1 -v` with the expected disposable project e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/routebroker -run 'Test(Client|Server)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/infra -run TestPlanCreate -count=1 -v`
+- Passed: `go test ./internal/e2e -run 'TestDisposableInfrastructureCreateAndDelete|TestLoadConfig' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 
 ## Open Scope

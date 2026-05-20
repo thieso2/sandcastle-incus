@@ -45,8 +45,21 @@ func TestPlanCreate(t *testing.T) {
 		t.Fatal("expected bootstrap infrastructure Caddyfile")
 	}
 	env := runtimeFileContent(plan, RouteBrokerName, RouteBrokerEnvPath)
-	if !strings.Contains(env, "SANDCASTLE_ROUTE_BROKER_LISTEN=:9443") {
+	if !strings.Contains(env, "SANDCASTLE_ROUTE_BROKER_LISTEN=':9443'") {
 		t.Fatalf("env = %q", env)
+	}
+	for _, want := range []string{
+		"SANDCASTLE_REMOTE='" + admin.Remote + "'",
+		"SANDCASTLE_STORAGE_POOL='" + admin.StoragePool + "'",
+		"SANDCASTLE_CIDR_POOL='" + admin.CIDRPool + "'",
+		"SANDCASTLE_PROJECT_PREFIX='" + admin.ProjectPrefix + "'",
+		"SANDCASTLE_INFRA_PROJECT='" + admin.InfrastructureProject + "'",
+		"SANDCASTLE_BASE_IMAGE='" + admin.Images.Base + "'",
+		"SANDCASTLE_AI_IMAGE='" + admin.Images.AI + "'",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("env missing %q:\n%s", want, env)
+		}
 	}
 	if !strings.Contains(runtimeFileContent(plan, RouteBrokerName, RouteBrokerCertPath), "CERTIFICATE") {
 		t.Fatal("expected route broker certificate PEM")
@@ -68,6 +81,27 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(plan.RuntimeCommands[1].Command, " "), "admin route-broker serve") {
 		t.Fatalf("broker command = %#v", plan.RuntimeCommands[1])
+	}
+}
+
+func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Remote = "local remote"
+	admin.InfrastructureHost = "public.example.com"
+	admin.Images.Base = "sandcastle/base:quote'test"
+	plan, err := PlanCreate(admin, CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := runtimeFileContent(plan, RouteBrokerName, RouteBrokerEnvPath)
+	for _, want := range []string{
+		"SANDCASTLE_REMOTE='local remote'",
+		"SANDCASTLE_INFRA_HOST='public.example.com'",
+		"SANDCASTLE_BASE_IMAGE='sandcastle/base:quote'\"'\"'test'",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("env missing %q:\n%s", want, env)
+		}
 	}
 }
 
