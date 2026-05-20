@@ -410,6 +410,10 @@ development sandboxes.
 - Updated the README testing section to list the full checked-in e2e runner
   tiers and their required environment variables, including `local-vm`,
   `tailscale`, `images`, and `public-routes`.
+- Added a GitHub Actions CI workflow for safe verification. It runs the checked
+  in `unit`, `gated`, and unprivileged `local` e2e runner tiers on push and pull
+  requests, while leaving destructive Incus/Tailscale/image/public route tiers
+  gated by their explicit environments.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -770,6 +774,8 @@ development sandboxes.
 - Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh images` with the expected missing `SANDCASTLE_E2E_IMAGE_BUILD` guard.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Passed: `bash -n scripts/e2e.sh && go test ./...`
+- Passed: `scripts/e2e.sh local`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/incusx -run 'TestRouteManager' -count=1 -v`

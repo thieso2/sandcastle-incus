@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  safe-e2e:
+    name: Safe Go and e2e tiers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Unit tests
+        run: scripts/e2e.sh unit
+
+      - name: Gated e2e compile and skip checks
+        run: scripts/e2e.sh gated
+
+      - name: Unprivileged local e2e
+        run: scripts/e2e.sh local
