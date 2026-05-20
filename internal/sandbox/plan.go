@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -126,13 +127,13 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	homeDir := request.HomeDir
-	if homeDir == "" {
-		homeDir = "."
+	homeDir, err := normalizeStorageSubdir("home", request.HomeDir)
+	if err != nil {
+		return CreatePlan{}, err
 	}
-	workspaceDir := request.WorkspaceDir
-	if workspaceDir == "" {
-		workspaceDir = "."
+	workspaceDir, err := normalizeStorageSubdir("workspace", request.WorkspaceDir)
+	if err != nil {
+		return CreatePlan{}, err
 	}
 	if err := validateHomeSharing(sandboxName, homeDir, request.ShareHome, existingSandboxes); err != nil {
 		return CreatePlan{}, err
@@ -235,6 +236,29 @@ func validateHomeSharing(sandboxName string, homeDir string, shareHome bool, exi
 		}
 	}
 	return nil
+}
+
+func normalizeStorageSubdir(kind string, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ".", nil
+	}
+	if strings.Contains(value, "\\") {
+		return "", fmt.Errorf("%s directory %q must use forward-slash relative paths", kind, value)
+	}
+	if path.IsAbs(value) {
+		return "", fmt.Errorf("%s directory %q must be relative to the project storage volume", kind, value)
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("%s directory %q must not contain .. path segments", kind, value)
+		}
+	}
+	cleaned := path.Clean(value)
+	if cleaned == "/" || cleaned == "." {
+		return ".", nil
+	}
+	return cleaned, nil
 }
 
 func certificateFilesFromRequest(request CreateRequest, sandboxName string, domain string) ([]File, error) {

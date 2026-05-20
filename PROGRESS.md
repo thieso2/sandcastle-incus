@@ -1194,6 +1194,12 @@ development sandboxes.
 - Passed: `go test ./internal/incusx -run 'TestSandboxCreator' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened sandbox home/workspace subdir planning so Incus disk sources only
+  use normalized forward-slash relative paths and reject absolute paths,
+  backslashes, and `..` traversal before rendering mount devices.
+- Passed: `go test ./internal/sandbox ./internal/cli -run 'Test(PlanCreate|AddDryRun)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

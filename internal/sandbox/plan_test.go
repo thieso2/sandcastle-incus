@@ -124,6 +124,55 @@ func TestPlanCreateSupportsBaseTemplateAndCustomStorageDirs(t *testing.T) {
 	}
 }
 
+func TestPlanCreateRejectsUnsafeStorageDirs(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		homeDir      string
+		workspaceDir string
+		want         string
+	}{
+		{name: "absolute home", homeDir: "/alice", want: "home directory"},
+		{name: "home traversal", homeDir: "../alice", want: ".. path segments"},
+		{name: "absolute workspace", workspaceDir: "/work", want: "workspace directory"},
+		{name: "workspace traversal", workspaceDir: "work/../other", want: ".. path segments"},
+		{name: "backslash", workspaceDir: `work\other`, want: "forward-slash"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{
+				Reference:    "alice/myproject/minimal",
+				HomeDir:      tc.homeDir,
+				WorkspaceDir: tc.workspaceDir,
+			})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestPlanCreateNormalizesStorageDirs(t *testing.T) {
+	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{
+		Reference:    "alice/myproject/minimal",
+		HomeDir:      " dev//home ",
+		WorkspaceDir: "workspace/.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.HomeDir != "dev/home" || plan.WorkspaceDir != "workspace" {
+		t.Fatalf("HomeDir/WorkspaceDir = %q/%q", plan.HomeDir, plan.WorkspaceDir)
+	}
+	if plan.Devices["home"]["source"] != project.HomeVolumeName+"/dev/home" {
+		t.Fatalf("home source = %q", plan.Devices["home"]["source"])
+	}
+	if plan.Devices["workspace"]["source"] != project.WorkspaceVolumeName+"/workspace" {
+		t.Fatalf("workspace source = %q", plan.Devices["workspace"]["source"])
+	}
+}
+
 func TestDefaultAppPortForTemplate(t *testing.T) {
 	for _, template := range []string{"", TemplateAI, TemplateBase} {
 		port, err := DefaultAppPortForTemplate(template)
