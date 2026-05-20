@@ -403,6 +403,10 @@ development sandboxes.
   scoped to disposable VM runs.
 - The e2e harness now exposes `SANDCASTLE_E2E_LOCAL_VM` as `Config.LocalVM`, so
   future OS-level local DNS/trust/hosts tests can share the same safety gate.
+- Tightened `scripts/e2e.sh tailscale` and `scripts/e2e.sh images` so they fail
+  closed in the runner when required image source, auth key, image build, and
+  pinned AI CLI version environment variables are missing instead of relying on
+  deeper Go test skips.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -755,6 +759,12 @@ development sandboxes.
 - Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
 - Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard when `SANDCASTLE_E2E` is unset.
 - Passed: `go test ./internal/e2e -run 'Test(LoadConfig|LocalDNSInstallForwardRefreshUninstallE2E|LocalTrustInstallUninstallE2E|HostOverrideE2E)' -count=1 -v` with the expected local e2e skips when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `scripts/e2e.sh tailscale` with the expected fail-closed e2e guard when `SANDCASTLE_E2E` is unset.
+- Passed: `scripts/e2e.sh images` with the expected fail-closed e2e guard when `SANDCASTLE_E2E` is unset.
+- Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh tailscale` with the expected missing `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` guard.
+- Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh images` with the expected missing `SANDCASTLE_E2E_IMAGE_BUILD` guard.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`

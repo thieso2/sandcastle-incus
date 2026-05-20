@@ -75,11 +75,22 @@ run_incus() {
 
 run_images() {
   require_e2e images
+  require_env images SANDCASTLE_E2E_IMAGE_BUILD
+  if [[ "${SANDCASTLE_E2E_IMAGE_BUILD:-}" != "1" ]]; then
+    echo "error: set SANDCASTLE_E2E_IMAGE_BUILD=1 to run real image build tier 'images'" >&2
+    exit 2
+  fi
+  require_env images SANDCASTLE_E2E_CODEX_VERSION
+  require_env images SANDCASTLE_E2E_CLAUDE_CODE_VERSION
+  require_env images SANDCASTLE_E2E_GEMINI_CLI_VERSION
   run go test ./internal/e2e -run 'Test(ImageBuildBaseE2E|ImageBuildAIE2E)' -count=1 -v
 }
 
 run_tailscale() {
   require_e2e tailscale
+  require_env tailscale SANDCASTLE_E2E_BASE_IMAGE_SOURCE
+  require_env tailscale SANDCASTLE_E2E_AI_IMAGE_SOURCE
+  require_env tailscale SANDCASTLE_E2E_TAILSCALE_AUTHKEY
   run go test ./internal/e2e -run 'TestTailscaleAttachmentE2E' -count=1 -v
 }
 
