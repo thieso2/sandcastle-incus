@@ -46,6 +46,7 @@ type commandConfig struct {
 	infraDeleter   infra.Deleter
 	imageManager   images.Manager
 	imageBuilder   images.Builder
+	imageImporter  images.Importer
 	topologyStore  project.TopologyStore
 	trustManager   usertrust.Manager
 	sandboxCreator sandbox.Creator
@@ -88,6 +89,7 @@ func Execute(name string, args []string) int {
 		infraDeleter:   incusx.NewInfrastructureDeleter(adminConfig.Remote),
 		imageManager:   incusx.NewImageManager(adminConfig.Remote),
 		imageBuilder:   images.LocalBuilder{},
+		imageImporter:  images.LocalImporter{},
 		topologyStore:  incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:   incusx.NewTrustManager(adminConfig.Remote),
 		sandboxCreator: incusx.NewSandboxCreator(adminConfig.Remote),

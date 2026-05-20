@@ -270,6 +270,10 @@ development sandboxes.
 - Added `sandcastle admin image build base|ai`, with dry-run JSON/text planning
   and Docker/Podman-compatible command execution through the local image build
   runner. Incus import/sync remains a separate follow-up step.
+- Added `sandcastle admin image import base|ai <source-ref>`, which plans and
+  executes `incus image copy <source-ref> <remote>: --alias <configured-alias>
+  --reuse` for importing OCI/simplestreams image sources into the configured
+  Incus remote with the Sandcastle base or AI alias.
 
 ## Next Slice
 
@@ -279,8 +283,7 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add OCI-to-Incus image import support and real image build verification for
-  Sandcastle base and AI images.
+- Add real image build verification for Sandcastle base and AI images.
 - Add AI image sync e2e once a disposable AI source image is available.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure images
   include the `sandcastle` binary and systemd services.
@@ -442,10 +445,12 @@ development sandboxes.
 - Passed: `go test ./internal/images ./internal/cli`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image build base --tag sandcastle/base:debian-13 --dry-run`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image build ai --tag sandcastle/ai:debian-13 --codex-version 1.2.3 --claude-version 2.3.4 --gemini-version 3.4.5 --dry-run`
+- Passed: `go test ./internal/images ./internal/cli`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image import base oci:sandcastle/base:debian-13 --dry-run`
 
 ## Open Scope
 
-- OCI-to-Incus image import, real image build verification, sandbox lifecycle
-  e2e with disposable images, restricted-user e2e, full Tailscale network e2e,
-  local DNS service install/reload wrappers, route broker mTLS e2e, and broader
-  real-Incus coverage remain open.
+- Real image build verification, sandbox lifecycle e2e with disposable images,
+  restricted-user e2e, full Tailscale network e2e, local DNS service
+  install/reload wrappers, route broker mTLS e2e, and broader real-Incus
+  coverage remain open.

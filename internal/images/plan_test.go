@@ -114,6 +114,67 @@ func TestLocalBuilderRunsPlannedCommand(t *testing.T) {
 	}
 }
 
+func TestPlanImportBaseImage(t *testing.T) {
+	plan, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+		Template:  "base",
+		SourceRef: "oci:sandcastle/base:debian-13",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Alias != config.DefaultBaseImageAlias {
+		t.Fatalf("Alias = %q", plan.Alias)
+	}
+	if strings.Join(plan.Command, " ") != "incus image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --reuse" {
+		t.Fatalf("Command = %#v", plan.Command)
+	}
+}
+
+func TestPlanImportAIImage(t *testing.T) {
+	plan, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+		Template:  "ai",
+		SourceRef: "oci:sandcastle/ai:debian-13",
+		Tool:      "incus",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Alias != config.DefaultAIImageAlias {
+		t.Fatalf("Alias = %q", plan.Alias)
+	}
+}
+
+func TestPlanImportRejectsUnknownTemplate(t *testing.T) {
+	_, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+		Template:  "unknown",
+		SourceRef: "oci:sandcastle/base:debian-13",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLocalImporterRunsPlannedCommand(t *testing.T) {
+	runner := &fakeCommandRunner{}
+	result, err := (LocalImporter{Runner: runner}).ImportImage(context.Background(), ImportPlan{
+		Template:  "base",
+		SourceRef: "oci:sandcastle/base:debian-13",
+		Remote:    "local",
+		Alias:     "sandcastle/base:latest",
+		Tool:      "incus",
+		Command:   []string{"incus", "image", "copy", "oci:sandcastle/base:debian-13", "local:", "--alias", "sandcastle/base:latest", "--reuse"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Imported {
+		t.Fatal("expected imported result")
+	}
+	if runner.name != "incus" || strings.Join(runner.args, " ") != "image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --reuse" {
+		t.Fatalf("runner = %#v", runner)
+	}
+}
+
 type fakeCommandRunner struct {
 	name string
 	args []string

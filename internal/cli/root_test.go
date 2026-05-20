@@ -1093,6 +1093,44 @@ func TestAdminImageBuildCallsExecutor(t *testing.T) {
 	}
 }
 
+func TestAdminImageImportDryRunJSON(t *testing.T) {
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "--output", "json", "admin", "image", "import", "base", "oci:sandcastle/base:debian-13", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload images.ImportPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Alias != scconfig.DefaultBaseImageAlias {
+		t.Fatalf("Alias = %q", payload.Alias)
+	}
+	if !strings.Contains(strings.Join(payload.Command, " "), "image copy oci:sandcastle/base:debian-13") {
+		t.Fatalf("Command = %#v", payload.Command)
+	}
+}
+
+func TestAdminImageImportCallsExecutor(t *testing.T) {
+	importer := &fakeImageImporter{}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:          "sandcastle",
+		adminConfig:   scconfig.LoadAdminFromEnv(),
+		imageImporter: importer,
+	}, "admin", "image", "import", "ai", "oci:sandcastle/ai:debian-13")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !importer.called {
+		t.Fatal("expected image importer to be called")
+	}
+	if importer.plan.Alias != scconfig.DefaultAIImageAlias {
+		t.Fatalf("Alias = %q", importer.plan.Alias)
+	}
+}
+
 func TestAdminImageSyncCallsExecutor(t *testing.T) {
 	manager := &fakeImageManager{result: images.SyncResult{Fingerprint: "abc123", Action: "created"}}
 	_, err := executeForTestWithConfig(t, commandConfig{
@@ -1232,6 +1270,17 @@ func (f *fakeImageBuilder) BuildImage(ctx context.Context, plan images.BuildPlan
 	f.called = true
 	f.plan = plan
 	return images.BuildResult{BuildPlan: plan, Built: true}, nil
+}
+
+type fakeImageImporter struct {
+	called bool
+	plan   images.ImportPlan
+}
+
+func (f *fakeImageImporter) ImportImage(ctx context.Context, plan images.ImportPlan) (images.ImportResult, error) {
+	f.called = true
+	f.plan = plan
+	return images.ImportResult{ImportPlan: plan, Imported: true}, nil
 }
 
 type fakeTailscaleRunner struct {

@@ -259,6 +259,7 @@ func newAdminImageCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 		Short: "Manage Sandcastle image aliases",
 	}
 	imageCommand.AddCommand(newAdminImageBuildCommand(config, opts))
+	imageCommand.AddCommand(newAdminImageImportCommand(config, opts))
 	imageCommand.AddCommand(newAdminImageSyncCommand(config, opts))
 	return imageCommand
 }
@@ -336,12 +337,54 @@ func newAdminImageSyncCommand(config commandConfig, opts *rootOptions) *cobra.Co
 	return command
 }
 
+func newAdminImageImportCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var tool string
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "import base|ai source-ref",
+		Short: "Import an OCI image into Incus and set the Sandcastle alias",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := images.PlanImport(config.adminConfig, images.ImportRequest{
+				Template:  args[0],
+				SourceRef: args[1],
+				Tool:      tool,
+			})
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatImageImportPlan(plan), plan)
+			}
+			if config.imageImporter == nil {
+				return fmt.Errorf("image import executor is not configured")
+			}
+			result, err := config.imageImporter.ImportImage(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatImageImportResult(result), result)
+		},
+	}
+	command.Flags().StringVar(&tool, "tool", "incus", "Incus CLI executable")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the image import command without running it")
+	return command
+}
+
 func formatImageBuildPlan(plan images.BuildPlan) string {
 	return fmt.Sprintf("Image: %s\nTemplate: %s\nCommand: %s", plan.Tag, plan.Template, strings.Join(plan.Command, " "))
 }
 
 func formatImageBuildResult(result images.BuildResult) string {
 	return fmt.Sprintf("Image: %s\nTemplate: %s\nBuilt: %t", result.Tag, result.Template, result.Built)
+}
+
+func formatImageImportPlan(plan images.ImportPlan) string {
+	return fmt.Sprintf("Import: %s\nTemplate: %s\nAlias: %s\nCommand: %s", plan.SourceRef, plan.Template, plan.Alias, strings.Join(plan.Command, " "))
+}
+
+func formatImageImportResult(result images.ImportResult) string {
+	return fmt.Sprintf("Import: %s\nAlias: %s\nImported: %t", result.SourceRef, result.Alias, result.Imported)
 }
 
 func formatImageSyncPlan(plan images.SyncPlan) string {

@@ -62,6 +62,30 @@ type Builder interface {
 	BuildImage(context.Context, BuildPlan) (BuildResult, error)
 }
 
+type ImportRequest struct {
+	Template  string
+	SourceRef string
+	Tool      string
+}
+
+type ImportPlan struct {
+	Template  string   `json:"template"`
+	SourceRef string   `json:"sourceRef"`
+	Remote    string   `json:"remote"`
+	Alias     string   `json:"alias"`
+	Tool      string   `json:"tool"`
+	Command   []string `json:"command"`
+}
+
+type ImportResult struct {
+	ImportPlan
+	Imported bool `json:"imported"`
+}
+
+type Importer interface {
+	ImportImage(context.Context, ImportPlan) (ImportResult, error)
+}
+
 func PlanSync(admin config.Admin, request SyncRequest) (SyncPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return SyncPlan{}, err
@@ -127,7 +151,42 @@ func PlanBuild(admin config.Admin, request BuildRequest) (BuildPlan, error) {
 	return plan, nil
 }
 
+func PlanImport(admin config.Admin, request ImportRequest) (ImportPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return ImportPlan{}, err
+	}
+	template := strings.ToLower(strings.TrimSpace(request.Template))
+	if template == "" {
+		return ImportPlan{}, fmt.Errorf("image template is required")
+	}
+	source := strings.TrimSpace(request.SourceRef)
+	if source == "" {
+		return ImportPlan{}, fmt.Errorf("image source reference is required")
+	}
+	tool := strings.TrimSpace(request.Tool)
+	if tool == "" {
+		tool = "incus"
+	}
+	alias, err := aliasForTemplate(admin, template)
+	if err != nil {
+		return ImportPlan{}, err
+	}
+	plan := ImportPlan{
+		Template:  template,
+		SourceRef: source,
+		Remote:    strings.TrimSpace(admin.Remote),
+		Alias:     alias,
+		Tool:      tool,
+	}
+	plan.Command = importCommand(plan)
+	return plan, nil
+}
+
 type LocalBuilder struct {
+	Runner CommandRunner
+}
+
+type LocalImporter struct {
 	Runner CommandRunner
 }
 
@@ -151,6 +210,20 @@ func (b LocalBuilder) BuildImage(ctx context.Context, plan BuildPlan) (BuildResu
 	return BuildResult{BuildPlan: plan, Built: true}, nil
 }
 
+func (i LocalImporter) ImportImage(ctx context.Context, plan ImportPlan) (ImportResult, error) {
+	var runner CommandRunner = ExecRunner{}
+	if i.Runner != nil {
+		runner = i.Runner
+	}
+	if len(plan.Command) == 0 {
+		return ImportResult{}, fmt.Errorf("image import command is required")
+	}
+	if err := runner.Run(ctx, plan.Command[0], plan.Command[1:]...); err != nil {
+		return ImportResult{}, err
+	}
+	return ImportResult{ImportPlan: plan, Imported: true}, nil
+}
+
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) error {
 	command := exec.CommandContext(ctx, name, args...)
 	output, err := command.CombinedOutput()
@@ -167,6 +240,30 @@ func buildCommand(plan BuildPlan) []string {
 	}
 	args = append(args, plan.ContextDir)
 	return args
+}
+
+func importCommand(plan ImportPlan) []string {
+	return []string{
+		plan.Tool,
+		"image",
+		"copy",
+		plan.SourceRef,
+		plan.Remote + ":",
+		"--alias",
+		plan.Alias,
+		"--reuse",
+	}
+}
+
+func aliasForTemplate(admin config.Admin, template string) (string, error) {
+	switch template {
+	case "base":
+		return strings.TrimSpace(admin.Images.Base), nil
+	case "ai":
+		return strings.TrimSpace(admin.Images.AI), nil
+	default:
+		return "", fmt.Errorf("unknown image template %q", template)
+	}
 }
 
 func firstNonEmpty(values ...string) string {
