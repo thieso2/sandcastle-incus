@@ -48,10 +48,15 @@ func (s FileStore) UninstallCA(ctx context.Context, plan Plan) (Result, error) {
 }
 
 type CommandStore struct {
-	GOOS string
+	GOOS       string
+	LinuxDir   string
+	RunCommand func(context.Context, string, ...string) ([]byte, error)
 }
 
 func (s CommandStore) InstallCA(ctx context.Context, plan Plan, certPEM []byte) (Result, error) {
+	if len(certPEM) == 0 {
+		return Result{}, fmt.Errorf("project CA certificate is empty")
+	}
 	switch s.GOOS {
 	case "darwin":
 		return s.installDarwin(ctx, plan, certPEM)
@@ -65,17 +70,16 @@ func (s CommandStore) InstallCA(ctx context.Context, plan Plan, certPEM []byte) 
 func (s CommandStore) UninstallCA(ctx context.Context, plan Plan) (Result, error) {
 	switch s.GOOS {
 	case "darwin":
-		cmd := exec.CommandContext(ctx, "security", "delete-certificate", "-c", plan.TrustName, "/Library/Keychains/System.keychain")
-		if output, err := cmd.CombinedOutput(); err != nil {
+		if output, err := s.runCommand(ctx, "security", "delete-certificate", "-c", plan.TrustName, "/Library/Keychains/System.keychain"); err != nil {
 			return Result{}, fmt.Errorf("remove macOS trust certificate: %w: %s", err, string(output))
 		}
 		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "uninstall", Target: "/Library/Keychains/System.keychain"}, nil
 	case "linux":
-		target := linuxTrustPath(plan)
+		target := s.linuxTrustPath(plan)
 		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
 			return Result{}, err
 		}
-		if err := runUpdateCACertificates(ctx); err != nil {
+		if err := s.runUpdateCACertificates(ctx); err != nil {
 			return Result{}, err
 		}
 		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "linux", Action: "uninstall", Target: target}, nil
@@ -97,32 +101,46 @@ func (s CommandStore) installDarwin(ctx context.Context, plan Plan, certPEM []by
 	if err := tmp.Close(); err != nil {
 		return Result{}, err
 	}
-	cmd := exec.CommandContext(ctx, "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", "/Library/Keychains/System.keychain", tmp.Name())
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := s.runCommand(ctx, "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", "/Library/Keychains/System.keychain", tmp.Name()); err != nil {
 		return Result{}, fmt.Errorf("install macOS trust certificate: %w: %s", err, string(output))
 	}
 	return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "install", Target: "/Library/Keychains/System.keychain"}, nil
 }
 
 func (s CommandStore) installLinux(ctx context.Context, plan Plan, certPEM []byte) (Result, error) {
-	target := linuxTrustPath(plan)
+	target := s.linuxTrustPath(plan)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return Result{}, err
+	}
 	if err := os.WriteFile(target, certPEM, 0o644); err != nil {
 		return Result{}, err
 	}
-	if err := runUpdateCACertificates(ctx); err != nil {
+	if err := s.runUpdateCACertificates(ctx); err != nil {
 		return Result{}, err
 	}
 	return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "linux", Action: "install", Target: target}, nil
 }
 
-func linuxTrustPath(plan Plan) string {
-	return filepath.Join("/usr/local/share/ca-certificates", CertFilename(plan))
+func (s CommandStore) linuxTrustPath(plan Plan) string {
+	dir := s.LinuxDir
+	if dir == "" {
+		dir = "/usr/local/share/ca-certificates"
+	}
+	return filepath.Join(dir, CertFilename(plan))
 }
 
-func runUpdateCACertificates(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, "update-ca-certificates")
-	if output, err := cmd.CombinedOutput(); err != nil {
+func (s CommandStore) runUpdateCACertificates(ctx context.Context) error {
+	output, err := s.runCommand(ctx, "update-ca-certificates")
+	if err != nil {
 		return fmt.Errorf("update CA certificates: %w: %s", err, string(output))
 	}
 	return nil
+}
+
+func (s CommandStore) runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if s.RunCommand != nil {
+		return s.RunCommand(ctx, name, args...)
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.CombinedOutput()
 }

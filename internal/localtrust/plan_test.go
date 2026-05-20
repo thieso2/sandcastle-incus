@@ -104,6 +104,81 @@ func TestFileStoreInstallAndUninstall(t *testing.T) {
 	}
 }
 
+func TestCommandStoreRejectsEmptyCA(t *testing.T) {
+	_, err := (CommandStore{GOOS: "linux", LinuxDir: t.TempDir()}).InstallCA(context.Background(), Plan{
+		Reference: "alice/myproject",
+		TrustName: "Sandcastle alice/myproject project CA",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "certificate is empty") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestCommandStoreInstallLinuxCreatesTrustDirectoryAndUpdates(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "ca-certificates")
+	var commands []string
+	store := CommandStore{
+		GOOS:     "linux",
+		LinuxDir: dir,
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, name)
+			return []byte("ok"), nil
+		},
+	}
+	plan := Plan{Reference: "alice/myproject", TrustName: "Sandcastle alice/myproject project CA"}
+	result, err := store.InstallCA(context.Background(), plan, []byte("CERT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Platform != "linux" || result.Action != "install" {
+		t.Fatalf("result = %#v", result)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, CertFilename(plan)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "CERT" {
+		t.Fatalf("content = %q", content)
+	}
+	if len(commands) != 1 || commands[0] != "update-ca-certificates" {
+		t.Fatalf("commands = %#v", commands)
+	}
+}
+
+func TestCommandStoreUninstallLinuxRemovesTrustFileAndUpdates(t *testing.T) {
+	dir := t.TempDir()
+	plan := Plan{Reference: "alice/myproject", TrustName: "Sandcastle alice/myproject project CA"}
+	target := filepath.Join(dir, CertFilename(plan))
+	if err := os.WriteFile(target, []byte("CERT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	store := CommandStore{
+		GOOS:     "linux",
+		LinuxDir: dir,
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, name)
+			return []byte("ok"), nil
+		},
+	}
+	result, err := store.UninstallCA(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Platform != "linux" || result.Action != "uninstall" {
+		t.Fatalf("result = %#v", result)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("expected cert removal, stat err = %v", err)
+	}
+	if len(commands) != 1 || commands[0] != "update-ca-certificates" {
+		t.Fatalf("commands = %#v", commands)
+	}
+}
+
 func TestPlanDoesNotSerializePEM(t *testing.T) {
 	plan := Plan{Reference: "alice/myproject", TrustName: "Sandcastle alice/myproject project CA"}
 	payload, err := json.Marshal(plan)

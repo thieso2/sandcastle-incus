@@ -1170,6 +1170,12 @@ development sandboxes.
 - Passed: `go test ./internal/tailscale ./internal/incusx -run 'Test(ParseStatus|TailscaleManagerRunsStatus)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened command-backed local trust installs by rejecting empty project CA
+  data consistently, creating the Linux trust directory before writing, and
+  covering Linux install/uninstall command behavior without mutating host trust.
+- Passed: `go test ./internal/localtrust ./internal/incusx ./internal/cli -run 'Test(CommandStore|FileStore|PlanInstall|Trust)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
