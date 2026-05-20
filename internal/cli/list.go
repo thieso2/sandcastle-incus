@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -19,7 +20,7 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short:   "List Sandcastle projects",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projects, err := project.List(cmd.Context(), config.projectStore)
+			projects, err := listProjects(cmd.Context(), config.projectStore)
 			if err != nil {
 				return err
 			}
@@ -27,6 +28,10 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			return writeOutput(config.stdout, opts.output, formatProjectList(projects), payload)
 		},
 	}
+}
+
+func listProjects(ctx context.Context, store project.IncusProjectStore) ([]project.Summary, error) {
+	return project.List(ctx, store)
 }
 
 func formatProjectList(projects []project.Summary) string {

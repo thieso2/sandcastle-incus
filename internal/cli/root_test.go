@@ -111,6 +111,39 @@ func TestAdminVersion(t *testing.T) {
 	}
 }
 
+func TestAdminProjectListJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "admin", "project", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload listPayload
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Projects) != 1 {
+		t.Fatalf("len(payload.Projects) = %d, want 1", len(payload.Projects))
+	}
+	if payload.Projects[0].IncusName != "sc-alice-myproject" {
+		t.Fatalf("IncusName = %q", payload.Projects[0].IncusName)
+	}
+}
+
 func TestRejectsUnknownOutputFormat(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "--output", "yaml", "version")
 	if err == nil {
