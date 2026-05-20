@@ -63,16 +63,17 @@ type PublicRoute struct {
 }
 
 type Sandbox struct {
-	Owner        string   `json:"owner"`
-	Project      string   `json:"project"`
-	Name         string   `json:"name"`
-	AppPort      int      `json:"appPort"`
-	PrivateIP    string   `json:"privateIP"`
-	LinuxUser    string   `json:"linuxUser,omitempty"`
-	HomeDir      string   `json:"homeDir,omitempty"`
-	WorkspaceDir string   `json:"workspaceDir,omitempty"`
-	ExtraSANs    []string `json:"extraSANs,omitempty"`
-	Running      bool     `json:"running,omitempty"`
+	Owner          string   `json:"owner"`
+	Project        string   `json:"project"`
+	Name           string   `json:"name"`
+	AppPort        int      `json:"appPort"`
+	PrivateIP      string   `json:"privateIP"`
+	LinuxUser      string   `json:"linuxUser,omitempty"`
+	HomeDir        string   `json:"homeDir,omitempty"`
+	WorkspaceDir   string   `json:"workspaceDir,omitempty"`
+	ContainerTools bool     `json:"containerTools,omitempty"`
+	ExtraSANs      []string `json:"extraSANs,omitempty"`
+	Running        bool     `json:"running,omitempty"`
 }
 
 type Route struct {

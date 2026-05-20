@@ -372,6 +372,43 @@ func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
 	}
 }
 
+func TestAddDryRunSupportsContainerTools(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "add", "alice/myproject/codex", "--dry-run", "--container-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sandbox.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.ContainerTools {
+		t.Fatal("ContainerTools = false, want true")
+	}
+	state, err := meta.ParseSandboxConfig(payload.MetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.ContainerTools {
+		t.Fatal("metadata ContainerTools = false, want true")
+	}
+}
+
 func TestAddDryRunRejectsUnsafeStorageFlags(t *testing.T) {
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",

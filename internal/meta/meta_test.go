@@ -46,15 +46,16 @@ func TestProjectConfigRoundTrip(t *testing.T) {
 
 func TestSandboxConfigRoundTrip(t *testing.T) {
 	input := Sandbox{
-		Owner:        "alice",
-		Project:      "myproject",
-		Name:         "codex",
-		AppPort:      3000,
-		PrivateIP:    "10.88.17.21",
-		LinuxUser:    "alice",
-		HomeDir:      "codex",
-		WorkspaceDir: ".",
-		ExtraSANs:    []string{"app.example.test"},
+		Owner:          "alice",
+		Project:        "myproject",
+		Name:           "codex",
+		AppPort:        3000,
+		PrivateIP:      "10.88.17.21",
+		LinuxUser:      "alice",
+		HomeDir:        "codex",
+		WorkspaceDir:   ".",
+		ContainerTools: true,
+		ExtraSANs:      []string{"app.example.test"},
 	}
 	config, err := SandboxConfig(input)
 	if err != nil {
@@ -75,6 +76,9 @@ func TestSandboxConfigRoundTrip(t *testing.T) {
 	}
 	if len(output.ExtraSANs) != 1 {
 		t.Fatalf("extra SANs = %#v", output.ExtraSANs)
+	}
+	if !output.ContainerTools {
+		t.Fatalf("ContainerTools = false, want true")
 	}
 }
 

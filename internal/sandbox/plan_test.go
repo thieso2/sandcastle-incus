@@ -46,6 +46,9 @@ func TestPlanCreate(t *testing.T) {
 	if plan.Template != TemplateAI {
 		t.Fatalf("Template = %q", plan.Template)
 	}
+	if plan.ContainerTools {
+		t.Fatal("ContainerTools = true, want false")
+	}
 	if plan.HomeDir != "." || plan.WorkspaceDir != "." {
 		t.Fatalf("HomeDir/WorkspaceDir = %q/%q, want ./.", plan.HomeDir, plan.WorkspaceDir)
 	}
@@ -69,6 +72,33 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if !strings.Contains(plan.CaddyFile.Content, "reverse_proxy 127.0.0.1:3000") {
 		t.Fatalf("CaddyFile.Content = %q", plan.CaddyFile.Content)
+	}
+	state, err := meta.ParseSandboxConfig(plan.MetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ContainerTools {
+		t.Fatal("metadata ContainerTools = true, want false")
+	}
+}
+
+func TestPlanCreateSupportsContainerTools(t *testing.T) {
+	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{
+		Reference:      "alice/myproject/codex",
+		ContainerTools: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.ContainerTools {
+		t.Fatal("ContainerTools = false, want true")
+	}
+	state, err := meta.ParseSandboxConfig(plan.MetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.ContainerTools {
+		t.Fatal("metadata ContainerTools = false, want true")
 	}
 }
 

@@ -109,6 +109,12 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	if resource.created.Config["environment.SANDCASTLE_USER"] != "alice" {
 		t.Fatalf("instance config = %#v", resource.created.Config)
 	}
+	if _, ok := resource.created.Config["security.nesting"]; ok {
+		t.Fatalf("security.nesting is set by default: %#v", resource.created.Config)
+	}
+	if _, ok := resource.created.Config["security.privileged"]; ok {
+		t.Fatalf("security.privileged is set by default: %#v", resource.created.Config)
+	}
 	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
 		t.Fatal("expected Caddyfile write")
 	}
@@ -132,6 +138,25 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(resource.execCommands[1], " "), "caddy") {
 		t.Fatalf("caddy command = %#v", resource.execCommands[1])
+	}
+}
+
+func TestSandboxCreatorEnablesNestingForContainerTools(t *testing.T) {
+	plan := sandboxPlanForTest(t)
+	plan.ContainerTools = true
+	resource := fakeSandboxResourceWithCA(t)
+	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
+	if err := creator.CreateSandbox(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if resource.created == nil {
+		t.Fatal("expected instance creation")
+	}
+	if resource.created.Config["security.nesting"] != "true" {
+		t.Fatalf("security.nesting = %q", resource.created.Config["security.nesting"])
+	}
+	if _, ok := resource.created.Config["security.privileged"]; ok {
+		t.Fatalf("security.privileged is set: %#v", resource.created.Config)
 	}
 }
 

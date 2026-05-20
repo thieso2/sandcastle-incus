@@ -16,18 +16,20 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var homeDir string
 	var workspaceDir string
 	var shareHome bool
+	var containerTools bool
 	command := &cobra.Command{
 		Use:   "add project/name",
 		Short: "Create a Sandcastle container sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := sandbox.PlanCreate(cmd.Context(), config.adminConfig, config.projectStore, config.sandboxStore, sandbox.CreateRequest{
-				Reference:    args[0],
-				Template:     template,
-				AppPort:      appPort,
-				HomeDir:      homeDir,
-				WorkspaceDir: workspaceDir,
-				ShareHome:    shareHome,
+				Reference:      args[0],
+				Template:       template,
+				AppPort:        appPort,
+				HomeDir:        homeDir,
+				WorkspaceDir:   workspaceDir,
+				ShareHome:      shareHome,
+				ContainerTools: containerTools,
 			})
 			if err != nil {
 				return err
@@ -67,6 +69,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&homeDir, "home-dir", "", "project home volume subdirectory")
 	command.Flags().StringVar(&workspaceDir, "workspace-dir", "", "project workspace volume subdirectory")
 	command.Flags().BoolVar(&shareHome, "share-home", false, "confirm sharing a home subdirectory with another running sandbox")
+	command.Flags().BoolVar(&containerTools, "container-tools", false, "enable nested container tooling for this sandbox")
 	return command
 }
 
@@ -80,6 +83,14 @@ func formatSandboxPlan(plan sandbox.CreatePlan) string {
 	fmt.Fprintf(&builder, "Template: %s\n", plan.Template)
 	fmt.Fprintf(&builder, "Home dir: %s\n", plan.HomeDir)
 	fmt.Fprintf(&builder, "Workspace dir: %s\n", plan.WorkspaceDir)
+	fmt.Fprintf(&builder, "Container tools: %s\n", enabledString(plan.ContainerTools))
 	fmt.Fprintf(&builder, "Image: %s", plan.ImageAlias)
 	return builder.String()
+}
+
+func enabledString(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
 }

@@ -1460,6 +1460,14 @@ development sandboxes.
 - Re-ran the safe e2e runner tiers at the current head after image command tool
   validation.
 - Passed: `make e2e-safe`
+- Added per-sandbox opt-in container tooling support. `sandcastle add
+  --container-tools` now records the sandbox intent in metadata and dry-run
+  JSON/text output, and Incus sandbox creation maps the option to
+  `security.nesting=true` without enabling `security.privileged`.
+- Passed: `go test ./internal/meta ./internal/sandbox ./internal/incusx ./internal/cli -run 'Test(SandboxConfigRoundTrip|PlanCreate|SandboxCreator|AddDryRun)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `make e2e-safe`
 
 ## Open Scope
 

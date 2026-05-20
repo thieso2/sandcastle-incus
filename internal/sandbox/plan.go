@@ -41,6 +41,7 @@ type CreateRequest struct {
 	HomeDir                 string
 	WorkspaceDir            string
 	ShareHome               bool
+	ContainerTools          bool
 	ProjectCACertificatePEM []byte
 	ProjectCAPrivateKeyPEM  []byte
 }
@@ -59,6 +60,7 @@ type CreatePlan struct {
 	CAVolume         string            `json:"caVolume"`
 	Template         string            `json:"template"`
 	ImageAlias       string            `json:"imageAlias"`
+	ContainerTools   bool              `json:"containerTools"`
 	MetadataConfig   map[string]string `json:"metadataConfig"`
 	Devices          map[string]Device `json:"devices"`
 	StartsByDefault  bool              `json:"startsByDefault"`
@@ -139,14 +141,15 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		return CreatePlan{}, err
 	}
 	state := meta.Sandbox{
-		Owner:        projectRef.Owner,
-		Project:      projectRef.Project,
-		Name:         sandboxName,
-		AppPort:      appPort,
-		PrivateIP:    privateIP,
-		LinuxUser:    linuxUser,
-		HomeDir:      homeDir,
-		WorkspaceDir: workspaceDir,
+		Owner:          projectRef.Owner,
+		Project:        projectRef.Project,
+		Name:           sandboxName,
+		AppPort:        appPort,
+		PrivateIP:      privateIP,
+		LinuxUser:      linuxUser,
+		HomeDir:        homeDir,
+		WorkspaceDir:   workspaceDir,
+		ContainerTools: request.ContainerTools,
 	}
 	metadataConfig, err := meta.SandboxConfig(state)
 	if err != nil {
@@ -173,6 +176,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		CAVolume:       project.CAVolumeName,
 		Template:       template,
 		ImageAlias:     imageAlias,
+		ContainerTools: request.ContainerTools,
 		MetadataConfig: metadataConfig,
 		Devices: map[string]Device{
 			"root": {

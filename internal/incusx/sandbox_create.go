@@ -207,6 +207,9 @@ func sandboxRequest(plan sandbox.CreatePlan) api.InstancesPost {
 	config["environment.SANDCASTLE_USER"] = plan.LinuxUser
 	config["environment.USER"] = plan.LinuxUser
 	config["environment.HOME"] = "/home/" + plan.LinuxUser
+	if plan.ContainerTools {
+		config["security.nesting"] = "true"
+	}
 	return api.InstancesPost{
 		Name:  plan.InstanceName,
 		Type:  "container",
