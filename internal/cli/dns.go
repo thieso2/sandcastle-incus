@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
+	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 )
@@ -17,6 +18,9 @@ func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	command.AddCommand(newDNSApplyCommand(config, opts))
 	command.AddCommand(newDNSStatusCommand(config, opts))
+	command.AddCommand(newDNSInstallCommand(config, opts))
+	command.AddCommand(newDNSRefreshCommand(config, opts))
+	command.AddCommand(newDNSUninstallCommand(config, opts))
 	return command
 }
 
@@ -61,6 +65,90 @@ func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command
 	}
 }
 
+func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "install owner/project",
+		Short: "Install local resolver state for a project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatLocalDNSPlan("Install", plan), plan)
+			}
+			if config.localDNS == nil {
+				return fmt.Errorf("local DNS executor is not configured")
+			}
+			result, err := config.localDNS.Install(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatLocalDNSResult(result), result)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS install plan without changing local resolver state")
+	return command
+}
+
+func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "refresh owner/project",
+		Short: "Refresh local resolver state for a project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatLocalDNSPlan("Refresh", plan), plan)
+			}
+			if config.localDNS == nil {
+				return fmt.Errorf("local DNS executor is not configured")
+			}
+			result, err := config.localDNS.Refresh(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatLocalDNSResult(result), result)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS refresh plan without changing local resolver state")
+	return command
+}
+
+func newDNSUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "uninstall owner/project",
+		Short: "Remove local resolver state for a project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := localdns.PlanUninstall(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatLocalDNSPlan("Uninstall", plan), plan)
+			}
+			if config.localDNS == nil {
+				return fmt.Errorf("local DNS executor is not configured")
+			}
+			result, err := config.localDNS.Uninstall(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatLocalDNSResult(result), result)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS uninstall plan without changing local resolver state")
+	return command
+}
+
 func findProjectSummary(ctx context.Context, store project.IncusProjectStore, reference string) (project.Summary, error) {
 	ref, err := naming.ParseProjectRef(reference)
 	if err != nil {
@@ -80,6 +168,14 @@ func findProjectSummary(ctx context.Context, store project.IncusProjectStore, re
 
 func formatDNSApply(result dns.ApplyResult) string {
 	return fmt.Sprintf("DNS records for %s/%s: %d", result.Project.Owner, result.Project.Name, result.RecordCount)
+}
+
+func formatLocalDNSPlan(action string, plan localdns.Plan) string {
+	return fmt.Sprintf("%s local DNS: %s\nDomain: %s\nForwarder: %s\nProject DNS: %s", action, plan.Reference, plan.Domain, plan.Listen, plan.DNSEndpoint)
+}
+
+func formatLocalDNSResult(result localdns.Result) string {
+	return fmt.Sprintf("%s local DNS: %s\nState: %s\nResolver: %s", result.Action, result.Reference, result.StatePath, result.ResolverPath)
 }
 
 func dnsProject(summary project.Summary) dns.Project {

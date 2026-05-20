@@ -10,6 +10,7 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
+	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
@@ -313,6 +314,67 @@ func TestDNSStatusJSON(t *testing.T) {
 	}
 	if payload.DNSAddress != "10.248.0.53" {
 		t.Fatalf("DNSAddress = %q", payload.DNSAddress)
+	}
+}
+
+func TestDNSInstallDryRunJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "dns", "install", "alice/myproject", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload localdns.Plan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.DNSEndpoint != "10.248.0.53:53" {
+		t.Fatalf("DNSEndpoint = %q", payload.DNSEndpoint)
+	}
+}
+
+func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &fakeLocalDNSManager{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		localDNS: manager,
+	}, "dns", "refresh", "alice/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.refreshed {
+		t.Fatal("expected local DNS refresh call")
+	}
+	if manager.plan.DNSEndpoint != "10.248.0.53:53" {
+		t.Fatalf("DNSEndpoint = %q", manager.plan.DNSEndpoint)
 	}
 }
 
@@ -818,6 +880,31 @@ type fakeTailscaleRunner struct {
 	downCalled   bool
 	plan         tailscale.UpPlan
 	status       tailscale.StatusResult
+}
+
+type fakeLocalDNSManager struct {
+	installed   bool
+	refreshed   bool
+	uninstalled bool
+	plan        localdns.Plan
+}
+
+func (f *fakeLocalDNSManager) Install(ctx context.Context, plan localdns.Plan) (localdns.Result, error) {
+	f.installed = true
+	f.plan = plan
+	return localdns.Result{Reference: plan.Reference, Action: "install", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
+}
+
+func (f *fakeLocalDNSManager) Refresh(ctx context.Context, plan localdns.Plan) (localdns.Result, error) {
+	f.refreshed = true
+	f.plan = plan
+	return localdns.Result{Reference: plan.Reference, Action: "refresh", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
+}
+
+func (f *fakeLocalDNSManager) Uninstall(ctx context.Context, plan localdns.Plan) (localdns.Result, error) {
+	f.uninstalled = true
+	f.plan = plan
+	return localdns.Result{Reference: plan.Reference, Action: "uninstall", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
 }
 
 func (f *fakeTailscaleRunner) RunUp(ctx context.Context, plan tailscale.UpPlan, session tailscale.RunSession) error {

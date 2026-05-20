@@ -12,6 +12,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
+	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
@@ -44,6 +45,7 @@ type commandConfig struct {
 	sandboxControl sandbox.Controller
 	sandboxPort    sandbox.PortSetter
 	dnsApplier     dns.Applier
+	localDNS       localdns.Manager
 	tailscale      tailscale.Runner
 	hostOverrides  hostoverride.Manager
 	hostSandbox    hostoverride.SandboxStore
@@ -76,6 +78,7 @@ func Execute(name string, args []string) int {
 		sandboxControl: incusx.NewSandboxController(adminConfig.Remote),
 		sandboxPort:    incusx.NewSandboxPortSetter(adminConfig.Remote),
 		dnsApplier:     incusx.NewDNSManager(adminConfig.Remote),
+		localDNS:       localdns.FileManager{},
 		tailscale:      incusx.NewTailscaleManager(adminConfig.Remote),
 		hostOverrides:  incusx.NewHostOverrideManager(adminConfig.Remote),
 		hostSandbox:    incusx.NewHostOverrideManager(adminConfig.Remote),
