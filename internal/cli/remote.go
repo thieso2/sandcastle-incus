@@ -19,23 +19,28 @@ func newRemoteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 }
 
 func newRemoteAddCommand(config commandConfig, _ *rootOptions) *cobra.Command {
-	var token string
-	cmd := &cobra.Command{
-		Use:   "add <name> <addr>",
-		Short: "Add a Sandcastle remote and configure its Incus connection",
-		Args:  cobra.ExactArgs(2),
+	return &cobra.Command{
+		Use:   "add <name> <join-token>",
+		Short: "Add a Sandcastle remote using an Incus join token",
+		Long: `Add a Sandcastle remote.
+
+<join-token> is the token produced by "sandcastle admin user create" (or
+"incus config trust add --generate-certificate" on the server). The token
+already contains the server address — no separate address argument is needed.
+
+Incus certs are stored in ~/.config/sandcastle/<name>/incus/ and the remote
+is saved as the default in ~/.config/sandcastle/config.yml.`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name, addr := args[0], args[1]
+			name, joinToken := args[0], args[1]
 			incusDir := scconfig.RemoteIncusDir(name)
 			if err := os.MkdirAll(incusDir, 0o700); err != nil {
 				return fmt.Errorf("create incus config dir: %w", err)
 			}
 
-			incusArgs := []string{"remote", "add", name, addr}
-			if token != "" {
-				incusArgs = append(incusArgs, "--token", token)
-			}
-			incusCmd := exec.CommandContext(cmd.Context(), "incus", incusArgs...)
+			// Pass the join token as the address argument — incus detects it is
+			// a JSON token and extracts the server address from it automatically.
+			incusCmd := exec.CommandContext(cmd.Context(), "incus", "remote", "add", name, joinToken)
 			incusCmd.Env = append(os.Environ(), "INCUS_CONF="+incusDir)
 			incusCmd.Stdin = config.stdin
 			incusCmd.Stdout = config.stdout
@@ -60,6 +65,4 @@ func newRemoteAddCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&token, "token", "", "Incus trust token for authenticating with the remote server")
-	return cmd
 }

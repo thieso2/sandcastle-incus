@@ -244,7 +244,7 @@ Certificate: sc-alice
 Remote: sc-alice
 Token: 7f3a...
 Bootstrap:
-  sc remote add sc-alice &lt;addr&gt; --token &lt;token&gt;
+  sc remote add sc-alice &lt;join-token&gt;
   # then edit ~/.config/sandcastle/config.yml and add:  owner: alice</code></pre>
     <div class="note"><strong>Share the bootstrap commands with the user.</strong> They run <code>sc remote add</code> on their machine — this registers the remote and saves it as the default in <code>~/.config/sandcastle/config.yml</code>.</div>
   </div>
@@ -265,9 +265,10 @@ Bootstrap:
   <div class="step">
     <h3>User bootstrap (on the user's machine)</h3>
     <p>Run these commands after receiving the bootstrap output from admin.</p>
-    <pre><code><span class="comment"># Add the remote — creates ~/.config/sandcastle/sc-alice/incus/ with certs</span>
+    <pre><code><span class="comment"># Add the remote — the join token already contains the server address.</span>
+<span class="comment"># Creates ~/.config/sandcastle/sc-alice/incus/ with certs</span>
 <span class="comment"># and sets sc-alice as the default remote in ~/.config/sandcastle/config.yml</span>
-<span class="cmd">sc remote add</span> <span class="arg">sc-alice</span> <span class="arg">&lt;addr-from-admin&gt;</span> <span class="flag">--token</span> <span class="arg">&lt;token-from-admin&gt;</span>
+<span class="cmd">sc remote add</span> <span class="arg">sc-alice</span> <span class="arg">&lt;join-token-from-admin&gt;</span>
 
 <span class="comment"># Set your owner name in the config file</span>
 <span class="comment"># Edit ~/.config/sandcastle/config.yml and add:  owner: alice</span>
