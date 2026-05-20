@@ -544,6 +544,13 @@ development sandboxes.
   sandbox-local HTTP app, curling it through sandbox Caddy over HTTPS, changing
   the app port to 5173, and verifying Caddy is reloaded to proxy the new app
   port.
+- Strengthened public route broker mutation e2e coverage.
+  `TestRouteBrokerAuthorizedMutationE2E` now starts a sandbox-local HTTP app
+  before adding the public route. When the delegated-domain public route env is
+  set, the test uses a normal trusted HTTPS client, with SNI for the public
+  hostname and a dial override to `SANDCASTLE_E2E_INFRA_HOST`, to verify
+  infrastructure Caddy serves the sandbox response through an externally trusted
+  certificate.
 
 ## Next Slice
 
@@ -551,8 +558,7 @@ development sandboxes.
   disposable infrastructure image sources and broker Incus socket access are
   available in that environment.
 - Run `scripts/e2e.sh public-routes` against a real delegated public test
-  domain and extend it to assert externally trusted Let’s Encrypt certificates
-  over the public hostname.
+  domain to exercise the checked-in externally trusted HTTPS assertion.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -876,12 +882,14 @@ development sandboxes.
 - Passed: `go test ./internal/config ./internal/caddy ./internal/infra ./internal/incusx ./internal/e2e -run 'Test(LoadAdminFromEnv|RenderInfrastructure|PlanCreate|RouteManager|LoadConfig)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
+- Passed: `go test ./internal/e2e -run 'TestRouteBrokerAuthorizedMutationE2E|TestLoadConfig' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
   disposable images in CI/dev, restricted HTTPS-remote e2e in CI/dev,
-  privileged OS resolver/service e2e in a disposable VM, route broker mutation
+  local-VM privileged mutation gates in a disposable VM, route broker mutation
   e2e in regular CI/dev, public delegated-domain/Let’s Encrypt route e2e, and
   broader real-Incus coverage remain open.

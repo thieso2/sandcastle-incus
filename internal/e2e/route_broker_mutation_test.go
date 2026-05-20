@@ -2,9 +2,15 @@ package e2e
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -195,6 +201,9 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateSandbox(ctx, otherSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
+	targetServer := server.UseProject(createProjectPlan.IncusProject)
+	publicBody := "sandcastle-public-route"
+	startSandboxHTTPApp(t, targetServer, sandboxPlan.InstanceName, sandboxPlan.AppPort, publicBody)
 
 	certPEM, keyPEM := createRouteBrokerE2ECertificate(t, e2eConfig, server, owner)
 	infraServer := server.UseProject(infraProject)
@@ -210,6 +219,9 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 		}
 	}
 	assertInfrastructureRoutePort(t, infraServer, hostname, sandboxPlan.PrivateIP, sandboxPlan.AppPort)
+	if publicRouteExternalCheckEnabled(e2eConfig) {
+		waitForPublicHTTPSRoute(t, hostname, adminConfig.InfrastructureHost, publicBody)
+	}
 	portPlan, err := sandbox.PlanSetPort(ctx, adminConfig, store, sandbox.PortSetRequest{
 		Reference: sandboxRef,
 		AppPort:   5174,
@@ -234,7 +246,6 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 		}
 	}
 	assertInfrastructureRouteAbsent(t, infraServer, hostname)
-	targetServer := server.UseProject(createProjectPlan.IncusProject)
 	target, _, err := targetServer.GetInstance(sandboxPlan.InstanceName)
 	if err != nil {
 		t.Fatal(err)
@@ -257,6 +268,59 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 		t.Fatalf("expected no route profile for rejected unowned route %s, err = %v", unownedHostname, err)
 	}
 	assertInfrastructureRouteAbsent(t, infraServer, unownedHostname)
+}
+
+func publicRouteExternalCheckEnabled(config Config) bool {
+	return strings.TrimSpace(config.PublicRoutes.Domain) != "" &&
+		strings.TrimSpace(config.PublicRoutes.InfrastructureHost) != "" &&
+		strings.TrimSpace(config.PublicRoutes.LetsEncryptEmail) != ""
+}
+
+func waitForPublicHTTPSRoute(t *testing.T, hostname string, infrastructureHost string, want string) {
+	t.Helper()
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				ServerName: hostname,
+			},
+			DialContext: func(ctx context.Context, network string, addr string) (net.Conn, error) {
+				if strings.EqualFold(addr, net.JoinHostPort(hostname, "443")) {
+					addr = hostPort(infrastructureHost, "443")
+				}
+				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
+			},
+		},
+	}
+	deadline := time.Now().Add(3 * time.Minute)
+	var last string
+	for time.Now().Before(deadline) {
+		response, err := client.Get("https://" + hostname + "/")
+		if err == nil {
+			body, readErr := io.ReadAll(response.Body)
+			_ = response.Body.Close()
+			if readErr == nil && response.StatusCode == http.StatusOK && strings.Contains(string(body), want) {
+				return
+			}
+			if readErr != nil {
+				last = readErr.Error()
+			} else {
+				last = fmt.Sprintf("status = %s body = %q", response.Status, string(body))
+			}
+		} else {
+			last = err.Error()
+		}
+		time.Sleep(3 * time.Second)
+	}
+	t.Fatalf("trusted HTTPS request to public route %s through %s did not return %q: %s", hostname, infrastructureHost, want, last)
+}
+
+func hostPort(host string, defaultPort string) string {
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return host
+	}
+	return net.JoinHostPort(host, defaultPort)
 }
 
 func assertInfrastructureRoutePort(t *testing.T, server incus.InstanceServer, hostname string, targetIP string, routePort int) {

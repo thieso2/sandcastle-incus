@@ -348,7 +348,9 @@ Test:
    image sources are configured: it creates disposable infrastructure, a project,
    a sandbox, a trusted broker client certificate, and a temporary DNS proof in
    the broker container before adding, listing, and removing a route through the
-   running broker.
+   running broker. When the delegated public route env is configured, it also
+   verifies a normal trusted HTTPS client can reach the sandbox app through the
+   public hostname and infrastructure Caddy.
 3. Create a sandbox app on port 3000.
 4. Point a disposable public hostname at infrastructure.
 5. As restricted user, call route broker with Incus client certificate mTLS.
