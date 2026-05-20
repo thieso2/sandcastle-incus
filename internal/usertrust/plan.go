@@ -13,6 +13,7 @@ const CertificateNamePrefix = "sandcastle-"
 type UserPlan struct {
 	User            string   `json:"user"`
 	CertificateName string   `json:"certificateName"`
+	RemoteName      string   `json:"remoteName"`
 	Restricted      bool     `json:"restricted"`
 	Projects        []string `json:"projects"`
 	Description     string   `json:"description"`
@@ -26,6 +27,7 @@ type GrantRequest struct {
 type TokenResult struct {
 	User            string   `json:"user"`
 	CertificateName string   `json:"certificateName"`
+	RemoteName      string   `json:"remoteName"`
 	Restricted      bool     `json:"restricted"`
 	Projects        []string `json:"projects"`
 	Token           string   `json:"token"`
@@ -42,7 +44,8 @@ func PlanCreateUser(user string) (UserPlan, error) {
 	}
 	return UserPlan{
 		User:            user,
-		CertificateName: CertificateNamePrefix + user,
+		CertificateName: RestrictedName(user),
+		RemoteName:      RestrictedName(user),
 		Restricted:      true,
 		Projects:        []string{},
 		Description:     "Sandcastle restricted user " + user,
@@ -86,6 +89,10 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 
 func PlanToken(user string) (UserPlan, error) {
 	return PlanCreateUser(user)
+}
+
+func RestrictedName(user string) string {
+	return CertificateNamePrefix + user
 }
 
 func validateUser(user string) error {

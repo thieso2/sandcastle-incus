@@ -72,9 +72,14 @@ func (m TrustManager) CreateToken(ctx context.Context, plan usertrust.UserPlan) 
 	if err != nil {
 		return usertrust.TokenResult{}, err
 	}
+	remoteName := plan.RemoteName
+	if remoteName == "" {
+		remoteName = usertrust.RestrictedName(plan.User)
+	}
 	return usertrust.TokenResult{
 		User:            plan.User,
 		CertificateName: plan.CertificateName,
+		RemoteName:      remoteName,
 		Restricted:      plan.Restricted,
 		Projects:        plan.Projects,
 		Token:           token.String(),

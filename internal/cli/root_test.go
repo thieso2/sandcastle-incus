@@ -1711,6 +1711,16 @@ func TestAdminUserGrantDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestAdminUserCreateDryRunShowsRemoteName(t *testing.T) {
+	stdout, err := executeForTest(t, "sandcastle", "admin", "user", "create", "alice", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Remote: sandcastle-alice") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
 func TestAdminUserGrantRejectsCrossOwnerProject(t *testing.T) {
 	_, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
@@ -1721,6 +1731,48 @@ func TestAdminUserGrantRejectsCrossOwnerProject(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "owned by bob") {
 		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestAdminUserTokenShowsBootstrapCommands(t *testing.T) {
+	manager := &fakeTrustManager{token: "certificate-add-token"}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:         "sandcastle",
+		trustManager: manager,
+	}, "admin", "user", "token", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.tokenCalled {
+		t.Fatal("expected token manager to be called")
+	}
+	for _, want := range []string{
+		"Remote: sandcastle-alice",
+		"incus remote add sandcastle-alice certificate-add-token",
+		"export SANDCASTLE_REMOTE=sandcastle-alice",
+		"export SANDCASTLE_OWNER=alice",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestAdminUserTokenJSONIncludesRemoteName(t *testing.T) {
+	manager := &fakeTrustManager{token: "certificate-add-token"}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:         "sandcastle",
+		trustManager: manager,
+	}, "--output", "json", "admin", "user", "token", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload usertrust.TokenResult
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.RemoteName != "sandcastle-alice" {
+		t.Fatalf("RemoteName = %q", payload.RemoteName)
 	}
 }
 
@@ -2004,6 +2056,32 @@ func (f *fakeRouteBrokerRunner) Serve(ctx context.Context, plan routebroker.Serv
 	f.called = true
 	f.plan = plan
 	return nil
+}
+
+type fakeTrustManager struct {
+	tokenCalled bool
+	grantCalled bool
+	plan        usertrust.UserPlan
+	token       string
+}
+
+func (f *fakeTrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) error {
+	f.grantCalled = true
+	f.plan = plan
+	return nil
+}
+
+func (f *fakeTrustManager) CreateToken(ctx context.Context, plan usertrust.UserPlan) (usertrust.TokenResult, error) {
+	f.tokenCalled = true
+	f.plan = plan
+	return usertrust.TokenResult{
+		User:            plan.User,
+		CertificateName: plan.CertificateName,
+		RemoteName:      plan.RemoteName,
+		Restricted:      plan.Restricted,
+		Projects:        plan.Projects,
+		Token:           f.token,
+	}, nil
 }
 
 type fakeHostFiles struct {

@@ -563,11 +563,25 @@ func formatUserPlan(plan usertrust.UserPlan) string {
 	if len(plan.Projects) > 0 {
 		projects = strings.Join(plan.Projects, ", ")
 	}
-	return fmt.Sprintf("User: %s\nCertificate: %s\nRestricted: %t\nProjects: %s", plan.User, plan.CertificateName, plan.Restricted, projects)
+	return fmt.Sprintf("User: %s\nCertificate: %s\nRemote: %s\nRestricted: %t\nProjects: %s", plan.User, plan.CertificateName, plan.RemoteName, plan.Restricted, projects)
 }
 
 func formatTokenResult(result usertrust.TokenResult) string {
-	return fmt.Sprintf("User: %s\nCertificate: %s\nToken: %s", result.User, result.CertificateName, result.Token)
+	remoteName := result.RemoteName
+	if remoteName == "" {
+		remoteName = usertrust.RestrictedName(result.User)
+	}
+	return fmt.Sprintf(
+		"User: %s\nCertificate: %s\nRemote: %s\nToken: %s\nBootstrap:\n  incus remote add %s %s\n  export SANDCASTLE_REMOTE=%s\n  export SANDCASTLE_OWNER=%s",
+		result.User,
+		result.CertificateName,
+		remoteName,
+		result.Token,
+		remoteName,
+		result.Token,
+		remoteName,
+		result.User,
+	)
 }
 
 func newAdminRouteBrokerCommand(config commandConfig) *cobra.Command {

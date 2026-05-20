@@ -14,6 +14,9 @@ func TestPlanCreateUser(t *testing.T) {
 	if plan.CertificateName != "sandcastle-alice" {
 		t.Fatalf("CertificateName = %q", plan.CertificateName)
 	}
+	if plan.RemoteName != "sandcastle-alice" {
+		t.Fatalf("RemoteName = %q", plan.RemoteName)
+	}
 	if !plan.Restricted {
 		t.Fatal("Restricted = false, want true")
 	}

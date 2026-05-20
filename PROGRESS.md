@@ -1360,6 +1360,14 @@ development sandboxes.
 - Re-ran the safe e2e runner tiers at the current head after the deny-list
   refresh changes.
 - Passed: `scripts/e2e.sh unit && scripts/e2e.sh gated && scripts/e2e.sh local`
+- Added restricted-user remote bootstrap guidance: user create/token plans now
+  carry the intended restricted remote name, token text output prints
+  `incus remote add` plus `SANDCASTLE_REMOTE`/`SANDCASTLE_OWNER` exports, and
+  token JSON includes the remote name for automation.
+- Passed: `go test ./internal/usertrust ./internal/incusx ./internal/cli -run 'Test(PlanCreateUser|TrustManagerCreateToken|AdminUser(Create|Token))' -count=1 -v`
+- Passed: `go run ./cmd/sandcastle admin user create alice --dry-run`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
