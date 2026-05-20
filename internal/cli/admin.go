@@ -37,6 +37,7 @@ func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	}
 	project.AddCommand(newAdminProjectListCommand(config, opts))
 	project.AddCommand(newAdminProjectCreateCommand(config, opts))
+	project.AddCommand(newAdminProjectDeleteCommand(config, opts))
 	return project
 }
 
@@ -108,4 +109,43 @@ func formatCreatePlan(plan project.CreatePlan) string {
 	fmt.Fprintf(&builder, "Volumes: %s, %s, %s\n", plan.HomeVolume, plan.WorkspaceVolume, plan.CAVolume)
 	fmt.Fprintf(&builder, "Sidecars: %s (%s), %s (%s)", plan.TailscaleInstance, plan.TailscaleAddress, plan.DNSInstance, plan.DNSAddress)
 	return builder.String()
+}
+
+func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var yes bool
+	var purge bool
+	command := &cobra.Command{
+		Use:   "delete owner/project",
+		Short: "Delete a Sandcastle project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("refusing to delete without --yes")
+			}
+			plan, err := project.PlanDelete(config.adminConfig, project.DeleteRequest{
+				Reference: args[0],
+				Purge:     purge,
+			})
+			if err != nil {
+				return err
+			}
+			if config.projectDeleter == nil {
+				return fmt.Errorf("project deletion executor is not configured")
+			}
+			if err := config.projectDeleter.DeleteProject(cmd.Context(), plan); err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatDeletePlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm project deletion")
+	command.Flags().BoolVar(&purge, "purge", false, "delete durable project volumes and the Incus project")
+	return command
+}
+
+func formatDeletePlan(plan project.DeletePlan) string {
+	if plan.PurgeDurableState {
+		return fmt.Sprintf("Deleted %s and purged durable state.", plan.Reference)
+	}
+	return fmt.Sprintf("Deleted runtime resources for %s; durable state was preserved.", plan.Reference)
 }

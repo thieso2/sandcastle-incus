@@ -175,6 +175,16 @@ func TestAdminProjectCreateRequiresExecutor(t *testing.T) {
 	}
 }
 
+func TestAdminProjectDeleteRequiresConfirmation(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "admin", "project", "delete", "alice/myproject")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("error = %q, want --yes hint", err.Error())
+	}
+}
+
 func TestRejectsUnknownOutputFormat(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "--output", "yaml", "version")
 	if err == nil {

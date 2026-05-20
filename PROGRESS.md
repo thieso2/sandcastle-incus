@@ -66,12 +66,17 @@ development sandboxes.
   project zone with NS/SOA records and no project-wide wildcard.
 - Project create plans now include rendered CoreDNS files, and the Incus
   executor writes them into the DNS sidecar under `/etc/coredns`.
+- Added project delete planning and `sandcastle admin project delete` command
+  shape with required `--yes` confirmation and optional `--purge`.
+- Added Incus delete executor that stops/removes sidecars, removes the private
+  network, and only deletes durable volumes plus the Incus project when purge is
+  explicit.
 
 ## Next Slice
 
 - Extend e2e from read-only Incus detection to disposable project creation once
   the executor exists.
-- Add cleanup/delete executor for disposable project e2e.
+- Add diagnostics collection for failed disposable e2e project runs.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -96,6 +101,8 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run | rg 'dnsFiles|Corefile|db.myproject|ns IN A'`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle admin project delete alice/myproject 2>&1 || true`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 - Passed: `go test ./...`
