@@ -16,6 +16,7 @@ func TestInspectFindsManagedSandbox(t *testing.T) {
 		Name:         "codex",
 		AppPort:      5173,
 		PrivateIP:    "10.248.0.20",
+		LinuxUser:    "alice",
 		HomeDir:      ".",
 		WorkspaceDir: "workspace",
 		Running:      true,
@@ -26,7 +27,7 @@ func TestInspectFindsManagedSandbox(t *testing.T) {
 	if result.InstanceName != "sc-codex" {
 		t.Fatalf("InstanceName = %q", result.InstanceName)
 	}
-	if result.Sandbox.AppPort != 5173 || result.Sandbox.PrivateIP != "10.248.0.20" {
+	if result.Sandbox.AppPort != 5173 || result.Sandbox.PrivateIP != "10.248.0.20" || result.Sandbox.LinuxUser != "alice" {
 		t.Fatalf("Sandbox = %#v", result.Sandbox)
 	}
 	if !result.Sandbox.Running {

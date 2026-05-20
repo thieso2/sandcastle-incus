@@ -75,6 +75,7 @@ func formatSandboxPlan(plan sandbox.CreatePlan) string {
 	fmt.Fprintf(&builder, "Instance: %s\n", plan.InstanceName)
 	fmt.Fprintf(&builder, "Private IP: %s\n", plan.PrivateIP)
 	fmt.Fprintf(&builder, "App port: %d\n", plan.AppPort)
+	fmt.Fprintf(&builder, "Linux user: %s\n", plan.LinuxUser)
 	fmt.Fprintf(&builder, "Template: %s\n", plan.Template)
 	fmt.Fprintf(&builder, "Home dir: %s\n", plan.HomeDir)
 	fmt.Fprintf(&builder, "Workspace dir: %s\n", plan.WorkspaceDir)

@@ -40,6 +40,9 @@ func TestPlanCreate(t *testing.T) {
 	if plan.AppPort != DefaultAppPort {
 		t.Fatalf("AppPort = %d", plan.AppPort)
 	}
+	if plan.LinuxUser != "alice" {
+		t.Fatalf("LinuxUser = %q", plan.LinuxUser)
+	}
 	if plan.Template != TemplateAI {
 		t.Fatalf("Template = %q", plan.Template)
 	}
@@ -51,6 +54,12 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if plan.MetadataConfig[meta.KeyKind] != meta.KindSandbox {
 		t.Fatalf("metadata kind = %q", plan.MetadataConfig[meta.KeyKind])
+	}
+	if plan.MetadataConfig[meta.KeyLinuxUser] != "alice" {
+		t.Fatalf("metadata linux user = %q", plan.MetadataConfig[meta.KeyLinuxUser])
+	}
+	if plan.Devices["home"]["path"] != "/home/alice" {
+		t.Fatalf("home path = %q", plan.Devices["home"]["path"])
 	}
 	if plan.CaddyFile.Path != CaddyfilePath {
 		t.Fatalf("CaddyFile.Path = %q", plan.CaddyFile.Path)
@@ -75,6 +84,9 @@ func TestPlanCreateSupportsProjectNameShorthandWithOwner(t *testing.T) {
 	}
 	if plan.Project.Owner != "alice" || plan.Project.Name != "myproject" || plan.Name != "codex" {
 		t.Fatalf("plan = %#v", plan)
+	}
+	if plan.LinuxUser != "alice" || plan.Devices["home"]["path"] != "/home/alice" {
+		t.Fatalf("linux user/home path = %q/%q", plan.LinuxUser, plan.Devices["home"]["path"])
 	}
 }
 

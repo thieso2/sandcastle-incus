@@ -18,6 +18,10 @@ import (
 
 const DefaultAppPort = 3000
 const (
+	DefaultLinuxUID = 1000
+	DefaultLinuxGID = 1000
+)
+const (
 	TemplateAI   = "ai"
 	TemplateBase = "base"
 )
@@ -47,6 +51,7 @@ type CreatePlan struct {
 	InstanceName     string            `json:"instanceName"`
 	PrivateIP        string            `json:"privateIP"`
 	AppPort          int               `json:"appPort"`
+	LinuxUser        string            `json:"linuxUser"`
 	HomeDir          string            `json:"homeDir"`
 	WorkspaceDir     string            `json:"workspaceDir"`
 	StoragePool      string            `json:"storagePool"`
@@ -109,6 +114,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	if appPort < 1 || appPort > 65535 {
 		return CreatePlan{}, fmt.Errorf("invalid app port %d", appPort)
 	}
+	linuxUser := projectRef.Owner
 	existingSandboxes, err := listExistingSandboxes(ctx, sandboxStore, summary)
 	if err != nil {
 		return CreatePlan{}, err
@@ -134,6 +140,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		Name:         sandboxName,
 		AppPort:      appPort,
 		PrivateIP:    privateIP,
+		LinuxUser:    linuxUser,
 		HomeDir:      homeDir,
 		WorkspaceDir: workspaceDir,
 	}
@@ -155,6 +162,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		InstanceName:   instanceName,
 		PrivateIP:      privateIP,
 		AppPort:        appPort,
+		LinuxUser:      linuxUser,
 		HomeDir:        homeDir,
 		WorkspaceDir:   workspaceDir,
 		StoragePool:    admin.StoragePool,
@@ -177,7 +185,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 			"home": {
 				"type":   "disk",
 				"source": project.HomeVolumeName + "/" + homeDir,
-				"path":   "/home/sandcastle",
+				"path":   "/home/" + linuxUser,
 			},
 			"workspace": {
 				"type":   "disk",

@@ -36,6 +36,7 @@ func formatSandboxInspect(result sandbox.InspectResult) string {
 	fmt.Fprintf(&builder, "Instance: %s\n", result.InstanceName)
 	fmt.Fprintf(&builder, "Private IP: %s\n", result.Sandbox.PrivateIP)
 	fmt.Fprintf(&builder, "App port: %d\n", result.Sandbox.AppPort)
+	fmt.Fprintf(&builder, "Linux user: %s\n", result.Sandbox.LinuxUser)
 	fmt.Fprintf(&builder, "Home dir: %s\n", result.Sandbox.HomeDir)
 	fmt.Fprintf(&builder, "Workspace dir: %s\n", result.Sandbox.WorkspaceDir)
 	if result.Sandbox.Running {

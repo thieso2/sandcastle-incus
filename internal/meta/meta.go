@@ -20,6 +20,7 @@ const (
 	KeyRole            = Prefix + "role"
 	KeyHostname        = Prefix + "hostname"
 	KeyAppPort         = Prefix + "app_port"
+	KeyLinuxUser       = Prefix + "linux_user"
 	KeyCreatedBy       = Prefix + "created_by"
 	KeyState           = Prefix + "state"
 
@@ -60,6 +61,7 @@ type Sandbox struct {
 	Name         string   `json:"name"`
 	AppPort      int      `json:"appPort"`
 	PrivateIP    string   `json:"privateIP"`
+	LinuxUser    string   `json:"linuxUser,omitempty"`
 	HomeDir      string   `json:"homeDir,omitempty"`
 	WorkspaceDir string   `json:"workspaceDir,omitempty"`
 	ExtraSANs    []string `json:"extraSANs,omitempty"`
@@ -111,13 +113,14 @@ func SandboxConfig(sandbox Sandbox) (map[string]string, error) {
 		return nil, err
 	}
 	return map[string]string{
-		KeyKind:    KindSandbox,
-		KeyVersion: strconv.Itoa(Version),
-		KeyOwner:   sandbox.Owner,
-		KeyProject: sandbox.Project,
-		KeyName:    sandbox.Name,
-		KeyAppPort: strconv.Itoa(sandbox.AppPort),
-		KeyState:   state,
+		KeyKind:      KindSandbox,
+		KeyVersion:   strconv.Itoa(Version),
+		KeyOwner:     sandbox.Owner,
+		KeyProject:   sandbox.Project,
+		KeyName:      sandbox.Name,
+		KeyAppPort:   strconv.Itoa(sandbox.AppPort),
+		KeyLinuxUser: sandbox.LinuxUser,
+		KeyState:     state,
 	}, nil
 }
 
@@ -128,6 +131,12 @@ func ParseSandboxConfig(config map[string]string) (Sandbox, error) {
 	var sandbox Sandbox
 	if err := decodeState(config[KeyState], &sandbox); err != nil {
 		return Sandbox{}, err
+	}
+	if sandbox.LinuxUser == "" && config[KeyLinuxUser] != "" {
+		sandbox.LinuxUser = config[KeyLinuxUser]
+	}
+	if sandbox.LinuxUser == "" {
+		sandbox.LinuxUser = sandbox.Owner
 	}
 	return sandbox, nil
 }

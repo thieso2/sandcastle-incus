@@ -32,6 +32,7 @@ type fakeSandboxResource struct {
 	createdFiles map[string]string
 	caFiles      map[string]string
 	execCommands [][]string
+	execEnvs     []map[string]string
 }
 
 func (r *fakeSandboxResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -79,6 +80,7 @@ func (r *fakeSandboxResource) GetStorageVolumeFile(pool string, volumeType strin
 
 func (r *fakeSandboxResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	r.execCommands = append(r.execCommands, exec.Command)
+	r.execEnvs = append(r.execEnvs, exec.Environment)
 	if args.DataDone != nil {
 		close(args.DataDone)
 	}
@@ -101,6 +103,12 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	if resource.created.Devices["eth0"]["ipv4.address"] != "10.248.0.20" {
 		t.Fatalf("devices = %#v", resource.created.Devices)
 	}
+	if resource.created.Devices["home"]["path"] != "/home/alice" {
+		t.Fatalf("home device = %#v", resource.created.Devices["home"])
+	}
+	if resource.created.Config["environment.SANDCASTLE_USER"] != "alice" {
+		t.Fatalf("instance config = %#v", resource.created.Config)
+	}
 	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
 		t.Fatal("expected Caddyfile write")
 	}
@@ -110,8 +118,17 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	if resource.createdFiles[sandbox.SandboxCertKeyPath] == "" {
 		t.Fatal("expected private key write")
 	}
-	if len(resource.execCommands) != 1 || !strings.Contains(strings.Join(resource.execCommands[0], " "), "caddy") {
+	if len(resource.execCommands) != 2 {
 		t.Fatalf("exec commands = %#v", resource.execCommands)
+	}
+	if strings.Join(resource.execCommands[0], " ") != "/usr/local/bin/sandcastle-bootstrap" {
+		t.Fatalf("bootstrap command = %#v", resource.execCommands[0])
+	}
+	if resource.execEnvs[0]["SANDCASTLE_USER"] != "alice" {
+		t.Fatalf("bootstrap env = %#v", resource.execEnvs[0])
+	}
+	if !strings.Contains(strings.Join(resource.execCommands[1], " "), "caddy") {
+		t.Fatalf("caddy command = %#v", resource.execCommands[1])
 	}
 }
 

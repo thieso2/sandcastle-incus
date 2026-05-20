@@ -82,6 +82,9 @@ func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePl
 }
 
 func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+	if err := bootstrapSandboxUser(server, plan); err != nil {
+		return err
+	}
 	certificateFiles := plan.CertificateFiles
 	if len(certificateFiles) == 0 {
 		var err error
@@ -118,6 +121,28 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 		}
 	}
 	return restartSandboxCaddy(server, plan.InstanceName)
+}
+
+func bootstrapSandboxUser(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
+		Command: []string{"/usr/local/bin/sandcastle-bootstrap"},
+		Environment: map[string]string{
+			"SANDCASTLE_USER": plan.LinuxUser,
+		},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("bootstrap sandbox user %s in %s: %w", plan.LinuxUser, plan.InstanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for sandbox user bootstrap in %s: %w", plan.InstanceName, err)
+	}
+	<-dataDone
+	return nil
 }
 
 type sandboxCaddyRestarter interface {
@@ -173,6 +198,13 @@ func readProjectCAFile(server SandboxResourceServer, plan sandbox.CreatePlan, pa
 }
 
 func sandboxRequest(plan sandbox.CreatePlan) api.InstancesPost {
+	config := map[string]string{}
+	for key, value := range plan.MetadataConfig {
+		config[key] = value
+	}
+	config["environment.SANDCASTLE_USER"] = plan.LinuxUser
+	config["environment.USER"] = plan.LinuxUser
+	config["environment.HOME"] = "/home/" + plan.LinuxUser
 	return api.InstancesPost{
 		Name:  plan.InstanceName,
 		Type:  "container",
@@ -183,7 +215,7 @@ func sandboxRequest(plan sandbox.CreatePlan) api.InstancesPost {
 		},
 		InstancePut: api.InstancePut{
 			Description: "Sandcastle sandbox " + plan.Reference,
-			Config:      api.ConfigMap(plan.MetadataConfig),
+			Config:      api.ConfigMap(config),
 			Devices:     sandboxDevicesMap(plan.Devices),
 			Profiles:    []string{},
 		},

@@ -225,7 +225,8 @@ Test:
 3. Verify metadata, app port, user, home mount, and workspace mount.
    The checked-in CLI `add --detach` e2e path now exercises `--template base`,
    `--home-dir`, and `--workspace-dir` and verifies the resulting mount
-   sources on the Incus instance.
+   sources on the Incus instance, the `/home/<owner>` mount target, the
+   default Linux user bootstrap, and the inspect metadata user field.
    The checked-in CLI default `add` e2e path runs a real Sandcastle subprocess,
    feeds a marker command plus `exit` to the default login shell over stdin, and
    verifies the sandbox was created.

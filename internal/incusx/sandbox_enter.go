@@ -51,8 +51,14 @@ func (e SandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan
 	exec := api.InstanceExecPost{
 		Command:     plan.Command,
 		Cwd:         plan.WorkingDir,
+		User:        sandbox.DefaultLinuxUID,
+		Group:       sandbox.DefaultLinuxGID,
 		Interactive: plan.Interactive,
 		WaitForWS:   true,
+		Environment: map[string]string{
+			"HOME": "/home/" + plan.LinuxUser,
+			"USER": plan.LinuxUser,
+		},
 	}
 	if exec.Interactive {
 		exec.RecordOutput = false

@@ -36,6 +36,9 @@ func TestPlanEnter(t *testing.T) {
 	if plan.WorkingDir != "/workspace" {
 		t.Fatalf("WorkingDir = %q", plan.WorkingDir)
 	}
+	if plan.LinuxUser != "alice" {
+		t.Fatalf("LinuxUser = %q", plan.LinuxUser)
+	}
 	if !plan.Interactive {
 		t.Fatal("expected default enter to be interactive")
 	}

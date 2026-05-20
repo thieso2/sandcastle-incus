@@ -40,6 +40,7 @@ func TestSandboxEntererExecsInteractiveShell(t *testing.T) {
 		Project:      project.Summary{IncusName: "sc-alice-myproject"},
 		InstanceName: "sc-codex",
 		Command:      []string{"/bin/bash", "-l"},
+		LinuxUser:    "alice",
 		WorkingDir:   "/workspace",
 		Interactive:  true,
 	}, sandbox.EnterSession{
@@ -62,6 +63,12 @@ func TestSandboxEntererExecsInteractiveShell(t *testing.T) {
 	if resource.exec.Cwd != "/workspace" {
 		t.Fatalf("Cwd = %q", resource.exec.Cwd)
 	}
+	if resource.exec.User != sandbox.DefaultLinuxUID || resource.exec.Group != sandbox.DefaultLinuxGID {
+		t.Fatalf("user/group = %d/%d", resource.exec.User, resource.exec.Group)
+	}
+	if resource.exec.Environment["HOME"] != "/home/alice" || resource.exec.Environment["USER"] != "alice" {
+		t.Fatalf("environment = %#v", resource.exec.Environment)
+	}
 }
 
 func TestSandboxEntererExecsCommandNonInteractively(t *testing.T) {
@@ -71,6 +78,7 @@ func TestSandboxEntererExecsCommandNonInteractively(t *testing.T) {
 		Project:      project.Summary{IncusName: "sc-alice-myproject"},
 		InstanceName: "sc-codex",
 		Command:      []string{"pwd"},
+		LinuxUser:    "alice",
 		WorkingDir:   "/workspace",
 		Interactive:  false,
 	}, sandbox.EnterSession{

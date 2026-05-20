@@ -16,4 +16,5 @@ if ! id -u "${user_name}" >/dev/null 2>&1; then
   chmod 0440 /etc/sudoers.d/sandcastle-user
 fi
 
+install -d -o "${user_name}" -g "${user_name}" "/home/${user_name}"
 install -d -o "${user_name}" -g "${user_name}" /workspace

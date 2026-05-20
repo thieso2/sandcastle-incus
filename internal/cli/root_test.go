@@ -203,6 +203,7 @@ func TestInspectJSON(t *testing.T) {
 			Name:         "codex",
 			AppPort:      5173,
 			PrivateIP:    "10.248.0.20",
+			LinuxUser:    "alice",
 			HomeDir:      ".",
 			WorkspaceDir: "workspace",
 			Running:      true,
@@ -218,7 +219,7 @@ func TestInspectJSON(t *testing.T) {
 	if payload.InstanceName != "sc-codex" {
 		t.Fatalf("InstanceName = %q", payload.InstanceName)
 	}
-	if payload.Sandbox.AppPort != 5173 || !payload.Sandbox.Running {
+	if payload.Sandbox.AppPort != 5173 || payload.Sandbox.LinuxUser != "alice" || !payload.Sandbox.Running {
 		t.Fatalf("Sandbox = %#v", payload.Sandbox)
 	}
 }
@@ -246,6 +247,7 @@ func TestInspectText(t *testing.T) {
 			Name:         "codex",
 			AppPort:      5173,
 			PrivateIP:    "10.248.0.20",
+			LinuxUser:    "alice",
 			HomeDir:      ".",
 			WorkspaceDir: "workspace",
 			ExtraSANs:    []string{"app.example.com"},
@@ -254,7 +256,7 @@ func TestInspectText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Sandbox: alice/myproject/codex", "Instance: sc-codex", "Private IP: 10.248.0.20", "Extra SANs: app.example.com"} {
+	for _, want := range []string{"Sandbox: alice/myproject/codex", "Instance: sc-codex", "Private IP: 10.248.0.20", "Linux user: alice", "Extra SANs: app.example.com"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}
@@ -295,6 +297,9 @@ func TestAddDryRunJSON(t *testing.T) {
 	if payload.HomeDir != "." || payload.WorkspaceDir != "." {
 		t.Fatalf("HomeDir/WorkspaceDir = %q/%q, want ./.", payload.HomeDir, payload.WorkspaceDir)
 	}
+	if payload.LinuxUser != "alice" {
+		t.Fatalf("LinuxUser = %q", payload.LinuxUser)
+	}
 }
 
 func TestAddDryRunSupportsProjectNameShorthandWithOwner(t *testing.T) {
@@ -325,6 +330,9 @@ func TestAddDryRunSupportsProjectNameShorthandWithOwner(t *testing.T) {
 	}
 	if payload.Project.Owner != "alice" || payload.Project.Name != "myproject" || payload.Name != "codex" {
 		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.LinuxUser != "alice" {
+		t.Fatalf("LinuxUser = %q", payload.LinuxUser)
 	}
 }
 

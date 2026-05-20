@@ -43,6 +43,7 @@ func TestSandboxConfigRoundTrip(t *testing.T) {
 		Name:         "codex",
 		AppPort:      3000,
 		PrivateIP:    "10.88.17.21",
+		LinuxUser:    "alice",
 		HomeDir:      "codex",
 		WorkspaceDir: ".",
 		ExtraSANs:    []string{"app.example.test"},
@@ -54,11 +55,14 @@ func TestSandboxConfigRoundTrip(t *testing.T) {
 	if config[KeyAppPort] != "3000" {
 		t.Fatalf("app port scalar = %q", config[KeyAppPort])
 	}
+	if config[KeyLinuxUser] != "alice" {
+		t.Fatalf("linux user scalar = %q", config[KeyLinuxUser])
+	}
 	output, err := ParseSandboxConfig(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Name != input.Name || output.PrivateIP != input.PrivateIP {
+	if output.Name != input.Name || output.PrivateIP != input.PrivateIP || output.LinuxUser != input.LinuxUser {
 		t.Fatalf("round trip = %#v, want %#v", output, input)
 	}
 	if len(output.ExtraSANs) != 1 {

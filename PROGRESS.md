@@ -1082,6 +1082,27 @@ development sandboxes.
 - Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Implemented default sandbox Linux user wiring:
+  - sandbox create plans now resolve `linuxUser` from the Sandcastle owner,
+    persist it in sandbox metadata, and mount home state at `/home/<owner>`;
+  - Incus sandbox creation now passes `environment.SANDCASTLE_USER`, runs the
+    image bootstrap before Caddy setup, and the bootstrap chowns mounted home
+    directories;
+  - `sandcastle enter` now execs as the default sandbox UID/GID with matching
+    `HOME` and `USER`;
+  - CLI add/inspect output and e2e assertions include the Linux user.
+- Passed: `bash -n images/base/sandcastle-bootstrap`
+- Passed: `go test ./internal/meta ./internal/sandbox ./internal/incusx ./internal/cli -run 'Test(SandboxConfigRoundTrip|ParseRejects|IsManaged|PlanCreate|PlanEnter|Inspect|SandboxCreatorCreatesInstance|SandboxCreatorStartsExistingStoppedInstance|SandboxEnterer|AddDryRun|Inspect)' -count=1`
+- Observed: first `go test ./...` hit transient
+  `TestForwarderRoutesByStateAndReloads` UDP `connection refused`; immediate
+  focused reruns passed.
+- Passed: `go test ./internal/localdns -run TestForwarderRoutesByStateAndReloads -count=1 -v`
+- Passed: `go test ./internal/localdns -count=1`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'Test(CLIAddDetachE2E|CLIAddDefaultEnterE2E|LoadConfig)' -count=1 -v`
+  with destructive CLI add e2e skipped as expected when real e2e is unset.
+- Passed: `scripts/e2e.sh local`
 
 ## Open Scope
 

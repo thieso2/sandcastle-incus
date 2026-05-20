@@ -42,6 +42,12 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	if instance.Devices["home"]["source"] != project.HomeVolumeName+"/shared-home" {
 		t.Fatalf("home source = %q", instance.Devices["home"]["source"])
 	}
+	if instance.Devices["home"]["path"] != "/home/"+fixture.Owner {
+		t.Fatalf("home path = %q", instance.Devices["home"]["path"])
+	}
+	if strings.TrimSpace(execInstanceOutput(t, projectServer, instanceName, []string{"id", "-un", fixture.Owner})) != fixture.Owner {
+		t.Fatalf("sandbox Linux user %q was not created", fixture.Owner)
+	}
 	if instance.Devices["workspace"]["source"] != project.WorkspaceVolumeName+"/." {
 		t.Fatalf("workspace source = %q", instance.Devices["workspace"]["source"])
 	}
@@ -68,7 +74,7 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	if inspect.InstanceName != instanceName {
 		t.Fatalf("inspect instance = %q, want %q", inspect.InstanceName, instanceName)
 	}
-	if inspect.Sandbox.PrivateIP == "" || inspect.Sandbox.AppPort != sandbox.DefaultAppPort || !inspect.Sandbox.Running {
+	if inspect.Sandbox.PrivateIP == "" || inspect.Sandbox.AppPort != sandbox.DefaultAppPort || inspect.Sandbox.LinuxUser != fixture.Owner || !inspect.Sandbox.Running {
 		t.Fatalf("inspect sandbox = %#v", inspect.Sandbox)
 	}
 }
@@ -88,7 +94,7 @@ func TestCLIAddDefaultEnterE2E(t *testing.T) {
 		"--home-dir", "interactive-home",
 		"--workspace-dir", ".",
 	)
-	command.Stdin = strings.NewReader("printf 'sandcastle-add-interactive-ok\\n'; pwd; exit\n")
+	command.Stdin = strings.NewReader("printf 'sandcastle-add-interactive-ok\\n'; whoami; pwd; exit\n")
 	command.Env = append(os.Environ(), sandcastleCLIEnv(fixture)...)
 	output, err := command.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -100,6 +106,9 @@ func TestCLIAddDefaultEnterE2E(t *testing.T) {
 	if !strings.Contains(string(output), "sandcastle-add-interactive-ok") {
 		t.Fatalf("sandcastle add default enter output missing marker:\n%s", strings.TrimSpace(string(output)))
 	}
+	if !strings.Contains(string(output), fixture.Owner) {
+		t.Fatalf("sandcastle add default enter output missing Linux user %q:\n%s", fixture.Owner, strings.TrimSpace(string(output)))
+	}
 
 	projectServer := fixture.Server.UseProject(fixture.Project.IncusProject)
 	instanceName := "sc-" + fixture.SandboxName
@@ -110,6 +119,9 @@ func TestCLIAddDefaultEnterE2E(t *testing.T) {
 	}
 	if instance.Devices["home"]["source"] != project.HomeVolumeName+"/interactive-home" {
 		t.Fatalf("home source = %q", instance.Devices["home"]["source"])
+	}
+	if instance.Devices["home"]["path"] != "/home/"+fixture.Owner {
+		t.Fatalf("home path = %q", instance.Devices["home"]["path"])
 	}
 	assertSandboxIngressFiles(t, projectServer, instanceName, fixture.SandboxName+"."+fixture.Project.Domain, sandbox.DefaultAppPort)
 }

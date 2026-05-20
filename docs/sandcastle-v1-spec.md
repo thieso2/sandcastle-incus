@@ -137,6 +137,7 @@ user.sandcastle.name=codex
 user.sandcastle.owner=alice
 user.sandcastle.project=myproject
 user.sandcastle.app_port=3000
+user.sandcastle.linux_user=alice
 user.sandcastle.state={...}
 ```
 

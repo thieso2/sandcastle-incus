@@ -20,6 +20,7 @@ type EnterPlan struct {
 	Name         string          `json:"name"`
 	InstanceName string          `json:"instanceName"`
 	Command      []string        `json:"command"`
+	LinuxUser    string          `json:"linuxUser"`
 	WorkingDir   string          `json:"workingDir"`
 	Interactive  bool            `json:"interactive"`
 }
@@ -61,6 +62,7 @@ func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProje
 		Name:         sandboxName,
 		InstanceName: "sc-" + sandboxName,
 		Command:      command,
+		LinuxUser:    projectRef.Owner,
 		WorkingDir:   "/workspace",
 		Interactive:  interactive,
 	}, nil
