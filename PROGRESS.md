@@ -1482,6 +1482,14 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `make e2e-safe`
+- Extended the gated CLI add-detach e2e path to create a sandbox with
+  `--container-tools`, assert the real Incus instance receives
+  `security.nesting=true` without `security.privileged`, and verify
+  `sandcastle inspect --output json` reports `containerTools`.
+- Passed: `go test ./internal/e2e -run 'TestCLIAddDetachE2E|TestLoadConfig' -count=1 -v` with the expected real-Incus skip when destructive e2e is unset.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `make e2e-safe`
 
 ## Open Scope
 

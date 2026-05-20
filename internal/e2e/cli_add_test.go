@@ -28,8 +28,9 @@ func TestCLIAddDetachE2E(t *testing.T) {
 		"--template", "base",
 		"--home-dir", "shared-home",
 		"--workspace-dir", ".",
+		"--container-tools",
 	}); exitCode != 0 {
-		t.Fatalf("sandcastle add --detach --template base exit code = %d", exitCode)
+		t.Fatalf("sandcastle add --detach --template base --container-tools exit code = %d", exitCode)
 	}
 
 	projectServer := fixture.Server.UseProject(fixture.Project.IncusProject)
@@ -44,6 +45,12 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	}
 	if instance.Devices["home"]["path"] != "/home/"+fixture.Owner {
 		t.Fatalf("home path = %q", instance.Devices["home"]["path"])
+	}
+	if instance.Config["security.nesting"] != "true" {
+		t.Fatalf("security.nesting = %q, want true", instance.Config["security.nesting"])
+	}
+	if _, ok := instance.Config["security.privileged"]; ok {
+		t.Fatalf("security.privileged should not be set: %#v", instance.Config)
 	}
 	if strings.TrimSpace(execInstanceOutput(t, projectServer, instanceName, []string{"id", "-un", fixture.Owner})) != fixture.Owner {
 		t.Fatalf("sandbox Linux user %q was not created", fixture.Owner)
@@ -76,6 +83,9 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	}
 	if inspect.Sandbox.PrivateIP == "" || inspect.Sandbox.AppPort != sandbox.DefaultAppPort || inspect.Sandbox.LinuxUser != fixture.Owner || !inspect.Sandbox.Running {
 		t.Fatalf("inspect sandbox = %#v", inspect.Sandbox)
+	}
+	if !inspect.Sandbox.ContainerTools {
+		t.Fatalf("inspect sandbox ContainerTools = false, want true")
 	}
 }
 
