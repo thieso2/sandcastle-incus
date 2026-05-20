@@ -1260,6 +1260,12 @@ development sandboxes.
 - Passed: `go test ./internal/project ./internal/incusx ./internal/e2e -run 'Test(GetStatusWithTopology|TopologyStoreGetTopology|ProjectDiagnostic|LogProjectDiagnostic|LocalDNSDiagnostic)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Added CLI dry-run coverage proving `sandcastle tailscale up` advertises the
+  default `tag:sandcastle` tag when no tag override is provided, matching the
+  unattended e2e route auto-approval contract.
+- Passed: `go test ./internal/cli ./internal/tailscale -run 'Test(TailscaleUp|PlanUp)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
