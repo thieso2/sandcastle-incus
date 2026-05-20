@@ -16,7 +16,7 @@ func TestPlanUp(t *testing.T) {
 	plan, err := PlanUp(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), UpRequest{
 		Reference:     "alice/myproject",
 		AuthKey:       "tskey-secret",
-		AdvertiseTags: []string{"tag:sandcastle"},
+		AdvertiseTags: []string{" tag:sandcastle,tag:sandcastle "},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -29,6 +29,9 @@ func TestPlanUp(t *testing.T) {
 	}
 	if !plan.HasAuthKey {
 		t.Fatal("expected HasAuthKey")
+	}
+	if len(plan.AdvertiseTags) != 1 || plan.AdvertiseTags[0] != "tag:sandcastle" {
+		t.Fatalf("AdvertiseTags = %#v", plan.AdvertiseTags)
 	}
 	if strings.Contains(strings.Join(plan.Command, " "), "tskey-secret") {
 		t.Fatalf("Command leaked auth key: %#v", plan.Command)
@@ -45,6 +48,23 @@ func TestPlanUp(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "tskey-secret") {
 		t.Fatalf("plan JSON leaked auth key: %s", encoded)
+	}
+}
+
+func TestPlanUpRejectsInvalidAdvertiseTags(t *testing.T) {
+	for _, tag := range []string{"sandcastle", "tag:", "tag:Sandcastle", "tag:sand_castle"} {
+		t.Run(tag, func(t *testing.T) {
+			_, err := PlanUp(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), UpRequest{
+				Reference:     "alice/myproject",
+				AdvertiseTags: []string{tag},
+			})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), "Tailscale advertise tag") {
+				t.Fatalf("error = %q", err)
+			}
+		})
 	}
 }
 

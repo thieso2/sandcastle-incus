@@ -1200,6 +1200,12 @@ development sandboxes.
 - Passed: `go test ./internal/sandbox ./internal/cli -run 'Test(PlanCreate|AddDryRun)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened Tailscale automation tag planning so advertised tags are normalized,
+  deduplicated, and rejected unless they use `tag:<name>` before shell command
+  construction. This keeps the `tag:sandcastle` route-approval path explicit.
+- Passed: `go test ./internal/tailscale ./internal/cli -run 'Test(TailscaleUp|PlanUp)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

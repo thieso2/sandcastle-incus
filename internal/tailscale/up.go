@@ -54,7 +54,10 @@ func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectS
 	if err != nil {
 		return UpPlan{}, err
 	}
-	tags := normalizeTags(request.AdvertiseTags)
+	tags, err := normalizeTags(request.AdvertiseTags)
+	if err != nil {
+		return UpPlan{}, err
+	}
 	plan := UpPlan{
 		Reference:       ref.String(),
 		Project:         summary,
@@ -106,7 +109,7 @@ func shellQuoteArgs(args []string) []string {
 	return quoted
 }
 
-func normalizeTags(values []string) []string {
+func normalizeTags(values []string) ([]string, error) {
 	seen := map[string]bool{}
 	output := []string{}
 	for _, value := range values {
@@ -115,11 +118,27 @@ func normalizeTags(values []string) []string {
 			if tag == "" || seen[tag] {
 				continue
 			}
+			if err := validateAdvertiseTag(tag); err != nil {
+				return nil, err
+			}
 			seen[tag] = true
 			output = append(output, tag)
 		}
 	}
-	return output
+	return output, nil
+}
+
+func validateAdvertiseTag(tag string) error {
+	if !strings.HasPrefix(tag, "tag:") || len(tag) == len("tag:") {
+		return fmt.Errorf("Tailscale advertise tag %q must use tag:<name>", tag)
+	}
+	name := strings.TrimPrefix(tag, "tag:")
+	for _, r := range name {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return fmt.Errorf("Tailscale advertise tag %q must contain only lowercase letters, digits, or hyphens after tag:", tag)
+		}
+	}
+	return nil
 }
 
 func findProject(ctx context.Context, store project.IncusProjectStore, ref naming.ProjectRef) (project.Summary, error) {

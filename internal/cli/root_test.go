@@ -754,6 +754,32 @@ func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
 	}
 }
 
+func TestTailscaleUpDryRunRejectsInvalidAdvertiseTag(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "tailscale", "up", "alice/myproject", "--advertise-tag", "sandcastle", "--dry-run")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Tailscale advertise tag") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestTailscaleUpRunsExecutor(t *testing.T) {
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",
