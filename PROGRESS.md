@@ -66,6 +66,9 @@ development sandboxes.
   project zone with NS/SOA records and no project-wide wildcard.
 - Project create plans now include rendered CoreDNS files, and the Incus
   executor writes them into the DNS sidecar under `/etc/coredns`.
+- The base image now installs a pinned CoreDNS release, and project creation
+  plus `sandcastle dns apply` restart CoreDNS inside `sc-dns` after writing the
+  rendered Corefile and zone files.
 - Added project delete planning and `sandcastle admin project delete` command
   shape with required `--yes` confirmation and optional `--purge`.
 - Added Incus delete executor that stops/removes sidecars, removes the private
@@ -201,6 +204,10 @@ development sandboxes.
   forwarder on loopback, verifies a sandbox hostname query reaches the
   configured upstream, refreshes state to a second upstream and verifies live
   reload behavior, then uninstalls and verifies resolver cleanup.
+- Added gated real-Incus project DNS e2e coverage. `TestProjectDNSE2E` syncs
+  disposable base/AI aliases, creates a disposable project and sandbox, applies
+  DNS, then queries `sc-dns` from inside the sandbox to verify the exact sandbox
+  record, per-sandbox wildcard record, and absence of a project-wide wildcard.
 - Added `scripts/e2e.sh`, a tiered e2e runner for reproducible local, gated,
   real-Incus, Tailscale, and image-build e2e runs. Destructive tiers fail closed
   unless `SANDCASTLE_E2E=1` is set, while `unit`, `gated`, and `local` provide
@@ -353,7 +360,9 @@ development sandboxes.
 
 - Add real-Incus e2e coverage for `sandcastle add` default interactive enter
   behavior once a stable test TTY strategy is available.
-- Add gated full-network Tailscale e2e when an auth key is available.
+- Extend project DNS e2e to cover multiple sandboxes after sandbox private IP
+  allocation stops reusing `.20`.
+- Add gated full-network Tailscale DNS/HTTPS e2e when an auth key is available.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure networking
   and broker Incus access are wired end-to-end.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -544,6 +553,10 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'TestDisposableInfrastructureCreateAndDelete|TestLoadConfig' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
 - Passed: `go test ./internal/incusx -run TestInfrastructureCreatorCreatesMissingResources -count=1 -v`
+- Passed: `go test ./internal/incusx ./internal/e2e ./internal/dns`
+- Passed: `go test ./internal/e2e -run 'TestProjectDNSE2E|TestLoadConfig' -count=1 -v` with the expected project DNS e2e skip when real e2e is unset.
+- Passed: `go test ./internal/incusx -run 'Test(DNSManagerApply|ProjectCreatorCreatesMissingResources)' -count=1 -v`
+- Passed: `bash -n scripts/e2e.sh && go test ./...`
 
 ## Open Scope
 

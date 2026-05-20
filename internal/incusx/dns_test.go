@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -20,8 +21,10 @@ func (s fakeDNSServer) UseProject(name string) DNSResourceServer {
 }
 
 type fakeDNSResource struct {
-	instances []api.Instance
-	files     map[string]string
+	instances     []api.Instance
+	files         map[string]string
+	execInstances []string
+	execCommands  [][]string
 }
 
 func (r *fakeDNSResource) GetInstances(instanceType api.InstanceType) ([]api.Instance, error) {
@@ -42,6 +45,15 @@ func (r *fakeDNSResource) CreateInstanceFile(instanceName string, path string, a
 	}
 	r.files[path] = string(content)
 	return nil
+}
+
+func (r *fakeDNSResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	r.execInstances = append(r.execInstances, instanceName)
+	r.execCommands = append(r.execCommands, exec.Command)
+	if args.DataDone != nil {
+		close(args.DataDone)
+	}
+	return fakeOperation{}, nil
 }
 
 func TestDNSManagerApply(t *testing.T) {
@@ -75,5 +87,14 @@ func TestDNSManagerApply(t *testing.T) {
 	}
 	if resource.files["/etc/coredns/zones/db.myproject.project-tld"] == "" {
 		t.Fatal("expected zone file to be written")
+	}
+	if len(resource.execCommands) != 1 {
+		t.Fatalf("exec commands = %#v", resource.execCommands)
+	}
+	if resource.execInstances[0] != "sc-dns" {
+		t.Fatalf("exec instance = %q", resource.execInstances[0])
+	}
+	if got := strings.Join(resource.execCommands[0], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") {
+		t.Fatalf("exec command = %q", got)
 	}
 }

@@ -48,7 +48,7 @@ run_local() {
 
 run_incus() {
   require_e2e incus
-  run go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge|DisposableInfrastructureCreateAndDelete|ImageSync.*AliasE2E|SandboxLifecycleE2E|CLIAddDetachE2E|CLIEnterCommandE2E|RestrictedUser(Token|GrantAccess)E2E)' -count=1 -v
+  run go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge|DisposableInfrastructureCreateAndDelete|ImageSync.*AliasE2E|ProjectDNSE2E|SandboxLifecycleE2E|CLIAddDetachE2E|CLIEnterCommandE2E|RestrictedUser(Token|GrantAccess)E2E)' -count=1 -v
 }
 
 run_images() {

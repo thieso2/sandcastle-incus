@@ -85,6 +85,9 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 	if err := ensureDNSFiles(projectServer, plan); err != nil {
 		return err
 	}
+	if err := restartCoreDNS(projectServer); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -208,6 +211,34 @@ func ensureDNSFiles(server ProjectResourceServer, plan project.CreatePlan) error
 			return fmt.Errorf("write DNS config file %s: %w", file.Path, err)
 		}
 	}
+	return nil
+}
+
+type coreDNSRestarter interface {
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
+}
+
+func restartCoreDNS(server coreDNSRestarter) error {
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(project.DNSName, api.InstanceExecPost{
+		Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+			"pkill -x coredns >/dev/null 2>&1 || true",
+			"nohup coredns -conf /etc/coredns/Corefile >/var/log/coredns.log 2>&1 &",
+			"sleep 0.2",
+			"pgrep -x coredns >/dev/null 2>&1",
+		}, "; ")},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("restart CoreDNS in %s: %w", project.DNSName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for CoreDNS restart in %s: %w", project.DNSName, err)
+	}
+	<-dataDone
 	return nil
 }
 

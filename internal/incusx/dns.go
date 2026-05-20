@@ -20,6 +20,7 @@ type DNSServer interface {
 type DNSResourceServer interface {
 	GetInstances(instanceType api.InstanceType) ([]api.Instance, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
 type DNSManager struct {
@@ -59,6 +60,9 @@ func (m DNSManager) Apply(ctx context.Context, summary dns.Project) (dns.ApplyRe
 		return dns.ApplyResult{}, err
 	}
 	if err := writeDNSFiles(projectServer, result.Files); err != nil {
+		return dns.ApplyResult{}, err
+	}
+	if err := restartCoreDNS(projectServer); err != nil {
 		return dns.ApplyResult{}, err
 	}
 	return result, nil
@@ -121,4 +125,8 @@ func (s sdkDNSResourceServer) GetInstances(instanceType api.InstanceType) ([]api
 
 func (s sdkDNSResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateInstanceFile(instanceName, path, args)
+}
+
+func (s sdkDNSResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	return s.inner.ExecInstance(instanceName, exec, args)
 }

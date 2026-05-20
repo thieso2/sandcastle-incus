@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
@@ -215,6 +216,15 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	}
 	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/zones/db.myproject.project-tld"]; got == "" {
 		t.Fatal("expected CoreDNS zone to be written")
+	}
+	if len(resourceServer.execCommands) != 1 {
+		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
+	}
+	if resourceServer.execInstances[0] != project.DNSName {
+		t.Fatalf("exec instance = %q", resourceServer.execInstances[0])
+	}
+	if got := strings.Join(resourceServer.execCommands[0], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") {
+		t.Fatalf("exec command = %q", got)
 	}
 }
 

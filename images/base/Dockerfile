@@ -1,5 +1,8 @@
 FROM debian:13-slim
 
+ARG COREDNS_VERSION=1.14.3
+ARG TARGETARCH
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
@@ -10,7 +13,22 @@ RUN apt-get update \
         curl \
         openssh-server \
         sudo \
+        tar \
     && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "${arch}" in \
+        amd64) coredns_arch="amd64" ;; \
+        arm64) coredns_arch="arm64" ;; \
+        arm) coredns_arch="arm" ;; \
+        *) echo "unsupported CoreDNS architecture: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/coredns/coredns/releases/download/v${COREDNS_VERSION}/coredns_${COREDNS_VERSION}_linux_${coredns_arch}.tgz" \
+        -o /tmp/coredns.tgz; \
+    tar -xzf /tmp/coredns.tgz -C /usr/local/bin coredns; \
+    chmod 0755 /usr/local/bin/coredns; \
+    rm -f /tmp/coredns.tgz
 
 RUN install -d -m 0755 /usr/share/keyrings \
     && curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg \

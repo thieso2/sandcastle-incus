@@ -159,6 +159,9 @@ Test:
 1. Create two containers: `codex` and `claude`.
 2. Apply DNS.
 3. Query CoreDNS directly on the private network.
+   The checked-in `TestProjectDNSE2E` covers one sandbox exact record,
+   per-sandbox wildcard record, and project-wide wildcard denial by querying
+   `sc-dns` from inside the sandbox network namespace.
 4. Verify exact records:
    - `codex.<domain>`
    - `claude.<domain>`
