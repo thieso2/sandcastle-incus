@@ -196,6 +196,11 @@ development sandboxes.
   `sandcastle dns forwarder`, support dry-run JSON/text output, and expose
   `SANDCASTLE_LOCAL_DNS_SERVICE_DIR` plus `SANDCASTLE_BIN` for test/disposable
   VM redirection.
+- Added gated local DNS forwarder e2e coverage. The test installs disposable
+  local DNS state and resolver files through the public manager, starts the UDP
+  forwarder on loopback, verifies a sandbox hostname query reaches the
+  configured upstream, refreshes state to a second upstream and verifies live
+  reload behavior, then uninstalls and verifies resolver cleanup.
 - Added public route planning and command shape for `sandcastle route add`,
   `sandcastle route list`, and `sandcastle route rm`. Route add validates exact
   public hostnames, resolves the target sandbox metadata, pins the current
@@ -475,6 +480,8 @@ development sandboxes.
 - Passed: `go test ./internal/localdns ./internal/cli`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_LOCAL_DNS_STATE=/tmp/sandcastle-dns.yaml SANDCASTLE_LOCAL_DNS_SERVICE_DIR=/tmp/sandcastle-services SANDCASTLE_BIN=/tmp/sandcastle ./bin/sandcastle --output json dns service install --dry-run`
 - Passed: `go test ./internal/localdns ./internal/cli`
+- Passed: `go test ./internal/e2e -run 'Test(LocalDNSInstallForwardRefreshUninstallE2E|LoadConfig)' -count=1 -v` with the expected local DNS e2e skip when real e2e is unset.
+- Passed: `SANDCASTLE_E2E=1 go test ./internal/e2e -run 'TestLocalDNSInstallForwardRefreshUninstallE2E' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/domain ./internal/project ./internal/config`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
@@ -501,6 +508,6 @@ development sandboxes.
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
   disposable images in CI/dev, restricted cert grant/access e2e against an HTTPS
-  Incus remote, full Tailscale network e2e, local DNS resolver/forwarder e2e in
-  a disposable VM, route broker mTLS e2e, and broader real-Incus coverage remain
-  open.
+  Incus remote, full Tailscale network e2e, privileged OS resolver/service e2e
+  in a disposable VM, route broker mTLS e2e, and broader real-Incus coverage
+  remain open.
