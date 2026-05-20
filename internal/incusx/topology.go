@@ -6,12 +6,15 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"sort"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 )
 
 type TopologyServer interface {
@@ -22,6 +25,7 @@ type TopologyResourceServer interface {
 	GetNetwork(name string) (*api.Network, string, error)
 	GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error)
 	GetInstance(name string) (*api.Instance, string, error)
+	GetInstances(instanceType api.InstanceType) ([]api.Instance, error)
 	GetInstanceFile(instanceName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 }
 
@@ -93,7 +97,27 @@ func diagnosticFiles(server TopologyResourceServer, request project.TopologyRequ
 	if domain != "" {
 		files = append(files, readDiagnosticFile(server, project.DNSName, path.Join("/etc/coredns/zones", "db."+domain)))
 	}
+	for _, instance := range sandboxInstances(server) {
+		files = append(files, readDiagnosticFile(server, instance.Name, sandbox.CaddyfilePath))
+	}
 	return files
+}
+
+func sandboxInstances(server TopologyResourceServer) []api.Instance {
+	instances, err := server.GetInstances(api.InstanceTypeContainer)
+	if err != nil {
+		return nil
+	}
+	sandboxes := []api.Instance{}
+	for _, instance := range instances {
+		if instance.Config[meta.KeyKind] == meta.KindSandbox {
+			sandboxes = append(sandboxes, instance)
+		}
+	}
+	sort.Slice(sandboxes, func(i, j int) bool {
+		return sandboxes[i].Name < sandboxes[j].Name
+	})
+	return sandboxes
 }
 
 func readDiagnosticFile(server TopologyResourceServer, instance string, filePath string) project.DiagnosticFile {

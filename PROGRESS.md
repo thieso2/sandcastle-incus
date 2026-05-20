@@ -1266,6 +1266,12 @@ development sandboxes.
 - Passed: `go test ./internal/cli ./internal/tailscale -run 'Test(TailscaleUp|PlanUp)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Extended Incus topology diagnostics to discover managed sandbox containers and
+  include bounded sandbox Caddyfiles, so private HTTPS proxy state is available
+  in e2e failure logs next to CoreDNS state.
+- Passed: `go test ./internal/incusx ./internal/e2e -run 'Test(TopologyStoreGetTopology|ProjectDiagnostic|LogProjectDiagnostic)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
