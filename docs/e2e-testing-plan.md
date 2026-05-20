@@ -77,6 +77,7 @@ SANDCASTLE_E2E=1 SANDCASTLE_E2E_LOCAL_VM=1 scripts/e2e.sh local-vm
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=remote-incus SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh restricted
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
+SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh route-broker
 ```
 
 Tier meanings:
@@ -99,14 +100,19 @@ Tier meanings:
   `SANDCASTLE_E2E_AI_IMAGE_SOURCE`, and `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
 - `images`: real image build flows, requiring `SANDCASTLE_E2E=1`,
   `SANDCASTLE_E2E_IMAGE_BUILD=1`, and pinned AI CLI versions for the AI image.
+- `route-broker`: route broker mTLS mutation flow, requiring
+  `SANDCASTLE_E2E=1`, `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET`,
+  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, and `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
+  Public route env is optional in this tier.
 
 GitHub Actions:
 
 - `.github/workflows/ci.yml` runs only safe tiers on push and pull request:
   `unit`, `gated`, and unprivileged `local`.
 - `.github/workflows/e2e-gates.yml` is manual (`workflow_dispatch`) for real
-  environment gates: `incus`, `restricted`, `tailscale`, `images`, `local-vm`,
-  and `public-routes`. It sets `SANDCASTLE_E2E=1` and relies on
+  environment gates: `incus`, `restricted`, `tailscale`, `images`,
+  `route-broker`, `local-vm`, and `public-routes`. It sets `SANDCASTLE_E2E=1`
+  and relies on
   `scripts/e2e.sh` to fail closed when a selected tier's required variables are
   missing.
 - Configure non-secret values as repository or environment variables using the

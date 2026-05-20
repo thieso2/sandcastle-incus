@@ -12,6 +12,7 @@ on:
           - restricted
           - tailscale
           - images
+          - route-broker
           - local-vm
           - public-routes
       runner:

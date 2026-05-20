@@ -551,12 +551,17 @@ development sandboxes.
   hostname and a dial override to `SANDCASTLE_E2E_INFRA_HOST`, to verify
   infrastructure Caddy serves the sandbox response through an externally trusted
   certificate.
+- Added an explicit `scripts/e2e.sh route-broker` tier for route broker mTLS
+  mutation coverage without requiring delegated public route variables. It fails
+  closed unless `SANDCASTLE_E2E=1`, `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET`, and
+  disposable base/AI image sources are set. The manual destructive e2e workflow,
+  README, and e2e plan now expose the tier separately from `public-routes`.
 
 ## Next Slice
 
-- Promote route broker HTTP mTLS mutation e2e into regular CI/dev gates once
-  disposable infrastructure image sources and broker Incus socket access are
-  available in that environment.
+- Run `scripts/e2e.sh route-broker` in regular CI/dev once disposable
+  infrastructure image sources and broker Incus socket access are available in
+  that environment.
 - Run `scripts/e2e.sh public-routes` against a real delegated public test
   domain to exercise the checked-in externally trusted HTTPS assertion.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -883,6 +888,20 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'TestRouteBrokerAuthorizedMutationE2E|TestLoadConfig' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `scripts/e2e.sh route-broker` with the expected fail-closed e2e guard
+  when `SANDCASTLE_E2E` is unset.
+- Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh route-broker` with the expected
+  missing `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` guard.
+- Passed: `SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket scripts/e2e.sh route-broker`
+  with the expected missing `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` guard.
+- Passed: `SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh public-routes`
+  with the expected missing `SANDCASTLE_E2E_PUBLIC_DOMAIN` guard.
+- Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
+- Passed: `go test ./internal/e2e -run 'TestRouteBrokerAuthorizedMutationE2E|TestLoadConfig' -count=1 -v`
+  with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 
