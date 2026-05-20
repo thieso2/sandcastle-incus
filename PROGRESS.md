@@ -600,6 +600,11 @@ development sandboxes.
 - Default Go e2e harness run ids now include nanosecond timestamp precision,
   reducing collision risk when multiple destructive tests derive disposable
   names inside the same process without an explicit `SANDCASTLE_E2E_RUN_ID`.
+- The checked-in runner now assigns and prints an invocation-wide
+  `SANDCASTLE_E2E_RUN_ID` for the unprivileged `local` e2e tier as well as
+  destructive non-cleanup tiers, keeping local DNS e2e names traceable.
+- Hardened the local DNS e2e forwarder query helper against the brief UDP
+  startup race exposed by repeated `scripts/e2e.sh local` runs.
 
 ## Next Slice
 
@@ -1002,6 +1007,14 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `go test ./internal/e2e -run 'Test(DisposableRunID|LoadConfig|Validate)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Observed: `bash -n scripts/e2e.sh && scripts/e2e.sh local` initially
+  exposed one transient local UDP `connection refused` before retry hardening.
+- Passed after retry hardening: `bash -n scripts/e2e.sh && scripts/e2e.sh local`
+- Passed after retry hardening: `scripts/e2e.sh local` three additional times.
+- Passed: `go test ./internal/e2e -run 'Test(LocalDNSInstallForwardRefreshUninstallE2E|LoadConfig)' -count=1 -v`
+  with the expected local DNS e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 

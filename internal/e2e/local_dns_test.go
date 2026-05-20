@@ -179,23 +179,36 @@ func waitForE2EUDP(t *testing.T, addr string) {
 
 func queryE2EForwarder(t *testing.T, addr string, packet []byte) []byte {
 	t.Helper()
-	conn, err := net.Dial("udp", addr)
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, err := net.Dial("udp", addr)
+		if err != nil {
+			lastErr = err
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		if err := conn.SetDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+			_ = conn.Close()
+			t.Fatal(err)
+		}
+		if _, err := conn.Write(packet); err != nil {
+			lastErr = err
+			_ = conn.Close()
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		response := make([]byte, 4096)
+		n, err := conn.Read(response)
+		_ = conn.Close()
+		if err == nil {
+			return response[:n]
+		}
+		lastErr = err
+		time.Sleep(10 * time.Millisecond)
 	}
-	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := conn.Write(packet); err != nil {
-		t.Fatal(err)
-	}
-	response := make([]byte, 4096)
-	n, err := conn.Read(response)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return response[:n]
+	t.Fatalf("query forwarder %s: %v", addr, lastErr)
+	return nil
 }
 
 func e2eDNSQuery(name string) []byte {

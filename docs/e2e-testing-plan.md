@@ -110,10 +110,10 @@ Tier meanings:
   an explicit `SANDCASTLE_E2E_RUN_ID`, requiring `SANDCASTLE_E2E=1`. Short or
   missing run IDs are rejected.
 
-For destructive non-cleanup tiers, `scripts/e2e.sh` preserves an explicit
-`SANDCASTLE_E2E_RUN_ID` when set and otherwise generates one run id for the
-script invocation. The cleanup tier never generates a run id because cleanup
-must target a known failed run explicitly.
+For the `local` tier and destructive non-cleanup tiers, `scripts/e2e.sh`
+preserves an explicit `SANDCASTLE_E2E_RUN_ID` when set and otherwise generates
+one run id for the script invocation. The cleanup tier never generates a run id
+because cleanup must target a known failed run explicitly.
 
 GitHub Actions:
 

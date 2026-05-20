@@ -70,7 +70,9 @@ run_gated() {
 }
 
 run_local() {
-  SANDCASTLE_E2E=1 run go test ./internal/e2e -run 'TestLocalDNSInstallForwardRefreshUninstallE2E' -count=1 -v
+  export SANDCASTLE_E2E=1
+  ensure_run_id local
+  run go test ./internal/e2e -run 'TestLocalDNSInstallForwardRefreshUninstallE2E' -count=1 -v
 }
 
 run_local_vm() {
