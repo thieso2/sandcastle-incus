@@ -44,3 +44,33 @@ run = [
   "./bin/sandcastle admin image build base --tag ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest}",
   "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} \"$SANDCASTLE_REMOTE\"",
 ]
+
+[tasks."image:ai:build-upload"]
+description = "Resolve latest AI tool versions, build the Sandcastle AI OCI image, and upload it into Incus"
+env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
+run = """
+set -euo pipefail
+
+npm_latest() { curl -sf "https://registry.npmjs.org/$1/latest" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])"; }
+
+CODEX_VERSION="${SANDCASTLE_CODEX_VERSION:-$(npm_latest @openai/codex)}"
+CLAUDE_VERSION="${SANDCASTLE_CLAUDE_VERSION:-$(npm_latest @anthropic-ai/claude-code)}"
+GEMINI_VERSION="${SANDCASTLE_GEMINI_VERSION:-$(npm_latest @google/gemini-cli)}"
+AI_TAG="${SANDCASTLE_AI_IMAGE:-sandcastle/ai:latest}"
+
+echo "codex   ${CODEX_VERSION}"
+echo "claude  ${CLAUDE_VERSION}"
+echo "gemini  ${GEMINI_VERSION}"
+echo "tag     ${AI_TAG}"
+
+mise run image:deps
+make build
+
+./bin/sandcastle admin image build ai \
+  --tag "${AI_TAG}" \
+  --codex-version  "${CODEX_VERSION}" \
+  --claude-version "${CLAUDE_VERSION}" \
+  --gemini-version "${GEMINI_VERSION}"
+
+bash scripts/import-docker-image-to-incus.sh "${AI_TAG}" "${AI_TAG}" "$SANDCASTLE_REMOTE"
+"""
