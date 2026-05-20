@@ -367,6 +367,10 @@ development sandboxes.
 - Route broker route mutations now preserve public hostname conflicts as HTTP
   `409 Conflict` responses instead of reporting them as generic upstream
   failures.
+- Route broker mutation e2e now also creates a second disposable owner/project
+  and verifies the trusted first-owner broker client receives `403 Forbidden`
+  when attempting to add a public route to that unowned sandbox, with no route
+  profile or ingress device created.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -709,6 +713,8 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker ./internal/incusx -run 'Test(Server|RouteManager)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/route ./internal/incusx ./internal/routebroker -run 'Test(Conflict|RouteManager|Server)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 
 ## Open Scope

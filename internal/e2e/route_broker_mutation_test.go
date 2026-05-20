@@ -43,11 +43,17 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
+	otherOwner := safeProjectName("other-" + runID)
 	name := safeProjectName("broker-" + runID)
+	otherName := safeProjectName("other-broker-" + runID)
 	sandboxName := safeProjectName("box-" + runID)
+	otherSandboxName := safeProjectName("other-box-" + runID)
 	ref := owner + "/" + name
+	otherRef := otherOwner + "/" + otherName
 	sandboxRef := ref + "/" + sandboxName
+	otherSandboxRef := otherRef + "/" + otherSandboxName
 	hostname := "route-" + safeToken(runID) + ".example.com"
+	unownedHostname := "unowned-route-" + safeToken(runID) + ".example.com"
 	infraProject := safeInfrastructureProject("sc-infra-" + runID)
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-broker"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-broker"
@@ -130,6 +136,34 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err := projectCreator.CreateProject(ctx, createProjectPlan); err != nil {
 		t.Fatal(err)
 	}
+	existing, err = project.List(ctx, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createOtherProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+		Reference:     otherRef,
+		Domain:        otherName + "." + e2eConfig.DomainSuffix,
+		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherProjectDeletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: otherRef, Purge: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if e2eConfig.Keep {
+			t.Logf("keeping disposable project %s", otherRef)
+			return
+		}
+		if err := projectDeleter.DeleteProject(ctx, otherProjectDeletePlan); err != nil {
+			t.Logf("cleanup failed for %s: %v", otherRef, err)
+		}
+	})
+	if err := projectCreator.CreateProject(ctx, createOtherProjectPlan); err != nil {
+		t.Fatal(err)
+	}
 
 	sandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
 		Reference: sandboxRef,
@@ -141,6 +175,16 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateSandbox(ctx, sandboxPlan); err != nil {
 		t.Fatal(err)
 	}
+	otherSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
+		Reference: otherSandboxRef,
+		Template:  "base",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateSandbox(ctx, otherSandboxPlan); err != nil {
+		t.Fatal(err)
+	}
 
 	certPEM, keyPEM := createRouteBrokerE2ECertificate(t, e2eConfig, server, owner)
 	infraServer := server.UseProject(infraProject)
@@ -148,9 +192,9 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	addRouteBrokerHostsEntry(t, infraServer, hostname, adminConfig.InfrastructureHost)
 
 	output := execInstanceOutput(t, infraServer, infra.RouteBrokerName, []string{
-		"python3", "-c", routeBrokerMutationProbeScript(certPath, keyPath, hostname, sandboxRef),
+		"python3", "-c", routeBrokerMutationProbeScript(certPath, keyPath, hostname, sandboxRef, unownedHostname, otherSandboxRef),
 	})
-	for _, want := range []string{"ADD 201", "LIST-ADD 200", "REMOVE 200", "LIST-REMOVE 200"} {
+	for _, want := range []string{"UNOWNED 403", "ADD 201", "LIST-ADD 200", "REMOVE 200", "LIST-REMOVE 200"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("broker mutation output missing %q:\n%s", want, output)
 		}
@@ -165,6 +209,17 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	}
 	if _, _, err := infraServer.GetProfile(route.ProfileName(hostname)); !api.StatusErrorCheck(err, 404) {
 		t.Fatalf("expected route profile cleanup for %s, err = %v", hostname, err)
+	}
+	otherTargetServer := server.UseProject(createOtherProjectPlan.IncusProject)
+	otherTarget, _, err := otherTargetServer.GetInstance(otherSandboxPlan.InstanceName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := otherTarget.Devices[route.ProfileName(unownedHostname)]; ok {
+		t.Fatalf("unowned route ingress device was attached to %s: %#v", otherSandboxPlan.InstanceName, otherTarget.Devices)
+	}
+	if _, _, err := infraServer.GetProfile(route.ProfileName(unownedHostname)); !api.StatusErrorCheck(err, 404) {
+		t.Fatalf("expected no route profile for rejected unowned route %s, err = %v", unownedHostname, err)
 	}
 }
 
@@ -208,13 +263,15 @@ func addRouteBrokerHostsEntry(t *testing.T, server incus.InstanceServer, hostnam
 	})
 }
 
-func routeBrokerMutationProbeScript(certPath string, keyPath string, hostname string, targetRef string) string {
+func routeBrokerMutationProbeScript(certPath string, keyPath string, hostname string, targetRef string, unownedHostname string, unownedTargetRef string) string {
 	return `
 import json, ssl, sys, time, urllib.error, urllib.request
 cert_path = ` + pythonQuote(certPath) + `
 key_path = ` + pythonQuote(keyPath) + `
 hostname = ` + pythonQuote(hostname) + `
 target_ref = ` + pythonQuote(targetRef) + `
+unowned_hostname = ` + pythonQuote(unownedHostname) + `
+unowned_target_ref = ` + pythonQuote(unownedTargetRef) + `
 context = ssl.create_default_context()
 context.check_hostname = False
 context.verify_mode = ssl.CERT_NONE
@@ -243,6 +300,16 @@ else:
     sys.exit(1)
 
 try:
+    try:
+        response = request('POST', '/routes', {'hostname': unowned_hostname, 'targetReference': unowned_target_ref})
+        print('UNOWNED-UNEXPECTED', response.status, response.read().decode('utf-8'))
+        sys.exit(1)
+    except urllib.error.HTTPError as err:
+        body = err.read().decode('utf-8')
+        print('UNOWNED', err.code)
+        print('UNOWNED-BODY', body)
+        if err.code != 403:
+            sys.exit(1)
     response = request('POST', '/routes', {'hostname': hostname, 'targetReference': target_ref})
     print('ADD', response.status)
     print('ADD-BODY', response.read().decode('utf-8'))
