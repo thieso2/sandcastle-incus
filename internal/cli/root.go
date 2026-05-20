@@ -87,6 +87,7 @@ func Execute(name string, args []string) int {
 		hostSandbox:    incusx.NewHostOverrideManager(adminConfig.Remote),
 		hostFiles:      hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
 		localTrust:     incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
+		routes:         incusx.NewRouteManager(adminConfig.Remote),
 		routeSandbox:   incusx.NewHostOverrideManager(adminConfig.Remote),
 	})
 	cmd.SetOut(os.Stdout)

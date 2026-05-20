@@ -87,6 +87,12 @@ func TestPlanRemove(t *testing.T) {
 	}
 }
 
+func TestProfileName(t *testing.T) {
+	if got := ProfileName("App.Example.COM"); got != "sc-route-app-example-com" {
+		t.Fatalf("ProfileName = %q", got)
+	}
+}
+
 func projectStoreForTest(t *testing.T) project.MemoryStore {
 	t.Helper()
 	configMap, err := meta.ProjectConfig(meta.Project{

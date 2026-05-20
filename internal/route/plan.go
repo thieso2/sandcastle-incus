@@ -144,6 +144,11 @@ func PlanList(admin config.Admin) (ListPlan, error) {
 	return ListPlan{InfrastructureProject: admin.InfrastructureProject, RequiresBroker: true}, nil
 }
 
+func ProfileName(hostname string) string {
+	normalized := strings.NewReplacer(".", "-", "_", "-", ":", "-").Replace(strings.ToLower(strings.TrimSpace(hostname)))
+	return "sc-route-" + normalized
+}
+
 func normalizePublicHostname(value string) (string, error) {
 	hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
 	if hostname == "" {
