@@ -31,22 +31,27 @@ func (m TrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) error 
 	if err != nil {
 		return err
 	}
-	cert, err := findCertificate(server, plan.CertificateName)
+	certs, err := findCertificates(server, plan.CertificateName)
 	if err != nil {
 		return err
 	}
-	if err := validateGrantCertificate(cert, plan.CertificateName); err != nil {
-		return err
+	for _, cert := range certs {
+		if err := validateGrantCertificate(cert, plan.CertificateName); err != nil {
+			return err
+		}
+		projects := mergeProjects(cert.Projects, plan.Projects)
+		if err := server.UpdateCertificate(cert.Fingerprint, api.CertificatePut{
+			Name:        cert.Name,
+			Type:        api.CertificateTypeClient,
+			Restricted:  true,
+			Projects:    projects,
+			Certificate: cert.Certificate,
+			Description: plan.Description,
+		}, ""); err != nil {
+			return fmt.Errorf("update certificate %s: %w", cert.Fingerprint[:12], err)
+		}
 	}
-	projects := mergeProjects(cert.Projects, plan.Projects)
-	return server.UpdateCertificate(cert.Fingerprint, api.CertificatePut{
-		Name:        cert.Name,
-		Type:        api.CertificateTypeClient,
-		Restricted:  true,
-		Projects:    projects,
-		Certificate: cert.Certificate,
-		Description: plan.Description,
-	}, "")
+	return nil
 }
 
 func (m TrustManager) CreateToken(ctx context.Context, plan usertrust.UserPlan) (usertrust.TokenResult, error) {
@@ -105,17 +110,21 @@ func (m TrustManager) server() (TrustServer, error) {
 	return server, nil
 }
 
-func findCertificate(server TrustServer, name string) (api.Certificate, error) {
+func findCertificates(server TrustServer, name string) ([]api.Certificate, error) {
 	certificates, err := server.GetCertificates()
 	if err != nil {
-		return api.Certificate{}, fmt.Errorf("list Incus certificates: %w", err)
+		return nil, fmt.Errorf("list Incus certificates: %w", err)
 	}
+	var matches []api.Certificate
 	for _, cert := range certificates {
 		if cert.Name == name {
-			return cert, nil
+			matches = append(matches, cert)
 		}
 	}
-	return api.Certificate{}, fmt.Errorf("restricted certificate %q not found; create a token first and add the client certificate", name)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("restricted certificate %q not found; create a token first and add the client certificate", name)
+	}
+	return matches, nil
 }
 
 func validateGrantCertificate(certificate api.Certificate, name string) error {
