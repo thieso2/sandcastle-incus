@@ -42,6 +42,7 @@ type commandConfig struct {
 	projectCreator project.Creator
 	projectDeleter project.Deleter
 	infraCreator   infra.Creator
+	infraDeleter   infra.Deleter
 	topologyStore  project.TopologyStore
 	trustManager   usertrust.Manager
 	sandboxCreator sandbox.Creator
@@ -81,6 +82,7 @@ func Execute(name string, args []string) int {
 		projectCreator: incusx.NewProjectCreator(adminConfig.Remote),
 		projectDeleter: incusx.NewProjectDeleter(adminConfig.Remote),
 		infraCreator:   incusx.NewInfrastructureCreator(adminConfig.Remote),
+		infraDeleter:   incusx.NewInfrastructureDeleter(adminConfig.Remote),
 		topologyStore:  incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:   incusx.NewTrustManager(adminConfig.Remote),
 		sandboxCreator: incusx.NewSandboxCreator(adminConfig.Remote),

@@ -945,6 +945,37 @@ func TestAdminInfraCreateRequiresExecutor(t *testing.T) {
 	}
 }
 
+func TestAdminInfraDeleteRequiresConfirmation(t *testing.T) {
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "admin", "infra", "delete")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
+	deleter := &fakeInfraDeleter{}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:         "sandcastle",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		infraDeleter: deleter,
+	}, "admin", "infra", "delete", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !deleter.called {
+		t.Fatal("expected infrastructure deleter to be called")
+	}
+	if deleter.plan.Project != scconfig.DefaultInfrastructureProject {
+		t.Fatalf("Project = %q", deleter.plan.Project)
+	}
+}
+
 func TestAdminUserGrantDryRunJSON(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
@@ -1028,6 +1059,17 @@ type fakeInfraCreator struct {
 }
 
 func (f *fakeInfraCreator) CreateInfrastructure(ctx context.Context, plan infra.CreatePlan) error {
+	f.called = true
+	f.plan = plan
+	return nil
+}
+
+type fakeInfraDeleter struct {
+	called bool
+	plan   infra.DeletePlan
+}
+
+func (f *fakeInfraDeleter) DeleteInfrastructure(ctx context.Context, plan infra.DeletePlan) error {
 	f.called = true
 	f.plan = plan
 	return nil

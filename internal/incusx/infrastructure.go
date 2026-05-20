@@ -18,8 +18,18 @@ type InfrastructureCreator struct {
 	Server     ProjectCreateServer
 }
 
+type InfrastructureDeleter struct {
+	Remote     string
+	ConfigPath string
+	Server     ProjectDeleteServer
+}
+
 func NewInfrastructureCreator(remote string) InfrastructureCreator {
 	return InfrastructureCreator{Remote: remote}
+}
+
+func NewInfrastructureDeleter(remote string) InfrastructureDeleter {
+	return InfrastructureDeleter{Remote: remote}
 }
 
 func (c InfrastructureCreator) CreateInfrastructure(ctx context.Context, plan infra.CreatePlan) error {
@@ -178,6 +188,35 @@ func runInfrastructureRuntimeCommands(server ProjectResourceServer, plan infra.C
 			return fmt.Errorf("wait for %s: %w", command.Description, err)
 		}
 		<-dataDone
+	}
+	return nil
+}
+
+func (d InfrastructureDeleter) DeleteInfrastructure(ctx context.Context, plan infra.DeletePlan) error {
+	server := d.Server
+	if server == nil {
+		loaded, err := cliconfig.LoadConfig(d.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("load Incus config: %w", err)
+		}
+		remote := d.Remote
+		if remote == "" {
+			remote = loaded.DefaultRemote
+		}
+		instanceServer, err := loaded.GetInstanceServer(remote)
+		if err != nil {
+			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+		}
+		server = sdkDeleteServer{inner: instanceServer}
+	}
+	projectServer := server.UseProject(plan.Project)
+	for _, name := range plan.RuntimeInstances {
+		if err := deleteInstance(projectServer, name); err != nil {
+			return err
+		}
+	}
+	if err := ignoreNotFound(server.DeleteProject(plan.Project)); err != nil {
+		return fmt.Errorf("delete infrastructure project %s: %w", plan.Project, err)
 	}
 	return nil
 }

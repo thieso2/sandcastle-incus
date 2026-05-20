@@ -245,6 +245,10 @@ development sandboxes.
   runtime activation commands inside the infrastructure containers. Caddy is
   enabled/reloaded, and the route broker gets a self-signed server certificate
   before its systemd unit is daemon-reloaded and enabled.
+- Added infrastructure deletion and gated real-Incus e2e coverage for
+  disposable infrastructure creation. `sandcastle admin infra delete --yes` now
+  removes runtime containers and the infrastructure project, and the e2e test
+  verifies `sc-caddy` plus `sc-route-broker` creation when `SANDCASTLE_E2E=1`.
 
 ## Next Slice
 
@@ -255,8 +259,8 @@ development sandboxes.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
 - Add image/template sync definitions for Sandcastle base and AI images.
-- Add infra e2e coverage for `sandcastle admin infra create` when real Incus is
-  enabled.
+- Add route broker HTTP e2e over mTLS once disposable infrastructure images
+  include the `sandcastle` binary and systemd services.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -371,6 +375,9 @@ development sandboxes.
 - Passed: `go test ./internal/infra ./internal/incusx ./internal/cli ./internal/certs`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/certs ./internal/infra ./internal/incusx ./internal/cli`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run TestDisposableInfrastructureCreateAndDelete -count=1 -v` with the expected skip when `SANDCASTLE_E2E` is not enabled.
+- Passed: `go test ./internal/infra ./internal/incusx ./internal/cli ./internal/e2e`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`

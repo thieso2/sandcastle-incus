@@ -24,6 +24,10 @@ const (
 
 type CreateRequest struct{}
 
+type DeleteRequest struct {
+	Project string
+}
+
 type CreatePlan struct {
 	Project               string             `json:"project"`
 	StoragePool           string             `json:"storagePool"`
@@ -68,6 +72,15 @@ type RuntimeCommand struct {
 
 type Creator interface {
 	CreateInfrastructure(context.Context, CreatePlan) error
+}
+
+type DeletePlan struct {
+	Project          string   `json:"project"`
+	RuntimeInstances []string `json:"runtimeInstances"`
+}
+
+type Deleter interface {
+	DeleteInfrastructure(context.Context, DeletePlan) error
 }
 
 func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
@@ -200,4 +213,21 @@ func instancePlan(admin config.Admin, name string, role string) InstancePlan {
 		},
 		Start: true,
 	}
+}
+
+func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
+	if err := admin.Validate(); err != nil {
+		return DeletePlan{}, err
+	}
+	project := strings.TrimSpace(request.Project)
+	if project == "" {
+		project = strings.TrimSpace(admin.InfrastructureProject)
+	}
+	if project == "" {
+		return DeletePlan{}, fmt.Errorf("infrastructure project is required")
+	}
+	return DeletePlan{
+		Project:          project,
+		RuntimeInstances: []string{route.InfrastructureCaddyName, RouteBrokerName},
+	}, nil
 }

@@ -184,6 +184,7 @@ func newAdminInfraCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 		Short: "Manage Sandcastle shared infrastructure",
 	}
 	infraCommand.AddCommand(newAdminInfraCreateCommand(config, opts))
+	infraCommand.AddCommand(newAdminInfraDeleteCommand(config, opts))
 	return infraCommand
 }
 
@@ -215,6 +216,37 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 
 func formatInfraCreatePlan(plan infra.CreatePlan) string {
 	return fmt.Sprintf("Infrastructure project: %s\nRuntime: %s, %s", plan.Project, plan.CaddyInstance, plan.RouteBrokerInstance)
+}
+
+func newAdminInfraDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var yes bool
+	command := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete Sandcastle shared infrastructure",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("refusing to delete infrastructure without --yes")
+			}
+			plan, err := infra.PlanDelete(config.adminConfig, infra.DeleteRequest{})
+			if err != nil {
+				return err
+			}
+			if config.infraDeleter == nil {
+				return fmt.Errorf("infrastructure deletion executor is not configured")
+			}
+			if err := config.infraDeleter.DeleteInfrastructure(cmd.Context(), plan); err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatInfraDeletePlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm infrastructure deletion")
+	return command
+}
+
+func formatInfraDeletePlan(plan infra.DeletePlan) string {
+	return fmt.Sprintf("Deleted infrastructure project: %s", plan.Project)
 }
 
 func newAdminUserCommand(config commandConfig, opts *rootOptions) *cobra.Command {

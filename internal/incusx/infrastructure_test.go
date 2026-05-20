@@ -92,6 +92,30 @@ func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {
 	}
 }
 
+func TestInfrastructureDeleterDeletesRuntimeAndProject(t *testing.T) {
+	plan := infra.DeletePlan{
+		Project:          config.DefaultInfrastructureProject,
+		RuntimeInstances: []string{route.InfrastructureCaddyName, infra.RouteBrokerName},
+	}
+	resourceServer := &fakeDeleteResourceServer{
+		instances: map[string]*api.Instance{
+			route.InfrastructureCaddyName: {Name: route.InfrastructureCaddyName, Status: "Running", StatusCode: api.Running},
+			infra.RouteBrokerName:         {Name: infra.RouteBrokerName, Status: "Stopped", StatusCode: api.Stopped},
+		},
+	}
+	server := &fakeDeleteServer{resourceServer: resourceServer}
+	deleter := InfrastructureDeleter{Server: server}
+	if err := deleter.DeleteInfrastructure(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(resourceServer.deletedInstances) != 2 {
+		t.Fatalf("deleted instances = %#v", resourceServer.deletedInstances)
+	}
+	if server.deletedProject != config.DefaultInfrastructureProject {
+		t.Fatalf("deleted project = %q", server.deletedProject)
+	}
+}
+
 func infraPlanForTest(t *testing.T) infra.CreatePlan {
 	t.Helper()
 	plan, err := infra.PlanCreate(config.LoadAdminFromEnv(), infra.CreateRequest{})

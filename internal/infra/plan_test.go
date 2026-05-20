@@ -66,6 +66,22 @@ func TestPlanCreate(t *testing.T) {
 	}
 }
 
+func TestPlanDelete(t *testing.T) {
+	plan, err := PlanDelete(config.LoadAdminFromEnv(), DeleteRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project != config.DefaultInfrastructureProject {
+		t.Fatalf("Project = %q", plan.Project)
+	}
+	if len(plan.RuntimeInstances) != 2 {
+		t.Fatalf("RuntimeInstances = %#v", plan.RuntimeInstances)
+	}
+	if plan.RuntimeInstances[0] != route.InfrastructureCaddyName || plan.RuntimeInstances[1] != RouteBrokerName {
+		t.Fatalf("RuntimeInstances = %#v", plan.RuntimeInstances)
+	}
+}
+
 func runtimeFileContent(plan CreatePlan, instance string, path string) string {
 	for _, file := range plan.RuntimeFiles {
 		if file.Instance == instance && file.Path == path {
