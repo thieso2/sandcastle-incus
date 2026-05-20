@@ -235,6 +235,10 @@ development sandboxes.
   The broker extracts the client certificate fingerprint from the mTLS
   connection, maps it to a Sandcastle owner, authorizes add/remove requests,
   plans route mutations, and delegates to the route manager.
+- Added route broker HTTPRunner mTLS integration coverage. The test starts a
+  real TLS listener, presents a client certificate from an `http.Client`, and
+  verifies an authorized route add flows through TLS client-certificate
+  extraction, trust mapping, authorization, and route manager delegation.
 - Added an Incus-backed route broker trust mapper. Broker mTLS certificate
   fingerprints can now be resolved against Incus trust state, accepting only
   Sandcastle restricted user certificates named `sandcastle-<owner>`.
@@ -428,6 +432,7 @@ development sandboxes.
 - Passed: `go test ./internal/incusx ./internal/routebroker`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/routebroker ./internal/incusx ./internal/cli`
+- Passed: `go test ./internal/routebroker -run 'Test(HTTPRunnerServesAuthorizedRouteOverMTLS|PlanServe|Server)' -count=1 -v`
 - Passed: `go test ./internal/infra ./internal/incusx ./internal/cli`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/caddy ./internal/infra ./internal/incusx ./internal/cli`
