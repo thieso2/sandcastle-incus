@@ -2,9 +2,7 @@ package localdns
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -51,15 +49,7 @@ type ServiceRunner interface {
 type ExecServiceRunner struct{}
 
 func (ExecServiceRunner) Run(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("service command is empty")
-	}
-	command := exec.CommandContext(ctx, args[0], args[1:]...)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
-	return nil
+	return ExecCommandRunner{}.Run(ctx, args)
 }
 
 type FileServiceManager struct {

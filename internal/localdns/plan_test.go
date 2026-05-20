@@ -103,6 +103,83 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	}
 }
 
+func TestFileManagerRunsLinuxResolverSyncCommands(t *testing.T) {
+	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
+	dir := t.TempDir()
+	runner := &recordingServiceRunner{}
+	manager := FileManager{Runner: runner}
+	plan := Plan{
+		Reference:        "alice/myproject",
+		Domain:           "myproject.project-tld",
+		DNSEndpoint:      "10.248.0.53:53",
+		Listen:           "127.0.0.1:53541",
+		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
+		ResolverPath:     filepath.Join(dir, "resolver", "myproject.project-tld"),
+		ResolverStrategy: StrategySystemdResolve,
+		ResolverCommands: []Command{{Args: []string{"resolvectl", "dns", "lo", "127.0.0.1:53541"}}},
+	}
+	if _, err := manager.Install(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 2 {
+		t.Fatalf("commands = %#v", runner.commands)
+	}
+	if got := joinArgs(runner.commands[0]); got != "resolvectl dns lo 127.0.0.1:53541" {
+		t.Fatalf("dns command = %q", got)
+	}
+	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~myproject.project-tld" {
+		t.Fatalf("domain command = %q", got)
+	}
+}
+
+func TestFileManagerUninstallSyncsRemainingLinuxResolverDomains(t *testing.T) {
+	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
+	dir := t.TempDir()
+	runner := &recordingServiceRunner{}
+	manager := FileManager{Runner: runner}
+	first := linuxResolverPlan(dir, "alice/alpha", "alpha.project-tld", "10.248.0.53:53")
+	second := linuxResolverPlan(dir, "alice/beta", "beta.project-tld", "10.248.1.53:53")
+	if _, err := manager.Install(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Install(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	runner.commands = nil
+	if _, err := manager.Uninstall(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 2 {
+		t.Fatalf("commands = %#v", runner.commands)
+	}
+	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~beta.project-tld" {
+		t.Fatalf("domain command = %q", got)
+	}
+	runner.commands = nil
+	if _, err := manager.Uninstall(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 1 {
+		t.Fatalf("commands = %#v", runner.commands)
+	}
+	if got := joinArgs(runner.commands[0]); got != "resolvectl revert lo" {
+		t.Fatalf("revert command = %q", got)
+	}
+}
+
+func linuxResolverPlan(dir string, reference string, domain string, endpoint string) Plan {
+	return Plan{
+		Reference:        reference,
+		Domain:           domain,
+		DNSEndpoint:      endpoint,
+		Listen:           "127.0.0.1:53541",
+		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
+		ResolverPath:     filepath.Join(dir, "resolver", domain),
+		ResolverStrategy: StrategySystemdResolve,
+		ResolverCommands: []Command{{Args: []string{"resolvectl", "dns", "lo", "127.0.0.1:53541"}}},
+	}
+}
+
 func storeForTest(t *testing.T) project.MemoryStore {
 	t.Helper()
 	configMap, err := meta.ProjectConfig(meta.Project{

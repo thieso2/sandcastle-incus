@@ -1295,6 +1295,13 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|ProjectDiagnostic|LogProjectDiagnostic)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Wired Linux local DNS install/refresh/uninstall through systemd-resolved
+  resolver synchronization, using the full CLI-managed state file so removing
+  one project preserves the remaining routed domains and clears `lo` when none
+  remain.
+- Passed: `go test ./internal/localdns ./internal/cli -run 'Test(Local|DNS|FileManager|Resolver|PlanService)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

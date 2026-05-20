@@ -5,15 +5,37 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"gopkg.in/yaml.v2"
 )
 
-type FileManager struct{}
+type CommandRunner interface {
+	Run(context.Context, []string) error
+}
+
+type ExecCommandRunner struct{}
+
+func (ExecCommandRunner) Run(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("command is empty")
+	}
+	command := exec.CommandContext(ctx, args[0], args[1:]...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+type FileManager struct {
+	Runner CommandRunner
+}
 
 type State struct {
 	Projects []ProjectState `yaml:"projects" json:"projects"`
@@ -40,11 +62,17 @@ func (m FileManager) Install(ctx context.Context, plan Plan) (Result, error) {
 	if err := writeLocalDNS(plan); err != nil {
 		return Result{}, err
 	}
+	if err := m.syncPlatformResolver(ctx, plan); err != nil {
+		return Result{}, err
+	}
 	return Result{Reference: plan.Reference, Action: "install", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
 }
 
 func (m FileManager) Refresh(ctx context.Context, plan Plan) (Result, error) {
 	if err := writeLocalDNS(plan); err != nil {
+		return Result{}, err
+	}
+	if err := m.syncPlatformResolver(ctx, plan); err != nil {
 		return Result{}, err
 	}
 	return Result{Reference: plan.Reference, Action: "refresh", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
@@ -62,7 +90,28 @@ func (m FileManager) Uninstall(ctx context.Context, plan Plan) (Result, error) {
 	if err := os.Remove(plan.ResolverPath); err != nil && !os.IsNotExist(err) {
 		return Result{}, err
 	}
+	if err := m.syncPlatformResolver(ctx, plan); err != nil {
+		return Result{}, err
+	}
 	return Result{Reference: plan.Reference, Action: "uninstall", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
+}
+
+func (m FileManager) syncPlatformResolver(ctx context.Context, plan Plan) error {
+	state, err := readState(plan.StatePath)
+	if err != nil {
+		return err
+	}
+	commands := ResolverSyncCommands(plan.ResolverStrategy, state, plan.Listen)
+	runner := m.Runner
+	if runner == nil {
+		runner = ExecCommandRunner{}
+	}
+	for _, command := range commands {
+		if err := runner.Run(ctx, command.Args); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeLocalDNS(plan Plan) error {
