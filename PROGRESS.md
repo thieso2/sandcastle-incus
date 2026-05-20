@@ -81,6 +81,9 @@ development sandboxes.
   unless `SANDCASTLE_E2E_KEEP=1`.
 - Added e2e diagnostics logging for failed disposable project runs, filtered to
   Sandcastle project summaries matching the run id.
+- Extended disposable project failure diagnostics with live topology checks for
+  the private network, durable volumes, and DNS/Tailscale sidecar status when an
+  Incus topology store is available.
 - Added `sandcastle status <owner/project>` and
   `sandcastle admin project status <owner/project>`, backed by managed project
   metadata and basic metadata/domain/CIDR checks.
@@ -653,6 +656,8 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker -run 'TestServerAddsAuthorizedRoute|TestHTTPRunnerServesAuthorizedRouteOverMTLS' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/meta ./internal/routebroker -run 'Test(RouteConfigRoundTrip|ServerAddsAuthorizedRoute)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|ProjectDiagnosticLines|DisposableProjectCreateAndPurge)' -count=1 -v` with the expected disposable project e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 
 ## Open Scope
