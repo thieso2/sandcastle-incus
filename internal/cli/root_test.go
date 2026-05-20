@@ -1065,7 +1065,7 @@ func TestTrustInstallRunsExecutor(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := &fakeLocalTrustManager{}
-	_, err = executeForTestWithConfig(t, commandConfig{
+	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
 		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
 			Name:   "sc-alice-myproject",
@@ -1078,6 +1078,12 @@ func TestTrustInstallRunsExecutor(t *testing.T) {
 	}
 	if !manager.installed {
 		t.Fatal("expected local trust install call")
+	}
+	if !strings.Contains(stdout, "Warning: Trusting this project CA") {
+		t.Fatalf("stdout missing pre-install trust warning: %q", stdout)
+	}
+	if !strings.Contains(stdout, "install project CA trust: alice/myproject") {
+		t.Fatalf("stdout missing trust result: %q", stdout)
 	}
 	if manager.plan.IncusProject != "sc-alice-myproject" {
 		t.Fatalf("IncusProject = %q", manager.plan.IncusProject)

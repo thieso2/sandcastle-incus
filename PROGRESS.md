@@ -1212,6 +1212,12 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(ProjectDiagnostic|LogProjectDiagnostic)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Moved the human-readable project CA trust warning ahead of non-dry-run local
+  trust installation so users see the risk before the platform trust store is
+  mutated.
+- Passed: `go test ./internal/cli -run 'TestTrust|TestListText|TestStatusJSON|TestAdd(DryRunRejectsUnsafeStorageFlags|DetachSkipsEnter|BackgroundSkipsEnter)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

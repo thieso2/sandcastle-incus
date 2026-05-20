@@ -34,6 +34,9 @@ func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 			if config.localTrust == nil {
 				return fmt.Errorf("local trust executor is not configured")
 			}
+			if err := writeTrustWarning(config, opts, plan); err != nil {
+				return err
+			}
 			result, err := config.localTrust.Install(cmd.Context(), plan)
 			if err != nil {
 				return err
@@ -82,4 +85,12 @@ func formatTrustResult(result localtrust.Result) string {
 		return fmt.Sprintf("%s project CA trust: %s", result.Action, result.Reference)
 	}
 	return fmt.Sprintf("%s project CA trust: %s\nTarget: %s", result.Action, result.Reference, result.Target)
+}
+
+func writeTrustWarning(config commandConfig, opts *rootOptions, plan localtrust.Plan) error {
+	if opts.output != outputText || plan.Warning == "" {
+		return nil
+	}
+	_, err := fmt.Fprintf(config.stdout, "Warning: %s\n", plan.Warning)
+	return err
 }
