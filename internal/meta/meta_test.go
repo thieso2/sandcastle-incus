@@ -66,6 +66,38 @@ func TestSandboxConfigRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRouteConfigRoundTrip(t *testing.T) {
+	input := Route{
+		Hostname:        "app.example.com",
+		TargetOwner:     "alice",
+		TargetProject:   "myproject",
+		TargetSandbox:   "codex",
+		TargetIP:        "10.248.0.20",
+		RoutePort:       5173,
+		IngressAttached: true,
+	}
+	config, err := RouteConfig(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config[KeyKind] != KindRoute {
+		t.Fatalf("kind = %q", config[KeyKind])
+	}
+	if config[KeyHostname] != "app.example.com" {
+		t.Fatalf("hostname scalar = %q", config[KeyHostname])
+	}
+	if config[KeyAppPort] != "5173" {
+		t.Fatalf("app port scalar = %q", config[KeyAppPort])
+	}
+	output, err := ParseRouteConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Hostname != input.Hostname || output.TargetIP != input.TargetIP || output.RoutePort != input.RoutePort {
+		t.Fatalf("round trip = %#v, want %#v", output, input)
+	}
+}
+
 func TestParseRejectsUnmanagedConfig(t *testing.T) {
 	_, err := ParseProjectConfig(map[string]string{})
 	if err == nil {

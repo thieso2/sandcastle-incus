@@ -23,15 +23,16 @@ type RemoveRequest struct {
 }
 
 type AddPlan struct {
-	Hostname              string          `json:"hostname"`
-	TargetReference       string          `json:"targetReference"`
-	Project               project.Summary `json:"project"`
-	Sandbox               meta.Sandbox    `json:"sandbox"`
-	InfrastructureProject string          `json:"infrastructureProject"`
-	RoutePort             int             `json:"routePort"`
-	TargetIP              string          `json:"targetIP"`
-	RequiresBroker        bool            `json:"requiresBroker"`
-	DNSProof              string          `json:"dnsProof"`
+	Hostname              string            `json:"hostname"`
+	TargetReference       string            `json:"targetReference"`
+	Project               project.Summary   `json:"project"`
+	Sandbox               meta.Sandbox      `json:"sandbox"`
+	InfrastructureProject string            `json:"infrastructureProject"`
+	RoutePort             int               `json:"routePort"`
+	TargetIP              string            `json:"targetIP"`
+	MetadataConfig        map[string]string `json:"metadataConfig"`
+	RequiresBroker        bool              `json:"requiresBroker"`
+	DNSProof              string            `json:"dnsProof"`
 }
 
 type RemovePlan struct {
@@ -95,6 +96,18 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if routePort == 0 {
 		routePort = sandbox.DefaultAppPort
 	}
+	routeMetadata := meta.Route{
+		Hostname:      hostname,
+		TargetOwner:   summary.Owner,
+		TargetProject: summary.Name,
+		TargetSandbox: target.Name,
+		TargetIP:      target.PrivateIP,
+		RoutePort:     routePort,
+	}
+	metadataConfig, err := meta.RouteConfig(routeMetadata)
+	if err != nil {
+		return AddPlan{}, err
+	}
 	return AddPlan{
 		Hostname:              hostname,
 		TargetReference:       summary.Owner + "/" + summary.Name + "/" + target.Name,
@@ -103,6 +116,7 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		InfrastructureProject: admin.InfrastructureProject,
 		RoutePort:             routePort,
 		TargetIP:              target.PrivateIP,
+		MetadataConfig:        metadataConfig,
 		RequiresBroker:        true,
 		DNSProof:              "Broker must verify public DNS points at Sandcastle infrastructure before accepting this route.",
 	}, nil

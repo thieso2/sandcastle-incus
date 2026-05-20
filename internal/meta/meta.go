@@ -17,11 +17,13 @@ const (
 	KeyPrivateCIDR     = Prefix + "private_cidr"
 	KeyDefaultTemplate = Prefix + "default_template"
 	KeyName            = Prefix + "name"
+	KeyHostname        = Prefix + "hostname"
 	KeyAppPort         = Prefix + "app_port"
 	KeyState           = Prefix + "state"
 
 	KindProject = "project"
 	KindSandbox = "sandbox"
+	KindRoute   = "route"
 
 	Version = 1
 )
@@ -59,6 +61,17 @@ type Sandbox struct {
 	HomeDir      string   `json:"homeDir,omitempty"`
 	WorkspaceDir string   `json:"workspaceDir,omitempty"`
 	ExtraSANs    []string `json:"extraSANs,omitempty"`
+}
+
+type Route struct {
+	Hostname        string `json:"hostname"`
+	TargetOwner     string `json:"targetOwner"`
+	TargetProject   string `json:"targetProject"`
+	TargetSandbox   string `json:"targetSandbox"`
+	TargetIP        string `json:"targetIP"`
+	RoutePort       int    `json:"routePort"`
+	CreatedBy       string `json:"createdBy,omitempty"`
+	IngressAttached bool   `json:"ingressAttached,omitempty"`
 }
 
 func ProjectConfig(project Project) (map[string]string, error) {
@@ -114,6 +127,34 @@ func ParseSandboxConfig(config map[string]string) (Sandbox, error) {
 		return Sandbox{}, err
 	}
 	return sandbox, nil
+}
+
+func RouteConfig(route Route) (map[string]string, error) {
+	state, err := encodeState(route)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		KeyKind:     KindRoute,
+		KeyVersion:  strconv.Itoa(Version),
+		KeyHostname: route.Hostname,
+		KeyOwner:    route.TargetOwner,
+		KeyProject:  route.TargetProject,
+		KeyName:     route.TargetSandbox,
+		KeyAppPort:  strconv.Itoa(route.RoutePort),
+		KeyState:    state,
+	}, nil
+}
+
+func ParseRouteConfig(config map[string]string) (Route, error) {
+	if err := requireKind(config, KindRoute); err != nil {
+		return Route{}, err
+	}
+	var route Route
+	if err := decodeState(config[KeyState], &route); err != nil {
+		return Route{}, err
+	}
+	return route, nil
 }
 
 func IsManaged(config map[string]string) bool {

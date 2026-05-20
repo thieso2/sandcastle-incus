@@ -192,6 +192,10 @@ development sandboxes.
   public hostnames, resolves the target sandbox metadata, pins the current
   sandbox app port into the route plan, records the target IP, and marks the
   route broker plus public DNS proof as required before mutation.
+- Added route metadata modeling and infrastructure Caddy rendering. Route plans
+  now include the metadata config that the route broker/infrastructure executor
+  must persist globally, and Caddy can render deterministic public reverse proxy
+  routes from stored route metadata.
 
 ## Next Slice
 
@@ -201,8 +205,8 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add route broker executor, route metadata storage, ingress attachment, and
-  infrastructure Caddy rendering/reload.
+- Add route broker executor, route metadata storage execution, ingress
+  attachment, and infrastructure Caddy reload.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -298,6 +302,8 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json route add app.example.com alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project/sandbox metadata.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
+- Passed: `go test ./internal/route ./internal/meta ./internal/caddy`
+- Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_LOCAL_DNS_STATE=/tmp/sandcastle-dns.yaml SANDCASTLE_RESOLVER_DIR=/tmp/sandcastle-resolver ./bin/sandcastle --output json dns install alice/myproject --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project metadata.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_LOCAL_DNS_STATE=/tmp/sandcastle-dns.yaml SANDCASTLE_RESOLVER_DIR=/tmp/sandcastle-resolver ./bin/sandcastle dns uninstall alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS before local DNS mutation.
 - Passed: `go test ./internal/localdns -run 'TestForwarder|TestQuestion' -count=1 -v`

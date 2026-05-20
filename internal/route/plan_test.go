@@ -37,6 +37,13 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 	if plan.TargetIP != "10.248.0.20" {
 		t.Fatalf("TargetIP = %q", plan.TargetIP)
 	}
+	routeMetadata, err := meta.ParseRouteConfig(plan.MetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if routeMetadata.Hostname != "app.example.com" || routeMetadata.RoutePort != 5173 {
+		t.Fatalf("route metadata = %#v", routeMetadata)
+	}
 	if !plan.RequiresBroker {
 		t.Fatal("expected broker requirement")
 	}
