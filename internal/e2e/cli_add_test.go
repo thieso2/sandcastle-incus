@@ -87,6 +87,12 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	if !inspect.Sandbox.ContainerTools {
 		t.Fatalf("inspect sandbox ContainerTools = false, want true")
 	}
+	if sshKey := fixture.Config.SSHPublicKey; sshKey != "" {
+		authKeys := strings.TrimSpace(execInstanceOutput(t, projectServer, instanceName, []string{"cat", "/home/" + fixture.Owner + "/.ssh/authorized_keys"}))
+		if !strings.Contains(authKeys, sshKey) {
+			t.Fatalf("SSH public key not found in /home/%s/.ssh/authorized_keys", fixture.Owner)
+		}
+	}
 }
 
 func TestCLIAddDefaultEnterE2E(t *testing.T) {
@@ -196,7 +202,7 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
 	store := incusx.NewProjectStore(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), e2eConfig.StoragePool, runID)
+	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
 	creator := incusx.NewProjectCreator(e2eConfig.Remote)
 	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
 	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
@@ -220,6 +226,7 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
 		Domain:        name + "." + e2eConfig.DomainSuffix,
+		SSHPublicKey:  e2eConfig.SSHPublicKey,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {

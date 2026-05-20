@@ -20,6 +20,7 @@ type Config struct {
 	RunID         string
 	Keep          bool
 	SandcastleBin string
+	SSHPublicKey  string
 	RouteBroker   RouteBrokerConfig
 	PublicRoutes  PublicRouteConfig
 	LocalVM       bool
@@ -63,6 +64,7 @@ func LoadConfig() Config {
 		RunID:         os.Getenv("SANDCASTLE_E2E_RUN_ID"),
 		Keep:          os.Getenv("SANDCASTLE_E2E_KEEP") == "1",
 		SandcastleBin: os.Getenv("SANDCASTLE_E2E_SANDCASTLE_BIN"),
+		SSHPublicKey:  os.Getenv("SANDCASTLE_E2E_SSH_PUBLIC_KEY"),
 		RouteBroker: RouteBrokerConfig{
 			IncusSocket: os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"),
 		},

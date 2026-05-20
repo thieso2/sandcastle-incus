@@ -39,7 +39,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	topologyStore := incusx.NewTopologyStore(e2eConfig.Remote)
 	creator := incusx.NewProjectCreator(e2eConfig.Remote)
 	deleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, topologyStore, e2eConfig.StoragePool, runID)
+	registerProjectDiagnostics(t, ctx, store, topologyStore, runID)
 
 	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
@@ -66,6 +66,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	createPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
 		Domain:        name + "." + e2eConfig.DomainSuffix,
+		SSHPublicKey:  e2eConfig.SSHPublicKey,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
