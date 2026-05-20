@@ -74,8 +74,8 @@ Tier meanings:
   install/forward/refresh/uninstall with temporary state.
 - `incus`: destructive real-Incus flows, requiring `SANDCASTLE_E2E=1`.
 - `tailscale`: destructive real-Incus plus real-tailnet flow, requiring
-  `SANDCASTLE_E2E=1`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, and
-  `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
+  `SANDCASTLE_E2E=1`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`,
+  `SANDCASTLE_E2E_AI_IMAGE_SOURCE`, and `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
 - `images`: real image build flows, requiring `SANDCASTLE_E2E=1`,
   `SANDCASTLE_E2E_IMAGE_BUILD=1`, and pinned AI CLI versions for the AI image.
 
@@ -189,11 +189,15 @@ Test:
    `tag:sandcastle` advertised.
 2. Verify sidecar reaches connected state.
 3. Verify project private CIDR is advertised.
-   The checked-in `TestTailscaleAttachmentE2E` covers steps 1-3 against a real
-   Incus project and real Tailscale auth key when the `tailscale` tier is
+   The checked-in `TestTailscaleAttachmentE2E` covers route attachment against
+   a real Incus project and real Tailscale auth key when the `tailscale` tier is
    enabled.
 4. From the test runner, query CoreDNS through the Tailscale-routed private IP.
 5. Curl sandbox private Caddy through the Tailscale route.
+   `TestTailscaleAttachmentE2E` creates a disposable sandbox, applies project
+   DNS, starts a sandbox-local HTTP app, then verifies both CoreDNS A-record
+   resolution and HTTPS Caddy proxying from the test runner over the routed
+   private CIDR.
 6. Record observed Tailscale status in project metadata.
 
 Primary assertions:
