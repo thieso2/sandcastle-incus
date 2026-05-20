@@ -118,13 +118,18 @@ development sandboxes.
 - Project creation now generates project CA material and writes `ca.crt` plus
   `ca.key` into the project CA custom volume. Dry-run output shows only CA file
   paths, not PEM contents.
+- Sandbox creation plans now include private Caddy config for the sandbox
+  hostname and can issue sandbox leaf certificate/key files when project CA
+  material is supplied. The Incus sandbox executor writes the Caddyfile and TLS
+  files into the sandbox instance with overwrite semantics.
 
 ## Next Slice
 
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
-- Wire sandbox leaf certificate material and Caddy config into sandbox
-  creation.
+- Read project CA material from the project CA volume during real sandbox
+  creation so non-dry-run `sandcastle add` can issue sandbox certificates
+  without caller-supplied PEM.
 - Add restricted-user e2e path for certificate/token grant verification after
   token bootstrap can be exercised safely.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -183,6 +188,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run TestIncusProjectListingSmoke -count=1 -v` with the expected skip when `SANDCASTLE_E2E` is not enabled.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.
 
 ## Open Scope
 

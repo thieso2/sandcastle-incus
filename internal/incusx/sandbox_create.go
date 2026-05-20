@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -19,6 +20,7 @@ type SandboxResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
+	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 }
 
 type SandboxCreator struct {
@@ -56,9 +58,11 @@ func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePl
 			if err != nil {
 				return fmt.Errorf("start sandbox %s: %w", plan.InstanceName, err)
 			}
-			return op.Wait()
+			if err := op.Wait(); err != nil {
+				return err
+			}
 		}
-		return nil
+		return ensureSandboxFiles(projectServer, plan)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get sandbox %s: %w", plan.InstanceName, err)
@@ -67,7 +71,41 @@ func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePl
 	if err != nil {
 		return fmt.Errorf("create sandbox %s: %w", plan.InstanceName, err)
 	}
-	return op.Wait()
+	if err := op.Wait(); err != nil {
+		return err
+	}
+	return ensureSandboxFiles(projectServer, plan)
+}
+
+func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+	for _, directory := range []string{"/etc/caddy", "/etc/caddy/certs"} {
+		err := server.CreateInstanceFile(plan.InstanceName, directory, incus.InstanceFileArgs{
+			Type: "directory",
+			Mode: 0o755,
+		})
+		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
+			return fmt.Errorf("create sandbox config directory %s: %w", directory, err)
+		}
+	}
+	if err := server.CreateInstanceFile(plan.InstanceName, plan.CaddyFile.Path, incus.InstanceFileArgs{
+		Content:   strings.NewReader(plan.CaddyFile.Content),
+		Type:      "file",
+		Mode:      plan.CaddyFile.Mode,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("write sandbox Caddyfile %s: %w", plan.CaddyFile.Path, err)
+	}
+	for _, file := range plan.CertificateFiles {
+		if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
+			Content:   strings.NewReader(string(file.Content)),
+			Type:      "file",
+			Mode:      file.Mode,
+			WriteMode: "overwrite",
+		}); err != nil {
+			return fmt.Errorf("write sandbox certificate file %s: %w", file.Path, err)
+		}
+	}
+	return nil
 }
 
 func sandboxRequest(plan sandbox.CreatePlan) api.InstancesPost {
@@ -118,4 +156,8 @@ func (s sdkSandboxResourceServer) CreateInstance(instance api.InstancesPost) (in
 
 func (s sdkSandboxResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
 	return s.inner.UpdateInstanceState(name, state, etag)
+}
+
+func (s sdkSandboxResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+	return s.inner.CreateInstanceFile(instanceName, path, args)
 }

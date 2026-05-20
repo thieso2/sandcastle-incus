@@ -6,7 +6,10 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/thieso2/sandcastle-incus/internal/caddy"
+	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -14,30 +17,47 @@ import (
 )
 
 const DefaultAppPort = 3000
+const (
+	CaddyfilePath       = "/etc/caddy/Caddyfile"
+	SandboxCertPath     = "/etc/caddy/certs/tls.crt"
+	SandboxCertKeyPath  = "/etc/caddy/certs/tls.key"
+	sandboxCertKeyMode  = 0o600
+	sandboxCertFileMode = 0o644
+)
 
 type CreateRequest struct {
-	Reference    string
-	AppPort      int
-	HomeDir      string
-	WorkspaceDir string
+	Reference               string
+	AppPort                 int
+	HomeDir                 string
+	WorkspaceDir            string
+	ProjectCACertificatePEM []byte
+	ProjectCAPrivateKeyPEM  []byte
 }
 
 type CreatePlan struct {
-	Reference       string            `json:"reference"`
-	Project         project.Summary   `json:"project"`
-	Name            string            `json:"name"`
-	InstanceName    string            `json:"instanceName"`
-	PrivateIP       string            `json:"privateIP"`
-	AppPort         int               `json:"appPort"`
-	HomeDir         string            `json:"homeDir"`
-	WorkspaceDir    string            `json:"workspaceDir"`
-	ImageAlias      string            `json:"imageAlias"`
-	MetadataConfig  map[string]string `json:"metadataConfig"`
-	Devices         map[string]Device `json:"devices"`
-	StartsByDefault bool              `json:"startsByDefault"`
+	Reference        string            `json:"reference"`
+	Project          project.Summary   `json:"project"`
+	Name             string            `json:"name"`
+	InstanceName     string            `json:"instanceName"`
+	PrivateIP        string            `json:"privateIP"`
+	AppPort          int               `json:"appPort"`
+	HomeDir          string            `json:"homeDir"`
+	WorkspaceDir     string            `json:"workspaceDir"`
+	ImageAlias       string            `json:"imageAlias"`
+	MetadataConfig   map[string]string `json:"metadataConfig"`
+	Devices          map[string]Device `json:"devices"`
+	StartsByDefault  bool              `json:"startsByDefault"`
+	CaddyFile        caddy.File        `json:"caddyFile"`
+	CertificateFiles []File            `json:"certificateFiles,omitempty"`
 }
 
 type Device map[string]string
+
+type File struct {
+	Path    string `json:"path"`
+	Content []byte `json:"-"`
+	Mode    int    `json:"mode"`
+}
 
 type Creator interface {
 	CreateSandbox(context.Context, CreatePlan) error
@@ -91,6 +111,12 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		return CreatePlan{}, err
 	}
 	instanceName := "sc-" + sandboxName
+	hostname := sandboxName + "." + summary.Domain
+	caddyFile := caddy.RenderSandbox(hostname, appPort, SandboxCertPath, SandboxCertKeyPath)
+	certificateFiles, err := sandboxCertificateFiles(request, sandboxName, summary.Domain)
+	if err != nil {
+		return CreatePlan{}, err
+	}
 	return CreatePlan{
 		Reference:      request.Reference,
 		Project:        summary,
@@ -125,7 +151,33 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 				"path":   "/workspace",
 			},
 		},
-		StartsByDefault: true,
+		StartsByDefault:  true,
+		CaddyFile:        caddyFile,
+		CertificateFiles: certificateFiles,
+	}, nil
+}
+
+func sandboxCertificateFiles(request CreateRequest, sandboxName string, domain string) ([]File, error) {
+	if len(request.ProjectCACertificatePEM) == 0 && len(request.ProjectCAPrivateKeyPEM) == 0 {
+		return nil, nil
+	}
+	if len(request.ProjectCACertificatePEM) == 0 || len(request.ProjectCAPrivateKeyPEM) == 0 {
+		return nil, fmt.Errorf("project CA certificate and private key are both required to issue a sandbox certificate")
+	}
+	hostname := sandboxName + "." + domain
+	leaf, err := certs.IssueSandboxLeaf(
+		request.ProjectCACertificatePEM,
+		request.ProjectCAPrivateKeyPEM,
+		hostname,
+		certs.SandboxDNSNames(sandboxName, domain, nil),
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("issue sandbox certificate: %w", err)
+	}
+	return []File{
+		{Path: SandboxCertPath, Content: leaf.CertificatePEM, Mode: sandboxCertFileMode},
+		{Path: SandboxCertKeyPath, Content: leaf.PrivateKeyPEM, Mode: sandboxCertKeyMode},
 	}, nil
 }
 

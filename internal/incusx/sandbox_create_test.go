@@ -2,11 +2,14 @@ package incusx
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
+	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
@@ -22,9 +25,10 @@ func (s fakeSandboxServer) UseProject(name string) SandboxResourceServer {
 }
 
 type fakeSandboxResource struct {
-	instance *api.Instance
-	created  *api.InstancesPost
-	started  bool
+	instance     *api.Instance
+	created      *api.InstancesPost
+	started      bool
+	createdFiles map[string]string
 }
 
 func (r *fakeSandboxResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -46,6 +50,22 @@ func (r *fakeSandboxResource) UpdateInstanceState(name string, state api.Instanc
 	return fakeOperation{}, nil
 }
 
+func (r *fakeSandboxResource) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+	if r.createdFiles == nil {
+		r.createdFiles = map[string]string{}
+	}
+	if args.Content == nil {
+		r.createdFiles[path] = args.Type
+		return nil
+	}
+	content, err := io.ReadAll(args.Content)
+	if err != nil {
+		return err
+	}
+	r.createdFiles[path] = string(content)
+	return nil
+}
+
 func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	plan := sandboxPlanForTest(t)
 	resource := &fakeSandboxResource{}
@@ -62,6 +82,15 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	if resource.created.Devices["eth0"]["ipv4.address"] != "10.248.0.20" {
 		t.Fatalf("devices = %#v", resource.created.Devices)
 	}
+	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
+		t.Fatal("expected Caddyfile write")
+	}
+	if resource.createdFiles[sandbox.SandboxCertPath] == "" {
+		t.Fatal("expected certificate write")
+	}
+	if resource.createdFiles[sandbox.SandboxCertKeyPath] == "" {
+		t.Fatal("expected private key write")
+	}
 }
 
 func TestSandboxCreatorStartsExistingStoppedInstance(t *testing.T) {
@@ -73,6 +102,9 @@ func TestSandboxCreatorStartsExistingStoppedInstance(t *testing.T) {
 	}
 	if !resource.started {
 		t.Fatal("expected stopped instance to be started")
+	}
+	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
+		t.Fatal("expected Caddyfile write")
 	}
 }
 
@@ -88,10 +120,18 @@ func sandboxPlanForTest(t *testing.T) sandbox.CreatePlan {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ca, err := certs.GenerateCA("test CA", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
 	plan, err := sandbox.PlanCreate(context.Background(), config.LoadAdminFromEnv(), project.MemoryStore{Projects: []project.IncusProject{{
 		Name:   "sc-alice-myproject",
 		Config: projectConfig,
-	}}}, sandbox.CreateRequest{Reference: "alice/myproject/codex"})
+	}}}, sandbox.CreateRequest{
+		Reference:               "alice/myproject/codex",
+		ProjectCACertificatePEM: ca.CertificatePEM,
+		ProjectCAPrivateKeyPEM:  ca.PrivateKeyPEM,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
