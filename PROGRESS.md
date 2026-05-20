@@ -1335,6 +1335,8 @@ development sandboxes.
 - Covered restricted-user grant rejection for non-client Incus certificates so
   server certificates cannot be mutated into restricted client grants.
 - Passed: `go test ./internal/incusx -run 'TestTrustManagerGrant' -count=1 -v`
+- Passed safe runner tiers in this environment: `scripts/e2e.sh unit`,
+  `scripts/e2e.sh gated`, and `scripts/e2e.sh local`.
 
 ## Open Scope
 
