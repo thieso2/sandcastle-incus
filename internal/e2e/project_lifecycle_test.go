@@ -2,9 +2,11 @@ package e2e
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/project"
@@ -76,6 +78,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Verify project appears in listing.
 	afterCreate, err := project.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
@@ -83,8 +86,48 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	if !containsProject(afterCreate, owner, name) {
 		t.Fatalf("created project %s was not listed in %#v", ref, afterCreate)
 	}
+
+	// Verify per-project storage pool was created.
+	server, err := e2eInstanceServer(e2eConfig.Remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, _, err := server.GetStoragePool(createPlan.StoragePool)
+	if err != nil {
+		t.Fatalf("expected per-project storage pool %q to exist: %v", createPlan.StoragePool, err)
+	}
+	if pool.Driver != "zfs" && pool.Driver != "btrfs" && pool.Driver != "dir" {
+		t.Logf("storage pool driver = %q (expected zfs for production)", pool.Driver)
+	}
+
+	// Verify per-project container profile was created with the right devices.
+	projectServer := server.UseProject(createPlan.IncusProject)
+	profile, _, err := projectServer.GetProfile("container")
+	if err != nil {
+		t.Fatalf("expected container profile in project %q: %v", createPlan.IncusProject, err)
+	}
+	rootDevice, ok := profile.Devices["root"]
+	if !ok {
+		t.Fatalf("container profile has no root device; devices = %v", profile.Devices)
+	}
+	if rootDevice["pool"] != createPlan.StoragePool {
+		t.Fatalf("container profile root pool = %q, want %q", rootDevice["pool"], createPlan.StoragePool)
+	}
+	if rootDevice["type"] != "disk" {
+		t.Fatalf("container profile root type = %q, want disk", rootDevice["type"])
+	}
+
+	// Verify idempotent create — calling CreateProject a second time must not fail.
+	if err := creator.CreateProject(ctx, createPlan); err != nil {
+		t.Fatalf("idempotent project create failed: %v", err)
+	}
+
+	// Purge and confirm all resources are gone.
 	if err := deleter.DeleteProject(ctx, deletePlan); err != nil {
 		t.Fatal(err)
+	}
+	if _, _, err := server.GetStoragePool(createPlan.StoragePool); !api.StatusErrorCheck(err, http.StatusNotFound) {
+		t.Fatalf("expected storage pool %q to be deleted after purge, err = %v", createPlan.StoragePool, err)
 	}
 }
 

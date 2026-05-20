@@ -149,6 +149,26 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	if _, _, err := projectServer.GetInstance(createSandboxPlan.InstanceName); !api.StatusErrorCheck(err, http.StatusNotFound) {
 		t.Fatalf("expected sandbox %s to be removed, err = %v", createSandboxPlan.InstanceName, err)
 	}
+
+	// After sandbox removal the durable volumes must still exist (they are not purged on sandbox delete).
+	for _, vol := range []string{project.HomeVolumeName, project.WorkspaceVolumeName, project.CAVolumeName} {
+		if _, _, err := projectServer.GetStoragePoolVolume(createProjectPlan.StoragePool, "custom", vol); err != nil {
+			t.Fatalf("expected durable volume %q to survive sandbox removal: %v", vol, err)
+		}
+	}
+
+	// Recreate the sandbox and verify it re-attaches to the same volumes.
+	createSandboxPlan2, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
+		Reference: sandboxRef,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sandboxCreator.CreateSandbox(ctx, createSandboxPlan2); err != nil {
+		t.Fatalf("recreate sandbox: %v", err)
+	}
+	assertInstanceExists(t, projectServer, createSandboxPlan2.InstanceName)
+	assertSandboxIngressFiles(t, projectServer, createSandboxPlan2.InstanceName, hostname, createSandboxPlan2.AppPort)
 }
 
 func startSandboxHTTPApp(t *testing.T, server interface {
