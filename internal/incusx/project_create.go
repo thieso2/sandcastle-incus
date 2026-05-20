@@ -25,6 +25,9 @@ type ProjectResourceServer interface {
 	CreateNetwork(network api.NetworksPost) error
 	GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error)
 	CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error
+	GetInstance(name string) (*api.Instance, string, error)
+	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
+	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 }
 
 type ProjectCreator struct {
@@ -64,6 +67,11 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 	}
 	for _, volume := range volumeRequests(plan) {
 		if err := ensureStorageVolume(projectServer, plan.StoragePool, volume); err != nil {
+			return err
+		}
+	}
+	for _, sidecar := range plan.Sidecars {
+		if err := ensureSidecar(projectServer, sidecar); err != nil {
 			return err
 		}
 	}
@@ -116,6 +124,36 @@ func ensureStorageVolume(server ProjectResourceServer, pool string, volume api.S
 	return server.CreateStoragePoolVolume(pool, volume)
 }
 
+func ensureSidecar(server ProjectResourceServer, sidecar project.SidecarPlan) error {
+	instance, _, err := server.GetInstance(sidecar.Name)
+	if err == nil {
+		if sidecar.Start && !instance.IsActive() {
+			op, err := server.UpdateInstanceState(sidecar.Name, api.InstanceStatePut{
+				Action:  "start",
+				Timeout: -1,
+			}, "")
+			if err != nil {
+				return fmt.Errorf("start sidecar %s: %w", sidecar.Name, err)
+			}
+			if err := op.Wait(); err != nil {
+				return fmt.Errorf("wait for sidecar %s start: %w", sidecar.Name, err)
+			}
+		}
+		return nil
+	}
+	if !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("get sidecar %s: %w", sidecar.Name, err)
+	}
+	op, err := server.CreateInstance(sidecarRequest(sidecar))
+	if err != nil {
+		return fmt.Errorf("create sidecar %s: %w", sidecar.Name, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for sidecar %s create: %w", sidecar.Name, err)
+	}
+	return nil
+}
+
 func networkRequest(plan project.CreatePlan) api.NetworksPost {
 	return api.NetworksPost{
 		Name: plan.PrivateNetwork,
@@ -159,6 +197,32 @@ func volumeRequest(plan project.CreatePlan, name string, description string) api
 			},
 		},
 	}
+}
+
+func sidecarRequest(sidecar project.SidecarPlan) api.InstancesPost {
+	return api.InstancesPost{
+		Name:  sidecar.Name,
+		Type:  "container",
+		Start: sidecar.Start,
+		Source: api.InstanceSource{
+			Type:  "image",
+			Alias: sidecar.ImageAlias,
+		},
+		InstancePut: api.InstancePut{
+			Description: "Sandcastle " + sidecar.Role + " sidecar",
+			Config:      api.ConfigMap(sidecar.Config),
+			Devices:     devicesMap(sidecar.Devices),
+			Profiles:    []string{},
+		},
+	}
+}
+
+func devicesMap(devices map[string]project.Device) api.DevicesMap {
+	output := make(api.DevicesMap, len(devices))
+	for name, device := range devices {
+		output[name] = map[string]string(device)
+	}
+	return output
 }
 
 func gatewayCIDR(projectCIDR string) string {
@@ -239,4 +303,16 @@ func (s sdkResourceServer) GetStoragePoolVolume(pool string, volType string, nam
 
 func (s sdkResourceServer) CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error {
 	return s.inner.CreateStoragePoolVolume(pool, volume)
+}
+
+func (s sdkResourceServer) GetInstance(name string) (*api.Instance, string, error) {
+	return s.inner.GetInstance(name)
+}
+
+func (s sdkResourceServer) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
+	return s.inner.CreateInstance(instance)
+}
+
+func (s sdkResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
+	return s.inner.UpdateInstanceState(name, state, etag)
 }

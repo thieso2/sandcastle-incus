@@ -39,6 +39,15 @@ func TestPlanCreate(t *testing.T) {
 	if plan.ProjectMetadataConfig[meta.KeyKind] != meta.KindProject {
 		t.Fatalf("metadata kind = %q", plan.ProjectMetadataConfig[meta.KeyKind])
 	}
+	if len(plan.Sidecars) != 2 {
+		t.Fatalf("sidecars = %d, want 2", len(plan.Sidecars))
+	}
+	if plan.Sidecars[0].Name != TailscaleName || plan.Sidecars[0].Address != "10.248.1.2" {
+		t.Fatalf("tailscale sidecar = %#v", plan.Sidecars[0])
+	}
+	if plan.Sidecars[1].Name != DNSName || plan.Sidecars[1].Address != "10.248.1.53" {
+		t.Fatalf("dns sidecar = %#v", plan.Sidecars[1])
+	}
 }
 
 func TestPlanCreateRejectsInvalidReference(t *testing.T) {

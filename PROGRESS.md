@@ -57,11 +57,15 @@ development sandboxes.
 - `sandcastle admin project create` now executes through the Incus executor
   when not run with `--dry-run`; dry-run remains offline and renders the plan
   without connecting to Incus.
+- Added explicit sidecar plans for `sc-tailscale` and `sc-dns`, including
+  stable private addresses, base image alias, root disk, bridged NIC, metadata,
+  and start intent.
+- Extended the Incus project create executor to create missing sidecar
+  containers and start stopped existing sidecars.
 
 ## Next Slice
 
-- Add project sidecar planning/execution for initial CoreDNS and Tailscale
-  instances.
+- Add initial CoreDNS config/zone rendering and attach it to the DNS sidecar.
 - Extend e2e from read-only Incus detection to disposable project creation once
   the executor exists.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -84,6 +88,8 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && go build -o bin/sc ./cmd/sc`
 - Passed: `./bin/sandcastle version && ./bin/sc version`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 - Passed: `go test ./...`

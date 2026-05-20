@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gorilla/websocket"
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/project"
@@ -39,10 +41,13 @@ func (s *fakeCreateServer) UseProject(name string) ProjectResourceServer {
 }
 
 type fakeResourceServer struct {
-	networks       map[string]*api.Network
-	volumes        map[string]*api.StorageVolume
-	createdNetwork *api.NetworksPost
-	createdVolumes []api.StorageVolumesPost
+	networks         map[string]*api.Network
+	volumes          map[string]*api.StorageVolume
+	instances        map[string]*api.Instance
+	createdNetwork   *api.NetworksPost
+	createdVolumes   []api.StorageVolumesPost
+	createdInstances []api.InstancesPost
+	startedInstances []string
 }
 
 func (s *fakeResourceServer) GetNetwork(name string) (*api.Network, string, error) {
@@ -71,11 +76,53 @@ func (s *fakeResourceServer) CreateStoragePoolVolume(pool string, volume api.Sto
 	return nil
 }
 
+func (s *fakeResourceServer) GetInstance(name string) (*api.Instance, string, error) {
+	if instance := s.instances[name]; instance != nil {
+		return instance, "etag", nil
+	}
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
+func (s *fakeResourceServer) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
+	s.createdInstances = append(s.createdInstances, instance)
+	status := "Stopped"
+	statusCode := api.Stopped
+	if instance.Start {
+		status = "Running"
+		statusCode = api.Running
+	}
+	s.instances[instance.Name] = &api.Instance{Name: instance.Name, Status: status, StatusCode: statusCode}
+	return fakeOperation{}, nil
+}
+
+func (s *fakeResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
+	if state.Action == "start" {
+		s.startedInstances = append(s.startedInstances, name)
+		if s.instances[name] != nil {
+			s.instances[name].Status = "Running"
+			s.instances[name].StatusCode = api.Running
+		}
+	}
+	return fakeOperation{}, nil
+}
+
+type fakeOperation struct{}
+
+func (fakeOperation) AddHandler(func(api.Operation)) (*incus.EventTarget, error) { return nil, nil }
+func (fakeOperation) Cancel() error                                              { return nil }
+func (fakeOperation) Get() api.Operation                                         { return api.Operation{} }
+func (fakeOperation) GetWebsocket(string) (*websocket.Conn, error)               { return nil, nil }
+func (fakeOperation) RemoveHandler(*incus.EventTarget) error                     { return nil }
+func (fakeOperation) Refresh() error                                             { return nil }
+func (fakeOperation) Wait() error                                                { return nil }
+func (fakeOperation) WaitContext(context.Context) error                          { return nil }
+
 func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	plan := createPlanForTest(t)
 	resourceServer := &fakeResourceServer{
-		networks: map[string]*api.Network{},
-		volumes:  map[string]*api.StorageVolume{},
+		networks:  map[string]*api.Network{},
+		volumes:   map[string]*api.StorageVolume{},
+		instances: map[string]*api.Instance{},
 	}
 	server := &fakeCreateServer{resourceServer: resourceServer}
 	creator := ProjectCreator{Server: server}
@@ -98,6 +145,21 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if len(resourceServer.createdVolumes) != 3 {
 		t.Fatalf("created volumes = %d, want 3", len(resourceServer.createdVolumes))
 	}
+	if len(resourceServer.createdInstances) != 2 {
+		t.Fatalf("created instances = %d, want 2", len(resourceServer.createdInstances))
+	}
+	if resourceServer.createdInstances[0].Name != project.TailscaleName {
+		t.Fatalf("first sidecar = %q", resourceServer.createdInstances[0].Name)
+	}
+	if got := resourceServer.createdInstances[0].Devices["eth0"]["ipv4.address"]; got != "10.248.0.2" {
+		t.Fatalf("tailscale address = %q", got)
+	}
+	if resourceServer.createdInstances[1].Name != project.DNSName {
+		t.Fatalf("second sidecar = %q", resourceServer.createdInstances[1].Name)
+	}
+	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.53" {
+		t.Fatalf("dns address = %q", got)
+	}
 }
 
 func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
@@ -108,6 +170,10 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 			plan.HomeVolume:      {Name: plan.HomeVolume, Type: "custom"},
 			plan.WorkspaceVolume: {Name: plan.WorkspaceVolume, Type: "custom"},
 			plan.CAVolume:        {Name: plan.CAVolume, Type: "custom"},
+		},
+		instances: map[string]*api.Instance{
+			plan.TailscaleInstance: {Name: plan.TailscaleInstance, Status: "Running", StatusCode: api.Running},
+			plan.DNSInstance:       {Name: plan.DNSInstance, Status: "Running", StatusCode: api.Running},
 		},
 	}
 	server := &fakeCreateServer{
@@ -142,6 +208,40 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	}
 	if len(resourceServer.createdVolumes) != 0 {
 		t.Fatalf("created volumes = %d, want 0", len(resourceServer.createdVolumes))
+	}
+	if len(resourceServer.createdInstances) != 0 {
+		t.Fatalf("created instances = %d, want 0", len(resourceServer.createdInstances))
+	}
+}
+
+func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
+	plan := createPlanForTest(t)
+	resourceServer := &fakeResourceServer{
+		networks: map[string]*api.Network{plan.PrivateNetwork: {Name: plan.PrivateNetwork}},
+		volumes: map[string]*api.StorageVolume{
+			plan.HomeVolume:      {Name: plan.HomeVolume, Type: "custom"},
+			plan.WorkspaceVolume: {Name: plan.WorkspaceVolume, Type: "custom"},
+			plan.CAVolume:        {Name: plan.CAVolume, Type: "custom"},
+		},
+		instances: map[string]*api.Instance{
+			plan.TailscaleInstance: {Name: plan.TailscaleInstance, Status: "Stopped", StatusCode: api.Stopped},
+			plan.DNSInstance:       {Name: plan.DNSInstance, Status: "Running", StatusCode: api.Running},
+		},
+	}
+	server := &fakeCreateServer{
+		project:        &api.Project{Name: plan.IncusProject},
+		resourceServer: resourceServer,
+	}
+	creator := ProjectCreator{Server: server}
+
+	if err := creator.CreateProject(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(resourceServer.startedInstances) != 1 {
+		t.Fatalf("started instances = %#v, want one", resourceServer.startedInstances)
+	}
+	if resourceServer.startedInstances[0] != plan.TailscaleInstance {
+		t.Fatalf("started instance = %q", resourceServer.startedInstances[0])
 	}
 }
 

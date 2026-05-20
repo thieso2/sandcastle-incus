@@ -42,12 +42,25 @@ type CreatePlan struct {
 	DNSInstance           string            `json:"dnsInstance"`
 	DNSAddress            string            `json:"dnsAddress"`
 	DefaultTemplate       string            `json:"defaultTemplate"`
+	Sidecars              []SidecarPlan     `json:"sidecars"`
 	ProjectMetadataConfig map[string]string `json:"projectMetadataConfig"`
 }
 
 type Creator interface {
 	CreateProject(context.Context, CreatePlan) error
 }
+
+type SidecarPlan struct {
+	Name       string            `json:"name"`
+	Role       string            `json:"role"`
+	Address    string            `json:"address"`
+	ImageAlias string            `json:"imageAlias"`
+	Config     map[string]string `json:"config"`
+	Devices    map[string]Device `json:"devices"`
+	Start      bool              `json:"start"`
+}
+
+type Device map[string]string
 
 func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
@@ -91,22 +104,56 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	}
 
 	return CreatePlan{
-		Reference:             ref.String(),
-		IncusProject:          incusName,
-		Domain:                domain,
-		PrivateCIDR:           projectCIDR.String(),
-		PrivateNetwork:        PrivateNetworkName,
-		StoragePool:           admin.StoragePool,
-		HomeVolume:            HomeVolumeName,
-		WorkspaceVolume:       WorkspaceVolumeName,
-		CAVolume:              CAVolumeName,
-		TailscaleInstance:     TailscaleName,
-		TailscaleAddress:      tailscaleAddress.String(),
-		DNSInstance:           DNSName,
-		DNSAddress:            dnsAddress.String(),
-		DefaultTemplate:       projectMetadata.DefaultTemplate,
+		Reference:         ref.String(),
+		IncusProject:      incusName,
+		Domain:            domain,
+		PrivateCIDR:       projectCIDR.String(),
+		PrivateNetwork:    PrivateNetworkName,
+		StoragePool:       admin.StoragePool,
+		HomeVolume:        HomeVolumeName,
+		WorkspaceVolume:   WorkspaceVolumeName,
+		CAVolume:          CAVolumeName,
+		TailscaleInstance: TailscaleName,
+		TailscaleAddress:  tailscaleAddress.String(),
+		DNSInstance:       DNSName,
+		DNSAddress:        dnsAddress.String(),
+		DefaultTemplate:   projectMetadata.DefaultTemplate,
+		Sidecars: []SidecarPlan{
+			sidecarPlan(ref, admin, TailscaleName, "tailscale", tailscaleAddress.String()),
+			sidecarPlan(ref, admin, DNSName, "dns", dnsAddress.String()),
+		},
 		ProjectMetadataConfig: metadataConfig,
 	}, nil
+}
+
+func sidecarPlan(ref naming.ProjectRef, admin config.Admin, name string, role string, address string) SidecarPlan {
+	return SidecarPlan{
+		Name:       name,
+		Role:       role,
+		Address:    address,
+		ImageAlias: admin.Images.Base,
+		Config: map[string]string{
+			meta.KeyKind:    "sidecar",
+			meta.KeyOwner:   ref.Owner,
+			meta.KeyProject: ref.Project,
+			meta.KeyName:    name,
+			meta.KeyVersion: "1",
+		},
+		Devices: map[string]Device{
+			"root": {
+				"type": "disk",
+				"pool": admin.StoragePool,
+				"path": "/",
+			},
+			"eth0": {
+				"type":         "nic",
+				"nictype":      "bridged",
+				"parent":       PrivateNetworkName,
+				"ipv4.address": address,
+			},
+		},
+		Start: true,
+	}
 }
 
 func normalizeDomain(value string) (string, error) {
