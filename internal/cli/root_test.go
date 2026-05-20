@@ -222,15 +222,16 @@ func TestInspectJSON(t *testing.T) {
 			Config: configMap,
 		}}},
 		sandboxStore: fakeSandboxInspectStore{sandboxes: []meta.Sandbox{{
-			Owner:        "alice",
-			Project:      "myproject",
-			Name:         "codex",
-			AppPort:      5173,
-			PrivateIP:    "10.248.0.20",
-			LinuxUser:    "alice",
-			HomeDir:      ".",
-			WorkspaceDir: "workspace",
-			Running:      true,
+			Owner:          "alice",
+			Project:        "myproject",
+			Name:           "codex",
+			AppPort:        5173,
+			PrivateIP:      "10.248.0.20",
+			LinuxUser:      "alice",
+			HomeDir:        ".",
+			WorkspaceDir:   "workspace",
+			ContainerTools: true,
+			Running:        true,
 		}}},
 	}, "--output", "json", "inspect", "alice/myproject/codex")
 	if err != nil {
@@ -245,6 +246,9 @@ func TestInspectJSON(t *testing.T) {
 	}
 	if payload.Sandbox.AppPort != 5173 || payload.Sandbox.LinuxUser != "alice" || !payload.Sandbox.Running {
 		t.Fatalf("Sandbox = %#v", payload.Sandbox)
+	}
+	if !payload.Sandbox.ContainerTools {
+		t.Fatal("ContainerTools = false, want true")
 	}
 }
 
@@ -266,21 +270,22 @@ func TestInspectText(t *testing.T) {
 			Config: configMap,
 		}}},
 		sandboxStore: fakeSandboxInspectStore{sandboxes: []meta.Sandbox{{
-			Owner:        "alice",
-			Project:      "myproject",
-			Name:         "codex",
-			AppPort:      5173,
-			PrivateIP:    "10.248.0.20",
-			LinuxUser:    "alice",
-			HomeDir:      ".",
-			WorkspaceDir: "workspace",
-			ExtraSANs:    []string{"app.example.com"},
+			Owner:          "alice",
+			Project:        "myproject",
+			Name:           "codex",
+			AppPort:        5173,
+			PrivateIP:      "10.248.0.20",
+			LinuxUser:      "alice",
+			HomeDir:        ".",
+			WorkspaceDir:   "workspace",
+			ContainerTools: true,
+			ExtraSANs:      []string{"app.example.com"},
 		}}},
 	}, "inspect", "alice/myproject/codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Sandbox: alice/myproject/codex", "Instance: sc-codex", "Private IP: 10.248.0.20", "Linux user: alice", "Extra SANs: app.example.com"} {
+	for _, want := range []string{"Sandbox: alice/myproject/codex", "Instance: sc-codex", "Private IP: 10.248.0.20", "Linux user: alice", "Container tools: enabled", "Extra SANs: app.example.com"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}

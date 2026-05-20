@@ -1475,6 +1475,13 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `make e2e-safe`
+- Surfaced per-sandbox container tooling in `sandcastle inspect` text and JSON
+  coverage so users can audit whether nested container tooling was enabled
+  after creation.
+- Passed: `go test ./internal/cli -run 'TestInspect' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `make e2e-safe`
 
 ## Open Scope
 

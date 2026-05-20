@@ -39,6 +39,7 @@ func formatSandboxInspect(result sandbox.InspectResult) string {
 	fmt.Fprintf(&builder, "Linux user: %s\n", result.Sandbox.LinuxUser)
 	fmt.Fprintf(&builder, "Home dir: %s\n", result.Sandbox.HomeDir)
 	fmt.Fprintf(&builder, "Workspace dir: %s\n", result.Sandbox.WorkspaceDir)
+	fmt.Fprintf(&builder, "Container tools: %s\n", enabledString(result.Sandbox.ContainerTools))
 	if result.Sandbox.Running {
 		fmt.Fprintln(&builder, "State: running")
 	} else {
