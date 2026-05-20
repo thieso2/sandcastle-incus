@@ -13,19 +13,31 @@ development sandboxes.
   `tailscale up` must advertise `tag:sandcastle` by default alongside the
   project private CIDR.
 - Agent repo guidance exists in `AGENTS.md`, `CLAUDE.md`, and `docs/agents/`.
+- Initial Go module exists at `github.com/thieso2/sandcastle-incus`.
+- Cobra CLI skeleton exists for `sandcastle` and `sc`.
+- Implemented initial commands:
+  - `sandcastle version`
+  - `sandcastle ls`
+  - `sandcastle admin version`
+- Implemented global `--output text|json`.
+- Added e2e config loader/gate that refuses destructive e2e unless
+  `SANDCASTLE_E2E=1` and defaults `SANDCASTLE_E2E_TAILSCALE_TAG` to
+  `tag:sandcastle`.
 
 ## Next Slice
 
-- Create the initial Go module.
-- Add a Cobra-based `sandcastle` CLI with `sc` binary support.
-- Add `version`, `ls`, and `admin version` command skeletons.
-- Add text/JSON output support.
-- Add an e2e harness package that refuses to run unless explicitly enabled.
+- Add naming and metadata packages for owner/project parsing, Incus project
+  names, scalar metadata keys, and versioned JSON state blobs.
+- Wire read-only project listing to an Incus access abstraction.
+- Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
 
-- Pending: `go test ./...`
-- Pending: build `sandcastle` and `sc`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle`
+- Passed: `go build -o bin/sc ./cmd/sc`
+- Passed: `./bin/sandcastle version`
+- Passed: `./bin/sc --output json ls`
 
 ## Open Scope
 
