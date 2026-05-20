@@ -63,6 +63,7 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 			if !managedProjectMatchesRun(incusProject, runToken) {
 				continue
 			}
+			t.Logf("cleanup matched project %s", incusProject.Name)
 			managed, err := meta.ParseProjectConfig(incusProject.Config)
 			if err != nil {
 				t.Fatalf("parse project metadata for cleanup target %s: %v", incusProject.Name, err)
@@ -82,6 +83,7 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 			if !managedInfrastructureMatchesRun(incusProject, runToken) {
 				continue
 			}
+			t.Logf("cleanup matched infrastructure project %s", incusProject.Name)
 			deletePlan, err := infra.PlanDelete(adminConfig, infra.DeleteRequest{Project: incusProject.Name})
 			if err != nil {
 				t.Fatal(err)
@@ -92,11 +94,11 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 			deletedInfrastructure++
 		}
 	}
-	deletedCertificates, err := cleanupDisposableCertificates(server, runToken)
+	deletedCertificates, err := cleanupDisposableCertificates(t, server, runToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	deletedImageAliases, err := cleanupDisposableImageAliases(server, runToken)
+	deletedImageAliases, err := cleanupDisposableImageAliases(t, server, runToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +146,8 @@ type cleanupResourceServer interface {
 	DeleteImageAlias(name string) error
 }
 
-func cleanupDisposableCertificates(server cleanupResourceServer, runToken string) (int, error) {
+func cleanupDisposableCertificates(t *testing.T, server cleanupResourceServer, runToken string) (int, error) {
+	t.Helper()
 	certificates, err := server.GetCertificates()
 	if err != nil {
 		return 0, fmt.Errorf("list Incus certificates for cleanup: %w", err)
@@ -154,6 +157,7 @@ func cleanupDisposableCertificates(server cleanupResourceServer, runToken string
 		if !managedCertificateMatchesRun(certificate, runToken) {
 			continue
 		}
+		t.Logf("cleanup matched restricted certificate %s", certificate.Name)
 		if err := server.DeleteCertificate(certificate.Fingerprint); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
 			return deleted, fmt.Errorf("delete certificate %s: %w", certificate.Name, err)
 		}
@@ -162,7 +166,8 @@ func cleanupDisposableCertificates(server cleanupResourceServer, runToken string
 	return deleted, nil
 }
 
-func cleanupDisposableImageAliases(server cleanupResourceServer, runToken string) (int, error) {
+func cleanupDisposableImageAliases(t *testing.T, server cleanupResourceServer, runToken string) (int, error) {
+	t.Helper()
 	aliases, err := server.GetImageAliases()
 	if err != nil {
 		return 0, fmt.Errorf("list Incus image aliases for cleanup: %w", err)
@@ -172,6 +177,7 @@ func cleanupDisposableImageAliases(server cleanupResourceServer, runToken string
 		if !managedImageAliasMatchesRun(alias, runToken) {
 			continue
 		}
+		t.Logf("cleanup matched image alias %s", alias.Name)
 		if err := server.DeleteImageAlias(alias.Name); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
 			return deleted, fmt.Errorf("delete image alias %s: %w", alias.Name, err)
 		}

@@ -587,6 +587,10 @@ development sandboxes.
 - Added a best-effort cleanup step to the manual destructive e2e workflow. When
   a non-cleanup tier fails and `SANDCASTLE_E2E_KEEP` is not `1`, the workflow
   invokes `scripts/e2e.sh cleanup` with the selected run id.
+- Standalone e2e cleanup now logs each matched Sandcastle project,
+  infrastructure project, restricted certificate, and image alias before
+  deletion, so failed workflow cleanup output shows the exact resources it
+  targeted.
 
 ## Next Slice
 
@@ -975,6 +979,10 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'Test(Cleanup|LoadConfig)' -count=1 -v`
+  with the expected cleanup e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 
