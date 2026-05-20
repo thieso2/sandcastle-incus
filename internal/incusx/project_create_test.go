@@ -51,6 +51,8 @@ type fakeResourceServer struct {
 	createdInstances   []api.InstancesPost
 	createdFiles       map[string]string
 	startedInstances   []string
+	execInstances      []string
+	execCommands       [][]string
 }
 
 func (s *fakeResourceServer) GetNetwork(name string) (*api.Network, string, error) {
@@ -135,6 +137,15 @@ func (s *fakeResourceServer) CreateInstanceFile(instanceName string, path string
 	}
 	s.createdFiles[instanceName+":"+path] = string(content)
 	return nil
+}
+
+func (s *fakeResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	s.execInstances = append(s.execInstances, instanceName)
+	s.execCommands = append(s.execCommands, exec.Command)
+	if args.DataDone != nil {
+		close(args.DataDone)
+	}
+	return fakeOperation{}, nil
 }
 
 type fakeOperation struct{}

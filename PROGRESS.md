@@ -241,6 +241,10 @@ development sandboxes.
 - Infrastructure creation now writes bootstrap runtime files. `sc-caddy`
   receives a valid empty-route Caddyfile, and `sc-route-broker` receives a
   Sandcastle env file plus systemd service file for running the mTLS broker.
+- Infrastructure creation now provisions route broker TLS material and runs
+  runtime activation commands inside the infrastructure containers. Caddy is
+  enabled/reloaded, and the route broker gets a self-signed server certificate
+  before its systemd unit is daemon-reloaded and enabled.
 
 ## Next Slice
 
@@ -250,9 +254,9 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add route broker certificate provisioning and service enable/reload inside
-  `sc-route-broker`.
-- Add infrastructure Caddy service enable/reload during infra create.
+- Add image/template sync definitions for Sandcastle base and AI images.
+- Add infra e2e coverage for `sandcastle admin infra create` when real Incus is
+  enabled.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -363,6 +367,10 @@ development sandboxes.
 - Passed: `go test ./internal/infra ./internal/incusx ./internal/cli`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/caddy ./internal/infra ./internal/incusx ./internal/cli`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/infra ./internal/incusx ./internal/cli ./internal/certs`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/certs ./internal/infra ./internal/incusx ./internal/cli`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`

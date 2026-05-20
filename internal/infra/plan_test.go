@@ -45,9 +45,24 @@ func TestPlanCreate(t *testing.T) {
 	if !strings.Contains(env, "SANDCASTLE_ROUTE_BROKER_LISTEN=:9443") {
 		t.Fatalf("env = %q", env)
 	}
+	if !strings.Contains(runtimeFileContent(plan, RouteBrokerName, RouteBrokerCertPath), "CERTIFICATE") {
+		t.Fatal("expected route broker certificate PEM")
+	}
+	if !strings.Contains(runtimeFileContent(plan, RouteBrokerName, RouteBrokerKeyPath), "PRIVATE KEY") {
+		t.Fatal("expected route broker private key PEM")
+	}
 	service := runtimeFileContent(plan, RouteBrokerName, RouteBrokerServicePath)
 	if !strings.Contains(service, "admin route-broker serve") {
 		t.Fatalf("service = %q", service)
+	}
+	if len(plan.RuntimeCommands) != 2 {
+		t.Fatalf("runtime commands = %#v", plan.RuntimeCommands)
+	}
+	if !strings.Contains(strings.Join(plan.RuntimeCommands[0].Command, " "), "caddy reload") {
+		t.Fatalf("caddy command = %#v", plan.RuntimeCommands[0])
+	}
+	if !strings.Contains(strings.Join(plan.RuntimeCommands[1].Command, " "), "sandcastle-route-broker.service") {
+		t.Fatalf("broker command = %#v", plan.RuntimeCommands[1])
 	}
 }
 

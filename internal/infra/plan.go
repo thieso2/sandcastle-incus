@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/caddy"
+	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
@@ -31,6 +33,7 @@ type CreatePlan struct {
 	Instances             []InstancePlan     `json:"instances"`
 	RuntimeDirectories    []RuntimeDirectory `json:"runtimeDirectories"`
 	RuntimeFiles          []RuntimeFile      `json:"runtimeFiles"`
+	RuntimeCommands       []RuntimeCommand   `json:"runtimeCommands"`
 }
 
 type InstancePlan struct {
@@ -57,6 +60,12 @@ type RuntimeFile struct {
 	Mode     int    `json:"mode"`
 }
 
+type RuntimeCommand struct {
+	Instance    string   `json:"instance"`
+	Description string   `json:"description"`
+	Command     []string `json:"command"`
+}
+
 type Creator interface {
 	CreateInfrastructure(context.Context, CreatePlan) error
 }
@@ -74,6 +83,10 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		meta.KeyVersion: "1",
 		meta.KeyName:    project,
 	}
+	brokerTLS, err := certs.GenerateSelfSignedServer("Sandcastle route broker", []string{RouteBrokerName, "localhost"}, time.Now().UTC())
+	if err != nil {
+		return CreatePlan{}, err
+	}
 	return CreatePlan{
 		Project:               project,
 		StoragePool:           admin.StoragePool,
@@ -85,7 +98,8 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 			instancePlan(admin, RouteBrokerName, "route-broker"),
 		},
 		RuntimeDirectories: runtimeDirectories(),
-		RuntimeFiles:       runtimeFiles(),
+		RuntimeFiles:       runtimeFiles(brokerTLS),
+		RuntimeCommands:    runtimeCommands(),
 	}, nil
 }
 
@@ -98,7 +112,7 @@ func runtimeDirectories() []RuntimeDirectory {
 	}
 }
 
-func runtimeFiles() []RuntimeFile {
+func runtimeFiles(brokerTLS certs.KeyPair) []RuntimeFile {
 	caddyFile := caddy.RenderInfrastructure(nil)
 	return []RuntimeFile{
 		{
@@ -120,6 +134,18 @@ func runtimeFiles() []RuntimeFile {
 		},
 		{
 			Instance: RouteBrokerName,
+			Path:     RouteBrokerCertPath,
+			Content:  string(brokerTLS.CertificatePEM),
+			Mode:     0o644,
+		},
+		{
+			Instance: RouteBrokerName,
+			Path:     RouteBrokerKeyPath,
+			Content:  string(brokerTLS.PrivateKeyPEM),
+			Mode:     0o600,
+		},
+		{
+			Instance: RouteBrokerName,
 			Path:     RouteBrokerServicePath,
 			Content: `[Unit]
 Description=Sandcastle route broker
@@ -135,6 +161,21 @@ Restart=on-failure
 WantedBy=multi-user.target
 `,
 			Mode: 0o644,
+		},
+	}
+}
+
+func runtimeCommands() []RuntimeCommand {
+	return []RuntimeCommand{
+		{
+			Instance:    route.InfrastructureCaddyName,
+			Description: "enable and reload infrastructure Caddy",
+			Command:     []string{"/bin/sh", "-lc", "systemctl enable --now caddy && caddy reload --config /etc/caddy/Caddyfile"},
+		},
+		{
+			Instance:    RouteBrokerName,
+			Description: "enable route broker service",
+			Command:     []string{"/bin/sh", "-lc", "systemctl daemon-reload && systemctl enable --now sandcastle-route-broker.service"},
 		},
 	}
 }

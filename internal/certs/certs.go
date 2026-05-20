@@ -38,6 +38,30 @@ func GenerateCA(commonName string, now time.Time) (KeyPair, error) {
 	return createCertificate(template, template, key, key)
 }
 
+func GenerateSelfSignedServer(commonName string, dnsNames []string, now time.Time) (KeyPair, error) {
+	names := normalizeNames(dnsNames)
+	if len(names) == 0 {
+		return KeyPair{}, fmt.Errorf("at least one DNS SAN is required")
+	}
+	if strings.TrimSpace(commonName) == "" {
+		commonName = names[0]
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return KeyPair{}, err
+	}
+	template := &x509.Certificate{
+		SerialNumber: serialNumber(),
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    now.Add(-time.Minute),
+		NotAfter:     now.AddDate(1, 0, 0),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     names,
+	}
+	return createCertificate(template, template, key, key)
+}
+
 func IssueSandboxLeaf(caCertPEM []byte, caKeyPEM []byte, commonName string, dnsNames []string, now time.Time) (KeyPair, error) {
 	caCert, err := parseCertificate(caCertPEM)
 	if err != nil {

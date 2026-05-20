@@ -51,6 +51,9 @@ func (c InfrastructureCreator) CreateInfrastructure(ctx context.Context, plan in
 	if err := ensureInfrastructureRuntimeFiles(projectServer, plan); err != nil {
 		return err
 	}
+	if err := runInfrastructureRuntimeCommands(projectServer, plan); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -154,6 +157,27 @@ func ensureInfrastructureRuntimeFiles(server ProjectResourceServer, plan infra.C
 		if err != nil {
 			return fmt.Errorf("write infrastructure runtime file %s:%s: %w", file.Instance, file.Path, err)
 		}
+	}
+	return nil
+}
+
+func runInfrastructureRuntimeCommands(server ProjectResourceServer, plan infra.CreatePlan) error {
+	for _, command := range plan.RuntimeCommands {
+		dataDone := make(chan bool)
+		op, err := server.ExecInstance(command.Instance, api.InstanceExecPost{
+			Command:   command.Command,
+			WaitForWS: true,
+		}, &incus.InstanceExecArgs{
+			Stdin:    strings.NewReader(""),
+			DataDone: dataDone,
+		})
+		if err != nil {
+			return fmt.Errorf("%s: %w", command.Description, err)
+		}
+		if err := op.Wait(); err != nil {
+			return fmt.Errorf("wait for %s: %w", command.Description, err)
+		}
+		<-dataDone
 	}
 	return nil
 }

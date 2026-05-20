@@ -31,6 +31,7 @@ type ProjectResourceServer interface {
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
 type ProjectCreator struct {
@@ -379,4 +380,8 @@ func (s sdkResourceServer) UpdateInstanceState(name string, state api.InstanceSt
 
 func (s sdkResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateInstanceFile(instanceName, path, args)
+}
+
+func (s sdkResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	return s.inner.ExecInstance(instanceName, exec, args)
 }

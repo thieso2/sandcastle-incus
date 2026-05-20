@@ -50,6 +50,24 @@ func TestIssueSandboxLeafRequiresSAN(t *testing.T) {
 	}
 }
 
+func TestGenerateSelfSignedServer(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	keyPair, err := GenerateSelfSignedServer("route broker", []string{"sc-route-broker"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := parseLeafForTest(t, keyPair.CertificatePEM)
+	if cert.IsCA {
+		t.Fatal("server certificate should not be a CA")
+	}
+	if len(cert.ExtKeyUsage) != 1 || cert.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth {
+		t.Fatalf("ExtKeyUsage = %#v", cert.ExtKeyUsage)
+	}
+	if len(cert.DNSNames) != 1 || cert.DNSNames[0] != "sc-route-broker" {
+		t.Fatalf("DNSNames = %#v", cert.DNSNames)
+	}
+}
+
 func parseLeafForTest(t *testing.T, data []byte) *x509.Certificate {
 	t.Helper()
 	block, _ := pem.Decode(data)
