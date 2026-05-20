@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+user_name="${SANDCASTLE_USER:-sandcastle}"
+user_id="${SANDCASTLE_UID:-1000}"
+group_id="${SANDCASTLE_GID:-1000}"
+
+if ! getent group "${user_name}" >/dev/null 2>&1; then
+  groupadd --gid "${group_id}" "${user_name}"
+fi
+
+if ! id -u "${user_name}" >/dev/null 2>&1; then
+  useradd --uid "${user_id}" --gid "${group_id}" --create-home --shell /bin/bash "${user_name}"
+  usermod -aG sudo "${user_name}"
+  printf '%s ALL=(ALL) NOPASSWD:ALL\n' "${user_name}" >/etc/sudoers.d/sandcastle-user
+  chmod 0440 /etc/sudoers.d/sandcastle-user
+fi
+
+install -d -o "${user_name}" -g "${user_name}" /workspace

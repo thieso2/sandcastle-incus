@@ -258,8 +258,54 @@ func newAdminImageCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 		Use:   "image",
 		Short: "Manage Sandcastle image aliases",
 	}
+	imageCommand.AddCommand(newAdminImageBuildCommand(config, opts))
 	imageCommand.AddCommand(newAdminImageSyncCommand(config, opts))
 	return imageCommand
+}
+
+func newAdminImageBuildCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var tag string
+	var tool string
+	var codexVersion string
+	var claudeVersion string
+	var geminiVersion string
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "build base|ai",
+		Short: "Build a Sandcastle OCI image",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := images.PlanBuild(config.adminConfig, images.BuildRequest{
+				Template:      args[0],
+				Tag:           tag,
+				Tool:          tool,
+				CodexVersion:  codexVersion,
+				ClaudeVersion: claudeVersion,
+				GeminiVersion: geminiVersion,
+			})
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatImageBuildPlan(plan), plan)
+			}
+			if config.imageBuilder == nil {
+				return fmt.Errorf("image build executor is not configured")
+			}
+			result, err := config.imageBuilder.BuildImage(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatImageBuildResult(result), result)
+		},
+	}
+	command.Flags().StringVar(&tag, "tag", "", "image tag to build, defaulting to the configured Sandcastle image alias")
+	command.Flags().StringVar(&tool, "tool", "docker", "OCI image build tool")
+	command.Flags().StringVar(&codexVersion, "codex-version", "", "pinned Codex CLI version for AI images")
+	command.Flags().StringVar(&claudeVersion, "claude-version", "", "pinned Claude Code version for AI images")
+	command.Flags().StringVar(&geminiVersion, "gemini-version", "", "pinned Gemini CLI version for AI images")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the image build command without running it")
+	return command
 }
 
 func newAdminImageSyncCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -288,6 +334,14 @@ func newAdminImageSyncCommand(config commandConfig, opts *rootOptions) *cobra.Co
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the image sync plan without mutating aliases")
 	return command
+}
+
+func formatImageBuildPlan(plan images.BuildPlan) string {
+	return fmt.Sprintf("Image: %s\nTemplate: %s\nCommand: %s", plan.Tag, plan.Template, strings.Join(plan.Command, " "))
+}
+
+func formatImageBuildResult(result images.BuildResult) string {
+	return fmt.Sprintf("Image: %s\nTemplate: %s\nBuilt: %t", result.Tag, result.Template, result.Built)
 }
 
 func formatImageSyncPlan(plan images.SyncPlan) string {

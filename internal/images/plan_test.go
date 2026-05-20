@@ -1,6 +1,7 @@
 package images
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -44,4 +45,82 @@ func TestPlanSyncRejectsUnknownImage(t *testing.T) {
 	if !strings.Contains(err.Error(), "base or AI") {
 		t.Fatalf("error = %q", err)
 	}
+}
+
+func TestPlanBuildBaseImage(t *testing.T) {
+	plan, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{Template: "base", Tag: "sandcastle/base:debian-13"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Template != "base" || plan.Tag != "sandcastle/base:debian-13" {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if strings.Join(plan.Command, " ") != "docker build -t sandcastle/base:debian-13 -f images/base/Dockerfile images/base" {
+		t.Fatalf("Command = %#v", plan.Command)
+	}
+}
+
+func TestPlanBuildAIImageRequiresPinnedToolVersions(t *testing.T) {
+	_, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{Template: "ai"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "codex-version") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestPlanBuildAIImage(t *testing.T) {
+	plan, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
+		Template:      "ai",
+		Tag:           "sandcastle/ai:debian-13",
+		Tool:          "podman",
+		CodexVersion:  "1.2.3",
+		ClaudeVersion: "2.3.4",
+		GeminiVersion: "3.4.5",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := strings.Join(plan.Command, " ")
+	for _, want := range []string{
+		"podman build",
+		"-t sandcastle/ai:debian-13",
+		"--build-arg SANDCASTLE_BASE_IMAGE=sandcastle/base:latest",
+		"--build-arg CODEX_CLI_VERSION=1.2.3",
+		"images/ai",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("Command = %q, want %q", command, want)
+		}
+	}
+}
+
+func TestLocalBuilderRunsPlannedCommand(t *testing.T) {
+	runner := &fakeCommandRunner{}
+	result, err := (LocalBuilder{Runner: runner}).BuildImage(context.Background(), BuildPlan{
+		Template: "base",
+		Tag:      "sandcastle/base:test",
+		Command:  []string{"docker", "build", "-t", "sandcastle/base:test", "."},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Built {
+		t.Fatal("expected built result")
+	}
+	if runner.name != "docker" || strings.Join(runner.args, " ") != "build -t sandcastle/base:test ." {
+		t.Fatalf("runner = %#v", runner)
+	}
+}
+
+type fakeCommandRunner struct {
+	name string
+	args []string
+}
+
+func (f *fakeCommandRunner) Run(ctx context.Context, name string, args ...string) error {
+	f.name = name
+	f.args = args
+	return nil
 }

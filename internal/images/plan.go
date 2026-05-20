@@ -3,6 +3,8 @@ package images
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -29,6 +31,37 @@ type Manager interface {
 	SyncImage(context.Context, SyncPlan) (SyncResult, error)
 }
 
+type BuildRequest struct {
+	Template      string
+	Tag           string
+	Tool          string
+	CodexVersion  string
+	ClaudeVersion string
+	GeminiVersion string
+}
+
+type BuildPlan struct {
+	Template      string   `json:"template"`
+	Tag           string   `json:"tag"`
+	ContextDir    string   `json:"contextDir"`
+	Dockerfile    string   `json:"dockerfile"`
+	Tool          string   `json:"tool"`
+	BuildArgs     []string `json:"buildArgs,omitempty"`
+	Command       []string `json:"command"`
+	CodexVersion  string   `json:"codexVersion,omitempty"`
+	ClaudeVersion string   `json:"claudeVersion,omitempty"`
+	GeminiVersion string   `json:"geminiVersion,omitempty"`
+}
+
+type BuildResult struct {
+	BuildPlan
+	Built bool `json:"built"`
+}
+
+type Builder interface {
+	BuildImage(context.Context, BuildPlan) (BuildResult, error)
+}
+
 func PlanSync(admin config.Admin, request SyncRequest) (SyncPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return SyncPlan{}, err
@@ -47,6 +80,103 @@ func PlanSync(admin config.Admin, request SyncRequest) (SyncPlan, error) {
 		Template:    template,
 		Description: "Sandcastle " + template + " image synced from " + source,
 	}, nil
+}
+
+func PlanBuild(admin config.Admin, request BuildRequest) (BuildPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return BuildPlan{}, err
+	}
+	template := strings.ToLower(strings.TrimSpace(request.Template))
+	if template == "" {
+		return BuildPlan{}, fmt.Errorf("image template is required")
+	}
+	tool := strings.TrimSpace(request.Tool)
+	if tool == "" {
+		tool = "docker"
+	}
+	plan := BuildPlan{
+		Template:   template,
+		Tool:       tool,
+		ContextDir: filepath.Join("images", template),
+		Dockerfile: filepath.Join("images", template, "Dockerfile"),
+	}
+	switch template {
+	case "base":
+		plan.Tag = firstNonEmpty(request.Tag, admin.Images.Base)
+	case "ai":
+		plan.Tag = firstNonEmpty(request.Tag, admin.Images.AI)
+		plan.CodexVersion = strings.TrimSpace(request.CodexVersion)
+		plan.ClaudeVersion = strings.TrimSpace(request.ClaudeVersion)
+		plan.GeminiVersion = strings.TrimSpace(request.GeminiVersion)
+		if plan.CodexVersion == "" || plan.ClaudeVersion == "" || plan.GeminiVersion == "" {
+			return BuildPlan{}, fmt.Errorf("AI image build requires --codex-version, --claude-version, and --gemini-version")
+		}
+		plan.BuildArgs = []string{
+			"SANDCASTLE_BASE_IMAGE=" + admin.Images.Base,
+			"CODEX_CLI_VERSION=" + plan.CodexVersion,
+			"CLAUDE_CODE_VERSION=" + plan.ClaudeVersion,
+			"GEMINI_CLI_VERSION=" + plan.GeminiVersion,
+		}
+	default:
+		return BuildPlan{}, fmt.Errorf("unknown image template %q", request.Template)
+	}
+	if strings.TrimSpace(plan.Tag) == "" {
+		return BuildPlan{}, fmt.Errorf("image tag is required")
+	}
+	plan.Command = buildCommand(plan)
+	return plan, nil
+}
+
+type LocalBuilder struct {
+	Runner CommandRunner
+}
+
+type CommandRunner interface {
+	Run(context.Context, string, ...string) error
+}
+
+type ExecRunner struct{}
+
+func (b LocalBuilder) BuildImage(ctx context.Context, plan BuildPlan) (BuildResult, error) {
+	var runner CommandRunner = ExecRunner{}
+	if b.Runner != nil {
+		runner = b.Runner
+	}
+	if len(plan.Command) == 0 {
+		return BuildResult{}, fmt.Errorf("image build command is required")
+	}
+	if err := runner.Run(ctx, plan.Command[0], plan.Command[1:]...); err != nil {
+		return BuildResult{}, err
+	}
+	return BuildResult{BuildPlan: plan, Built: true}, nil
+}
+
+func (r ExecRunner) Run(ctx context.Context, name string, args ...string) error {
+	command := exec.CommandContext(ctx, name, args...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func buildCommand(plan BuildPlan) []string {
+	args := []string{plan.Tool, "build", "-t", plan.Tag, "-f", plan.Dockerfile}
+	for _, buildArg := range plan.BuildArgs {
+		args = append(args, "--build-arg", buildArg)
+	}
+	args = append(args, plan.ContextDir)
+	return args
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func templateAlias(admin config.Admin, source string) (string, string, error) {

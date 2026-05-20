@@ -263,6 +263,13 @@ development sandboxes.
   `tlds-alpha-by-domain.txt`, validates and normalizes the labels, and rewrites
   the generated embedded public-TLD deny-list snapshot. The current checked-in
   snapshot was refreshed from IANA and contains 1,437 public TLDs.
+- Added checked-in Sandcastle OCI image definitions for `base` and `ai`.
+  `images/base` installs core sandbox prerequisites and a bootstrap helper,
+  while `images/ai` extends the configured base image and requires explicit
+  pinned Codex, Claude Code, and Gemini CLI versions at build time.
+- Added `sandcastle admin image build base|ai`, with dry-run JSON/text planning
+  and Docker/Podman-compatible command execution through the local image build
+  runner. Incus import/sync remains a separate follow-up step.
 
 ## Next Slice
 
@@ -272,7 +279,8 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add actual OCI image import/build support for Sandcastle base and AI images.
+- Add OCI-to-Incus image import support and real image build verification for
+  Sandcastle base and AI images.
 - Add AI image sync e2e once a disposable AI source image is available.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure images
   include the `sandcastle` binary and systemd services.
@@ -431,10 +439,13 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle admin tld refresh --output-file internal/domain/tld_snapshot_generated.go`
 - Passed: `go test ./internal/domain ./internal/cli ./internal/project`
 - Passed: `go test ./internal/localdns -run TestForwarderRoutesByStateAndReloads -count=1 -v && go test ./...` after one transient UDP local-DNS refusal on the first full-suite run.
+- Passed: `go test ./internal/images ./internal/cli`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image build base --tag sandcastle/base:debian-13 --dry-run`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image build ai --tag sandcastle/ai:debian-13 --codex-version 1.2.3 --claude-version 2.3.4 --gemini-version 3.4.5 --dry-run`
 
 ## Open Scope
 
-- Actual OCI image build/import, sandbox lifecycle e2e with disposable images,
-  restricted-user e2e, full Tailscale network e2e, local DNS service
-  install/reload wrappers, route broker mTLS e2e, and broader real-Incus
-  coverage remain open.
+- OCI-to-Incus image import, real image build verification, sandbox lifecycle
+  e2e with disposable images, restricted-user e2e, full Tailscale network e2e,
+  local DNS service install/reload wrappers, route broker mTLS e2e, and broader
+  real-Incus coverage remain open.

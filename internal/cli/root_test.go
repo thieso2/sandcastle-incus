@@ -1048,6 +1048,51 @@ func TestAdminImageSyncDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestAdminImageBuildDryRunJSON(t *testing.T) {
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "--output", "json", "admin", "image", "build", "base", "--tag", "sandcastle/base:debian-13", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload images.BuildPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Template != "base" || payload.Tag != "sandcastle/base:debian-13" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestAdminImageBuildRequiresPinnedAIVersions(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "admin", "image", "build", "ai", "--dry-run")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "codex-version") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestAdminImageBuildCallsExecutor(t *testing.T) {
+	builder := &fakeImageBuilder{}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:         "sandcastle",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		imageBuilder: builder,
+	}, "admin", "image", "build", "base", "--tag", "sandcastle/base:debian-13")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !builder.called {
+		t.Fatal("expected image builder to be called")
+	}
+	if builder.plan.Tag != "sandcastle/base:debian-13" {
+		t.Fatalf("Tag = %q", builder.plan.Tag)
+	}
+}
+
 func TestAdminImageSyncCallsExecutor(t *testing.T) {
 	manager := &fakeImageManager{result: images.SyncResult{Fingerprint: "abc123", Action: "created"}}
 	_, err := executeForTestWithConfig(t, commandConfig{
@@ -1176,6 +1221,17 @@ func (f *fakeImageManager) SyncImage(ctx context.Context, plan images.SyncPlan) 
 	f.plan = plan
 	f.result.SyncPlan = plan
 	return f.result, nil
+}
+
+type fakeImageBuilder struct {
+	called bool
+	plan   images.BuildPlan
+}
+
+func (f *fakeImageBuilder) BuildImage(ctx context.Context, plan images.BuildPlan) (images.BuildResult, error) {
+	f.called = true
+	f.plan = plan
+	return images.BuildResult{BuildPlan: plan, Built: true}, nil
 }
 
 type fakeTailscaleRunner struct {
