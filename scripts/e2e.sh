@@ -12,19 +12,30 @@ Tiers:
   incus     Run destructive real-Incus e2e flows. Requires SANDCASTLE_E2E=1.
   tailscale Run real Tailscale routed-access e2e. Requires SANDCASTLE_E2E=1, image source env, and auth key env.
   images    Run real image build e2e. Requires SANDCASTLE_E2E=1 and image build env.
-  all       Run unit, gated, local, incus, tailscale, and images tiers.
+  public-routes Run public route broker mutation e2e. Requires SANDCASTLE_E2E=1, image source env, broker socket env, and public route env.
+  all       Run unit, gated, local, incus, tailscale, images, and public-routes tiers.
 
 Examples:
   scripts/e2e.sh unit
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=local scripts/e2e.sh incus
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
+  SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com SANDCASTLE_E2E_INFRA_HOST=203.0.113.10 SANDCASTLE_E2E_LETSENCRYPT_EMAIL=ops@example.com scripts/e2e.sh public-routes
 USAGE
 }
 
 require_e2e() {
   if [[ "${SANDCASTLE_E2E:-}" != "1" ]]; then
     echo "error: set SANDCASTLE_E2E=1 to run destructive e2e tier '$1'" >&2
+    exit 2
+  fi
+}
+
+require_env() {
+  local tier="$1"
+  local name="$2"
+  if [[ -z "${!name:-}" ]]; then
+    echo "error: set $name to run e2e tier '$tier'" >&2
     exit 2
   fi
 }
@@ -61,6 +72,17 @@ run_tailscale() {
   run go test ./internal/e2e -run 'TestTailscaleAttachmentE2E' -count=1 -v
 }
 
+run_public_routes() {
+  require_e2e public-routes
+  require_env public-routes SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET
+  require_env public-routes SANDCASTLE_E2E_BASE_IMAGE_SOURCE
+  require_env public-routes SANDCASTLE_E2E_AI_IMAGE_SOURCE
+  require_env public-routes SANDCASTLE_E2E_PUBLIC_DOMAIN
+  require_env public-routes SANDCASTLE_E2E_INFRA_HOST
+  require_env public-routes SANDCASTLE_E2E_LETSENCRYPT_EMAIL
+  run go test ./internal/e2e -run 'TestRouteBrokerAuthorizedMutationE2E' -count=1 -v
+}
+
 tier="${1:-}"
 case "$tier" in
   unit)
@@ -81,6 +103,9 @@ case "$tier" in
   images)
     run_images
     ;;
+  public-routes)
+    run_public_routes
+    ;;
   all)
     run_unit
     run_gated
@@ -88,6 +113,7 @@ case "$tier" in
     run_incus
     run_tailscale
     run_images
+    run_public_routes
     ;;
   -h|--help|help|"")
     usage

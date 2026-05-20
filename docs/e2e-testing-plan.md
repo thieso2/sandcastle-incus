@@ -42,7 +42,9 @@ SANDCASTLE_E2E_CIDR_POOL=10.248.0.0/16
 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-...
 SANDCASTLE_E2E_TAILSCALE_TAG=tag:sandcastle
 SANDCASTLE_E2E_DOMAIN_SUFFIX=e2e.project-tld
-SANDCASTLE_E2E_PUBLIC_DOMAIN=*.e2e.example.com
+SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com
+SANDCASTLE_E2E_INFRA_HOST=203.0.113.10
+SANDCASTLE_E2E_LETSENCRYPT_EMAIL=ops@example.com
 SANDCASTLE_E2E_SANDCASTLE_BIN=/path/to/sandcastle
 ```
 
@@ -53,6 +55,10 @@ Use Go integration tests with explicit build tags or environment gates:
 ```bash
 SANDCASTLE_E2E=1 go test ./internal/e2e -run TestProjectLifecycle -count=1
 ```
+
+The checked-in `scripts/e2e.sh public-routes` tier fails closed unless the
+broker socket, disposable image sources, delegated public route domain,
+infrastructure DNS proof target, and Let's Encrypt contact email are all set.
 
 The checked-in runner keeps common tiers reproducible:
 

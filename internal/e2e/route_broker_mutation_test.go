@@ -53,8 +53,16 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	otherRef := otherOwner + "/" + otherName
 	sandboxRef := ref + "/" + sandboxName
 	otherSandboxRef := otherRef + "/" + otherSandboxName
-	hostname := "route-" + safeToken(runID) + ".example.com"
-	unownedHostname := "unowned-route-" + safeToken(runID) + ".example.com"
+	publicDomain := strings.Trim(strings.TrimSpace(e2eConfig.PublicRoutes.Domain), ".")
+	if publicDomain == "" {
+		publicDomain = "example.com"
+	}
+	hostname := "route-" + safeToken(runID) + "." + publicDomain
+	unownedHostname := "unowned-route-" + safeToken(runID) + "." + publicDomain
+	infrastructureHost := strings.TrimSpace(e2eConfig.PublicRoutes.InfrastructureHost)
+	if infrastructureHost == "" {
+		infrastructureHost = "127.0.0.1"
+	}
 	infraProject := safeInfrastructureProject("sc-infra-" + runID)
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-broker"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-broker"
@@ -64,7 +72,8 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 		CIDRPool:               e2eConfig.CIDRPool,
 		ProjectPrefix:          config.DefaultProjectPrefix,
 		InfrastructureProject:  infraProject,
-		InfrastructureHost:     "127.0.0.1",
+		InfrastructureHost:     infrastructureHost,
+		LetsEncryptEmail:       strings.TrimSpace(e2eConfig.PublicRoutes.LetsEncryptEmail),
 		RouteBrokerIncusSocket: strings.TrimSpace(e2eConfig.RouteBroker.IncusSocket),
 		Images: config.Images{
 			Base: baseAlias,

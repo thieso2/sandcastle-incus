@@ -378,6 +378,14 @@ development sandboxes.
 - Route broker mutation e2e now also reads the infrastructure Caddyfile after
   route removal and rejected unowned route attempts, verifying removed or
   unauthorized public hostnames are absent from rendered Caddy config.
+- Added an explicit `scripts/e2e.sh public-routes` tier. It fails closed unless
+  real e2e is enabled and the broker socket, disposable image sources,
+  delegated public route domain, infrastructure DNS proof target, and Let's
+  Encrypt contact email are configured.
+- Route broker mutation e2e now consumes public route e2e settings when present,
+  using `SANDCASTLE_E2E_PUBLIC_DOMAIN` for generated route hostnames,
+  `SANDCASTLE_E2E_INFRA_HOST` for DNS proof, and
+  `SANDCASTLE_E2E_LETSENCRYPT_EMAIL` for infrastructure Caddy.
 - Infrastructure Caddy now accepts optional Let’s Encrypt contact email via
   `SANDCASTLE_LETSENCRYPT_EMAIL`. Infrastructure bootstrap Caddyfiles, route
   refreshes, and the route broker runtime env preserve that setting so public
@@ -479,6 +487,9 @@ development sandboxes.
 - Promote route broker HTTP mTLS mutation e2e into regular CI/dev gates once
   disposable infrastructure image sources and broker Incus socket access are
   available in that environment.
+- Run `scripts/e2e.sh public-routes` against a real delegated public test
+  domain and extend it to assert externally trusted Let’s Encrypt certificates
+  over the public hostname.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -722,6 +733,10 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(LoadConfig|DisposableInfrastructureCreateAndDelete)' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
 - Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `scripts/e2e.sh public-routes` with the expected fail-closed e2e guard when `SANDCASTLE_E2E` is unset.
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
