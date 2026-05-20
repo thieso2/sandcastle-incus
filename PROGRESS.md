@@ -1131,6 +1131,13 @@ development sandboxes.
 - Passed: `go test ./internal/incusx -run 'TestRouteManagerRemovesRouteProfile' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Enforced per-owner project domain uniqueness during admin project creation
+  by passing existing Sandcastle domain claims into project planning. Reusing
+  the same private domain remains allowed across different owners, matching the
+  v1 spec.
+- Passed: `go test ./internal/project ./internal/cli -run 'Test(PlanCreate|DomainClaims|AdminProjectCreate)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

@@ -1214,6 +1214,37 @@ func TestAdminProjectCreateRequiresExecutor(t *testing.T) {
 	}
 }
 
+func TestAdminProjectCreateRejectsDuplicateDomainForSameOwner(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "shared.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeProjectCreator{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		projectCreator: creator,
+	}, "admin", "project", "create", "alice/other", "--domain", "shared.project-tld")
+	if err == nil {
+		t.Fatal("expected duplicate domain error")
+	}
+	if !strings.Contains(err.Error(), "already used") {
+		t.Fatalf("error = %q", err.Error())
+	}
+	if creator.called {
+		t.Fatal("creator should not be called for duplicate domain")
+	}
+}
+
 func TestAdminTLDRefreshWritesSnapshot(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("# Version 2026050700\nCOM\nORG\n"))
@@ -1548,6 +1579,17 @@ type fakeSandboxEnterer struct {
 }
 
 func (f *fakeSandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
+	f.called = true
+	f.plan = plan
+	return nil
+}
+
+type fakeProjectCreator struct {
+	called bool
+	plan   project.CreatePlan
+}
+
+func (f *fakeProjectCreator) CreateProject(ctx context.Context, plan project.CreatePlan) error {
 	f.called = true
 	f.plan = plan
 	return nil

@@ -77,3 +77,20 @@ func TestOccupiedCIDRs(t *testing.T) {
 		t.Fatalf("cidrs = %#v", cidrs)
 	}
 }
+
+func TestDomainClaims(t *testing.T) {
+	claims := DomainClaims([]Summary{
+		{Owner: "alice", Name: "one", Domain: "one.project-tld"},
+		{Owner: "alice", Name: "empty"},
+		{Owner: "bob", Name: "one", Domain: "one.project-tld"},
+	})
+	if len(claims) != 2 {
+		t.Fatalf("len(claims) = %d, want 2", len(claims))
+	}
+	if claims[0].Owner != "alice" || claims[0].Project != "one" || claims[0].Domain != "one.project-tld" {
+		t.Fatalf("claims[0] = %#v", claims[0])
+	}
+	if claims[1].Owner != "bob" || claims[1].Project != "one" {
+		t.Fatalf("claims[1] = %#v", claims[1])
+	}
+}

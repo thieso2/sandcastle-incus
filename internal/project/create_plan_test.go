@@ -111,3 +111,33 @@ func TestPlanCreateAllowsExplicitLabDomainOverride(t *testing.T) {
 		t.Fatalf("Domain = %q", plan.Domain)
 	}
 }
+
+func TestPlanCreateRejectsDuplicateDomainForSameOwner(t *testing.T) {
+	_, err := PlanCreate(config.LoadAdminFromEnv(), CreateRequest{
+		Reference: "alice/other",
+		Domain:    "myproject.project-tld",
+		DomainClaims: []DomainClaim{{
+			Owner:   "alice",
+			Project: "myproject",
+			Domain:  "myproject.project-tld",
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestPlanCreateAllowsDuplicateDomainForDifferentOwner(t *testing.T) {
+	_, err := PlanCreate(config.LoadAdminFromEnv(), CreateRequest{
+		Reference: "alice/myproject",
+		Domain:    "shared.project-tld",
+		DomainClaims: []DomainClaim{{
+			Owner:   "bob",
+			Project: "myproject",
+			Domain:  "shared.project-tld",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

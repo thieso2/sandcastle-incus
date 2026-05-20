@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"time"
 
@@ -29,6 +30,13 @@ type CreateRequest struct {
 	Reference     string
 	Domain        string
 	OccupiedCIDRs []string
+	DomainClaims  []DomainClaim
+}
+
+type DomainClaim struct {
+	Owner   string
+	Project string
+	Domain  string
 }
 
 type CreatePlan struct {
@@ -88,6 +96,9 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		DeniedSuffixes:  admin.DeniedDomainSuffixes,
 	})
 	if err != nil {
+		return CreatePlan{}, err
+	}
+	if err := validateDomainClaim(ref, projectDomain, request.DomainClaims); err != nil {
 		return CreatePlan{}, err
 	}
 	incusName, err := naming.IncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
@@ -155,6 +166,34 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		},
 		ProjectMetadataConfig: metadataConfig,
 	}, nil
+}
+
+func DomainClaims(projects []Summary) []DomainClaim {
+	claims := make([]DomainClaim, 0, len(projects))
+	for _, project := range projects {
+		if project.Domain == "" {
+			continue
+		}
+		claims = append(claims, DomainClaim{
+			Owner:   project.Owner,
+			Project: project.Name,
+			Domain:  project.Domain,
+		})
+	}
+	return claims
+}
+
+func validateDomainClaim(ref naming.ProjectRef, domain string, claims []DomainClaim) error {
+	for _, claim := range claims {
+		if claim.Owner != ref.Owner || claim.Domain != domain {
+			continue
+		}
+		if claim.Project == ref.Project {
+			continue
+		}
+		return fmt.Errorf("project domain %q is already used by %s/%s", domain, claim.Owner, claim.Project)
+	}
+	return nil
 }
 
 func sidecarPlan(ref naming.ProjectRef, admin config.Admin, name string, role string, address string) SidecarPlan {

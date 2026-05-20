@@ -99,17 +99,20 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var occupiedCIDRs []string
+			var domainClaims []project.DomainClaim
 			if !dryRun {
 				existingProjects, err := listProjects(cmd.Context(), config.projectStore)
 				if err != nil {
 					return err
 				}
 				occupiedCIDRs = project.OccupiedCIDRs(existingProjects)
+				domainClaims = project.DomainClaims(existingProjects)
 			}
 			plan, err := project.PlanCreate(config.adminConfig, project.CreateRequest{
 				Reference:     args[0],
 				Domain:        domain,
 				OccupiedCIDRs: occupiedCIDRs,
+				DomainClaims:  domainClaims,
 			})
 			if err != nil {
 				return err
