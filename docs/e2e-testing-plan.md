@@ -124,13 +124,20 @@ Test:
 3. Verify user can list owned project metadata.
 4. Verify user cannot access another test project.
 5. Verify user cannot mutate global Incus state.
+   The checked-in `TestRestrictedUserGrantAccessE2E` covers these access
+   checks against an HTTPS Incus remote.
+6. Create, verify, stop, start, and remove a sandbox through the restricted
+   user remote.
+   The checked-in `TestRestrictedUserSandboxLifecycleE2E` creates a full
+   disposable project with real image aliases, grants a restricted certificate,
+   and runs sandbox lifecycle plus private Caddy checks through that restricted
+   Incus client.
 
 Primary assertions:
 
 - Project scoping is enforced by Incus trust restrictions.
 - Sandcastle user commands work with the restricted remote.
-- The first implementation may use admin-only mode as a bootstrap step, but the
-  normal e2e path must rerun sandbox lifecycle through a restricted user remote.
+- The normal e2e path reruns sandbox lifecycle through a restricted user remote.
 
 ## Phase 3: Container Lifecycle
 

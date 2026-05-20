@@ -362,6 +362,11 @@ development sandboxes.
   back over HTTPS with that cert, verifies owned project metadata is visible,
   verifies an ungranted project is not visible, and asserts global project
   creation is denied.
+- Added gated restricted-user sandbox lifecycle e2e coverage.
+  `TestRestrictedUserSandboxLifecycleE2E` requires an HTTPS Incus remote plus
+  disposable base/AI image sources, creates a full disposable project, grants a
+  restricted client certificate, then creates, verifies, stops, starts, and
+  removes a sandbox through the restricted Incus client.
 - Strengthened gated sandbox creation e2e coverage. The sandbox lifecycle and
   CLI `add --detach` e2e paths now read back the sandbox private Caddyfile and
   TLS cert/key files through Incus, assert the expected hostname and
@@ -551,6 +556,8 @@ development sandboxes.
 - Passed: `go test ./internal/sandbox ./internal/incusx ./internal/cli ./internal/e2e -run 'Test(PlanEnter|SandboxEnterer|EnterCommand|CLIEnterCommandE2E|LoadConfig)' -count=1 -v` with the expected CLI enter e2e skip when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(RestrictedUserTokenE2E|LoadConfig)' -count=1 -v` with the expected restricted-user token e2e skip when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(RestrictedUser(Token|GrantAccess)E2E|LoadConfig)' -count=1 -v` with the expected restricted-user e2e skips when real e2e is unset.
+- Passed: `go test ./internal/e2e -run 'TestRestrictedUser(Token|GrantAccess|SandboxLifecycle)E2E|TestLoadConfig' -count=1 -v` with the expected restricted-user e2e skips when real e2e is unset.
+- Passed: `bash -n scripts/e2e.sh && go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected sandbox e2e skips when real e2e is unset.
 - Passed: `go test ./internal/project ./internal/tailscale ./internal/incusx ./internal/e2e`
 - Passed: `scripts/e2e.sh --help`
@@ -588,6 +595,6 @@ development sandboxes.
 ## Open Scope
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
-  disposable images in CI/dev, restricted cert grant/access e2e against an HTTPS
-  Incus remote, privileged OS resolver/service e2e in a disposable VM, route
-  broker mTLS e2e, and broader real-Incus coverage remain open.
+  disposable images in CI/dev, restricted HTTPS-remote e2e in CI/dev,
+  privileged OS resolver/service e2e in a disposable VM, route broker mTLS e2e,
+  and broader real-Incus coverage remain open.
