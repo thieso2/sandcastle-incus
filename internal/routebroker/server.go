@@ -29,6 +29,7 @@ type Server struct {
 	Sandboxes     route.SandboxStore
 	Routes        route.Manager
 	RouteMetadata RouteMetadataStore
+	Resolver      route.DNSResolver
 	Trust         TrustMapper
 }
 
@@ -75,6 +76,12 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, err)
 		return
 	}
+	verifiedProof, err := route.VerifyDNSProof(r.Context(), s.Resolver, plan.DNSProof)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	plan.DNSProof = verifiedProof
 	plan, err = stampRouteCreator(plan, principal.Owner)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)

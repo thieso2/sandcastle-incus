@@ -59,6 +59,15 @@ func (s fakeBrokerMetadata) FindRoute(ctx context.Context, hostname string) (met
 	return s.route, nil
 }
 
+type fakeBrokerDNSResolver struct {
+	hosts []string
+	err   error
+}
+
+func (r fakeBrokerDNSResolver) LookupHost(ctx context.Context, hostname string) ([]string, error) {
+	return r.hosts, r.err
+}
+
 func TestServerAddsAuthorizedRoute(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
@@ -74,12 +83,33 @@ func TestServerAddsAuthorizedRoute(t *testing.T) {
 	if routes.added.RoutePort != 5173 {
 		t.Fatalf("RoutePort = %d", routes.added.RoutePort)
 	}
+	if len(routes.added.DNSProof.ResolvedTargets) != 1 || routes.added.DNSProof.ResolvedTargets[0] != "203.0.113.10" {
+		t.Fatalf("DNSProof.ResolvedTargets = %#v", routes.added.DNSProof.ResolvedTargets)
+	}
 	routeMetadata, err := meta.ParseRouteConfig(routes.added.MetadataConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if routeMetadata.CreatedBy != "alice" {
 		t.Fatalf("CreatedBy = %q", routeMetadata.CreatedBy)
+	}
+}
+
+func TestServerRejectsRouteAddWhenDNSProofFails(t *testing.T) {
+	routes := &fakeBrokerRoutes{}
+	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
+	server.Resolver = fakeBrokerDNSResolver{hosts: []string{"203.0.113.11"}}
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if routes.added != nil {
+		t.Fatal("route should not be added")
+	}
+	if errorText := decodeError(t, response); !strings.Contains(errorText, "want 203.0.113.10") {
+		t.Fatalf("error = %q", errorText)
 	}
 }
 
@@ -288,6 +318,7 @@ func brokerServerForTest(t *testing.T, routes route.Manager, metadata RouteMetad
 		Sandboxes:     fakeBrokerSandboxStore{},
 		Routes:        routes,
 		RouteMetadata: metadata,
+		Resolver:      fakeBrokerDNSResolver{hosts: []string{"203.0.113.10"}},
 		Trust:         fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-alice-myproject"}}},
 	}
 }

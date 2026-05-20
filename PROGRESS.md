@@ -1308,6 +1308,12 @@ development sandboxes.
 - Passed: `go test ./internal/cli ./internal/localdns -run 'Test(DNS|FormatLocalDNS|Resolver|FileManager)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Enforced public DNS proof at the route broker server boundary before route
+  mutation, so broker composition cannot accept a hostname unless it resolves to
+  the configured infrastructure host.
+- Passed: `go test ./internal/routebroker ./internal/route ./internal/incusx -run 'Test(Server|VerifyDNSProof|RouteManager)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
