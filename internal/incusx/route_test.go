@@ -10,15 +10,25 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 )
 
 type fakeRouteServer struct {
-	resource *fakeRouteResourceServer
-	project  string
+	resource       *fakeRouteResourceServer
+	targetResource *fakeRouteResourceServer
+	project        string
+	targetProject  string
+	infrastructure string
 }
 
 func (s *fakeRouteServer) UseProject(name string) RouteResourceServer {
+	if s.infrastructure != "" && name != s.infrastructure {
+		s.targetProject = name
+		if s.targetResource != nil {
+			return s.targetResource
+		}
+	}
 	s.project = name
 	return s.resource
 }
@@ -31,6 +41,21 @@ type fakeRouteResourceServer struct {
 	createdFiles   map[string]string
 	execInstance   string
 	exec           api.InstanceExecPost
+	instance       *api.Instance
+	updated        *api.InstancePut
+}
+
+func (s *fakeRouteResourceServer) GetInstance(name string) (*api.Instance, string, error) {
+	if s.instance != nil {
+		return s.instance, "etag", nil
+	}
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
+func (s *fakeRouteResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
+	s.updated = &instance
+	s.instance = &api.Instance{Name: name, InstancePut: instance}
+	return fakeOperation{}, nil
 }
 
 func (s *fakeRouteResourceServer) GetProfile(name string) (*api.Profile, string, error) {
@@ -90,7 +115,8 @@ func (s *fakeRouteResourceServer) ExecInstance(instanceName string, exec api.Ins
 
 func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
-	manager := RouteManager{Server: &fakeRouteServer{resource: resource}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	manager := RouteManager{Server: &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"}}
 	plan := routePlanForTest(t)
 	if err := manager.Add(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -117,6 +143,12 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	}
 	if got := strings.Join(resource.exec.Command, " "); got != "caddy reload --config /etc/caddy/Caddyfile" {
 		t.Fatalf("reload command = %q", got)
+	}
+	if target.updated == nil {
+		t.Fatal("expected target sandbox ingress device update")
+	}
+	if device := target.updated.Devices["sc-route-app-example-com"]; device["parent"] != "sc-private" || device["user.sandcastle.hostname"] != "app.example.com" {
+		t.Fatalf("ingress device = %#v", device)
 	}
 }
 
@@ -180,7 +212,17 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 	}
 	return route.AddPlan{
 		Hostname:              "app.example.com",
+		TargetReference:       "alice/myproject/codex",
+		Project:               projectSummaryForRouteTest(),
+		Sandbox:               meta.Sandbox{Name: "codex"},
+		TargetInstanceName:    "sc-codex",
 		InfrastructureProject: "sc-infra",
+		IngressDevice:         "sc-route-app-example-com",
+		IngressNetwork:        "sc-private",
 		MetadataConfig:        metadata,
 	}
+}
+
+func projectSummaryForRouteTest() project.Summary {
+	return project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject"}
 }

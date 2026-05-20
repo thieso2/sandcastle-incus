@@ -20,6 +20,8 @@ type RouteServer interface {
 }
 
 type RouteResourceServer interface {
+	GetInstance(name string) (*api.Instance, string, error)
+	UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error)
 	GetProfile(name string) (*api.Profile, string, error)
 	GetProfiles() ([]api.Profile, error)
 	CreateProfile(profile api.ProfilesPost) error
@@ -45,6 +47,10 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 		return err
 	}
 	projectServer := server.UseProject(plan.InfrastructureProject)
+	targetProjectServer := server.UseProject(plan.Project.IncusName)
+	if err := ensureRouteIngressAttachment(targetProjectServer, plan); err != nil {
+		return err
+	}
 	name := route.ProfileName(plan.Hostname)
 	existing, etag, err := projectServer.GetProfile(name)
 	if err == nil {
@@ -71,6 +77,44 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 		return err
 	}
 	return refreshInfrastructureCaddy(projectServer)
+}
+
+func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan) error {
+	instance, etag, err := server.GetInstance(plan.TargetInstanceName)
+	if err != nil {
+		return fmt.Errorf("get route target sandbox %s: %w", plan.TargetReference, err)
+	}
+	put := instance.Writable()
+	devices := api.DevicesMap{}
+	for name, device := range put.Devices {
+		copied := map[string]string{}
+		for key, value := range device {
+			copied[key] = value
+		}
+		devices[name] = copied
+	}
+	if devices[plan.IngressDevice] == nil {
+		devices[plan.IngressDevice] = map[string]string{
+			"type":           "nic",
+			"nictype":        "bridged",
+			"parent":         plan.IngressNetwork,
+			meta.KeyKind:     "route-ingress",
+			meta.KeyHostname: plan.Hostname,
+			meta.KeyVersion:  "1",
+			meta.KeyOwner:    plan.Project.Owner,
+			meta.KeyProject:  plan.Project.Name,
+			meta.KeyName:     plan.Sandbox.Name,
+		}
+		put.Devices = devices
+		op, err := server.UpdateInstance(plan.TargetInstanceName, put, etag)
+		if err != nil {
+			return fmt.Errorf("attach route ingress for %s: %w", plan.TargetReference, err)
+		}
+		if err := op.Wait(); err != nil {
+			return fmt.Errorf("wait for route ingress attach for %s: %w", plan.TargetReference, err)
+		}
+	}
+	return nil
 }
 
 func (m RouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
@@ -206,6 +250,14 @@ type sdkRouteResourceServer struct {
 
 func (s sdkRouteResourceServer) GetProfile(name string) (*api.Profile, string, error) {
 	return s.inner.GetProfile(name)
+}
+
+func (s sdkRouteResourceServer) GetInstance(name string) (*api.Instance, string, error) {
+	return s.inner.GetInstance(name)
+}
+
+func (s sdkRouteResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
+	return s.inner.UpdateInstance(name, instance, etag)
 }
 
 func (s sdkRouteResourceServer) GetProfiles() ([]api.Profile, error) {

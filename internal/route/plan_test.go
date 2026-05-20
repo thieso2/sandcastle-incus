@@ -37,6 +37,12 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 	if plan.TargetIP != "10.248.0.20" {
 		t.Fatalf("TargetIP = %q", plan.TargetIP)
 	}
+	if plan.TargetInstanceName != "sc-codex" {
+		t.Fatalf("TargetInstanceName = %q", plan.TargetInstanceName)
+	}
+	if plan.IngressDevice != "sc-route-app-example-com" {
+		t.Fatalf("IngressDevice = %q", plan.IngressDevice)
+	}
 	routeMetadata, err := meta.ParseRouteConfig(plan.MetadataConfig)
 	if err != nil {
 		t.Fatal(err)

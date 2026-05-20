@@ -29,9 +29,12 @@ type AddPlan struct {
 	TargetReference       string            `json:"targetReference"`
 	Project               project.Summary   `json:"project"`
 	Sandbox               meta.Sandbox      `json:"sandbox"`
+	TargetInstanceName    string            `json:"targetInstanceName"`
 	InfrastructureProject string            `json:"infrastructureProject"`
 	RoutePort             int               `json:"routePort"`
 	TargetIP              string            `json:"targetIP"`
+	IngressDevice         string            `json:"ingressDevice"`
+	IngressNetwork        string            `json:"ingressNetwork"`
 	MetadataConfig        map[string]string `json:"metadataConfig"`
 	RequiresBroker        bool              `json:"requiresBroker"`
 	DNSProof              string            `json:"dnsProof"`
@@ -115,9 +118,12 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		TargetReference:       summary.Owner + "/" + summary.Name + "/" + target.Name,
 		Project:               summary,
 		Sandbox:               target,
+		TargetInstanceName:    "sc-" + target.Name,
 		InfrastructureProject: admin.InfrastructureProject,
 		RoutePort:             routePort,
 		TargetIP:              target.PrivateIP,
+		IngressDevice:         ProfileName(hostname),
+		IngressNetwork:        project.PrivateNetworkName,
 		MetadataConfig:        metadataConfig,
 		RequiresBroker:        true,
 		DNSProof:              "Broker must verify public DNS points at Sandcastle infrastructure before accepting this route.",
