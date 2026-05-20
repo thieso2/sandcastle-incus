@@ -17,6 +17,8 @@ import (
 type fakeCreateServer struct {
 	project        *api.Project
 	pool           *api.StoragePool
+	images         map[string]*api.Image
+	imageAliases   map[string]*api.ImageAliasesEntry
 	createdProject *api.ProjectsPost
 	updatedProject *api.ProjectPut
 	createdPool    *api.StoragePoolsPost
@@ -62,15 +64,36 @@ func (s *fakeCreateServer) CreateStoragePool(pool api.StoragePoolsPost) error {
 	return nil
 }
 
+func (s *fakeCreateServer) GetImage(ref string) (*api.Image, string, error) {
+	if image := s.images[ref]; image != nil {
+		return image, "etag", nil
+	}
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
+func (s *fakeCreateServer) GetImageAlias(name string) (*api.ImageAliasesEntry, string, error) {
+	if alias := s.imageAliases[name]; alias != nil {
+		return alias, "etag", nil
+	}
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
+func (s *fakeCreateServer) imageServer() incus.ImageServer {
+	return nil
+}
+
 type fakeResourceServer struct {
 	networks           map[string]*api.Network
 	volumes            map[string]*api.StorageVolume
 	profiles           map[string]*api.Profile
 	instances          map[string]*api.Instance
+	images             map[string]*api.Image
+	imageAliases       map[string]*api.ImageAliasesEntry
 	createdNetwork     *api.NetworksPost
 	createdVolumes     []api.StorageVolumesPost
 	createdVolumeFiles map[string]string
 	createdInstances   []api.InstancesPost
+	copiedImages       []string
 	createdFiles       map[string]string
 	startedInstances   []string
 	execInstances      []string
@@ -193,6 +216,54 @@ func (s *fakeResourceServer) ExecInstance(instanceName string, exec api.Instance
 	return fakeOperation{}, nil
 }
 
+func (s *fakeResourceServer) GetImage(ref string) (*api.Image, string, error) {
+	if image := s.images[ref]; image != nil {
+		return image, "etag", nil
+	}
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
+func (s *fakeResourceServer) GetImageAlias(name string) (*api.ImageAliasesEntry, string, error) {
+	if alias := s.imageAliases[name]; alias != nil {
+		return alias, "etag", nil
+	}
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
+func (s *fakeResourceServer) CreateImageAlias(alias api.ImageAliasesPost) error {
+	if s.imageAliases == nil {
+		s.imageAliases = map[string]*api.ImageAliasesEntry{}
+	}
+	s.imageAliases[alias.Name] = &api.ImageAliasesEntry{
+		Name:                 alias.Name,
+		Type:                 alias.Type,
+		ImageAliasesEntryPut: alias.ImageAliasesEntryPut,
+	}
+	return nil
+}
+
+func (s *fakeResourceServer) CopyImageFrom(source ProjectCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error) {
+	if s.images == nil {
+		s.images = map[string]*api.Image{}
+	}
+	if s.imageAliases == nil {
+		s.imageAliases = map[string]*api.ImageAliasesEntry{}
+	}
+	s.images[image.Fingerprint] = &api.Image{Fingerprint: image.Fingerprint}
+	s.copiedImages = append(s.copiedImages, image.Fingerprint)
+	for _, alias := range aliases {
+		s.imageAliases[alias.Name] = &api.ImageAliasesEntry{
+			Name: alias.Name,
+			Type: "container",
+			ImageAliasesEntryPut: api.ImageAliasesEntryPut{
+				Description: alias.Description,
+				Target:      image.Fingerprint,
+			},
+		}
+	}
+	return fakeRemoteOperation{}, nil
+}
+
 type fakeOperation struct{}
 
 func (fakeOperation) AddHandler(func(api.Operation)) (*incus.EventTarget, error) { return nil, nil }
@@ -204,6 +275,15 @@ func (fakeOperation) Refresh() error                                            
 func (fakeOperation) Wait() error                                                { return nil }
 func (fakeOperation) WaitContext(context.Context) error                          { return nil }
 
+type fakeRemoteOperation struct{}
+
+func (fakeRemoteOperation) AddHandler(func(api.Operation)) (*incus.EventTarget, error) {
+	return nil, nil
+}
+func (fakeRemoteOperation) CancelTarget() error                { return nil }
+func (fakeRemoteOperation) GetTarget() (*api.Operation, error) { return &api.Operation{}, nil }
+func (fakeRemoteOperation) Wait() error                        { return nil }
+
 func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	plan := createPlanForTest(t)
 	resourceServer := &fakeResourceServer{
@@ -213,7 +293,7 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 		createdFiles:       map[string]string{},
 		createdVolumeFiles: map[string]string{},
 	}
-	server := &fakeCreateServer{resourceServer: resourceServer}
+	server := fakeCreateServerForPlan(plan, resourceServer)
 	creator := ProjectCreator{Server: server}
 
 	if err := creator.CreateProject(context.Background(), plan); err != nil {
@@ -224,6 +304,21 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	}
 	if server.createdProject.Name != "sc-alice-myproject" {
 		t.Fatalf("created project = %q", server.createdProject.Name)
+	}
+	for _, key := range []string{
+		"features.images",
+		"features.profiles",
+		"features.networks",
+		"features.networks.zones",
+		"features.storage.buckets",
+		"features.storage.volumes",
+	} {
+		if got := server.createdProject.Config[key]; got != "true" {
+			t.Fatalf("created project %s = %q, want true", key, got)
+		}
+	}
+	if len(resourceServer.copiedImages) != len(plan.ImageAliases) {
+		t.Fatalf("copied images = %#v, want %d", resourceServer.copiedImages, len(plan.ImageAliases))
 	}
 	if resourceServer.createdNetwork == nil {
 		t.Fatal("expected private network to be created")
@@ -298,15 +393,13 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 		createdFiles:       map[string]string{},
 		createdVolumeFiles: map[string]string{},
 	}
-	server := &fakeCreateServer{
-		project: &api.Project{
-			Name: plan.IncusProject,
-			ProjectPut: api.ProjectPut{
-				Description: "existing",
-				Config:      api.ConfigMap{"features.images": "false"},
-			},
+	server := fakeCreateServerForPlan(plan, resourceServer)
+	server.project = &api.Project{
+		Name: plan.IncusProject,
+		ProjectPut: api.ProjectPut{
+			Description: "existing",
+			Config:      api.ConfigMap{"features.images": "false"},
 		},
-		resourceServer: resourceServer,
 	}
 	creator := ProjectCreator{Server: server}
 
@@ -358,10 +451,8 @@ func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
 		createdFiles:       map[string]string{},
 		createdVolumeFiles: map[string]string{},
 	}
-	server := &fakeCreateServer{
-		project:        &api.Project{Name: plan.IncusProject},
-		resourceServer: resourceServer,
-	}
+	server := fakeCreateServerForPlan(plan, resourceServer)
+	server.project = &api.Project{Name: plan.IncusProject}
 	creator := ProjectCreator{Server: server}
 
 	if err := creator.CreateProject(context.Background(), plan); err != nil {
@@ -385,4 +476,26 @@ func createPlanForTest(t *testing.T) project.CreatePlan {
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func fakeCreateServerForPlan(plan project.CreatePlan, resourceServer *fakeResourceServer) *fakeCreateServer {
+	images := map[string]*api.Image{}
+	imageAliases := map[string]*api.ImageAliasesEntry{}
+	for _, alias := range plan.ImageAliases {
+		fingerprint := "fingerprint-" + alias
+		images[fingerprint] = &api.Image{Fingerprint: fingerprint}
+		imageAliases[alias] = &api.ImageAliasesEntry{
+			Name: alias,
+			Type: "container",
+			ImageAliasesEntryPut: api.ImageAliasesEntryPut{
+				Description: "image alias " + alias,
+				Target:      fingerprint,
+			},
+		}
+	}
+	return &fakeCreateServer{
+		images:         images,
+		imageAliases:   imageAliases,
+		resourceServer: resourceServer,
+	}
 }

@@ -46,6 +46,9 @@ func TestPlanCreate(t *testing.T) {
 	if metadata.Tailscale.State != meta.TailscaleStateRunningLoggedOut {
 		t.Fatalf("tailscale state = %q", metadata.Tailscale.State)
 	}
+	if len(plan.ImageAliases) != 2 || plan.ImageAliases[0] != config.DefaultBaseImageAlias || plan.ImageAliases[1] != config.DefaultAIImageAlias {
+		t.Fatalf("ImageAliases = %#v", plan.ImageAliases)
+	}
 	if len(plan.Sidecars) != 2 {
 		t.Fatalf("sidecars = %d, want 2", len(plan.Sidecars))
 	}

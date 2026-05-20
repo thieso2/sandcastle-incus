@@ -305,7 +305,7 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
       <h3>4. Create the project</h3>
       <pre><code>./bin/sc admin project create alice/myproject \
   --domain myproject.project-tld</code></pre>
-      <p>This creates the Incus project, project-local private bridge network, isolated home/workspace/CA volumes, CoreDNS sidecar, and Tailscale sidecar. Both sidecars start immediately, but <strong>Tailscale is not yet activated</strong> — the container is running but <code>tailscaled</code> has not been started.</p>
+      <p>This creates the Incus project with isolated feature namespaces, project-local Sandcastle image aliases, project-local private bridge network, isolated home/workspace/CA volumes, CoreDNS sidecar, and Tailscale sidecar. Both sidecars start immediately, but <strong>Tailscale is not yet activated</strong> — the container is running but <code>tailscaled</code> has not been started.</p>
 
       <h3>4a. Activate Tailscale (optional)</h3>
       <p>Skip this if you don't need Tailnet access to the project's private network.</p>

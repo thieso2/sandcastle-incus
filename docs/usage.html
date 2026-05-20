@@ -206,7 +206,7 @@ remote: sc-alice</code></pre>
 
   <div class="step">
     <h3>Create a project</h3>
-    <p>Provisions an Incus project with private bridge network, storage volumes, Tailscale sidecar, and CoreDNS sidecar.</p>
+    <p>Provisions an Incus project with isolated Incus feature namespaces, private bridge network, storage volumes, Tailscale sidecar, CoreDNS sidecar, and project-local Sandcastle image aliases.</p>
     <pre><code><span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span></code></pre>
     <div class="note"><strong>Note:</strong> The <code>--domain</code> flag is required. It sets the private DNS zone for all sandboxes in the project (e.g. <code>mysandbox.myproject.dev.example.com</code>).</div>
     <pre><code><span class="comment"># Inject an SSH public key into every sandbox at creation time</span>

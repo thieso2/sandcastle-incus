@@ -70,6 +70,7 @@ type CreatePlan struct {
 	DNSInstance           string            `json:"dnsInstance"`
 	DNSAddress            string            `json:"dnsAddress"`
 	DefaultTemplate       string            `json:"defaultTemplate"`
+	ImageAliases          []string          `json:"imageAliases"`
 	Sidecars              []SidecarPlan     `json:"sidecars"`
 	DNSFiles              []dns.File        `json:"dnsFiles"`
 	ProjectCA             ProjectCA         `json:"projectCA"`
@@ -174,6 +175,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		DNSInstance:       DNSName,
 		DNSAddress:        dnsAddress.String(),
 		DefaultTemplate:   projectMetadata.DefaultTemplate,
+		ImageAliases:      uniqueImageAliases(admin.Images.Base, admin.Images.AI),
 		Sidecars: []SidecarPlan{
 			sidecarPlan(ref, admin, incusName, TailscaleInstanceName(incusName), "tailscale", tailscaleAddress.String()),
 			sidecarPlan(ref, admin, incusName, DNSName, "dns", dnsAddress.String()),
@@ -187,6 +189,19 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		},
 		ProjectMetadataConfig: metadataConfig,
 	}, nil
+}
+
+func uniqueImageAliases(aliases ...string) []string {
+	output := make([]string, 0, len(aliases))
+	seen := map[string]bool{}
+	for _, alias := range aliases {
+		if alias == "" || seen[alias] {
+			continue
+		}
+		seen[alias] = true
+		output = append(output, alias)
+	}
+	return output
 }
 
 func DomainClaims(projects []Summary) []DomainClaim {

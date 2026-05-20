@@ -22,6 +22,9 @@ type ProjectCreateServer interface {
 	UseProject(name string) ProjectResourceServer
 	GetStoragePool(name string) (*api.StoragePool, string, error)
 	CreateStoragePool(pool api.StoragePoolsPost) error
+	GetImage(ref string) (*api.Image, string, error)
+	GetImageAlias(name string) (*api.ImageAliasesEntry, string, error)
+	imageServer() incus.ImageServer
 }
 
 type ProjectResourceServer interface {
@@ -38,6 +41,10 @@ type ProjectResourceServer interface {
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
+	GetImage(ref string) (*api.Image, string, error)
+	GetImageAlias(name string) (*api.ImageAliasesEntry, string, error)
+	CreateImageAlias(alias api.ImageAliasesPost) error
+	CopyImageFrom(source ProjectCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error)
 }
 
 type ProjectCreator struct {
@@ -91,6 +98,10 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 		return err
 	}
 	projectServer := server.UseProject(plan.IncusProject)
+	c.log("ensure project images")
+	if err := ensureProjectImages(server, projectServer, plan.ImageAliases); err != nil {
+		return err
+	}
 	c.log("ensure private network " + plan.PrivateNetwork)
 	if err := ensurePrivateNetwork(projectServer, plan); err != nil {
 		return err
@@ -135,7 +146,7 @@ func ensureProject(server ProjectCreateServer, plan project.CreatePlan) error {
 	existing, etag, err := server.GetProject(plan.IncusProject)
 	if err != nil {
 		if api.StatusErrorCheck(err, http.StatusNotFound) {
-			cfg := mergeConfig(map[string]string{"features.images": "false"}, plan.ProjectMetadataConfig)
+			cfg := mergeConfig(isolatedProjectFeatureConfig(), plan.ProjectMetadataConfig)
 			return server.CreateProject(api.ProjectsPost{
 				Name: plan.IncusProject,
 				ProjectPut: api.ProjectPut{
@@ -154,6 +165,82 @@ func ensureProject(server ProjectCreateServer, plan project.CreatePlan) error {
 		return fmt.Errorf("update Incus project %s metadata: %w", plan.IncusProject, err)
 	}
 	return nil
+}
+
+func isolatedProjectFeatureConfig() map[string]string {
+	return map[string]string{
+		"features.images":          "true",
+		"features.networks":        "true",
+		"features.networks.zones":  "true",
+		"features.profiles":        "true",
+		"features.storage.buckets": "true",
+		"features.storage.volumes": "true",
+	}
+}
+
+func ensureProjectImages(source ProjectCreateServer, target ProjectResourceServer, aliases []string) error {
+	for _, aliasName := range aliases {
+		if err := ensureProjectImage(source, target, aliasName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureProjectImage(source ProjectCreateServer, target ProjectResourceServer, aliasName string) error {
+	sourceAlias, _, err := source.GetImageAlias(aliasName)
+	if err != nil {
+		return fmt.Errorf("get source image alias %s: %w", aliasName, err)
+	}
+	sourceImage, _, err := source.GetImage(sourceAlias.Target)
+	if err != nil {
+		return fmt.Errorf("get source image %s target %s: %w", aliasName, sourceAlias.Target, err)
+	}
+	targetAlias, _, err := target.GetImageAlias(aliasName)
+	if err == nil {
+		if targetAlias.Target == sourceImage.Fingerprint {
+			return nil
+		}
+		return fmt.Errorf("project image alias %s targets %s, want %s", aliasName, targetAlias.Target, sourceImage.Fingerprint)
+	}
+	if !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("get project image alias %s: %w", aliasName, err)
+	}
+	if _, _, err := target.GetImage(sourceImage.Fingerprint); err == nil {
+		if err := target.CreateImageAlias(api.ImageAliasesPost{
+			ImageAliasesEntry: api.ImageAliasesEntry{
+				Name: aliasName,
+				Type: imageAliasType(sourceAlias),
+				ImageAliasesEntryPut: api.ImageAliasesEntryPut{
+					Description: sourceAlias.Description,
+					Target:      sourceImage.Fingerprint,
+				},
+			},
+		}); err != nil {
+			return fmt.Errorf("create project image alias %s: %w", aliasName, err)
+		}
+		return nil
+	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("get project image %s: %w", sourceImage.Fingerprint, err)
+	}
+	remoteOp, err := target.CopyImageFrom(source, *sourceImage, []api.ImageAlias{{
+		Name:        aliasName,
+		Description: sourceAlias.Description,
+	}})
+	if err != nil {
+		return fmt.Errorf("copy image %s into project: %w", aliasName, err)
+	}
+	if err := remoteOp.Wait(); err != nil {
+		return fmt.Errorf("wait for image %s copy into project: %w", aliasName, err)
+	}
+	return nil
+}
+
+func imageAliasType(alias *api.ImageAliasesEntry) string {
+	if alias.Type != "" {
+		return alias.Type
+	}
+	return "container"
 }
 
 func ensurePrivateNetwork(server ProjectResourceServer, plan project.CreatePlan) error {
@@ -528,6 +615,18 @@ func (s sdkProjectServer) CreateProject(project api.ProjectsPost) error {
 	return s.inner.CreateProject(project)
 }
 
+func (s sdkProjectServer) GetImage(ref string) (*api.Image, string, error) {
+	return s.inner.GetImage(ref)
+}
+
+func (s sdkProjectServer) GetImageAlias(name string) (*api.ImageAliasesEntry, string, error) {
+	return s.inner.GetImageAlias(name)
+}
+
+func (s sdkProjectServer) imageServer() incus.ImageServer {
+	return s.inner
+}
+
 func (s sdkProjectServer) UpdateProject(name string, project api.ProjectPut, etag string) error {
 	return s.inner.UpdateProject(name, project, etag)
 }
@@ -598,4 +697,20 @@ func (s sdkResourceServer) CreateInstanceFile(instanceName string, path string, 
 
 func (s sdkResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	return s.inner.ExecInstance(instanceName, exec, args)
+}
+
+func (s sdkResourceServer) GetImage(ref string) (*api.Image, string, error) {
+	return s.inner.GetImage(ref)
+}
+
+func (s sdkResourceServer) GetImageAlias(name string) (*api.ImageAliasesEntry, string, error) {
+	return s.inner.GetImageAlias(name)
+}
+
+func (s sdkResourceServer) CreateImageAlias(alias api.ImageAliasesPost) error {
+	return s.inner.CreateImageAlias(alias)
+}
+
+func (s sdkResourceServer) CopyImageFrom(source ProjectCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error) {
+	return s.inner.CopyImage(source.imageServer(), image, &incus.ImageCopyArgs{Aliases: aliases})
 }

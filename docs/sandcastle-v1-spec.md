@@ -81,6 +81,12 @@ Each project contains:
 - zero or more user containers;
 - optional ingress attachment for containers with public routes.
 
+Sandcastle-created user projects enable all Incus project feature namespaces:
+images, profiles, networks, network zones, storage buckets, and storage
+volumes. The admin image aliases configured for the base and AI templates are
+copied into the isolated project during creation so sidecars and sandboxes can
+launch without inheriting images from `default`.
+
 ### Sandbox
 
 A sandbox is the abstract runtime resource. v1 supports container sandboxes
