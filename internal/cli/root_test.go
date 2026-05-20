@@ -9,6 +9,7 @@ import (
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
+	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
@@ -452,6 +453,40 @@ func TestTailscaleDownDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestHostOverrideAddDryRunJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		hostSandbox: fakeHostSandboxStore{},
+	}, "--output", "json", "host", "override", "add", "alice/myproject/codex", "Example.COM", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload hostoverride.AddPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Hostname != "example.com" {
+		t.Fatalf("Hostname = %q", payload.Hostname)
+	}
+	if payload.IPAddress != "10.248.0.20" {
+		t.Fatalf("IPAddress = %q", payload.IPAddress)
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
@@ -604,4 +639,16 @@ func (f *fakeTailscaleRunner) RunStatus(ctx context.Context, plan tailscale.Stat
 func (f *fakeTailscaleRunner) RunDown(ctx context.Context, plan tailscale.DownPlan, session tailscale.RunSession) error {
 	f.downCalled = true
 	return nil
+}
+
+type fakeHostSandboxStore struct{}
+
+func (f fakeHostSandboxStore) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
+	return meta.Sandbox{
+		Owner:     summary.Owner,
+		Project:   summary.Name,
+		Name:      name,
+		AppPort:   3000,
+		PrivateIP: "10.248.0.20",
+	}, nil
 }

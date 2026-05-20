@@ -144,6 +144,11 @@ development sandboxes.
   metadata. Down executes `tailscale down` and records stopped state.
 - Project status now includes a `tailscale:route` check derived from recorded
   Tailscale metadata, reporting whether the project private CIDR is advertised.
+- Added host override planning for
+  `sandcastle host override add owner/project/name hostname --dry-run`.
+  Planning validates exact non-wildcard hostnames, looks up sandbox metadata,
+  renders managed `/etc/hosts` entry markers, records the extra SAN intent, and
+  warns that the project CA must be trusted for HTTPS.
 
 ## Next Slice
 
@@ -152,6 +157,9 @@ development sandboxes.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
+- Implement host override apply/remove/list: mutate managed `/etc/hosts`
+  entries, reissue sandbox certificates with extra SANs, and refresh sandbox
+  Caddy.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -189,6 +197,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|DisposableProjectCreateAndPurge)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json host override add alice/myproject/codex example.com --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project/sandbox metadata.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run`
 - Passed: `go test ./...`
