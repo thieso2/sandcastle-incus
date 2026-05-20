@@ -178,7 +178,7 @@ development sandboxes.
 - Host override apply now updates sandbox `extraSANs` metadata, reads project
   CA material, reissues sandbox TLS files with the override hostname, and
   refreshes sandbox Caddy to serve both the project hostname and override
-  hostname. Local `/etc/hosts` mutation remains explicit follow-up work.
+  hostname.
 - Host override add now has a managed hosts-file editor that writes/replaces a
   Sandcastle-marked block and is wired after the sandbox ingress update.
   Production defaults to `/etc/hosts`; tests and automation can override with
@@ -1163,6 +1163,11 @@ development sandboxes.
   now rejects assigning the same exact hostname to a different sandbox in the
   same project.
 - Passed: `go test ./internal/hostoverride ./internal/cli -run 'Test(Plan(Add|Remove)|HostOverride)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Normalized pre-auth Tailscale backend states such as `NeedsLogin` and
+  `NeedsMachineAuth` to the product metadata state `running-logged-out`.
+- Passed: `go test ./internal/tailscale ./internal/incusx -run 'Test(ParseStatus|TailscaleManagerRunsStatus)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 

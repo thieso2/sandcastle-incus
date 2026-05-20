@@ -76,6 +76,7 @@ func ParseStatus(reference string, summary project.Summary, data []byte, now tim
 	if state == "" {
 		state = "unknown"
 	}
+	state = normalizeState(state)
 	tailnet := payload.CurrentTailnet.Name
 	if tailnet == "" {
 		tailnet = payload.CurrentTailnet.MagicDNSSuffix
@@ -96,6 +97,15 @@ func ParseStatus(reference string, summary project.Summary, data []byte, now tim
 			LastCheckedAt:    now.UTC().Format(time.RFC3339),
 		},
 	}, nil
+}
+
+func normalizeState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "needslogin", "needsmachineauth":
+		return "running-logged-out"
+	default:
+		return state
+	}
 }
 
 func projectSummary(ctx context.Context, admin config.Admin, store project.IncusProjectStore, reference string) (project.Summary, string, error) {

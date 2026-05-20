@@ -110,7 +110,7 @@ func TestParseStatusDoesNotPersistLoginURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Tailscale.State != "NeedsLogin" {
+	if result.Tailscale.State != "running-logged-out" {
 		t.Fatalf("State = %q", result.Tailscale.State)
 	}
 	if result.Tailscale.Tailnet != "tailnet.ts.net" {
