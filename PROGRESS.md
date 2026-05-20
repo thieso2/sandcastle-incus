@@ -27,12 +27,15 @@ development sandboxes.
   reserved sandbox names.
 - Added `internal/meta` for Sandcastle scalar metadata keys, versioned project
   and sandbox state blobs, and unmanaged-resource detection.
+- Added `internal/cidr` for deterministic IPv4 project CIDR allocation,
+  occupied/live-network overlap avoidance, exhaustion reporting, and role
+  address derivation.
 
 ## Next Slice
 
 - Wire read-only project listing to an Incus access abstraction.
-- Add CIDR allocation primitives for persisted project networks and live
-  network collision checks.
+- Add admin config primitives for storage pool, CIDR pool, naming prefix, image
+  aliases, and infrastructure project name.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -42,6 +45,7 @@ development sandboxes.
 - Passed: `go build -o bin/sc ./cmd/sc`
 - Passed: `./bin/sandcastle version`
 - Passed: `./bin/sc --output json ls`
+- Passed: `go test ./...`
 - Passed: `go test ./...`
 
 ## Open Scope
