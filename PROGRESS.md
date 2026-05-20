@@ -178,6 +178,11 @@ development sandboxes.
   point at `127.0.0.1:53541`; uninstall removes the project state and resolver
   file. Tests can redirect state with `SANDCASTLE_LOCAL_DNS_STATE` and
   `SANDCASTLE_RESOLVER_DIR`.
+- Added a local UDP DNS forwarder and `sandcastle dns forwarder`. The
+  forwarder reads CLI-managed YAML state, selects upstream project DNS by
+  query-name domain suffix, proxies UDP DNS packets to the recorded endpoint,
+  and reloads state on each query so `dns refresh` affects routing without live
+  Incus lookups per DNS query.
 
 ## Next Slice
 
@@ -186,7 +191,7 @@ development sandboxes.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
-- Add local DNS forwarder process/reload behavior and Linux resolver strategy.
+- Add Linux resolver strategy for local DNS and service install/reload wrappers.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -280,9 +285,13 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_LOCAL_DNS_STATE=/tmp/sandcastle-dns.yaml SANDCASTLE_RESOLVER_DIR=/tmp/sandcastle-resolver ./bin/sandcastle --output json dns install alice/myproject --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project metadata.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_LOCAL_DNS_STATE=/tmp/sandcastle-dns.yaml SANDCASTLE_RESOLVER_DIR=/tmp/sandcastle-resolver ./bin/sandcastle dns uninstall alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS before local DNS mutation.
+- Passed: `go test ./internal/localdns -run 'TestForwarder|TestQuestion' -count=1 -v`
+- Passed: `go test ./internal/localdns ./internal/cli`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle dns forwarder --help`
+- Passed: `go test ./...`
 
 ## Open Scope
 
 - Restricted certificates, project creation, sandbox lifecycle, DNS,
-  certificates, Tailscale execution, local DNS forwarder/reload behavior, host
+  certificates, Tailscale execution, local DNS service installation, host
   overrides, public routes, and full real-Incus e2e remain to be implemented.

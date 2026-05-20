@@ -21,6 +21,7 @@ func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.AddCommand(newDNSInstallCommand(config, opts))
 	command.AddCommand(newDNSRefreshCommand(config, opts))
 	command.AddCommand(newDNSUninstallCommand(config, opts))
+	command.AddCommand(newDNSForwarderCommand())
 	return command
 }
 
@@ -146,6 +147,24 @@ func newDNSUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS uninstall plan without changing local resolver state")
+	return command
+}
+
+func newDNSForwarderCommand() *cobra.Command {
+	var statePath string
+	var listen string
+	command := &cobra.Command{
+		Use:   "forwarder",
+		Short: "Run the local DNS forwarder",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return localdns.Forwarder{
+				StatePath: statePath,
+				Listen:    listen,
+			}.Serve(cmd.Context())
+		},
+	}
+	command.Flags().StringVar(&statePath, "state", localdns.DefaultStatePath(), "local DNS state file")
+	command.Flags().StringVar(&listen, "listen", "127.0.0.1:53541", "local UDP listen address")
 	return command
 }
 

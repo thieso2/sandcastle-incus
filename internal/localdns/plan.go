@@ -114,6 +114,10 @@ func netipPrefix(value string) (netip.Prefix, error) {
 }
 
 func statePath() string {
+	return DefaultStatePath()
+}
+
+func DefaultStatePath() string {
 	if path := os.Getenv("SANDCASTLE_LOCAL_DNS_STATE"); path != "" {
 		return path
 	}
@@ -125,6 +129,10 @@ func statePath() string {
 }
 
 func resolverDir() string {
+	return DefaultResolverDir()
+}
+
+func DefaultResolverDir() string {
 	if dir := os.Getenv("SANDCASTLE_RESOLVER_DIR"); dir != "" {
 		return dir
 	}
