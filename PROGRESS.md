@@ -591,6 +591,9 @@ development sandboxes.
   infrastructure project, restricted certificate, and image alias before
   deletion, so failed workflow cleanup output shows the exact resources it
   targeted.
+- Standalone e2e cleanup now also removes matching local image-build tags for
+  `sandcastle/base:<run>`, `sandcastle/base:<run>-ai-base`, and
+  `sandcastle/ai:<run>` when the configured image build tool is available.
 
 ## Next Slice
 
@@ -979,6 +982,10 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'Test(Cleanup|LoadConfig)' -count=1 -v`
+  with the expected cleanup e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `go test ./internal/e2e -run 'Test(Cleanup|LoadConfig)' -count=1 -v`

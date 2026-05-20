@@ -411,6 +411,7 @@ Cleanup should remove:
 - disposable volumes when purge is enabled;
 - disposable Incus projects;
 - disposable restricted certificates;
+- disposable local image-build tags;
 - local resolver files;
 - local hosts entries;
 - local trust entries;
@@ -419,5 +420,5 @@ Cleanup should remove:
 `scripts/e2e.sh cleanup` can be run after a failed destructive job when the
 run used an explicit `SANDCASTLE_E2E_RUN_ID`. It removes matching managed
 Sandcastle project and infrastructure projects with purge semantics, deletes
-matching Sandcastle restricted certificates and disposable image aliases, and
-refuses to run without a long explicit run id.
+matching Sandcastle restricted certificates, disposable image aliases, and
+local image-build tags, and refuses to run without a long explicit run id.

@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
@@ -102,7 +104,8 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("cleanup run %q removed %d project(s), %d infrastructure project(s), %d certificate(s), and %d image alias(es)", runToken, deletedProjects, deletedInfrastructure, deletedCertificates, deletedImageAliases)
+	deletedLocalImages := cleanupDisposableLocalImageTags(t, e2eConfig, runToken)
+	t.Logf("cleanup run %q removed %d project(s), %d infrastructure project(s), %d certificate(s), %d image alias(es), and %d local image tag(s)", runToken, deletedProjects, deletedInfrastructure, deletedCertificates, deletedImageAliases, deletedLocalImages)
 }
 
 func cleanupRunToken(config Config) (string, error) {
@@ -184,6 +187,40 @@ func cleanupDisposableImageAliases(t *testing.T, server cleanupResourceServer, r
 		deleted++
 	}
 	return deleted, nil
+}
+
+func cleanupDisposableLocalImageTags(t *testing.T, e2eConfig Config, runToken string) int {
+	t.Helper()
+	tool := strings.TrimSpace(e2eConfig.Images.BuildTool)
+	if tool == "" {
+		tool = "docker"
+	}
+	if _, err := exec.LookPath(tool); err != nil {
+		t.Logf("cleanup skipped local image tags: %s not found", tool)
+		return 0
+	}
+	deleted := 0
+	runner := images.ExecRunner{}
+	for _, tag := range disposableLocalImageTags(runToken) {
+		if err := runner.Run(context.Background(), tool, "image", "inspect", tag); err != nil {
+			continue
+		}
+		t.Logf("cleanup matched local image tag %s", tag)
+		if err := runner.Run(context.Background(), tool, "image", "rm", tag); err != nil {
+			t.Logf("cleanup failed for local image tag %s: %v", tag, err)
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+func disposableLocalImageTags(runToken string) []string {
+	return []string{
+		"sandcastle/base:" + runToken,
+		"sandcastle/base:" + runToken + "-ai-base",
+		"sandcastle/ai:" + runToken,
+	}
 }
 
 func managedCertificateMatchesRun(certificate api.Certificate, runToken string) bool {
@@ -302,5 +339,22 @@ func TestCleanupImageAliasSelectionMatchesOnlySandcastleRunID(t *testing.T) {
 	alias.Name = "ubuntu:e2e-20260520-120000"
 	if managedImageAliasMatchesRun(alias, "e2e-20260520-120000") {
 		t.Fatal("unexpected unmanaged image alias cleanup match")
+	}
+}
+
+func TestCleanupLocalImageTagsUseRunID(t *testing.T) {
+	tags := disposableLocalImageTags("e2e-20260520-120000")
+	want := []string{
+		"sandcastle/base:e2e-20260520-120000",
+		"sandcastle/base:e2e-20260520-120000-ai-base",
+		"sandcastle/ai:e2e-20260520-120000",
+	}
+	if strings.Join(tags, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("tags = %#v, want %#v", tags, want)
+	}
+	for _, tag := range tags {
+		if !strings.Contains(tag, "e2e-20260520-120000") {
+			t.Fatalf("tag %q missing run id", tag)
+		}
 	}
 }
