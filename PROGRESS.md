@@ -190,6 +190,12 @@ development sandboxes.
   files, Linux plans systemd-resolved `resolvectl dns` and `resolvectl domain`
   commands for loopback project-domain routing, and unsupported platforms fall
   back to file-only state.
+- Added local DNS forwarder service wrappers:
+  `sandcastle dns service install`, `reload`, and `uninstall`. The wrappers
+  plan/write a user launchd plist on macOS or a user systemd unit on Linux for
+  `sandcastle dns forwarder`, support dry-run JSON/text output, and expose
+  `SANDCASTLE_LOCAL_DNS_SERVICE_DIR` plus `SANDCASTLE_BIN` for test/disposable
+  VM redirection.
 - Added public route planning and command shape for `sandcastle route add`,
   `sandcastle route list`, and `sandcastle route rm`. Route add validates exact
   public hostnames, resolves the target sandbox metadata, pins the current
@@ -311,7 +317,6 @@ development sandboxes.
 - Add real-Incus e2e coverage for `sandcastle add` default interactive enter
   behavior once a stable test TTY strategy is available.
 - Add gated full-network Tailscale e2e when an auth key is available.
-- Add local DNS service install/reload wrappers.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure images
   include the `sandcastle` binary and systemd services.
 - Add restricted cert grant/access verification after safe disposable client
@@ -459,6 +464,8 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle dns forwarder --help`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/localdns ./internal/cli`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_LOCAL_DNS_STATE=/tmp/sandcastle-dns.yaml SANDCASTLE_LOCAL_DNS_SERVICE_DIR=/tmp/sandcastle-services SANDCASTLE_BIN=/tmp/sandcastle ./bin/sandcastle --output json dns service install --dry-run`
+- Passed: `go test ./internal/localdns ./internal/cli`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/domain ./internal/project ./internal/config`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
@@ -484,5 +491,5 @@ development sandboxes.
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
   disposable images in CI/dev, restricted cert grant/access e2e, full Tailscale
-  network e2e, local DNS service install/reload wrappers, route broker mTLS e2e,
-  and broader real-Incus coverage remain open.
+  network e2e, local DNS resolver/forwarder e2e in a disposable VM, route
+  broker mTLS e2e, and broader real-Incus coverage remain open.

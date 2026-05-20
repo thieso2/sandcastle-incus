@@ -421,6 +421,51 @@ func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
 	}
 }
 
+func TestDNSServiceInstallDryRunJSON(t *testing.T) {
+	t.Setenv("SANDCASTLE_BIN", "/usr/local/bin/sandcastle")
+	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(t.TempDir(), "dns.yaml"))
+	t.Setenv("SANDCASTLE_LOCAL_DNS_SERVICE_DIR", t.TempDir())
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+	}, "--output", "json", "dns", "service", "install", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload localdns.ServicePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Action != "install" {
+		t.Fatalf("Action = %q", payload.Action)
+	}
+	if payload.Executable != "/usr/local/bin/sandcastle" {
+		t.Fatalf("Executable = %q", payload.Executable)
+	}
+	if !strings.Contains(payload.Content, "forwarder") {
+		t.Fatalf("Content = %q", payload.Content)
+	}
+}
+
+func TestDNSServiceReloadRunsExecutor(t *testing.T) {
+	t.Setenv("SANDCASTLE_BIN", "/usr/local/bin/sandcastle")
+	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(t.TempDir(), "dns.yaml"))
+	t.Setenv("SANDCASTLE_LOCAL_DNS_SERVICE_DIR", t.TempDir())
+	manager := &fakeLocalDNSServiceManager{}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:            "sandcastle",
+		localDNSService: manager,
+	}, "dns", "service", "reload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.reloaded {
+		t.Fatal("expected local DNS service reload call")
+	}
+	if manager.plan.Action != "reload" {
+		t.Fatalf("Action = %q", manager.plan.Action)
+	}
+}
+
 func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",
@@ -1332,6 +1377,13 @@ type fakeLocalDNSManager struct {
 	plan        localdns.Plan
 }
 
+type fakeLocalDNSServiceManager struct {
+	installed   bool
+	reloaded    bool
+	uninstalled bool
+	plan        localdns.ServicePlan
+}
+
 func (f *fakeLocalDNSManager) Install(ctx context.Context, plan localdns.Plan) (localdns.Result, error) {
 	f.installed = true
 	f.plan = plan
@@ -1348,6 +1400,24 @@ func (f *fakeLocalDNSManager) Uninstall(ctx context.Context, plan localdns.Plan)
 	f.uninstalled = true
 	f.plan = plan
 	return localdns.Result{Reference: plan.Reference, Action: "uninstall", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
+}
+
+func (f *fakeLocalDNSServiceManager) InstallService(ctx context.Context, plan localdns.ServicePlan) (localdns.ServiceResult, error) {
+	f.installed = true
+	f.plan = plan
+	return localdns.ServiceResult{Action: plan.Action, Strategy: plan.Strategy, ServicePath: plan.ServicePath}, nil
+}
+
+func (f *fakeLocalDNSServiceManager) ReloadService(ctx context.Context, plan localdns.ServicePlan) (localdns.ServiceResult, error) {
+	f.reloaded = true
+	f.plan = plan
+	return localdns.ServiceResult{Action: plan.Action, Strategy: plan.Strategy, ServicePath: plan.ServicePath}, nil
+}
+
+func (f *fakeLocalDNSServiceManager) UninstallService(ctx context.Context, plan localdns.ServicePlan) (localdns.ServiceResult, error) {
+	f.uninstalled = true
+	f.plan = plan
+	return localdns.ServiceResult{Action: plan.Action, Strategy: plan.Strategy, ServicePath: plan.ServicePath}, nil
 }
 
 func (f *fakeTailscaleRunner) RunUp(ctx context.Context, plan tailscale.UpPlan, session tailscale.RunSession) error {
