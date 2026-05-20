@@ -302,6 +302,9 @@ development sandboxes.
 - Broker-authorized route adds now stamp the authenticated Sandcastle owner
   into route metadata as `createdBy`, so globally stored route records preserve
   the principal that created them.
+- Route metadata now also exposes `createdBy` as a scalar Incus metadata key,
+  keeping route creator identity searchable without decoding the versioned JSON
+  state blob.
 - Added a route broker HTTP mTLS client for user route mutations.
   `SANDCASTLE_ROUTE_BROKER_URL`, `SANDCASTLE_ROUTE_BROKER_CLIENT_CERT`, and
   `SANDCASTLE_ROUTE_BROKER_CLIENT_KEY` switch `sandcastle route list/add/rm`
@@ -648,6 +651,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'TestLocalTrustInstallUninstallE2E|TestLoadConfig' -count=1 -v` with the expected local trust e2e skip when real e2e is unset.
 - Passed: `bash -n scripts/e2e.sh && go test ./...`
 - Passed: `go test ./internal/routebroker -run 'TestServerAddsAuthorizedRoute|TestHTTPRunnerServesAuthorizedRouteOverMTLS' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/meta ./internal/routebroker -run 'Test(RouteConfigRoundTrip|ServerAddsAuthorizedRoute)' -count=1 -v`
 - Passed: `go test ./...`
 
 ## Open Scope

@@ -20,6 +20,7 @@ const (
 	KeyRole            = Prefix + "role"
 	KeyHostname        = Prefix + "hostname"
 	KeyAppPort         = Prefix + "app_port"
+	KeyCreatedBy       = Prefix + "created_by"
 	KeyState           = Prefix + "state"
 
 	KindProject = "project"
@@ -137,14 +138,15 @@ func RouteConfig(route Route) (map[string]string, error) {
 		return nil, err
 	}
 	return map[string]string{
-		KeyKind:     KindRoute,
-		KeyVersion:  strconv.Itoa(Version),
-		KeyHostname: route.Hostname,
-		KeyOwner:    route.TargetOwner,
-		KeyProject:  route.TargetProject,
-		KeyName:     route.TargetSandbox,
-		KeyAppPort:  strconv.Itoa(route.RoutePort),
-		KeyState:    state,
+		KeyKind:      KindRoute,
+		KeyVersion:   strconv.Itoa(Version),
+		KeyHostname:  route.Hostname,
+		KeyOwner:     route.TargetOwner,
+		KeyProject:   route.TargetProject,
+		KeyName:      route.TargetSandbox,
+		KeyAppPort:   strconv.Itoa(route.RoutePort),
+		KeyCreatedBy: route.CreatedBy,
+		KeyState:     state,
 	}, nil
 }
 

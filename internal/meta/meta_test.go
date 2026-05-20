@@ -74,6 +74,7 @@ func TestRouteConfigRoundTrip(t *testing.T) {
 		TargetSandbox:   "codex",
 		TargetIP:        "10.248.0.20",
 		RoutePort:       5173,
+		CreatedBy:       "alice",
 		IngressAttached: true,
 	}
 	config, err := RouteConfig(input)
@@ -89,11 +90,14 @@ func TestRouteConfigRoundTrip(t *testing.T) {
 	if config[KeyAppPort] != "5173" {
 		t.Fatalf("app port scalar = %q", config[KeyAppPort])
 	}
+	if config[KeyCreatedBy] != "alice" {
+		t.Fatalf("created by scalar = %q", config[KeyCreatedBy])
+	}
 	output, err := ParseRouteConfig(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Hostname != input.Hostname || output.TargetIP != input.TargetIP || output.RoutePort != input.RoutePort {
+	if output.Hostname != input.Hostname || output.TargetIP != input.TargetIP || output.RoutePort != input.RoutePort || output.CreatedBy != input.CreatedBy {
 		t.Fatalf("round trip = %#v, want %#v", output, input)
 	}
 }
