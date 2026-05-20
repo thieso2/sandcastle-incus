@@ -318,7 +318,7 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
 
       <h3>5. Create the developer certificate token</h3>
       <pre><code>./bin/sc admin user create alice</code></pre>
-      <p>Copy the printed <code>incus remote add</code> command and environment exports into the handoff notes. The developer must add the remote before the admin can grant access to the actual client certificate.</p>
+      <p>Copy the printed join token into the handoff notes. The developer runs <code>sc remote add</code> with it. The admin must grant project access <em>after</em> the developer has added the remote.</p>
 
       <h3>6. Grant project access after the developer adds the remote</h3>
       <pre><code>./bin/sc admin user grant alice alice/myproject</code></pre>
@@ -336,12 +336,12 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
         </thead>
         <tbody>
           <tr>
-            <td>Restricted Incus remote add command</td>
-            <td><code>incus remote add sandcastle-alice TOKEN</code></td>
+            <td>Remote add command</td>
+            <td><code>sc remote add sandcastle-alice JOIN_TOKEN</code></td>
           </tr>
           <tr>
-            <td>Environment exports</td>
-            <td><code>SANDCASTLE_REMOTE=sandcastle-alice</code><br><code>SANDCASTLE_OWNER=alice</code></td>
+            <td>Owner to set in config</td>
+            <td>Edit <code>~/.config/sandcastle/config.yml</code> and add <code>owner: alice</code></td>
           </tr>
           <tr>
             <td>Project reference</td>
@@ -368,11 +368,13 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
 # Optional:
 make install</code></pre>
 
-      <h3>2. Add the restricted Incus remote</h3>
-      <pre><code>incus remote add sandcastle-alice TOKEN_FROM_ADMIN
-export SANDCASTLE_REMOTE=sandcastle-alice
-export SANDCASTLE_OWNER=alice</code></pre>
-      <p class="small">Persist the exports in the developer's shell profile after the first successful run.</p>
+      <h3>2. Add the restricted remote</h3>
+      <pre><code>sc remote add sandcastle-alice JOIN_TOKEN_FROM_ADMIN</code></pre>
+      <p>This creates <code>~/.config/sandcastle/sandcastle-alice/incus/</code> with the Incus TLS certs and saves <code>sandcastle-alice</code> as the default remote in <code>~/.config/sandcastle/config.yml</code>. No env var exports needed.</p>
+      <p>Then set your owner name once:</p>
+      <pre><code># ~/.config/sandcastle/config.yml
+owner: alice
+remote: sandcastle-alice  # already set by sc remote add</code></pre>
 
       <h3>3. Check project visibility</h3>
       <pre><code>sc ls
