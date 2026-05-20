@@ -116,6 +116,8 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err := infraCreator.CreateInfrastructure(ctx, infraCreatePlan); err != nil {
 		t.Fatal(err)
 	}
+	infraServer := server.UseProject(infraProject)
+	registerInfrastructureCaddyDiagnostics(t, infraServer)
 
 	imageManager := incusx.NewImageManager(e2eConfig.Remote)
 	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
@@ -207,7 +209,6 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	startSandboxHTTPApp(t, targetServer, sandboxPlan.InstanceName, sandboxPlan.AppPort, publicBody)
 
 	certPEM, keyPEM := createRouteBrokerE2ECertificate(t, e2eConfig, server, owner)
-	infraServer := server.UseProject(infraProject)
 	certPath, keyPath := writeRouteBrokerClientFiles(t, infraServer, string(certPEM), string(keyPEM))
 	addRouteBrokerHostsEntry(t, infraServer, hostname, adminConfig.InfrastructureHost)
 
@@ -275,6 +276,41 @@ func publicRouteExternalCheckEnabled(config Config) bool {
 	return strings.TrimSpace(config.PublicRoutes.Domain) != "" &&
 		strings.TrimSpace(config.PublicRoutes.InfrastructureHost) != "" &&
 		strings.TrimSpace(config.PublicRoutes.LetsEncryptEmail) != ""
+}
+
+func registerInfrastructureCaddyDiagnostics(t *testing.T, server incus.InstanceServer) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		logInfrastructureCaddyDiagnostic(t, server)
+	})
+}
+
+func logInfrastructureCaddyDiagnostic(t *testing.T, server incus.InstanceServer) {
+	t.Helper()
+	reader, response, err := server.GetInstanceFile(route.InfrastructureCaddyName, "/etc/caddy/Caddyfile")
+	if err != nil {
+		t.Logf("diagnostics: infrastructure Caddyfile read failed: %v", err)
+		return
+	}
+	defer reader.Close()
+	if response.Type != "file" {
+		t.Logf("diagnostics: infrastructure Caddyfile type=%q", response.Type)
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, 16*1024))
+	if err != nil {
+		t.Logf("diagnostics: infrastructure Caddyfile content read failed: %v", err)
+		return
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		t.Log("diagnostics: infrastructure Caddyfile empty")
+		return
+	}
+	t.Logf("diagnostics: infrastructure Caddyfile:\n%s", indentDiagnosticContent(redactDiagnosticValue(content), "  "))
 }
 
 func waitForPublicHTTPSRoute(t *testing.T, hostname string, infrastructureHost string, want string) {

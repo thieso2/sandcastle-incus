@@ -1289,6 +1289,12 @@ development sandboxes.
 - Passed: `go test ./internal/cli ./internal/route -run 'Test(RouteAdd|PlanAdd)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Added failure-only route broker mutation e2e diagnostics that log the bounded
+  infrastructure Caddyfile, giving public route failures the actual rendered
+  ingress state from `sc-caddy`.
+- Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|ProjectDiagnostic|LogProjectDiagnostic)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
