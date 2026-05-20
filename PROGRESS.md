@@ -584,6 +584,9 @@ development sandboxes.
   run id.
 - Tightened failed-project e2e diagnostics so an empty or blank run id matches
   no projects instead of broadening to every managed project.
+- Added a best-effort cleanup step to the manual destructive e2e workflow. When
+  a non-cleanup tier fails and `SANDCASTLE_E2E_KEEP` is not `1`, the workflow
+  invokes `scripts/e2e.sh cleanup` with the selected run id.
 
 ## Next Slice
 
@@ -969,6 +972,9 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `go test ./internal/e2e -run 'Test(ProjectDiagnostic|LogProjectDiagnostics)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 
