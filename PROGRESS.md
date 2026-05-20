@@ -226,6 +226,9 @@ development sandboxes.
   The broker extracts the client certificate fingerprint from the mTLS
   connection, maps it to a Sandcastle owner, authorizes add/remove requests,
   plans route mutations, and delegates to the route manager.
+- Added an Incus-backed route broker trust mapper. Broker mTLS certificate
+  fingerprints can now be resolved against Incus trust state, accepting only
+  Sandcastle restricted user certificates named `sandcastle-<owner>`.
 
 ## Next Slice
 
@@ -339,6 +342,8 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker ./internal/route ./internal/incusx`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/routebroker ./internal/route ./internal/cli`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/incusx ./internal/routebroker`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`
