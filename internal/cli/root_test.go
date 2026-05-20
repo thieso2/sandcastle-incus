@@ -12,6 +12,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -313,6 +314,76 @@ func TestDNSStatusJSON(t *testing.T) {
 	}
 }
 
+func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "tailscale", "up", "alice/myproject", "--auth-key", "tskey-secret", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout, "tskey-secret") {
+		t.Fatalf("stdout leaked auth key: %s", stdout)
+	}
+	var payload tailscale.UpPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.InstanceName != project.TailscaleName {
+		t.Fatalf("InstanceName = %q", payload.InstanceName)
+	}
+	if !payload.HasAuthKey {
+		t.Fatal("expected HasAuthKey")
+	}
+}
+
+func TestTailscaleUpRunsExecutor(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeTailscaleRunner{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		tailscale: runner,
+	}, "tailscale", "up", "alice/myproject", "--auth-key", "tskey-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.called {
+		t.Fatal("expected tailscale runner call")
+	}
+	if runner.plan.InstanceName != project.TailscaleName {
+		t.Fatalf("InstanceName = %q", runner.plan.InstanceName)
+	}
+	if runner.plan.AuthKey != "tskey-secret" {
+		t.Fatalf("AuthKey = %q", runner.plan.AuthKey)
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
@@ -438,6 +509,17 @@ type fakeSandboxEnterer struct {
 }
 
 func (f *fakeSandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
+	f.called = true
+	f.plan = plan
+	return nil
+}
+
+type fakeTailscaleRunner struct {
+	called bool
+	plan   tailscale.UpPlan
+}
+
+func (f *fakeTailscaleRunner) RunUp(ctx context.Context, plan tailscale.UpPlan, session tailscale.RunSession) error {
 	f.called = true
 	f.plan = plan
 	return nil

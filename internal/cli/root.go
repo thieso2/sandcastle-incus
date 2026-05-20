@@ -13,6 +13,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -41,6 +42,7 @@ type commandConfig struct {
 	sandboxControl sandbox.Controller
 	sandboxPort    sandbox.PortSetter
 	dnsApplier     dns.Applier
+	tailscale      tailscale.Runner
 }
 
 type rootOptions struct {
@@ -68,6 +70,7 @@ func Execute(name string, args []string) int {
 		sandboxControl: incusx.NewSandboxController(adminConfig.Remote),
 		sandboxPort:    incusx.NewSandboxPortSetter(adminConfig.Remote),
 		dnsApplier:     incusx.NewDNSManager(adminConfig.Remote),
+		tailscale:      incusx.NewTailscaleManager(adminConfig.Remote),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
@@ -120,6 +123,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "rm", sandbox.ActionRemove, true))
 	root.AddCommand(newPortCommand(config, opts))
 	root.AddCommand(newDNSCommand(config, opts))
+	root.AddCommand(newTailscaleCommand(config, opts))
 	root.AddCommand(newAdminCommand(config, opts))
 
 	return root
