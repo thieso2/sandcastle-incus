@@ -158,8 +158,18 @@
   <h2>1. Environment setup</h2>
 
   <div class="step">
-    <h3>Required environment variables</h3>
-    <p>Set these before running any <code>sandcastle admin</code> command.</p>
+    <h3>Config file (recommended)</h3>
+    <p>Store your defaults in <code>~/.config/sandcastle/config.yml</code> so you don't need to set env vars on every call.</p>
+    <pre><code><span class="comment"># ~/.config/sandcastle/config.yml</span>
+owner: alice
+remote: sc-alice</code></pre>
+    <p>Once set, <code>sc add myproject/codex</code> works without any extra flags or exports.</p>
+    <p>Environment variables take precedence over the config file if both are set.</p>
+  </div>
+
+  <div class="step">
+    <h3>Admin environment variables</h3>
+    <p>Set these before running any <code>sandcastle admin</code> command. These override the config file.</p>
     <pre><code><span class="comment"># Incus remote name (default: local)</span>
 <span class="env">export SANDCASTLE_REMOTE</span>=big
 
@@ -174,13 +184,6 @@
 
 <span class="comment"># Let's Encrypt email for shared Caddy TLS</span>
 <span class="env">export SANDCASTLE_LETSENCRYPT_EMAIL</span>=ops@example.com</code></pre>
-  </div>
-
-  <div class="step">
-    <h3>Restricted user variables (non-admin)</h3>
-    <p>After adding a restricted Incus remote, set these to use <code>sandcastle add</code> and related commands.</p>
-    <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=alice        <span class="comment"># restricted remote added via `incus remote add`</span>
-<span class="env">export SANDCASTLE_OWNER</span>=alice          <span class="comment"># your username (matches the project owner)</span></code></pre>
   </div>
 
   <div class="step">
@@ -241,10 +244,9 @@ Certificate: sc-alice
 Remote: sc-alice
 Token: 7f3a...
 Bootstrap:
-  incus remote add sc-alice &lt;token&gt;
-  export SANDCASTLE_REMOTE=sc-alice
-  export SANDCASTLE_OWNER=alice</code></pre>
-    <div class="note"><strong>Share the bootstrap commands with the user.</strong> They run them on their machine to register the restricted Incus remote.</div>
+  sc remote add sc-alice &lt;addr&gt; --token &lt;token&gt;
+  # then edit ~/.config/sandcastle/config.yml and add:  owner: alice</code></pre>
+    <div class="note"><strong>Share the bootstrap commands with the user.</strong> They run <code>sc remote add</code> on their machine — this registers the remote and saves it as the default in <code>~/.config/sandcastle/config.yml</code>.</div>
   </div>
 
   <div class="step">
@@ -263,15 +265,24 @@ Bootstrap:
   <div class="step">
     <h3>User bootstrap (on the user's machine)</h3>
     <p>Run these commands after receiving the bootstrap output from admin.</p>
-    <pre><code><span class="comment"># Add the restricted Incus remote</span>
-<span class="cmd">incus remote add</span> <span class="arg">sc-alice</span> <span class="arg">&lt;token-from-admin&gt;</span>
+    <pre><code><span class="comment"># Add the remote — creates ~/.config/sandcastle/sc-alice/incus/ with certs</span>
+<span class="comment"># and sets sc-alice as the default remote in ~/.config/sandcastle/config.yml</span>
+<span class="cmd">sc remote add</span> <span class="arg">sc-alice</span> <span class="arg">&lt;addr-from-admin&gt;</span> <span class="flag">--token</span> <span class="arg">&lt;token-from-admin&gt;</span>
 
-<span class="comment"># Configure Sandcastle environment</span>
-<span class="env">export SANDCASTLE_REMOTE</span>=sc-alice
-<span class="env">export SANDCASTLE_OWNER</span>=alice
+<span class="comment"># Set your owner name in the config file</span>
+<span class="comment"># Edit ~/.config/sandcastle/config.yml and add:  owner: alice</span>
 
-<span class="comment"># Verify access</span>
-<span class="cmd">sandcastle ls</span></code></pre>
+<span class="comment"># Verify access — no env vars needed</span>
+<span class="cmd">sc ls</span></code></pre>
+    <div class="note"><strong>One-time setup.</strong> After <code>sc remote add</code> the remote is saved to <code>~/.config/sandcastle/config.yml</code> and all subsequent <code>sc</code> commands use it automatically — no <code>export SANDCASTLE_REMOTE=…</code> needed.</div>
+  </div>
+
+  <div class="step">
+    <h3>Use incus directly against your remote</h3>
+    <p><code>sc incus</code> wraps the <code>incus</code> CLI with the correct <code>INCUS_CONF</code> for the active remote.</p>
+    <pre><code><span class="cmd">sc incus</span> <span class="arg">ls</span>                          <span class="comment"># list instances in your project</span>
+<span class="cmd">sc incus</span> <span class="arg">project list</span>               <span class="comment"># list Incus projects you can access</span>
+<span class="cmd">sc incus</span> <span class="arg">exec sc-alice-myproject -- bash</span></code></pre>
   </div>
 </section>
 

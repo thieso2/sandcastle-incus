@@ -73,7 +73,10 @@ type rootOptions struct {
 
 // Execute runs the Sandcastle CLI and returns a process exit code.
 func Execute(name string, args []string) int {
-	adminConfig := scconfig.LoadAdminFromEnv()
+	adminConfig := scconfig.LoadAdmin()
+	if adminConfig.ConfigPath != "" {
+		os.Setenv("INCUS_CONF", adminConfig.ConfigPath)
+	}
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
@@ -161,7 +164,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 		config.projectStore = project.MemoryStore{}
 	}
 	if config.adminConfig.Remote == "" {
-		config.adminConfig = scconfig.LoadAdminFromEnv()
+		config.adminConfig = scconfig.LoadAdmin()
 	}
 
 	opts := &rootOptions{output: outputText}
@@ -202,6 +205,8 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newTrustCommand(config, opts))
 	root.AddCommand(newRouteCommand(config, opts))
 	root.AddCommand(newAdminCommand(config, opts))
+	root.AddCommand(newRemoteCommand(config, opts))
+	root.AddCommand(newIncusCommand(config, opts))
 
 	return root
 }
