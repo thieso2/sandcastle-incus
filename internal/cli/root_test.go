@@ -76,6 +76,30 @@ func TestVersionJSONUsesBinaryName(t *testing.T) {
 	}
 }
 
+func TestJSONFlagUsesJSONOutput(t *testing.T) {
+	stdout, err := executeForTest(t, "sandcastle", "--json", "version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload versionPayload
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Name != "sandcastle" {
+		t.Fatalf("payload.Name = %q, want sandcastle", payload.Name)
+	}
+}
+
+func TestJSONFlagRejectsExplicitTextOutput(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "--json", "--output", "text", "version")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--json") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestListJSONStartsEmpty(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "--output", "json", "ls")
 	if err != nil {

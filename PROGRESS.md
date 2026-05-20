@@ -1468,6 +1468,13 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `make e2e-safe`
+- Added the spec's global `--json` CLI shorthand as an alias for
+  `--output json`, with a fail-closed conflict when it is combined with an
+  explicit non-JSON `--output` value.
+- Passed: `go test ./internal/cli -run 'Test(Version|JSONFlag|ListJSON)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `make e2e-safe`
 
 ## Open Scope
 

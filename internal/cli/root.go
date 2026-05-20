@@ -165,13 +165,25 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	}
 
 	opts := &rootOptions{output: outputText}
+	var jsonOutput bool
 	root := &cobra.Command{
 		Use:           config.name,
 		Short:         "Manage Incus-backed Sandcastle development sandboxes",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if !jsonOutput {
+				return nil
+			}
+			if cmd.Root().PersistentFlags().Changed("output") && opts.output != outputJSON {
+				return fmt.Errorf("--json cannot be combined with --output %s", opts.output)
+			}
+			opts.output = outputJSON
+			return nil
+		},
 	}
 	root.PersistentFlags().Var(&opts.output, "output", "output format: text or json")
+	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "write JSON output")
 
 	root.AddCommand(newVersionCommand(config, opts))
 	root.AddCommand(newListCommand(config, opts))
