@@ -86,8 +86,9 @@ Tier meanings:
   and skip behavior.
 - `local`: unprivileged local e2e flows, currently local DNS
   install/forward/refresh/uninstall with temporary state.
-- `local-vm`: disposable-VM local mutation flows for local DNS, local CA trust,
-  and host override coverage. Requires `SANDCASTLE_E2E_LOCAL_VM=1`.
+- `local-vm`: disposable-VM local mutation flows for local DNS resolver state,
+  the platform DNS forwarder service, local CA trust, and host override
+  coverage. Requires `SANDCASTLE_E2E_LOCAL_VM=1`.
 - `incus`: destructive real-Incus flows, requiring `SANDCASTLE_E2E=1`.
 - `restricted`: restricted-client token, grant, and sandbox lifecycle flows
   through an HTTPS Incus remote, requiring `SANDCASTLE_E2E=1`, a non-local

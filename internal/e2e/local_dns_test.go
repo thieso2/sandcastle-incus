@@ -207,3 +207,175 @@ func e2eDNSQuery(name string) []byte {
 	packet = append(packet, 0x00, 0x00, 0x01, 0x00, 0x01)
 	return packet
 }
+
+func TestLocalDNSServiceInstallReloadUninstallE2E(t *testing.T) {
+	e2eConfig := LoadConfig()
+	if !e2eConfig.Enabled {
+		t.Skip("set SANDCASTLE_E2E=1 to run e2e tests")
+	}
+	if err := e2eConfig.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !e2eConfig.LocalVM {
+		t.Skip("set SANDCASTLE_E2E_LOCAL_VM=1 to run disposable-VM local DNS service e2e tests")
+	}
+
+	sandcastleBin := strings.TrimSpace(e2eConfig.SandcastleBin)
+	if sandcastleBin == "" {
+		sandcastleBin = buildSandcastleForE2E(t)
+	}
+	dir := t.TempDir()
+	t.Setenv("SANDCASTLE_BIN", sandcastleBin)
+	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(dir, "state", "dns.yaml"))
+	t.Setenv("SANDCASTLE_RESOLVER_DIR", filepath.Join(dir, "resolver"))
+
+	ctx := context.Background()
+	runID := e2eConfig.DisposableRunID()
+	owner := safeProjectName("owner-" + runID)
+	name := safeProjectName("dns-service-" + runID)
+	domain := name + "." + e2eConfig.DomainSuffix
+	ref := owner + "/" + name
+	store := localDNSProjectStore(t, owner, name, domain)
+	adminConfig := config.Admin{
+		Remote:                e2eConfig.Remote,
+		StoragePool:           e2eConfig.StoragePool,
+		CIDRPool:              e2eConfig.CIDRPool,
+		ProjectPrefix:         config.DefaultProjectPrefix,
+		InfrastructureProject: config.DefaultInfrastructureProject,
+		Images: config.Images{
+			Base: config.DefaultBaseImageAlias,
+			AI:   config.DefaultAIImageAlias,
+		},
+	}
+
+	upstreamOne := startE2EUDPResponder(t, []byte{0x03, 0x03})
+	upstreamTwo := startE2EUDPResponder(t, []byte{0x04, 0x04})
+	plan, err := localdns.PlanInstall(ctx, adminConfig, store, localdns.Request{Reference: ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.DNSEndpoint = upstreamOne
+	plan.Listen = localdns.DefaultListen()
+	manager := localdns.FileManager{}
+	if _, err := manager.Install(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+
+	serviceManager := localdns.FileServiceManager{}
+	uninstallBefore, err := localdns.PlanServiceUninstall()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = serviceManager.UninstallService(ctx, uninstallBefore)
+
+	installed := false
+	t.Cleanup(func() {
+		if !installed {
+			return
+		}
+		uninstallPlan, err := localdns.PlanServiceUninstall()
+		if err != nil {
+			t.Logf("plan local DNS service cleanup: %v", err)
+			return
+		}
+		if _, err := serviceManager.UninstallService(context.Background(), uninstallPlan); err != nil {
+			t.Logf("local DNS service cleanup failed: %v", err)
+		}
+	})
+
+	installServicePlan, err := localdns.PlanServiceInstall()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := serviceManager.InstallService(ctx, installServicePlan); err != nil {
+		t.Fatal(err)
+	}
+	installed = true
+	response := queryE2EForwarderEventually(t, localdns.DefaultListen(), e2eDNSQuery("codex."+domain))
+	if string(response) != string([]byte{0x03, 0x03}) {
+		t.Fatalf("service response = %#v", response)
+	}
+
+	refreshPlan, err := localdns.PlanRefresh(ctx, adminConfig, store, localdns.Request{Reference: ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshPlan.DNSEndpoint = upstreamTwo
+	refreshPlan.Listen = localdns.DefaultListen()
+	if _, err := manager.Refresh(ctx, refreshPlan); err != nil {
+		t.Fatal(err)
+	}
+	reloadPlan, err := localdns.PlanServiceReload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := serviceManager.ReloadService(ctx, reloadPlan); err != nil {
+		t.Fatal(err)
+	}
+	response = queryE2EForwarderEventually(t, localdns.DefaultListen(), e2eDNSQuery("codex."+domain))
+	if string(response) != string([]byte{0x04, 0x04}) {
+		t.Fatalf("service response after reload = %#v", response)
+	}
+
+	uninstallPlan, err := localdns.PlanServiceUninstall()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := serviceManager.UninstallService(ctx, uninstallPlan); err != nil {
+		t.Fatal(err)
+	}
+	installed = false
+	if _, err := os.Stat(uninstallPlan.ServicePath); !os.IsNotExist(err) {
+		t.Fatalf("expected service file removal, stat err = %v", err)
+	}
+	waitForE2EUDPStop(t, localdns.DefaultListen(), e2eDNSQuery("codex."+domain))
+}
+
+func queryE2EForwarderEventually(t *testing.T, addr string, packet []byte) []byte {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var last error
+	for time.Now().Before(deadline) {
+		response, err := queryE2EForwarderResult(addr, packet)
+		if err == nil {
+			return response
+		}
+		last = err
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("UDP listener %s did not respond: %v", addr, last)
+	return nil
+}
+
+func waitForE2EUDPStop(t *testing.T, addr string, packet []byte) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := queryE2EForwarderResult(addr, packet); err == nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		return
+	}
+	t.Fatalf("UDP listener %s did not stop", addr)
+}
+
+func queryE2EForwarderResult(addr string, packet []byte) ([]byte, error) {
+	conn, err := net.Dial("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		return nil, err
+	}
+	if _, err := conn.Write(packet); err != nil {
+		return nil, err
+	}
+	response := make([]byte, 4096)
+	n, err := conn.Read(response)
+	if err != nil {
+		return nil, err
+	}
+	return response[:n], nil
+}

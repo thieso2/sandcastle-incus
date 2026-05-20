@@ -403,6 +403,14 @@ development sandboxes.
   scoped to disposable VM runs.
 - The e2e harness now exposes `SANDCASTLE_E2E_LOCAL_VM` as `Config.LocalVM`, so
   future OS-level local DNS/trust/hosts tests can share the same safety gate.
+- Added disposable-VM local DNS service e2e coverage. `TestLocalDNSServiceInstallReloadUninstallE2E`
+  builds or uses a real Sandcastle binary, writes disposable DNS state, installs
+  the platform user service through the real `FileServiceManager`, verifies the
+  service forwards DNS packets, reloads it after state refresh, and verifies
+  uninstall removes the service file and stops responses.
+- Extended the `local-vm` runner tier to include all `TestLocalDNS.*E2E`
+  coverage so the resolver file flow and platform service flow run under the
+  same explicit disposable-VM gate.
 - Tightened `scripts/e2e.sh tailscale` and `scripts/e2e.sh images` so they fail
   closed in the runner when required image source, auth key, image build, and
   pinned AI CLI version environment variables are missing instead of relying on
@@ -528,8 +536,8 @@ development sandboxes.
 - Run `scripts/e2e.sh public-routes` against a real delegated public test
   domain and extend it to assert externally trusted Let’s Encrypt certificates
   over the public hostname.
-- Extend `scripts/e2e.sh local-vm` with OS-level resolver, service, trust store,
-  and `/etc/hosts` mutation assertions inside a disposable VM.
+- Extend `scripts/e2e.sh local-vm` with OS-level trust store and `/etc/hosts`
+  mutation assertions inside a disposable VM.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -810,6 +818,18 @@ development sandboxes.
   with the expected CLI add e2e skips when real e2e is unset.
 - Passed: `go test ./internal/cli ./internal/e2e -run 'Test(Add|CLIAdd|LoadConfig)' -count=1 -v`
   with the expected CLI add e2e skips when real e2e is unset.
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard
+  when `SANDCASTLE_E2E` is unset.
+- Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh local-vm` with the expected
+  disposable-VM guard when `SANDCASTLE_E2E_LOCAL_VM` is unset.
+- Passed: `go test ./internal/e2e -run 'Test(LocalDNS.*E2E|LoadConfig)' -count=1 -v`
+  with the expected local DNS e2e skips when real e2e is unset.
+- Passed: `SANDCASTLE_E2E=1 go test ./internal/e2e -run 'TestLocalDNSServiceInstallReloadUninstallE2E|TestLoadConfig' -count=1 -v`
+  with the expected local DNS service e2e skip when `SANDCASTLE_E2E_LOCAL_VM`
+  is unset.
 - Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
