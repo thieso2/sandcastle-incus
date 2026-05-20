@@ -64,8 +64,18 @@ type DenyListRefreshResult struct {
 	SpecialUse SpecialUseRefreshResult `json:"specialUse"`
 }
 
+type tldSnapshot struct {
+	result RefreshResult
+	source []byte
+}
+
+type specialUseSnapshot struct {
+	result SpecialUseRefreshResult
+	source []byte
+}
+
 func RefreshDenyListSnapshots(ctx context.Context, client *http.Client, request DenyListRefreshRequest) (DenyListRefreshResult, error) {
-	tld, err := RefreshTLDSnapshot(ctx, client, RefreshRequest{
+	tld, err := fetchTLDSnapshot(ctx, client, RefreshRequest{
 		SourceURL:  request.TLDSourceURL,
 		OutputPath: request.TLDOutputPath,
 		DryRun:     request.DryRun,
@@ -73,7 +83,7 @@ func RefreshDenyListSnapshots(ctx context.Context, client *http.Client, request 
 	if err != nil {
 		return DenyListRefreshResult{}, err
 	}
-	specialUse, err := RefreshSpecialUseSnapshot(ctx, client, SpecialUseRefreshRequest{
+	specialUse, err := fetchSpecialUseSnapshot(ctx, client, SpecialUseRefreshRequest{
 		SourceURL:  request.SpecialUseSourceURL,
 		OutputPath: request.SpecialUseOutputPath,
 		DryRun:     request.DryRun,
@@ -81,10 +91,32 @@ func RefreshDenyListSnapshots(ctx context.Context, client *http.Client, request 
 	if err != nil {
 		return DenyListRefreshResult{}, err
 	}
-	return DenyListRefreshResult{TLD: tld, SpecialUse: specialUse}, nil
+	if !request.DryRun {
+		if err := writeGeneratedSource(tld.result.OutputPath, tld.source); err != nil {
+			return DenyListRefreshResult{}, err
+		}
+		if err := writeGeneratedSource(specialUse.result.OutputPath, specialUse.source); err != nil {
+			return DenyListRefreshResult{}, err
+		}
+	}
+	return DenyListRefreshResult{TLD: tld.result, SpecialUse: specialUse.result}, nil
 }
 
 func RefreshTLDSnapshot(ctx context.Context, client *http.Client, request RefreshRequest) (RefreshResult, error) {
+	snapshot, err := fetchTLDSnapshot(ctx, client, request)
+	if err != nil {
+		return RefreshResult{}, err
+	}
+	if request.DryRun {
+		return snapshot.result, nil
+	}
+	if err := writeGeneratedSource(snapshot.result.OutputPath, snapshot.source); err != nil {
+		return RefreshResult{}, err
+	}
+	return snapshot.result, nil
+}
+
+func fetchTLDSnapshot(ctx context.Context, client *http.Client, request RefreshRequest) (tldSnapshot, error) {
 	sourceURL := strings.TrimSpace(request.SourceURL)
 	if sourceURL == "" {
 		sourceURL = IANAAlphaTLDURL
@@ -98,23 +130,23 @@ func RefreshTLDSnapshot(ctx context.Context, client *http.Client, request Refres
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
-		return RefreshResult{}, err
+		return tldSnapshot{}, err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return RefreshResult{}, err
+		return tldSnapshot{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return RefreshResult{}, fmt.Errorf("fetch IANA TLD list: %s", resp.Status)
+		return tldSnapshot{}, fmt.Errorf("fetch IANA TLD list: %s", resp.Status)
 	}
 	tlds, err := ParseIANAAlphaTLDs(resp.Body)
 	if err != nil {
-		return RefreshResult{}, err
+		return tldSnapshot{}, err
 	}
 	source, err := GenerateTLDSnapshotSource(tlds)
 	if err != nil {
-		return RefreshResult{}, err
+		return tldSnapshot{}, err
 	}
 	result := RefreshResult{
 		SourceURL:  sourceURL,
@@ -123,19 +155,24 @@ func RefreshTLDSnapshot(ctx context.Context, client *http.Client, request Refres
 		TLDs:       tlds,
 		Written:    !request.DryRun,
 	}
-	if request.DryRun {
-		return result, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return RefreshResult{}, err
-	}
-	if err := os.WriteFile(outputPath, source, 0o644); err != nil {
-		return RefreshResult{}, err
-	}
-	return result, nil
+	return tldSnapshot{result: result, source: source}, nil
 }
 
 func RefreshSpecialUseSnapshot(ctx context.Context, client *http.Client, request SpecialUseRefreshRequest) (SpecialUseRefreshResult, error) {
+	snapshot, err := fetchSpecialUseSnapshot(ctx, client, request)
+	if err != nil {
+		return SpecialUseRefreshResult{}, err
+	}
+	if request.DryRun {
+		return snapshot.result, nil
+	}
+	if err := writeGeneratedSource(snapshot.result.OutputPath, snapshot.source); err != nil {
+		return SpecialUseRefreshResult{}, err
+	}
+	return snapshot.result, nil
+}
+
+func fetchSpecialUseSnapshot(ctx context.Context, client *http.Client, request SpecialUseRefreshRequest) (specialUseSnapshot, error) {
 	sourceURL := strings.TrimSpace(request.SourceURL)
 	if sourceURL == "" {
 		sourceURL = IANASpecialUseDomainCSVURL
@@ -149,23 +186,23 @@ func RefreshSpecialUseSnapshot(ctx context.Context, client *http.Client, request
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
-		return SpecialUseRefreshResult{}, err
+		return specialUseSnapshot{}, err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return SpecialUseRefreshResult{}, err
+		return specialUseSnapshot{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return SpecialUseRefreshResult{}, fmt.Errorf("fetch IANA special-use domain list: %s", resp.Status)
+		return specialUseSnapshot{}, fmt.Errorf("fetch IANA special-use domain list: %s", resp.Status)
 	}
 	names, err := ParseIANASpecialUseDomains(resp.Body)
 	if err != nil {
-		return SpecialUseRefreshResult{}, err
+		return specialUseSnapshot{}, err
 	}
 	source, err := GenerateSpecialUseSnapshotSource(names)
 	if err != nil {
-		return SpecialUseRefreshResult{}, err
+		return specialUseSnapshot{}, err
 	}
 	result := SpecialUseRefreshResult{
 		SourceURL:  sourceURL,
@@ -174,16 +211,7 @@ func RefreshSpecialUseSnapshot(ctx context.Context, client *http.Client, request
 		Names:      names,
 		Written:    !request.DryRun,
 	}
-	if request.DryRun {
-		return result, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return SpecialUseRefreshResult{}, err
-	}
-	if err := os.WriteFile(outputPath, source, 0o644); err != nil {
-		return SpecialUseRefreshResult{}, err
-	}
-	return result, nil
+	return specialUseSnapshot{result: result, source: source}, nil
 }
 
 func ParseIANAAlphaTLDs(reader io.Reader) ([]string, error) {
@@ -317,4 +345,11 @@ func validDomainName(name string) bool {
 		}
 	}
 	return true
+}
+
+func writeGeneratedSource(outputPath string, source []byte) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(outputPath, source, 0o644)
 }

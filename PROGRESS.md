@@ -1350,6 +1350,13 @@ development sandboxes.
 - Passed: `go run ./cmd/sandcastle --output json admin tld refresh --dry-run`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Tightened the combined deny-list refresh path so it fetches and validates both
+  the public TLD and special-use domain snapshots before writing either
+  generated file, avoiding partial updates when one source is invalid.
+- Passed: `go test ./internal/domain -count=1 -v`
+- Passed: `go run ./cmd/sandcastle --output json admin tld refresh --dry-run >/tmp/sandcastle-tld-refresh.json && rg '"count": 42|"specialUse"|"written": false' /tmp/sandcastle-tld-refresh.json`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

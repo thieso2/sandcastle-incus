@@ -166,3 +166,36 @@ func TestRefreshDenyListSnapshots(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 }
+
+func TestRefreshDenyListSnapshotsDoesNotWritePartialOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tlds":
+			_, _ = w.Write([]byte("COM\nORG\n"))
+		case "/special-use":
+			_, _ = w.Write([]byte("Name,Reference\nbad_name.,[RFC]\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	tldOutput := filepath.Join(dir, "tld_snapshot_generated.go")
+	specialUseOutput := filepath.Join(dir, "special_use_snapshot_generated.go")
+	_, err := RefreshDenyListSnapshots(context.Background(), server.Client(), DenyListRefreshRequest{
+		TLDSourceURL:         server.URL + "/tlds",
+		TLDOutputPath:        tldOutput,
+		SpecialUseSourceURL:  server.URL + "/special-use",
+		SpecialUseOutputPath: specialUseOutput,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if _, err := os.Stat(tldOutput); !os.IsNotExist(err) {
+		t.Fatalf("expected no partial TLD output, stat err = %v", err)
+	}
+	if _, err := os.Stat(specialUseOutput); !os.IsNotExist(err) {
+		t.Fatalf("expected no special-use output, stat err = %v", err)
+	}
+}
