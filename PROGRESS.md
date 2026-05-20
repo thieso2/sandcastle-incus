@@ -39,11 +39,16 @@ development sandboxes.
 - Extended `.env.default` with the admin/default CLI configuration variables.
 - Added `sandcastle admin project list` / `ls` command shape backed by the same
   project listing service as `sandcastle ls`.
+- Added `internal/incusx` Incus SDK adapter for project metadata listing via
+  the existing Incus CLI config and `GetProjects()`.
+- Wired production `sandcastle`/`sc` execution to use the Incus-backed project
+  store by default, while unit tests still inject fake stores.
 
 ## Next Slice
 
-- Add the Incus SDK adapter for project metadata listing.
 - Add initial admin project create planning/orchestration types.
+- Add real-Incus e2e detection for project listing, gated by
+  `SANDCASTLE_E2E=1`.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -61,10 +66,12 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle admin project list`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && go build -o bin/sc ./cmd/sc`
+- Passed: `./bin/sandcastle version && ./bin/sc version`
 
 ## Open Scope
 
-- Metadata, naming, CIDR allocation, Incus access, restricted certificates,
-  project creation, sandbox lifecycle, DNS, certificates, Tailscale execution,
-  local DNS/trust, host overrides, public routes, and full real-Incus e2e
-  remain to be implemented.
+- Restricted certificates, project creation, sandbox lifecycle, DNS,
+  certificates, Tailscale execution, local DNS/trust, host overrides, public
+  routes, and full real-Incus e2e remain to be implemented.

@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 )
 
@@ -32,10 +34,14 @@ type rootOptions struct {
 
 // Execute runs the Sandcastle CLI and returns a process exit code.
 func Execute(name string, args []string) int {
+	adminConfig := config.LoadAdminFromEnv()
 	cmd := NewRootCommand(commandConfig{
 		name:   name,
 		stdout: os.Stdout,
 		stderr: os.Stderr,
+		projectStore: incusx.NewProjectStore(
+			adminConfig.Remote,
+		),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
