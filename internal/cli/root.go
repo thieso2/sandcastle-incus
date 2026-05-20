@@ -207,6 +207,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminCommand(config, opts))
 	root.AddCommand(newRemoteCommand(config, opts))
 	root.AddCommand(newIncusCommand(config, opts))
+	root.AddCommand(newConfigCommand(config, opts))
 
 	return root
 }
