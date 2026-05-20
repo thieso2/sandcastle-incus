@@ -1109,6 +1109,10 @@ development sandboxes.
 - Passed: `go test ./internal/localdns -run TestForwarderRoutesByStateAndReloads -count=50`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Added `sandcastle add --background` as the documented alias for `--detach`.
+- Passed: `go test ./internal/cli -run 'TestAdd(Detach|Background|Enters)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

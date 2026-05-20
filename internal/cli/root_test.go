@@ -405,6 +405,39 @@ func TestAddDetachSkipsEnter(t *testing.T) {
 	}
 }
 
+func TestAddBackgroundSkipsEnter(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeSandboxCreator{}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		sandboxCreator: creator,
+		sandboxEnterer: enterer,
+	}, "add", "alice/myproject/codex", "--background")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creator.plan.InstanceName != "sc-codex" {
+		t.Fatalf("created instance = %q", creator.plan.InstanceName)
+	}
+	if enterer.called {
+		t.Fatal("expected add --background to skip enter")
+	}
+}
+
 func TestAddEntersAfterCreateByDefault(t *testing.T) {
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",

@@ -61,6 +61,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the sandbox creation plan without creating a container")
 	command.Flags().BoolVar(&detach, "detach", false, "create the sandbox without entering it")
+	command.Flags().BoolVar(&detach, "background", false, "create the sandbox without entering it")
 	command.Flags().StringVar(&template, "template", "", "sandbox template to use (ai or base)")
 	command.Flags().IntVar(&appPort, "app-port", 0, "application port proxied by sandbox Caddy")
 	command.Flags().StringVar(&homeDir, "home-dir", "", "project home volume subdirectory")
