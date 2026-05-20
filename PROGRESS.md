@@ -605,6 +605,9 @@ development sandboxes.
   destructive non-cleanup tiers, keeping local DNS e2e names traceable.
 - Hardened the local DNS e2e forwarder query helper against the brief UDP
   startup race exposed by repeated `scripts/e2e.sh local` runs.
+- Tightened checked-in e2e runner help and the e2e plan examples so the
+  Tailscale, image, and public route tier commands show the same required
+  environment variables enforced by `scripts/e2e.sh`.
 
 ## Next Slice
 
@@ -1015,6 +1018,9 @@ development sandboxes.
 - Passed after retry hardening: `scripts/e2e.sh local` three additional times.
 - Passed: `go test ./internal/e2e -run 'Test(LocalDNSInstallForwardRefreshUninstallE2E|LoadConfig)' -count=1 -v`
   with the expected local DNS e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 
