@@ -295,6 +295,10 @@ development sandboxes.
   execution. `TestCLIEnterCommandE2E` creates a disposable project and sandbox,
   then invokes the production CLI entrypoint with `enter <owner/project/name>
   pwd` to verify non-interactive command execution without requiring a test TTY.
+- Added gated restricted-user token e2e coverage. `TestRestrictedUserTokenE2E`
+  creates a disposable `sandcastle-<user>` certificate add token through the
+  Incus trust executor and decodes it to verify client name, secret,
+  fingerprint, and server addresses without adding a trusted client cert.
 
 ## Next Slice
 
@@ -307,8 +311,8 @@ development sandboxes.
   include the `sandcastle` binary and systemd services.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
-- Add restricted-user e2e path for certificate/token grant verification after
-  token bootstrap can be exercised safely.
+- Add restricted cert grant/access verification after safe disposable client
+  certificate bootstrap is available.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -469,10 +473,11 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|LoadConfig)' -count=1 -v` with the expected sandbox lifecycle skip when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected CLI add skip when real e2e is unset.
 - Passed: `go test ./internal/sandbox ./internal/incusx ./internal/cli ./internal/e2e -run 'Test(PlanEnter|SandboxEnterer|EnterCommand|CLIEnterCommandE2E|LoadConfig)' -count=1 -v` with the expected CLI enter e2e skip when real e2e is unset.
+- Passed: `go test ./internal/e2e -run 'Test(RestrictedUserTokenE2E|LoadConfig)' -count=1 -v` with the expected restricted-user token e2e skip when real e2e is unset.
 
 ## Open Scope
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
-  disposable images in CI/dev, restricted-user e2e, full Tailscale network e2e,
-  local DNS service install/reload wrappers, route broker mTLS e2e, and broader
-  real-Incus coverage remain open.
+  disposable images in CI/dev, restricted cert grant/access e2e, full Tailscale
+  network e2e, local DNS service install/reload wrappers, route broker mTLS e2e,
+  and broader real-Incus coverage remain open.
