@@ -39,6 +39,7 @@ type Project struct {
 	Domain          string        `json:"domain"`
 	PrivateCIDR     string        `json:"privateCIDR"`
 	DefaultTemplate string        `json:"defaultTemplate"`
+	SSHPublicKey    string        `json:"sshPublicKey,omitempty"`
 	Tailscale       Tailscale     `json:"tailscale,omitempty"`
 	Sandboxes       []SandboxRef  `json:"sandboxes,omitempty"`
 	PublicRoutes    []PublicRoute `json:"publicRoutes,omitempty"`

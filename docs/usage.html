@@ -209,8 +209,16 @@ remote: sc-alice</code></pre>
     <p>Provisions an Incus project with private bridge network, storage volumes, Tailscale sidecar, and CoreDNS sidecar.</p>
     <pre><code><span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span></code></pre>
     <div class="note"><strong>Note:</strong> The <code>--domain</code> flag is required. It sets the private DNS zone for all sandboxes in the project (e.g. <code>mysandbox.myproject.dev.example.com</code>).</div>
+    <pre><code><span class="comment"># Inject an SSH public key into every sandbox at creation time</span>
+<span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--ssh-key</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
     <pre><code><span class="comment"># Preview what will be created without mutating anything</span>
 <span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--dry-run</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Set or update project SSH key</h3>
+    <p>Update the SSH public key stored on an existing project. The new key will be injected into all sandboxes created after this point.</p>
+    <pre><code><span class="cmd">sandcastle admin project set-ssh-key</span> <span class="arg">alice/myproject</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
   </div>
 
   <div class="step">
@@ -554,6 +562,7 @@ Bootstrap:
         <tr><td>sandcastle route list</td><td>List published routes</td></tr>
         <tr><td>sandcastle route rm &lt;host&gt;</td><td>Remove a public route</td></tr>
         <tr><td>sandcastle admin project create</td><td>Create a new project</td></tr>
+        <tr><td>sandcastle admin project set-ssh-key</td><td>Set or update project SSH public key</td></tr>
         <tr><td>sandcastle admin project delete</td><td>Delete a project</td></tr>
         <tr><td>sandcastle admin user create &lt;user&gt;</td><td>Create restricted user certificate</td></tr>
         <tr><td>sandcastle admin user grant &lt;user&gt; &lt;proj&gt;...</td><td>Grant project access to user</td></tr>

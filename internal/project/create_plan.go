@@ -43,6 +43,7 @@ func PrivateNetworkName(incusProjectName string) string {
 type CreateRequest struct {
 	Reference     string
 	Domain        string
+	SSHPublicKey  string
 	OccupiedCIDRs []string
 	DomainClaims  []DomainClaim
 }
@@ -60,6 +61,7 @@ type CreatePlan struct {
 	PrivateCIDR           string            `json:"privateCIDR"`
 	PrivateNetwork        string            `json:"privateNetwork"`
 	StoragePool           string            `json:"storagePool"`
+	AdminStoragePool      string            `json:"adminStoragePool"`
 	HomeVolume            string            `json:"homeVolume"`
 	WorkspaceVolume       string            `json:"workspaceVolume"`
 	CAVolume              string            `json:"caVolume"`
@@ -138,6 +140,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		Domain:          projectDomain,
 		PrivateCIDR:     projectCIDR.String(),
 		DefaultTemplate: "ai",
+		SSHPublicKey:    request.SSHPublicKey,
 		Tailscale: meta.Tailscale{
 			State: meta.TailscaleStateRunningLoggedOut,
 		},
@@ -161,7 +164,8 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		Domain:            projectDomain,
 		PrivateCIDR:       projectCIDR.String(),
 		PrivateNetwork:    PrivateNetworkName(incusName),
-		StoragePool:       admin.StoragePool,
+		StoragePool:       incusName,
+		AdminStoragePool:  admin.StoragePool,
 		HomeVolume:        HomeVolumeName,
 		WorkspaceVolume:   WorkspaceVolumeName,
 		CAVolume:          CAVolumeName,
@@ -226,16 +230,16 @@ func sidecarPlan(ref naming.ProjectRef, admin config.Admin, incusName string, na
 			meta.KeyName:    name,
 			meta.KeyVersion: "1",
 		},
-		Devices: sidecarDevices(admin, incusName, role, address),
+		Devices: sidecarDevices(incusName, incusName, role, address),
 		Start:   true,
 	}
 }
 
-func sidecarDevices(admin config.Admin, incusName string, role string, address string) map[string]Device {
+func sidecarDevices(storagePool string, incusName string, role string, address string) map[string]Device {
 	devices := map[string]Device{
 		"root": {
 			"type": "disk",
-			"pool": admin.StoragePool,
+			"pool": storagePool,
 			"path": "/",
 		},
 		"eth0": {

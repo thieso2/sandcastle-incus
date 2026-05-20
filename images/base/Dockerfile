@@ -14,12 +14,17 @@ RUN apt-get update \
         dbus \
         ethtool \
         iproute2 \
+        iputils-ping \
+        lsof \
+        netcat-openbsd \
+        net-tools \
         openssh-server \
         python3 \
         sudo \
         systemd \
         systemd-sysv \
         tar \
+        traceroute \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \

@@ -4,6 +4,7 @@ set -euo pipefail
 user_name="${SANDCASTLE_USER:-sandcastle}"
 user_id="${SANDCASTLE_UID:-1000}"
 group_id="${SANDCASTLE_GID:-1000}"
+ssh_public_key="${SANDCASTLE_SSH_PUBLIC_KEY:-}"
 
 if ! getent group "${user_name}" >/dev/null 2>&1; then
   groupadd --gid "${group_id}" "${user_name}"
@@ -16,5 +17,24 @@ if ! id -u "${user_name}" >/dev/null 2>&1; then
   chmod 0440 /etc/sudoers.d/sandcastle-user
 fi
 
+# Add user to docker group if it exists
+if getent group docker >/dev/null 2>&1; then
+  usermod -aG docker "${user_name}"
+fi
+
 install -d -o "${user_name}" -g "${user_name}" "/home/${user_name}"
 install -d -o "${user_name}" -g "${user_name}" /workspace
+
+# Inject SSH public key for both root and the sandbox user
+if [[ -n "${ssh_public_key}" ]]; then
+  for home_dir in /root "/home/${user_name}"; do
+    install -d -m 0700 -o root -g root "${home_dir}/.ssh" 2>/dev/null || true
+    chown "${user_name}:${user_name}" "/home/${user_name}/.ssh" 2>/dev/null || true
+    auth_keys="${home_dir}/.ssh/authorized_keys"
+    if ! grep -qF "${ssh_public_key}" "${auth_keys}" 2>/dev/null; then
+      printf '%s\n' "${ssh_public_key}" >> "${auth_keys}"
+    fi
+    chmod 0600 "${auth_keys}"
+  done
+  chown -R "${user_name}:${user_name}" "/home/${user_name}/.ssh"
+fi

@@ -54,6 +54,7 @@ type CreatePlan struct {
 	PrivateIP        string            `json:"privateIP"`
 	AppPort          int               `json:"appPort"`
 	LinuxUser        string            `json:"linuxUser"`
+	SSHPublicKey     string            `json:"sshPublicKey,omitempty"`
 	HomeDir          string            `json:"homeDir"`
 	WorkspaceDir     string            `json:"workspaceDir"`
 	StoragePool      string            `json:"storagePool"`
@@ -206,6 +207,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		StartsByDefault:  true,
 		CaddyFile:        caddyFile,
 		CertificateFiles: certificateFiles,
+		SSHPublicKey:     summary.SSHPublicKey,
 	}, nil
 }
 

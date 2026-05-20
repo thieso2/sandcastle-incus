@@ -108,6 +108,16 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 	if err := bootstrapSandboxUser(server, plan); err != nil {
 		return err
 	}
+	if plan.Project.DNSAddress != "" {
+		if err := server.CreateInstanceFile(plan.InstanceName, "/etc/resolv.conf", incus.InstanceFileArgs{
+			Content:   strings.NewReader("nameserver " + plan.Project.DNSAddress + "\n"),
+			Type:      "file",
+			Mode:      0o644,
+			WriteMode: "overwrite",
+		}); err != nil {
+			return fmt.Errorf("write sandbox resolv.conf: %w", err)
+		}
+	}
 	certificateFiles := plan.CertificateFiles
 	if len(certificateFiles) == 0 {
 		var err error
@@ -182,9 +192,10 @@ func bootstrapSandboxUser(server SandboxResourceServer, plan sandbox.CreatePlan)
 	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
 		Command: []string{"/usr/local/bin/sandcastle-bootstrap"},
 		Environment: map[string]string{
-			"SANDCASTLE_USER": plan.LinuxUser,
-			"SANDCASTLE_UID":  fmt.Sprintf("%d", sandbox.DefaultLinuxUID),
-			"SANDCASTLE_GID":  fmt.Sprintf("%d", sandbox.DefaultLinuxGID),
+			"SANDCASTLE_USER":           plan.LinuxUser,
+			"SANDCASTLE_UID":            fmt.Sprintf("%d", sandbox.DefaultLinuxUID),
+			"SANDCASTLE_GID":            fmt.Sprintf("%d", sandbox.DefaultLinuxGID),
+			"SANDCASTLE_SSH_PUBLIC_KEY": plan.SSHPublicKey,
 		},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{

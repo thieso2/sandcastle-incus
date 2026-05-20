@@ -49,6 +49,7 @@ func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	project.AddCommand(newAdminProjectStatusCommand(config, opts))
 	project.AddCommand(newAdminProjectCreateCommand(config, opts))
 	project.AddCommand(newAdminProjectDeleteCommand(config, opts))
+	project.AddCommand(newAdminProjectSetSSHKeyCommand(config))
 	return project
 }
 
@@ -93,6 +94,7 @@ func newAdminProjectStatusCommand(config commandConfig, opts *rootOptions) *cobr
 func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var domain string
 	var dryRun bool
+	var sshKey string
 	command := &cobra.Command{
 		Use:   "create owner/project",
 		Short: "Create a Sandcastle project",
@@ -111,6 +113,7 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 			plan, err := project.PlanCreate(config.adminConfig, project.CreateRequest{
 				Reference:     args[0],
 				Domain:        domain,
+				SSHPublicKey:  sshKey,
 				OccupiedCIDRs: occupiedCIDRs,
 				DomainClaims:  domainClaims,
 			})
@@ -129,6 +132,7 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 		},
 	}
 	command.Flags().StringVar(&domain, "domain", "", "private project DNS domain")
+	command.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key to inject into all sandbox containers")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the Incus creation plan without mutating resources")
 	_ = command.MarkFlagRequired("domain")
 	return command
@@ -176,6 +180,24 @@ func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 	command.Flags().BoolVar(&yes, "yes", false, "confirm project deletion")
 	command.Flags().BoolVar(&purge, "purge", false, "delete durable project volumes and the Incus project")
 	return command
+}
+
+func newAdminProjectSetSSHKeyCommand(config commandConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "set-ssh-key owner/project key",
+		Short: "Set or update the SSH public key for a Sandcastle project",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if config.projectSSHKeyUpdater == nil {
+				return fmt.Errorf("project SSH key updater is not configured")
+			}
+			ref, err := project.ParseRef(config.adminConfig, args[0])
+			if err != nil {
+				return err
+			}
+			return config.projectSSHKeyUpdater.SetProjectSSHKey(cmd.Context(), ref.IncusProject, args[1])
+		},
+	}
 }
 
 func formatDeletePlan(plan project.DeletePlan) string {

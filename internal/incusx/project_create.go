@@ -287,12 +287,19 @@ func configureSidecarNetwork(server ProjectResourceServer, sidecar project.Sidec
 	}
 	var stderr strings.Builder
 	dataDone := make(chan bool)
+	cmds := []string{
+		"/usr/sbin/ip link set eth0 up",
+		"/usr/sbin/ip addr add " + ipWithPrefix + " dev eth0 2>/dev/null || true",
+		"/usr/sbin/ip route add default via " + gateway + " 2>/dev/null || true",
+	}
+	if sidecar.Role == "dns" {
+		cmds = append(cmds,
+			"systemctl stop tailscale.service 2>/dev/null || true",
+			"systemctl mask tailscale.service",
+		)
+	}
 	op, err := server.ExecInstance(sidecar.Name, api.InstanceExecPost{
-		Command: []string{"/bin/sh", "-c", strings.Join([]string{
-			"/usr/sbin/ip link set eth0 up",
-			"/usr/sbin/ip addr add " + ipWithPrefix + " dev eth0 2>/dev/null || true",
-			"/usr/sbin/ip route add default via " + gateway + " 2>/dev/null || true",
-		}, " && ")},
+		Command:   []string{"/bin/sh", "-c", strings.Join(cmds, " && ")},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{
 		Stdin:    strings.NewReader(""),

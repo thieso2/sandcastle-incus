@@ -3,8 +3,10 @@ package project
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"sort"
 
+	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
 
@@ -23,7 +25,9 @@ type Summary struct {
 	Name            string             `json:"name"`
 	Domain          string             `json:"domain,omitempty"`
 	PrivateCIDR     string             `json:"privateCIDR,omitempty"`
+	DNSAddress      string             `json:"dnsAddress,omitempty"`
 	DefaultTemplate string             `json:"defaultTemplate,omitempty"`
+	SSHPublicKey    string             `json:"sshPublicKey,omitempty"`
 	Status          string             `json:"status"`
 	Tailscale       meta.Tailscale     `json:"tailscale,omitempty"`
 	PublicRoutes    []meta.PublicRoute `json:"publicRoutes,omitempty"`
@@ -49,7 +53,9 @@ func List(ctx context.Context, store IncusProjectStore) ([]Summary, error) {
 			Name:            project.Project,
 			Domain:          project.Domain,
 			PrivateCIDR:     project.PrivateCIDR,
+			DNSAddress:      dnsAddressFromCIDR(project.PrivateCIDR),
 			DefaultTemplate: project.DefaultTemplate,
+			SSHPublicKey:    project.SSHPublicKey,
 			Status:          "managed",
 			Tailscale:       project.Tailscale,
 			PublicRoutes:    append([]meta.PublicRoute{}, project.PublicRoutes...),
@@ -72,6 +78,18 @@ func OccupiedCIDRs(projects []Summary) []string {
 		}
 	}
 	return cidrs
+}
+
+func dnsAddressFromCIDR(privateCIDR string) string {
+	prefix, err := netip.ParsePrefix(privateCIDR)
+	if err != nil {
+		return ""
+	}
+	addr, err := cidr.RoleAddress(prefix, 53)
+	if err != nil {
+		return ""
+	}
+	return addr.String()
 }
 
 type MemoryStore struct {

@@ -40,8 +40,9 @@ type commandConfig struct {
 	stderr          io.Writer
 	projectStore    project.IncusProjectStore
 	adminConfig     scconfig.Admin
-	projectCreator  project.Creator
-	projectDeleter  project.Deleter
+	projectCreator      project.Creator
+	projectDeleter      project.Deleter
+	projectSSHKeyUpdater project.SSHKeyUpdater
 	infraCreator    infra.Creator
 	infraDeleter    infra.Deleter
 	imageManager    images.Manager
@@ -90,8 +91,9 @@ func Execute(name string, args []string) int {
 		projectStore: incusx.NewProjectStore(
 			adminConfig.Remote,
 		),
-		projectCreator:  incusx.NewProjectCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		projectDeleter:  incusx.NewProjectDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		projectCreator:       incusx.NewProjectCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		projectDeleter:       incusx.NewProjectDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		projectSSHKeyUpdater: incusx.NewProjectSSHKeyManager(adminConfig.Remote),
 		infraCreator:    incusx.NewInfrastructureCreator(adminConfig.Remote),
 		infraDeleter:    incusx.NewInfrastructureDeleter(adminConfig.Remote),
 		imageManager:    incusx.NewImageManager(adminConfig.Remote),
