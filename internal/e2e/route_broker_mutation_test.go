@@ -65,6 +65,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	}
 	hostname := "route-" + safeToken(runID) + "." + publicDomain
 	unownedHostname := "unowned-route-" + safeToken(runID) + "." + publicDomain
+	dnsFailHostname := "dns-fail-route-" + safeToken(runID) + "." + publicDomain
 	infrastructureHost := strings.TrimSpace(e2eConfig.PublicRoutes.InfrastructureHost)
 	if infrastructureHost == "" {
 		infrastructureHost = "127.0.0.1"
@@ -211,11 +212,12 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	certPEM, keyPEM := createRouteBrokerE2ECertificate(t, e2eConfig, server, owner)
 	certPath, keyPath := writeRouteBrokerClientFiles(t, infraServer, string(certPEM), string(keyPEM))
 	addRouteBrokerHostsEntry(t, infraServer, hostname, adminConfig.InfrastructureHost)
+	addRouteBrokerHostsEntry(t, infraServer, dnsFailHostname, wrongInfrastructureHost(adminConfig.InfrastructureHost))
 
 	output := execInstanceOutput(t, infraServer, infra.RouteBrokerName, []string{
-		"python3", "-c", routeBrokerAddProbeScript(certPath, keyPath, hostname, sandboxRef, unownedHostname, otherSandboxRef),
+		"python3", "-c", routeBrokerAddProbeScript(certPath, keyPath, hostname, sandboxRef, unownedHostname, otherSandboxRef, dnsFailHostname),
 	})
-	for _, want := range []string{"UNOWNED 403", "ADD 201", "LIST-ADD 200"} {
+	for _, want := range []string{"UNOWNED 403", "DNS-PROOF 400", "ADD 201", "LIST-ADD 200"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("broker mutation output missing %q:\n%s", want, output)
 		}
@@ -270,6 +272,10 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 		t.Fatalf("expected no route profile for rejected unowned route %s, err = %v", unownedHostname, err)
 	}
 	assertInfrastructureRouteAbsent(t, infraServer, unownedHostname)
+	if _, _, err := infraServer.GetProfile(route.ProfileName(dnsFailHostname)); !api.StatusErrorCheck(err, 404) {
+		t.Fatalf("expected no route profile for rejected DNS proof route %s, err = %v", dnsFailHostname, err)
+	}
+	assertInfrastructureRouteAbsent(t, infraServer, dnsFailHostname)
 }
 
 func publicRouteExternalCheckEnabled(config Config) bool {
@@ -360,6 +366,13 @@ func hostPort(host string, defaultPort string) string {
 	return net.JoinHostPort(host, defaultPort)
 }
 
+func wrongInfrastructureHost(target string) string {
+	if strings.TrimSpace(target) == "198.51.100.254" {
+		return "198.51.100.253"
+	}
+	return "198.51.100.254"
+}
+
 func assertInfrastructureRoutePort(t *testing.T, server incus.InstanceServer, hostname string, targetIP string, routePort int) {
 	t.Helper()
 	caddyfile := readInstanceFile(t, server, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile")
@@ -417,7 +430,7 @@ func addRouteBrokerHostsEntry(t *testing.T, server incus.InstanceServer, hostnam
 	})
 }
 
-func routeBrokerAddProbeScript(certPath string, keyPath string, hostname string, targetRef string, unownedHostname string, unownedTargetRef string) string {
+func routeBrokerAddProbeScript(certPath string, keyPath string, hostname string, targetRef string, unownedHostname string, unownedTargetRef string, dnsFailHostname string) string {
 	return `
 import json, ssl, sys, time, urllib.error, urllib.request
 cert_path = ` + pythonQuote(certPath) + `
@@ -426,6 +439,7 @@ hostname = ` + pythonQuote(hostname) + `
 target_ref = ` + pythonQuote(targetRef) + `
 unowned_hostname = ` + pythonQuote(unownedHostname) + `
 unowned_target_ref = ` + pythonQuote(unownedTargetRef) + `
+dns_fail_hostname = ` + pythonQuote(dnsFailHostname) + `
 context = ssl.create_default_context()
 context.check_hostname = False
 context.verify_mode = ssl.CERT_NONE
@@ -463,6 +477,16 @@ try:
         print('UNOWNED', err.code)
         print('UNOWNED-BODY', body)
         if err.code != 403:
+            sys.exit(1)
+    try:
+        response = request('POST', '/routes', {'hostname': dns_fail_hostname, 'targetReference': target_ref})
+        print('DNS-PROOF-UNEXPECTED', response.status, response.read().decode('utf-8'))
+        sys.exit(1)
+    except urllib.error.HTTPError as err:
+        body = err.read().decode('utf-8')
+        print('DNS-PROOF', err.code)
+        print('DNS-PROOF-BODY', body)
+        if err.code != 400:
             sys.exit(1)
     response = request('POST', '/routes', {'hostname': hostname, 'targetReference': target_ref})
     print('ADD', response.status)

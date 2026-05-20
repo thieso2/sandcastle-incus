@@ -1314,6 +1314,12 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker ./internal/route ./internal/incusx -run 'Test(Server|VerifyDNSProof|RouteManager)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Extended the route broker mutation e2e probe with a wrong-DNS target case that
+  expects broker `400` before the successful add, and asserts the rejected
+  hostname leaves no infrastructure profile or Caddy route.
+- Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
