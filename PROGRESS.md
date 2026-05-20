@@ -364,6 +364,9 @@ development sandboxes.
   target sandbox ingress mutation. Existing managed route profiles report the
   current owner/project/sandbox claimant, and unmanaged infrastructure profile
   name conflicts fail closed instead of being overwritten.
+- Route broker route mutations now preserve public hostname conflicts as HTTP
+  `409 Conflict` responses instead of reporting them as generic upstream
+  failures.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -704,6 +707,8 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/incusx -run 'TestRouteManager' -count=1 -v`
 - Passed: `go test ./internal/routebroker ./internal/incusx -run 'Test(Server|RouteManager)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/route ./internal/incusx ./internal/routebroker -run 'Test(Conflict|RouteManager|Server)' -count=1 -v`
 - Passed: `go test ./...`
 
 ## Open Scope

@@ -58,9 +58,9 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 			if parseErr != nil {
 				return fmt.Errorf("parse existing route metadata for %s: %w", plan.Hostname, parseErr)
 			}
-			return fmt.Errorf("public route hostname %s is already claimed by %s/%s/%s", plan.Hostname, routeMetadata.TargetOwner, routeMetadata.TargetProject, routeMetadata.TargetSandbox)
+			return route.NewConflictError("public route hostname %s is already claimed by %s/%s/%s", plan.Hostname, routeMetadata.TargetOwner, routeMetadata.TargetProject, routeMetadata.TargetSandbox)
 		}
-		return fmt.Errorf("public route hostname %s conflicts with existing infrastructure profile %s", plan.Hostname, name)
+		return route.NewConflictError("public route hostname %s conflicts with existing infrastructure profile %s", plan.Hostname, name)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get route metadata %s: %w", plan.Hostname, err)

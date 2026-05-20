@@ -81,7 +81,7 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Routes.Add(r.Context(), plan); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		writeError(w, routeMutationErrorStatus(err), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, plan)
@@ -139,7 +139,7 @@ func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Routes.Remove(r.Context(), plan); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		writeError(w, routeMutationErrorStatus(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, plan)
@@ -177,6 +177,13 @@ func filterRoutesForPrincipal(result route.ListResult, principal Principal) rout
 		}
 	}
 	return route.ListResult{Routes: filtered}
+}
+
+func routeMutationErrorStatus(err error) int {
+	if route.IsConflict(err) {
+		return http.StatusConflict
+	}
+	return http.StatusBadGateway
 }
 
 func (s Server) principal(r *http.Request) (Principal, error) {

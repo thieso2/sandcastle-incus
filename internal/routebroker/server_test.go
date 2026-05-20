@@ -20,16 +20,18 @@ type fakeBrokerRoutes struct {
 	added   *route.AddPlan
 	removed *route.RemovePlan
 	list    route.ListResult
+	addErr  error
+	rmErr   error
 }
 
 func (r *fakeBrokerRoutes) Add(ctx context.Context, plan route.AddPlan) error {
 	r.added = &plan
-	return nil
+	return r.addErr
 }
 
 func (r *fakeBrokerRoutes) Remove(ctx context.Context, plan route.RemovePlan) error {
 	r.removed = &plan
-	return nil
+	return r.rmErr
 }
 
 func (r *fakeBrokerRoutes) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
@@ -92,6 +94,20 @@ func TestServerRejectsUnownedRouteAdd(t *testing.T) {
 	}
 	if routes.added != nil {
 		t.Fatal("route should not be added")
+	}
+}
+
+func TestServerReturnsConflictForClaimedRouteAdd(t *testing.T) {
+	routes := &fakeBrokerRoutes{addErr: route.NewConflictError("public route hostname app.example.com is already claimed by bob/other/web")}
+	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if errorText := decodeError(t, response); errorText != "public route hostname app.example.com is already claimed by bob/other/web" {
+		t.Fatalf("error = %q", errorText)
 	}
 }
 
