@@ -1332,6 +1332,9 @@ development sandboxes.
 - Passed: `go test ./internal/usertrust ./internal/cli ./internal/e2e -run 'Test(PlanGrant|AdminUserGrant|RestrictedUserGrantAccessE2E)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Covered restricted-user grant rejection for non-client Incus certificates so
+  server certificates cannot be mutated into restricted client grants.
+- Passed: `go test ./internal/incusx -run 'TestTrustManagerGrant' -count=1 -v`
 
 ## Open Scope
 
