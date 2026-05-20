@@ -35,6 +35,9 @@ func TestPlanCreate(t *testing.T) {
 	if plan.Instances[1].Name != RouteBrokerName || plan.Instances[1].Role != "route-broker" {
 		t.Fatalf("route broker instance = %#v", plan.Instances[1])
 	}
+	if _, ok := plan.Instances[1].Devices["incus-socket"]; ok {
+		t.Fatalf("route broker socket should be opt-in, devices = %#v", plan.Instances[1].Devices)
+	}
 	if plan.Instances[0].Devices["root"]["pool"] != admin.StoragePool {
 		t.Fatalf("root device = %#v", plan.Instances[0].Devices["root"])
 	}
@@ -102,6 +105,26 @@ func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
 		if !strings.Contains(env, want) {
 			t.Fatalf("env missing %q:\n%s", want, env)
 		}
+	}
+}
+
+func TestPlanCreateMountsRouteBrokerIncusSocketWhenConfigured(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.RouteBrokerIncusSocket = "/run/incus/unix.socket"
+	plan, err := PlanCreate(admin, CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeBroker := plan.Instances[1]
+	device := routeBroker.Devices["incus-socket"]
+	if device == nil {
+		t.Fatalf("route broker devices = %#v", routeBroker.Devices)
+	}
+	if device["type"] != "disk" || device["source"] != "/run/incus/unix.socket" || device["path"] != RouteBrokerIncusSocketPath {
+		t.Fatalf("incus socket device = %#v", device)
+	}
+	if _, ok := plan.Instances[0].Devices["incus-socket"]; ok {
+		t.Fatalf("caddy should not receive Incus socket, devices = %#v", plan.Instances[0].Devices)
 	}
 }
 

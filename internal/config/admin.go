@@ -18,14 +18,15 @@ const (
 )
 
 type Admin struct {
-	Remote                string
-	StoragePool           string
-	CIDRPool              string
-	ProjectPrefix         string
-	InfrastructureProject string
-	InfrastructureHost    string
-	DeniedDomainSuffixes  []string
-	Images                Images
+	Remote                 string
+	StoragePool            string
+	CIDRPool               string
+	ProjectPrefix          string
+	InfrastructureProject  string
+	InfrastructureHost     string
+	RouteBrokerIncusSocket string
+	DeniedDomainSuffixes   []string
+	Images                 Images
 }
 
 type Images struct {
@@ -35,13 +36,14 @@ type Images struct {
 
 func LoadAdminFromEnv() Admin {
 	return Admin{
-		Remote:                getenv("SANDCASTLE_REMOTE", DefaultRemote),
-		StoragePool:           getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
-		CIDRPool:              getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
-		ProjectPrefix:         getenv("SANDCASTLE_PROJECT_PREFIX", DefaultProjectPrefix),
-		InfrastructureProject: getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
-		InfrastructureHost:    getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
-		DeniedDomainSuffixes:  splitList(os.Getenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES")),
+		Remote:                 getenv("SANDCASTLE_REMOTE", DefaultRemote),
+		StoragePool:            getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
+		CIDRPool:               getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
+		ProjectPrefix:          getenv("SANDCASTLE_PROJECT_PREFIX", DefaultProjectPrefix),
+		InfrastructureProject:  getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
+		InfrastructureHost:     getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
+		RouteBrokerIncusSocket: os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"),
+		DeniedDomainSuffixes:   splitList(os.Getenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES")),
 		Images: Images{
 			Base: getenv("SANDCASTLE_BASE_IMAGE", DefaultBaseImageAlias),
 			AI:   getenv("SANDCASTLE_AI_IMAGE", DefaultAIImageAlias),

@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	RouteBrokerName       = "sc-route-broker"
-	RouteBrokerListen     = ":9443"
-	RouteBrokerBinaryPath = "/usr/local/bin/sandcastle"
-	RouteBrokerCertPath   = "/etc/sandcastle/route-broker/tls.crt"
-	RouteBrokerKeyPath    = "/etc/sandcastle/route-broker/tls.key"
-	RouteBrokerEnvPath    = "/etc/sandcastle/route-broker/env"
+	RouteBrokerName            = "sc-route-broker"
+	RouteBrokerListen          = ":9443"
+	RouteBrokerBinaryPath      = "/usr/local/bin/sandcastle"
+	RouteBrokerCertPath        = "/etc/sandcastle/route-broker/tls.crt"
+	RouteBrokerKeyPath         = "/etc/sandcastle/route-broker/tls.key"
+	RouteBrokerEnvPath         = "/etc/sandcastle/route-broker/env"
+	RouteBrokerIncusSocketPath = "/var/lib/incus/unix.socket"
 )
 
 type CreateRequest struct{}
@@ -227,6 +228,20 @@ func runtimeCommands() []RuntimeCommand {
 }
 
 func instancePlan(admin config.Admin, name string, role string) InstancePlan {
+	devices := map[string]Device{
+		"root": {
+			"type": "disk",
+			"pool": admin.StoragePool,
+			"path": "/",
+		},
+	}
+	if name == RouteBrokerName && strings.TrimSpace(admin.RouteBrokerIncusSocket) != "" {
+		devices["incus-socket"] = Device{
+			"type":   "disk",
+			"source": strings.TrimSpace(admin.RouteBrokerIncusSocket),
+			"path":   RouteBrokerIncusSocketPath,
+		}
+	}
 	return InstancePlan{
 		Name:       name,
 		Role:       role,
@@ -237,14 +252,8 @@ func instancePlan(admin config.Admin, name string, role string) InstancePlan {
 			meta.KeyName:    name,
 			meta.KeyRole:    role,
 		},
-		Devices: map[string]Device{
-			"root": {
-				"type": "disk",
-				"pool": admin.StoragePool,
-				"path": "/",
-			},
-		},
-		Start: true,
+		Devices: devices,
+		Start:   true,
 	}
 }
 

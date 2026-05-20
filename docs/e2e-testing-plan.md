@@ -281,6 +281,10 @@ Test:
    `TestDisposableInfrastructureCreateAndDelete` verifies the route broker
    runtime process accepts an mTLS client certificate inside the disposable
    infrastructure container.
+   For local Unix-socket Incus remotes, set
+   `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` to the host Incus socket path to
+   mount it into `sc-route-broker` at `/var/lib/incus/unix.socket`; leave it
+   unset when the broker should not receive host Incus access.
 3. Create a sandbox app on port 3000.
 4. Point a disposable public hostname at infrastructure.
 5. As restricted user, call route broker with Incus client certificate mTLS.
