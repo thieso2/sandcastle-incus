@@ -16,6 +16,7 @@ Tiers:
   images    Run real image build e2e. Requires SANDCASTLE_E2E=1 and image build env.
   route-broker Run route broker mTLS mutation e2e. Requires SANDCASTLE_E2E=1, image source env, and broker socket env.
   public-routes Run public route broker mutation e2e. Requires SANDCASTLE_E2E=1, image source env, broker socket env, and public route env.
+  cleanup   Remove managed disposable e2e projects for SANDCASTLE_E2E_RUN_ID. Requires SANDCASTLE_E2E=1 and an explicit run id.
   all       Run unit, gated, local, local-vm, incus, restricted, tailscale, images, route-broker, and public-routes tiers.
 
 Examples:
@@ -27,6 +28,7 @@ Examples:
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
   SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh route-broker
   SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com SANDCASTLE_E2E_INFRA_HOST=203.0.113.10 SANDCASTLE_E2E_LETSENCRYPT_EMAIL=ops@example.com scripts/e2e.sh public-routes
+  SANDCASTLE_E2E=1 SANDCASTLE_E2E_RUN_ID=e2e-20260520-120000 scripts/e2e.sh cleanup
 USAGE
 }
 
@@ -132,6 +134,12 @@ run_public_routes() {
   run go test ./internal/e2e -run 'TestRouteBrokerAuthorizedMutationE2E' -count=1 -v
 }
 
+run_cleanup() {
+  require_e2e cleanup
+  require_env cleanup SANDCASTLE_E2E_RUN_ID
+  run go test ./internal/e2e -run 'TestCleanupDisposableResourcesE2E' -count=1 -v
+}
+
 tier="${1:-}"
 case "$tier" in
   unit)
@@ -163,6 +171,9 @@ case "$tier" in
     ;;
   public-routes)
     run_public_routes
+    ;;
+  cleanup)
+    run_cleanup
     ;;
   all)
     run_unit

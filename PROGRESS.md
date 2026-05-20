@@ -556,6 +556,12 @@ development sandboxes.
   closed unless `SANDCASTLE_E2E=1`, `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET`, and
   disposable base/AI image sources are set. The manual destructive e2e workflow,
   README, and e2e plan now expose the tier separately from `public-routes`.
+- Added a standalone `scripts/e2e.sh cleanup` tier for failed destructive e2e
+  runs. It requires `SANDCASTLE_E2E=1` and an explicit long
+  `SANDCASTLE_E2E_RUN_ID`, lists managed Incus projects, and purges only
+  Sandcastle project or infrastructure projects whose metadata/name contains the
+  safe run token. Incus-free unit coverage verifies missing/short run IDs are
+  rejected and that cleanup selection only matches the requested run id.
 
 ## Next Slice
 
@@ -902,6 +908,17 @@ development sandboxes.
 - Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
 - Passed: `go test ./internal/e2e -run 'TestRouteBrokerAuthorizedMutationE2E|TestLoadConfig' -count=1 -v`
   with the expected route broker mutation e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `scripts/e2e.sh cleanup` with the expected fail-closed e2e guard
+  when `SANDCASTLE_E2E` is unset.
+- Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh cleanup` with the expected missing
+  `SANDCASTLE_E2E_RUN_ID` guard.
+- Passed: `SANDCASTLE_E2E=1 SANDCASTLE_E2E_RUN_ID=short scripts/e2e.sh cleanup`
+  with the expected too-short run id rejection before cleanup mutation.
+- Passed: `go test ./internal/e2e -run 'Test(Cleanup|LoadConfig)' -count=1 -v`
+  with the expected cleanup e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 

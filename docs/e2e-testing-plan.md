@@ -78,6 +78,7 @@ SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=remote-incus SANDCASTLE_E2E_BASE_IMAGE_SO
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
 SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh route-broker
+SANDCASTLE_E2E=1 SANDCASTLE_E2E_RUN_ID=e2e-20260520-120000 scripts/e2e.sh cleanup
 ```
 
 Tier meanings:
@@ -104,6 +105,9 @@ Tier meanings:
   `SANDCASTLE_E2E=1`, `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET`,
   `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, and `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
   Public route env is optional in this tier.
+- `cleanup`: standalone cleanup for managed disposable project and
+  infrastructure projects matching an explicit `SANDCASTLE_E2E_RUN_ID`,
+  requiring `SANDCASTLE_E2E=1`. Short or missing run IDs are rejected.
 
 GitHub Actions:
 
@@ -398,3 +402,8 @@ Cleanup should remove:
 - local hosts entries;
 - local trust entries;
 - route metadata and Caddy routes.
+
+`scripts/e2e.sh cleanup` can be run after a failed destructive job when the
+run used an explicit `SANDCASTLE_E2E_RUN_ID`. It removes matching managed
+Sandcastle project and infrastructure projects with purge semantics and refuses
+to run without a long explicit run id.
