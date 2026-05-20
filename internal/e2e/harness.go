@@ -18,11 +18,16 @@ type Config struct {
 	RunID        string
 	Keep         bool
 	Tailscale    TailscaleConfig
+	Images       ImageConfig
 }
 
 type TailscaleConfig struct {
 	AuthKey string
 	Tag     string
+}
+
+type ImageConfig struct {
+	BaseSource string
 }
 
 func LoadConfig() Config {
@@ -38,6 +43,9 @@ func LoadConfig() Config {
 		Tailscale: TailscaleConfig{
 			AuthKey: os.Getenv("SANDCASTLE_E2E_TAILSCALE_AUTHKEY"),
 			Tag:     tag,
+		},
+		Images: ImageConfig{
+			BaseSource: os.Getenv("SANDCASTLE_E2E_BASE_IMAGE_SOURCE"),
 		},
 	}
 }

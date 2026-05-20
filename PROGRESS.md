@@ -252,6 +252,9 @@ development sandboxes.
 - Added image sync planning and Incus alias execution. `sandcastle admin image
   sync <image-ref>` now resolves an imported image or source alias and creates
   or updates the configured Sandcastle base/AI image aliases.
+- Added gated real-Incus e2e coverage for image alias sync. The test is opt-in
+  through `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, creates a disposable
+  `sandcastle/base:<run-id>` alias, verifies its target, and cleans it up.
 
 ## Next Slice
 
@@ -262,6 +265,7 @@ development sandboxes.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
 - Add actual OCI image import/build support for Sandcastle base and AI images.
+- Add AI image sync e2e once a disposable AI source image is available.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure images
   include the `sandcastle` binary and systemd services.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
@@ -383,6 +387,8 @@ development sandboxes.
 - Passed: `go test ./internal/infra ./internal/incusx ./internal/cli ./internal/e2e`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/images ./internal/incusx ./internal/cli`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(ImageSyncAliasE2E|LoadConfig)' -count=1 -v` with the expected image sync skip when `SANDCASTLE_E2E` is not enabled.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`
