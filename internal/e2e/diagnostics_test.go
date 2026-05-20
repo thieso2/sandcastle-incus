@@ -3,6 +3,8 @@ package e2e
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -192,6 +194,49 @@ func TestProjectDiagnosticLinesRequireRunID(t *testing.T) {
 	lines = projectDiagnosticLines(context.Background(), summaries, nil, "", "   ")
 	if len(lines) != 0 {
 		t.Fatalf("lines = %#v, want no diagnostics for blank run id", lines)
+	}
+}
+
+func TestLocalDNSDiagnosticLinesIncludeMatchingState(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "dns.yaml")
+	content := "projects:\n" +
+		"- owner: owner-e2e-test\n" +
+		"  project: project-e2e-test\n" +
+		"  domain: project.e2e.project-tld\n" +
+		"  dnsEndpoint:\n" +
+		"    ip: 127.0.0.1\n" +
+		"    port: 53541\n" +
+		"  resolver:\n" +
+		"    listen: 127.0.0.1:53540\n" +
+		"- owner: other\n" +
+		"  project: project\n" +
+		"  domain: other.project-tld\n" +
+		"  dnsEndpoint:\n" +
+		"    ip: 127.0.0.1\n" +
+		"    port: 53542\n" +
+		"  resolver:\n" +
+		"    listen: 127.0.0.1:53540\n"
+	if err := os.WriteFile(statePath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lines, err := localDNSDiagnosticLines(statePath, "e2e-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("lines = %#v, want one local DNS diagnostic line", lines)
+	}
+	for _, want := range []string{
+		"local-dns:",
+		"owner-e2e-test/project-e2e-test",
+		"domain=project.e2e.project-tld",
+		"endpoint=127.0.0.1:53541",
+		"resolver=127.0.0.1:53540",
+	} {
+		if !strings.Contains(lines[0], want) {
+			t.Fatalf("local DNS diagnostic line missing %q:\n%s", want, lines[0])
+		}
 	}
 }
 

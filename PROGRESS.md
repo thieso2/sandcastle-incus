@@ -1235,6 +1235,12 @@ development sandboxes.
 - Passed: `go test ./internal/usertrust ./internal/cli -run 'Test(PlanGrant|AdminUserGrantDryRunJSON)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Extended e2e failure diagnostics with matching local DNS state entries from
+  the CLI-managed resolver state file, including domain, upstream endpoint, and
+  resolver listen address for the failing run id.
+- Passed: `go test ./internal/e2e -run 'Test(ProjectDiagnostic|LogProjectDiagnostic|LocalDNSDiagnostic)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

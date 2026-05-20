@@ -3,10 +3,14 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"gopkg.in/yaml.v2"
 )
 
 func logProjectDiagnostics(t *testing.T, ctx context.Context, store project.IncusProjectStore, runID string) {
@@ -30,6 +34,11 @@ func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store 
 		return
 	}
 	lines := projectDiagnosticLines(ctx, projects, topologyStore, storagePool, runID)
+	localDNSLines, err := localDNSDiagnosticLines(localdns.DefaultStatePath(), runID)
+	if err != nil {
+		t.Logf("diagnostics: local DNS state failed: %v", err)
+	}
+	lines = append(lines, localDNSLines...)
 	if len(lines) == 0 {
 		t.Logf("diagnostics: no Sandcastle projects matched run id %q", runID)
 		return
@@ -119,6 +128,51 @@ func projectTailscaleDiagnostics(summary project.Summary) string {
 		parts = append(parts, "lastCheckedAt="+redactDiagnosticValue(checkedAt))
 	}
 	return strings.Join(parts, " ")
+}
+
+func localDNSDiagnosticLines(statePath string, runID string) ([]string, error) {
+	if strings.TrimSpace(runID) == "" {
+		return nil, nil
+	}
+	content, err := os.ReadFile(statePath)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(content) == 0 {
+		return nil, nil
+	}
+	var state localdns.State
+	if err := yaml.Unmarshal(content, &state); err != nil {
+		return nil, err
+	}
+	var lines []string
+	for _, entry := range state.Projects {
+		if !matchesLocalDNSRun(entry, runID) {
+			continue
+		}
+		endpoint := "invalid"
+		if entry.DNSEndpoint.IP != "" && entry.DNSEndpoint.Port > 0 {
+			endpoint = net.JoinHostPort(entry.DNSEndpoint.IP, fmt.Sprint(entry.DNSEndpoint.Port))
+		}
+		lines = append(lines, fmt.Sprintf(
+			"local-dns: %s/%s domain=%s endpoint=%s resolver=%s",
+			entry.Owner,
+			entry.Project,
+			entry.Domain,
+			endpoint,
+			entry.Resolver.Listen,
+		))
+	}
+	return lines, nil
+}
+
+func matchesLocalDNSRun(entry localdns.ProjectState, runID string) bool {
+	return strings.Contains(entry.Owner, runID) ||
+		strings.Contains(entry.Project, runID) ||
+		strings.Contains(entry.Domain, runID)
 }
 
 func redactDiagnosticValue(value string) string {
