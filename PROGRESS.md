@@ -1103,6 +1103,12 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(CLIAddDetachE2E|CLIAddDefaultEnterE2E|LoadConfig)' -count=1 -v`
   with destructive CLI add e2e skipped as expected when real e2e is unset.
 - Passed: `scripts/e2e.sh local`
+- Hardened the local DNS forwarder unit query helper to retry the actual UDP
+  query exchange, not just UDP dial readiness, after observing a transient
+  first-read `connection refused`.
+- Passed: `go test ./internal/localdns -run TestForwarderRoutesByStateAndReloads -count=50`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

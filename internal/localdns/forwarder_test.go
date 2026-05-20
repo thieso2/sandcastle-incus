@@ -103,23 +103,38 @@ func waitForUDP(t *testing.T, addr string) {
 
 func queryForwarder(t *testing.T, addr string, packet []byte) []byte {
 	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		response, err := queryForwarderOnce(addr, packet)
+		if err == nil {
+			return response
+		}
+		lastErr = err
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("query forwarder %s: %v", addr, lastErr)
+	return nil
+}
+
+func queryForwarderOnce(addr string, packet []byte) ([]byte, error) {
 	conn, err := net.Dial("udp", addr)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	defer conn.Close()
 	if err := conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	if _, err := conn.Write(packet); err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	response := make([]byte, 4096)
 	n, err := conn.Read(response)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	return response[:n]
+	return response[:n], nil
 }
 
 func writeForwarderState(t *testing.T, path string, domain string, endpoint string) {
