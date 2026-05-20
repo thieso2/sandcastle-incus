@@ -49,14 +49,16 @@ development sandboxes.
 - Added `sandcastle admin project create <owner/project> --domain ... --dry-run`
   to render the creation plan in text or JSON. Non-dry-run execution still
   fails explicitly until the Incus executor is implemented.
+- Added gated real-Incus e2e smoke test for project listing:
+  `TestIncusProjectListingSmoke` skips unless `SANDCASTLE_E2E=1`.
 
 ## Next Slice
 
 - Add the real Incus executor for idempotent project creation: project metadata,
   private bridge network, home/workspace/CA volumes, and initial sidecar
   placeholders.
-- Add real-Incus e2e detection for project listing, gated by
-  `SANDCASTLE_E2E=1`.
+- Extend e2e from read-only Incus detection to disposable project creation once
+  the executor exists.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -79,6 +81,8 @@ development sandboxes.
 - Passed: `./bin/sandcastle version && ./bin/sc version`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run TestIncusProjectListingSmoke -count=1 -v` with the expected skip when `SANDCASTLE_E2E` is not enabled.
 
 ## Open Scope
 
