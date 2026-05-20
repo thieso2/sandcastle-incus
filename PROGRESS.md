@@ -194,6 +194,10 @@ development sandboxes.
   platform trust store. Production supports macOS Keychain and Linux
   `update-ca-certificates`; tests and disposable automation can use
   `SANDCASTLE_TRUST_DIR` for file-backed trust state.
+- Added gated local trust e2e coverage. `TestLocalTrustInstallUninstallE2E`
+  creates a disposable Incus project, reads its real project CA through the
+  Incus-backed trust manager, installs it into a file-backed trust store, then
+  uninstalls it and verifies the trust file is removed.
 - Added local DNS install/refresh/uninstall planning and
   `sandcastle dns install`, `sandcastle dns refresh`, and
   `sandcastle dns uninstall`. Plans resolve the managed project domain, project
@@ -637,6 +641,8 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker -run 'TestHTTPRunnerServesAuthorizedRouteOverMTLS|TestClient|TestServer' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'TestHostOverrideE2E|TestLoadConfig' -count=1 -v` with the expected host override e2e skip when real e2e is unset.
+- Passed: `bash -n scripts/e2e.sh && go test ./...`
+- Passed: `go test ./internal/e2e -run 'TestLocalTrustInstallUninstallE2E|TestLoadConfig' -count=1 -v` with the expected local trust e2e skip when real e2e is unset.
 - Passed: `bash -n scripts/e2e.sh && go test ./...`
 
 ## Open Scope
