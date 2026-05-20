@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -36,6 +37,8 @@ type addRequest struct {
 	TargetReference string `json:"targetReference"`
 }
 
+const maxAddRequestBytes = 4096
+
 func (s Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/routes":
@@ -55,8 +58,8 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, err)
 		return
 	}
-	var request addRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	request, err := decodeAddRequest(w, r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -86,6 +89,19 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, plan)
+}
+
+func decodeAddRequest(w http.ResponseWriter, r *http.Request) (addRequest, error) {
+	var request addRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAddRequestBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return addRequest{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return addRequest{}, fmt.Errorf("route add request must contain a single JSON object")
+	}
+	return request, nil
 }
 
 func stampRouteCreator(plan route.AddPlan, owner string) (route.AddPlan, error) {

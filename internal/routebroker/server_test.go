@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
@@ -122,6 +123,40 @@ func TestServerReturnsConflictForClaimedRouteAdd(t *testing.T) {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
 	if errorText := decodeError(t, response); errorText != "public route hostname app.example.com is already claimed by bob/other/web" {
+		t.Fatalf("error = %q", errorText)
+	}
+}
+
+func TestServerRejectsRouteAddWithUnknownFields(t *testing.T) {
+	routes := &fakeBrokerRoutes{}
+	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex","admin":true}`)
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if routes.added != nil {
+		t.Fatal("route should not be added")
+	}
+	if errorText := decodeError(t, response); !bytes.Contains([]byte(errorText), []byte("unknown field")) {
+		t.Fatalf("error = %q", errorText)
+	}
+}
+
+func TestServerRejectsOversizedRouteAddRequest(t *testing.T) {
+	routes := &fakeBrokerRoutes{}
+	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"`+strings.Repeat("x", maxAddRequestBytes)+`.example.com","targetReference":"alice/myproject/codex"}`)
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if routes.added != nil {
+		t.Fatal("route should not be added")
+	}
+	if errorText := decodeError(t, response); !strings.Contains(errorText, "too large") {
 		t.Fatalf("error = %q", errorText)
 	}
 }

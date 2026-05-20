@@ -1241,6 +1241,12 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(ProjectDiagnostic|LogProjectDiagnostic|LocalDNSDiagnostic)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened the route broker add endpoint so the public mTLS API only accepts a
+  single bounded JSON object with known fields, rejecting unknown fields and
+  oversized bodies before route planning or mutation.
+- Passed: `go test ./internal/routebroker -run 'Test(Server|Client)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
