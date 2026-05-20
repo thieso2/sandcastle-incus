@@ -222,6 +222,10 @@ development sandboxes.
 - Added initial route broker authorization rules. The route broker package can
   map an mTLS client certificate fingerprint to a Sandcastle owner and enforce
   that route add/remove operations only target routes owned by that principal.
+- Added the route broker HTTP/mTLS serving path for authorized route mutations.
+  The broker extracts the client certificate fingerprint from the mTLS
+  connection, maps it to a Sandcastle owner, authorizes add/remove requests,
+  plans route mutations, and delegates to the route manager.
 
 ## Next Slice
 
@@ -231,7 +235,7 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add route broker HTTP/mTLS serving path around authorized route mutations.
+- Add route broker process packaging/CLI wiring for deployment in infrastructure.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -333,6 +337,8 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_INFRA_HOST=203.0.113.10 ./bin/sandcastle --output json route add app.example.com alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project/sandbox metadata.
 - Passed: `go test ./internal/routebroker ./internal/route ./internal/incusx`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/routebroker ./internal/route ./internal/cli`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`
