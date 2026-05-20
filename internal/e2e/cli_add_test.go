@@ -9,6 +9,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 )
 
 func TestCLIAddDetachE2E(t *testing.T) {
@@ -102,5 +103,7 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	}
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
-	assertInstanceExists(t, projectServer, "sc-"+sandboxName)
+	instanceName := "sc-" + sandboxName
+	assertInstanceExists(t, projectServer, instanceName)
+	assertSandboxIngressFiles(t, projectServer, instanceName, sandboxName+"."+createProjectPlan.Domain, sandbox.DefaultAppPort)
 }

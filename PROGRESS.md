@@ -299,6 +299,11 @@ development sandboxes.
   creates a disposable `sandcastle-<user>` certificate add token through the
   Incus trust executor and decodes it to verify client name, secret,
   fingerprint, and server addresses without adding a trusted client cert.
+- Strengthened gated sandbox creation e2e coverage. The sandbox lifecycle and
+  CLI `add --detach` e2e paths now read back the sandbox private Caddyfile and
+  TLS cert/key files through Incus, assert the expected hostname and
+  `reverse_proxy` target, and verify the certificate SAN matches the sandbox
+  hostname.
 
 ## Next Slice
 
@@ -309,8 +314,6 @@ development sandboxes.
 - Add AI image sync e2e once a disposable AI source image is available.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure images
   include the `sandcastle` binary and systemd services.
-- Add sandbox lifecycle e2e assertions for private Caddy config and issued
-  sandbox certificate files once disposable image prerequisites are available.
 - Add restricted cert grant/access verification after safe disposable client
   certificate bootstrap is available.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -474,6 +477,7 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected CLI add skip when real e2e is unset.
 - Passed: `go test ./internal/sandbox ./internal/incusx ./internal/cli ./internal/e2e -run 'Test(PlanEnter|SandboxEnterer|EnterCommand|CLIEnterCommandE2E|LoadConfig)' -count=1 -v` with the expected CLI enter e2e skip when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(RestrictedUserTokenE2E|LoadConfig)' -count=1 -v` with the expected restricted-user token e2e skip when real e2e is unset.
+- Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected sandbox e2e skips when real e2e is unset.
 
 ## Open Scope
 

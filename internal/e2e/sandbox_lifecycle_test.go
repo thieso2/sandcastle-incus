@@ -106,6 +106,7 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
 	assertInstanceExists(t, projectServer, createSandboxPlan.InstanceName)
+	assertSandboxIngressFiles(t, projectServer, createSandboxPlan.InstanceName, sandboxName+"."+createProjectPlan.Domain, createSandboxPlan.AppPort)
 
 	controller := incusx.NewSandboxController(e2eConfig.Remote)
 	for _, action := range []sandbox.Action{sandbox.ActionStop, sandbox.ActionStart, sandbox.ActionRestart, sandbox.ActionRemove} {
