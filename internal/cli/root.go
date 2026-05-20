@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/project"
 )
 
 const version = "0.0.0-dev"
@@ -19,9 +20,10 @@ const (
 )
 
 type commandConfig struct {
-	name   string
-	stdout io.Writer
-	stderr io.Writer
+	name         string
+	stdout       io.Writer
+	stderr       io.Writer
+	projectStore project.IncusProjectStore
 }
 
 type rootOptions struct {
@@ -55,6 +57,9 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	}
 	if config.stderr == nil {
 		config.stderr = io.Discard
+	}
+	if config.projectStore == nil {
+		config.projectStore = project.MemoryStore{}
 	}
 
 	opts := &rootOptions{output: outputText}

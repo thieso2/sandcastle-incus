@@ -5,13 +5,22 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/project"
 )
 
 func executeForTest(t *testing.T, name string, args ...string) (string, error) {
+	return executeForTestWithConfig(t, commandConfig{name: name}, args...)
+}
+
+func executeForTestWithConfig(t *testing.T, config commandConfig, args ...string) (string, error) {
 	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cmd := NewRootCommand(commandConfig{name: name, stdout: &stdout, stderr: &stderr})
+	config.stdout = &stdout
+	config.stderr = &stderr
+	cmd := NewRootCommand(config)
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
 	cmd.SetArgs(args)
@@ -60,6 +69,35 @@ func TestListJSONStartsEmpty(t *testing.T) {
 	}
 	if len(payload.Projects) != 0 {
 		t.Fatalf("len(payload.Projects) = %d, want 0", len(payload.Projects))
+	}
+}
+
+func TestListTextShowsManagedProjects(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "alice/myproject") {
+		t.Fatalf("stdout = %q, want project reference", stdout)
+	}
+	if !strings.Contains(stdout, "myproject.project-tld") {
+		t.Fatalf("stdout = %q, want domain", stdout)
 	}
 }
 

@@ -30,12 +30,16 @@ development sandboxes.
 - Added `internal/cidr` for deterministic IPv4 project CIDR allocation,
   occupied/live-network overlap avoidance, exhaustion reporting, and role
   address derivation.
+- Added `internal/project` read-only listing over an Incus project store
+  abstraction.
+- Wired `sandcastle ls` to the project listing service, with current default
+  behavior returning an empty list until the real Incus adapter is added.
 
 ## Next Slice
 
-- Wire read-only project listing to an Incus access abstraction.
 - Add admin config primitives for storage pool, CIDR pool, naming prefix, image
   aliases, and infrastructure project name.
+- Add the Incus SDK adapter for project metadata listing.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -47,6 +51,9 @@ development sandboxes.
 - Passed: `./bin/sc --output json ls`
 - Passed: `go test ./...`
 - Passed: `go test ./...`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && go build -o bin/sc ./cmd/sc`
+- Passed: `./bin/sandcastle --output json ls`
 
 ## Open Scope
 

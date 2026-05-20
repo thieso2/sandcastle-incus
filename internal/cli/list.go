@@ -1,16 +1,15 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/project"
+)
 
 type listPayload struct {
-	Projects []projectSummary `json:"projects"`
-}
-
-type projectSummary struct {
-	Owner  string `json:"owner"`
-	Name   string `json:"name"`
-	Domain string `json:"domain,omitempty"`
-	Status string `json:"status"`
+	Projects []project.Summary `json:"projects"`
 }
 
 func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -20,8 +19,31 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short:   "List Sandcastle projects",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload := listPayload{Projects: []projectSummary{}}
-			return writeOutput(config.stdout, opts.output, "No Sandcastle projects found.", payload)
+			projects, err := project.List(cmd.Context(), config.projectStore)
+			if err != nil {
+				return err
+			}
+			payload := listPayload{Projects: projects}
+			return writeOutput(config.stdout, opts.output, formatProjectList(projects), payload)
 		},
 	}
+}
+
+func formatProjectList(projects []project.Summary) string {
+	if len(projects) == 0 {
+		return "No Sandcastle projects found."
+	}
+
+	var builder strings.Builder
+	for _, project := range projects {
+		fmt.Fprintf(
+			&builder,
+			"%s/%s\t%s\t%s\n",
+			project.Owner,
+			project.Name,
+			project.Domain,
+			project.Status,
+		)
+	}
+	return strings.TrimRight(builder.String(), "\n")
 }
