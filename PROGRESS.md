@@ -279,11 +279,14 @@ development sandboxes.
   `SANDCASTLE_E2E_IMAGE_BUILD=1`; `TestImageBuildAIE2E` additionally requires
   pinned Codex, Claude Code, and Gemini CLI versions and builds both a
   disposable base tag and disposable AI tag before cleanup.
+- Added gated sandbox lifecycle e2e coverage. `TestSandboxLifecycleE2E`
+  requires `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` and
+  `SANDCASTLE_E2E_AI_IMAGE_SOURCE`, syncs both into disposable aliases, creates
+  a disposable project and sandbox, exercises stop/start/restart/remove, and
+  purges the project and aliases unless `SANDCASTLE_E2E_KEEP=1`.
 
 ## Next Slice
 
-- Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
-  disposable image prerequisites are available.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
@@ -452,10 +455,11 @@ development sandboxes.
 - Passed: `go test ./internal/images ./internal/cli`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image import base oci:sandcastle/base:debian-13 --dry-run`
 - Passed: `go test ./internal/e2e -run 'Test(ImageBuild|LoadConfig)' -count=1 -v` with the expected image build skips when real e2e/build gates are unset.
+- Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|LoadConfig)' -count=1 -v` with the expected sandbox lifecycle skip when real e2e is unset.
 
 ## Open Scope
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
-  disposable images, restricted-user e2e, full Tailscale network e2e, local DNS
-  service install/reload wrappers, route broker mTLS e2e, and broader
+  disposable images in CI/dev, restricted-user e2e, full Tailscale network e2e,
+  local DNS service install/reload wrappers, route broker mTLS e2e, and broader
   real-Incus coverage remain open.

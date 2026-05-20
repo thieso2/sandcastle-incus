@@ -28,6 +28,7 @@ type TailscaleConfig struct {
 
 type ImageConfig struct {
 	BaseSource    string
+	AISource      string
 	Build         bool
 	BuildTool     string
 	CodexVersion  string
@@ -51,6 +52,7 @@ func LoadConfig() Config {
 		},
 		Images: ImageConfig{
 			BaseSource:    os.Getenv("SANDCASTLE_E2E_BASE_IMAGE_SOURCE"),
+			AISource:      os.Getenv("SANDCASTLE_E2E_AI_IMAGE_SOURCE"),
 			Build:         os.Getenv("SANDCASTLE_E2E_IMAGE_BUILD") == "1",
 			BuildTool:     getenv("SANDCASTLE_E2E_IMAGE_BUILD_TOOL", "docker"),
 			CodexVersion:  os.Getenv("SANDCASTLE_E2E_CODEX_VERSION"),
