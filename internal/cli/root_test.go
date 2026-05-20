@@ -935,6 +935,25 @@ func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
 	}
 }
 
+func TestRouteManagerFromEnvUsesBrokerClient(t *testing.T) {
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_URL", "https://broker.example.com")
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_CERT", "/tmp/client.crt")
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY", "/tmp/client.key")
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY", "1")
+
+	manager := routeManagerFromEnv(&fakeRouteManager{})
+	client, ok := manager.(routebroker.Client)
+	if !ok {
+		t.Fatalf("manager = %T, want routebroker.Client", manager)
+	}
+	if client.BaseURL != "https://broker.example.com" || client.CertFile != "/tmp/client.crt" || client.KeyFile != "/tmp/client.key" {
+		t.Fatalf("client = %#v", client)
+	}
+	if !client.InsecureSkipVerify {
+		t.Fatal("expected insecure skip verify flag")
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
@@ -1526,6 +1545,20 @@ func (f fakeRouteSandboxStore) FindSandbox(ctx context.Context, summary project.
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",
 	}, nil
+}
+
+type fakeRouteManager struct{}
+
+func (f *fakeRouteManager) Add(ctx context.Context, plan route.AddPlan) error {
+	return nil
+}
+
+func (f *fakeRouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
+	return nil
+}
+
+func (f *fakeRouteManager) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
+	return route.ListResult{}, nil
 }
 
 type fakeRouteBrokerRunner struct {

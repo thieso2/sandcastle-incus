@@ -467,6 +467,10 @@ project.
 
 Normal users can create public routes, but they must go through a narrow route
 broker rather than receiving broad access to the infrastructure project.
+When `SANDCASTLE_ROUTE_BROKER_URL` is configured, `sandcastle route add` and
+`sandcastle route rm` call the broker over HTTPS mTLS using
+`SANDCASTLE_ROUTE_BROKER_CLIENT_CERT` and
+`SANDCASTLE_ROUTE_BROKER_CLIENT_KEY`.
 
 The route broker:
 

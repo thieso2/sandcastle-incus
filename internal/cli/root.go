@@ -74,8 +74,9 @@ type rootOptions struct {
 // Execute runs the Sandcastle CLI and returns a process exit code.
 func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadAdminFromEnv()
-	routeManager := incusx.NewRouteManager(adminConfig.Remote)
-	routeManager.InfrastructureProject = adminConfig.InfrastructureProject
+	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
+	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
+	userRouteManager := routeManagerFromEnv(directRouteManager)
 	cmd := NewRootCommand(commandConfig{
 		name:        name,
 		stdin:       os.Stdin,
@@ -107,14 +108,14 @@ func Execute(name string, args []string) int {
 		hostSandbox:     incusx.NewHostOverrideManager(adminConfig.Remote),
 		hostFiles:       hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
 		localTrust:      incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
-		routes:          routeManager,
+		routes:          userRouteManager,
 		routeSandbox:    incusx.NewHostOverrideManager(adminConfig.Remote),
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
 			Projects:      incusx.NewProjectStore(adminConfig.Remote),
 			Sandboxes:     incusx.NewHostOverrideManager(adminConfig.Remote),
-			Routes:        routeManager,
-			RouteMetadata: routeManager,
+			Routes:        directRouteManager,
+			RouteMetadata: directRouteManager,
 			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),
 		}},
 	})
@@ -126,6 +127,19 @@ func Execute(name string, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func routeManagerFromEnv(fallback route.Manager) route.Manager {
+	brokerURL := strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_URL"))
+	if brokerURL == "" {
+		return fallback
+	}
+	return routebroker.Client{
+		BaseURL:            brokerURL,
+		CertFile:           os.Getenv("SANDCASTLE_ROUTE_BROKER_CLIENT_CERT"),
+		KeyFile:            os.Getenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY"),
+		InsecureSkipVerify: os.Getenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY") == "1",
+	}
 }
 
 // NewRootCommand builds the Sandcastle command tree.
