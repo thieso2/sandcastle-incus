@@ -407,6 +407,9 @@ development sandboxes.
   closed in the runner when required image source, auth key, image build, and
   pinned AI CLI version environment variables are missing instead of relying on
   deeper Go test skips.
+- Updated the README testing section to list the full checked-in e2e runner
+  tiers and their required environment variables, including `local-vm`,
+  `tailscale`, `images`, and `public-routes`.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -766,6 +769,7 @@ development sandboxes.
 - Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh tailscale` with the expected missing `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` guard.
 - Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh images` with the expected missing `SANDCASTLE_E2E_IMAGE_BUILD` guard.
 - Passed: `go test ./...`
+- Passed: `git diff --check`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/incusx -run 'TestRouteManager' -count=1 -v`
