@@ -84,4 +84,5 @@ jobs:
 
       - name: Best-effort cleanup after failed destructive run
         if: ${{ failure() && inputs.tier != 'cleanup' && env.SANDCASTLE_E2E_KEEP != '1' }}
+        continue-on-error: true
         run: scripts/e2e.sh cleanup

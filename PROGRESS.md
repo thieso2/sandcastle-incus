@@ -594,6 +594,9 @@ development sandboxes.
 - Standalone e2e cleanup now also removes matching local image-build tags for
   `sandcastle/base:<run>`, `sandcastle/base:<run>-ai-base`, and
   `sandcastle/ai:<run>` when the configured image build tool is available.
+- The manual destructive e2e workflow cleanup follow-up is now explicitly
+  `continue-on-error`, keeping cleanup best-effort and preserving the original
+  failing tier as the primary failure signal.
 
 ## Next Slice
 
@@ -990,6 +993,9 @@ development sandboxes.
 - Passed: `git diff --check`
 - Passed: `go test ./internal/e2e -run 'Test(Cleanup|LoadConfig)' -count=1 -v`
   with the expected cleanup e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 

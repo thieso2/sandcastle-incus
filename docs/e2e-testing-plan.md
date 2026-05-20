@@ -131,7 +131,8 @@ GitHub Actions:
   an explicit run id from the input or repository variable.
 - When a non-cleanup destructive workflow tier fails and `SANDCASTLE_E2E_KEEP`
   is not `1`, the workflow runs `scripts/e2e.sh cleanup` as a best-effort
-  follow-up using the selected run id.
+  follow-up using the selected run id. Cleanup errors are reported in logs but
+  do not replace the original tier failure.
 - Configure non-secret values as repository or environment variables using the
   same names as the local shell environment, such as
   `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, `SANDCASTLE_E2E_AI_IMAGE_SOURCE`,
