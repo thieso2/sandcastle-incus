@@ -27,7 +27,7 @@ func TestPlanCreate(t *testing.T) {
 	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), project.MemoryStore{Projects: []project.IncusProject{{
 		Name:   "sc-alice-myproject",
 		Config: projectConfig,
-	}}}, CreateRequest{Reference: "alice/myproject/codex"})
+	}}}, nil, CreateRequest{Reference: "alice/myproject/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestPlanCreate(t *testing.T) {
 }
 
 func TestPlanCreateRejectsReservedName(t *testing.T) {
-	_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), project.MemoryStore{}, CreateRequest{Reference: "alice/myproject/dns"})
+	_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), project.MemoryStore{}, nil, CreateRequest{Reference: "alice/myproject/dns"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -69,7 +69,7 @@ func TestPlanCreateIssuesCertificateFilesWhenProjectCAIsProvided(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), CreateRequest{
+	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{
 		Reference:               "alice/myproject/codex",
 		ProjectCACertificatePEM: ca.CertificatePEM,
 		ProjectCAPrivateKeyPEM:  ca.PrivateKeyPEM,
@@ -101,6 +101,31 @@ func TestPlanCreateIssuesCertificateFilesWhenProjectCAIsProvided(t *testing.T) {
 	}
 }
 
+func TestPlanCreateAllocatesNextFreeSandboxIP(t *testing.T) {
+	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{sandboxes: []meta.Sandbox{
+		{Name: "codex", PrivateIP: "10.248.0.20"},
+		{Name: "claude", PrivateIP: "10.248.0.21"},
+	}}, CreateRequest{Reference: "alice/myproject/gemini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.PrivateIP != "10.248.0.22" {
+		t.Fatalf("PrivateIP = %q, want 10.248.0.22", plan.PrivateIP)
+	}
+}
+
+func TestPlanCreateReusesExistingSandboxIP(t *testing.T) {
+	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{sandboxes: []meta.Sandbox{
+		{Name: "codex", PrivateIP: "10.248.0.42"},
+	}}, CreateRequest{Reference: "alice/myproject/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.PrivateIP != "10.248.0.42" {
+		t.Fatalf("PrivateIP = %q, want 10.248.0.42", plan.PrivateIP)
+	}
+}
+
 func projectStoreForTest(t *testing.T) project.MemoryStore {
 	t.Helper()
 	projectConfig, err := meta.ProjectConfig(meta.Project{
@@ -117,4 +142,12 @@ func projectStoreForTest(t *testing.T) project.MemoryStore {
 		Name:   "sc-alice-myproject",
 		Config: projectConfig,
 	}}}
+}
+
+type fakeSandboxStore struct {
+	sandboxes []meta.Sandbox
+}
+
+func (s fakeSandboxStore) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
+	return s.sandboxes, nil
 }

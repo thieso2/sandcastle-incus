@@ -33,9 +33,11 @@ func TestProjectDNSE2E(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("dns-" + runID)
-	sandboxName := safeProjectName("codex-" + runID)
+	firstSandboxName := safeProjectName("codex-" + runID)
+	secondSandboxName := safeProjectName("claude-" + runID)
 	ref := owner + "/" + name
-	sandboxRef := ref + "/" + sandboxName
+	firstSandboxRef := ref + "/" + firstSandboxName
+	secondSandboxRef := ref + "/" + secondSandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-dns"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-dns"
 	adminConfig := config.Admin{
@@ -94,11 +96,23 @@ func TestProjectDNSE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandbox.CreateRequest{Reference: sandboxRef})
+	sandboxStore := incusx.NewHostOverrideManager(e2eConfig.Remote)
+	createFirstSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: firstSandboxRef})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateSandbox(ctx, createSandboxPlan); err != nil {
+	sandboxCreator := incusx.NewSandboxCreator(e2eConfig.Remote)
+	if err := sandboxCreator.CreateSandbox(ctx, createFirstSandboxPlan); err != nil {
+		t.Fatal(err)
+	}
+	createSecondSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: secondSandboxRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createSecondSandboxPlan.PrivateIP == createFirstSandboxPlan.PrivateIP {
+		t.Fatalf("second sandbox reused private IP %s", createSecondSandboxPlan.PrivateIP)
+	}
+	if err := sandboxCreator.CreateSandbox(ctx, createSecondSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,12 +127,14 @@ func TestProjectDNSE2E(t *testing.T) {
 	}
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
-	exact := sandboxName + "." + createProjectPlan.Domain
-	wildcard := "app." + exact
+	firstExact := firstSandboxName + "." + createProjectPlan.Domain
+	firstWildcard := "app." + firstExact
+	secondExact := secondSandboxName + "." + createProjectPlan.Domain
 	absent := "app." + createProjectPlan.Domain
-	assertCoreDNSAnswer(t, projectServer, createSandboxPlan.InstanceName, createProjectPlan.DNSAddress, exact, createSandboxPlan.PrivateIP)
-	assertCoreDNSAnswer(t, projectServer, createSandboxPlan.InstanceName, createProjectPlan.DNSAddress, wildcard, createSandboxPlan.PrivateIP)
-	assertCoreDNSNoAnswer(t, projectServer, createSandboxPlan.InstanceName, createProjectPlan.DNSAddress, absent)
+	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstExact, createFirstSandboxPlan.PrivateIP)
+	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstWildcard, createFirstSandboxPlan.PrivateIP)
+	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, secondExact, createSecondSandboxPlan.PrivateIP)
+	assertCoreDNSNoAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, absent)
 }
 
 func assertCoreDNSAnswer(t *testing.T, server incus.InstanceServer, instance string, dnsAddress string, name string, wantIP string) {

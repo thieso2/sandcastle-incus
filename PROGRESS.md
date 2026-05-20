@@ -100,6 +100,9 @@ development sandboxes.
 - Added sandbox create planning for `sandcastle add owner/project/name`,
   including project lookup, default app port 3000, first private container IP,
   sandbox metadata, AI image alias, and home/workspace/network/root devices.
+- Sandbox create planning now lists existing sandbox metadata and allocates the
+  first free private IP in the sandbox range, preserving an existing sandbox's
+  IP for idempotent replans instead of reusing `.20` for every sandbox.
 - Added `sandcastle add ... --dry-run` command shape.
 - Added Incus sandbox create executor that creates planned container sandboxes
   and starts stopped existing sandbox instances.
@@ -205,9 +208,10 @@ development sandboxes.
   configured upstream, refreshes state to a second upstream and verifies live
   reload behavior, then uninstalls and verifies resolver cleanup.
 - Added gated real-Incus project DNS e2e coverage. `TestProjectDNSE2E` syncs
-  disposable base/AI aliases, creates a disposable project and sandbox, applies
-  DNS, then queries `sc-dns` from inside the sandbox to verify the exact sandbox
-  record, per-sandbox wildcard record, and absence of a project-wide wildcard.
+  disposable base/AI aliases, creates a disposable project plus two sandboxes
+  with distinct private IPs, applies DNS, then queries `sc-dns` from inside the
+  sandbox network to verify exact sandbox records, a per-sandbox wildcard
+  record, and absence of a project-wide wildcard.
 - Added `scripts/e2e.sh`, a tiered e2e runner for reproducible local, gated,
   real-Incus, Tailscale, and image-build e2e runs. Destructive tiers fail closed
   unless `SANDCASTLE_E2E=1` is set, while `unit`, `gated`, and `local` provide
@@ -360,8 +364,6 @@ development sandboxes.
 
 - Add real-Incus e2e coverage for `sandcastle add` default interactive enter
   behavior once a stable test TTY strategy is available.
-- Extend project DNS e2e to cover multiple sandboxes after sandbox private IP
-  allocation stops reusing `.20`.
 - Add gated full-network Tailscale DNS/HTTPS e2e when an auth key is available.
 - Add route broker HTTP e2e over mTLS once disposable infrastructure networking
   and broker Incus access are wired end-to-end.
@@ -557,6 +559,10 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'TestProjectDNSE2E|TestLoadConfig' -count=1 -v` with the expected project DNS e2e skip when real e2e is unset.
 - Passed: `go test ./internal/incusx -run 'Test(DNSManagerApply|ProjectCreatorCreatesMissingResources)' -count=1 -v`
 - Passed: `bash -n scripts/e2e.sh && go test ./...`
+- Passed: `go test ./internal/sandbox ./internal/cli ./internal/incusx ./internal/e2e`
+- Passed: `go test ./internal/sandbox -run 'TestPlanCreate(AllocatesNextFreeSandboxIP|ReusesExistingSandboxIP|$)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'TestProjectDNSE2E|TestLoadConfig' -count=1 -v` with the expected project DNS e2e skip when real e2e is unset.
 
 ## Open Scope
 

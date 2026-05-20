@@ -50,6 +50,7 @@ type commandConfig struct {
 	topologyStore   project.TopologyStore
 	trustManager    usertrust.Manager
 	sandboxCreator  sandbox.Creator
+	sandboxStore    sandbox.Store
 	sandboxEnterer  sandbox.Enterer
 	sandboxControl  sandbox.Controller
 	sandboxPort     sandbox.PortSetter
@@ -94,6 +95,7 @@ func Execute(name string, args []string) int {
 		topologyStore:   incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:    incusx.NewTrustManager(adminConfig.Remote),
 		sandboxCreator:  incusx.NewSandboxCreator(adminConfig.Remote),
+		sandboxStore:    incusx.NewHostOverrideManager(adminConfig.Remote),
 		sandboxEnterer:  incusx.NewSandboxEnterer(adminConfig.Remote),
 		sandboxControl:  incusx.NewSandboxController(adminConfig.Remote),
 		sandboxPort:     incusx.NewSandboxPortSetter(adminConfig.Remote),

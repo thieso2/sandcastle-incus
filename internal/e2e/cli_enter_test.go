@@ -91,7 +91,7 @@ func TestCLIEnterCommandE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandbox.CreateRequest{Reference: sandboxRef})
+	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{Reference: sandboxRef})
 	if err != nil {
 		t.Fatal(err)
 	}

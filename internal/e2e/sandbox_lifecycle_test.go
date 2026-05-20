@@ -94,7 +94,7 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	}
 
 	sandboxCreator := incusx.NewSandboxCreator(e2eConfig.Remote)
-	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandbox.CreateRequest{
+	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
 		Reference: sandboxRef,
 	})
 	if err != nil {

@@ -19,7 +19,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Create a Sandcastle container sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := sandbox.PlanCreate(cmd.Context(), config.adminConfig, config.projectStore, sandbox.CreateRequest{
+			plan, err := sandbox.PlanCreate(cmd.Context(), config.adminConfig, config.projectStore, config.sandboxStore, sandbox.CreateRequest{
 				Reference:    args[0],
 				AppPort:      appPort,
 				HomeDir:      homeDir,

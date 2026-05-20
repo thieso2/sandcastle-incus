@@ -65,7 +65,11 @@ type Creator interface {
 	CreateSandbox(context.Context, CreatePlan) error
 }
 
-func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request CreateRequest) (CreatePlan, error) {
+type Store interface {
+	ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error)
+}
+
+func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProjectStore, sandboxStore Store, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err
 	}
@@ -87,7 +91,11 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	if appPort < 1 || appPort > 65535 {
 		return CreatePlan{}, fmt.Errorf("invalid app port %d", appPort)
 	}
-	privateIP, err := firstSandboxIP(summary.PrivateCIDR)
+	existingSandboxes, err := listExistingSandboxes(ctx, sandboxStore, summary)
+	if err != nil {
+		return CreatePlan{}, err
+	}
+	privateIP, err := allocateSandboxIP(summary.PrivateCIDR, sandboxName, existingSandboxes)
 	if err != nil {
 		return CreatePlan{}, err
 	}
@@ -221,18 +229,53 @@ func findProject(ctx context.Context, store project.IncusProjectStore, ref namin
 	return project.Summary{}, fmt.Errorf("Sandcastle project %s not found", ref.String())
 }
 
-func firstSandboxIP(cidr string) (string, error) {
+func listExistingSandboxes(ctx context.Context, store Store, summary project.Summary) ([]meta.Sandbox, error) {
+	if store == nil {
+		return nil, nil
+	}
+	sandboxes, err := store.ListSandboxes(ctx, summary)
+	if err != nil {
+		return nil, fmt.Errorf("list existing sandboxes for %s/%s: %w", summary.Owner, summary.Name, err)
+	}
+	return sandboxes, nil
+}
+
+func allocateSandboxIP(cidr string, sandboxName string, existing []meta.Sandbox) (string, error) {
 	prefix, err := netip.ParsePrefix(cidr)
 	if err != nil {
 		return "", err
 	}
-	addr := prefix.Masked().Addr().As4()
-	addr[3] = 20
-	candidate := netip.AddrFrom4(addr)
-	if !prefix.Contains(candidate) {
-		return "", fmt.Errorf("sandbox address .20 is outside %s", cidr)
+	for _, sandbox := range existing {
+		if sandbox.Name == sandboxName && sandbox.PrivateIP != "" {
+			addr, err := netip.ParseAddr(sandbox.PrivateIP)
+			if err != nil {
+				return "", fmt.Errorf("existing sandbox %s has invalid private IP %q", sandboxName, sandbox.PrivateIP)
+			}
+			if !prefix.Contains(addr) {
+				return "", fmt.Errorf("existing sandbox %s private IP %s is outside %s", sandboxName, sandbox.PrivateIP, cidr)
+			}
+			return sandbox.PrivateIP, nil
+		}
 	}
-	return candidate.String(), nil
+	used := map[netip.Addr]bool{}
+	for _, sandbox := range existing {
+		addr, err := netip.ParseAddr(sandbox.PrivateIP)
+		if err == nil && prefix.Contains(addr) {
+			used[addr] = true
+		}
+	}
+	base := prefix.Masked().Addr().As4()
+	for host := byte(20); host <= 199; host++ {
+		base[3] = host
+		candidate := netip.AddrFrom4(base)
+		if !prefix.Contains(candidate) {
+			continue
+		}
+		if !used[candidate] {
+			return candidate.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no free sandbox private IPs in %s", cidr)
 }
 
 func (p CreatePlan) AppPortString() string {

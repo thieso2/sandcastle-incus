@@ -134,7 +134,7 @@ func sandboxPlanForTest(t *testing.T) sandbox.CreatePlan {
 	plan, err := sandbox.PlanCreate(context.Background(), config.LoadAdminFromEnv(), project.MemoryStore{Projects: []project.IncusProject{{
 		Name:   "sc-alice-myproject",
 		Config: projectConfig,
-	}}}, sandbox.CreateRequest{Reference: "alice/myproject/codex"})
+	}}}, nil, sandbox.CreateRequest{Reference: "alice/myproject/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
