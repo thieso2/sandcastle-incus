@@ -46,6 +46,32 @@ func TestPrincipalFromFingerprintWrapsUnmappedCertificate(t *testing.T) {
 	}
 }
 
+func TestPrincipalFromFingerprintRejectsInvalidOwner(t *testing.T) {
+	_, err := PrincipalFromFingerprint(context.Background(), fakeTrustMapper{principal: Principal{
+		Owner:    "bad_owner",
+		Projects: []string{"sc-bad-owner-myproject"},
+	}}, "abc123")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "invalid Sandcastle owner") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestPrincipalFromFingerprintRejectsInvalidProjectGrant(t *testing.T) {
+	_, err := PrincipalFromFingerprint(context.Background(), fakeTrustMapper{principal: Principal{
+		Owner:    "alice",
+		Projects: []string{"sc-alice-myproject", "bad_project"},
+	}}, "abc123")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "invalid restricted project grant") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestPrincipalFromFingerprintReturnsMapperError(t *testing.T) {
 	_, err := PrincipalFromFingerprint(context.Background(), fakeTrustMapper{err: errors.New("boom")}, "abc123")
 	if err == nil {

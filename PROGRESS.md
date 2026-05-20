@@ -1431,6 +1431,12 @@ development sandboxes.
 - Re-ran the safe e2e runner tiers at the current head after route-broker
   client env hardening.
 - Passed: `make e2e-safe`
+- Hardened route broker principal normalization so mapped mTLS identities fail
+  closed unless the owner is a valid Sandcastle owner and every restricted
+  certificate project grant is a well-formed Incus project name.
+- Passed: `go test ./internal/routebroker ./internal/incusx -run 'Test(PrincipalFromFingerprint|Authorize|Server|RouteBrokerTrustMapper)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

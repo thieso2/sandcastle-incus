@@ -40,7 +40,14 @@ func PrincipalFromFingerprint(ctx context.Context, mapper TrustMapper, fingerpri
 	if principal.Owner == "" {
 		return Principal{}, fmt.Errorf("client certificate %s is not mapped to a Sandcastle owner", fingerprint)
 	}
-	principal.Projects = normalizeProjects(principal.Projects)
+	if _, err := naming.ParseProjectRef(principal.Owner + "/placeholder"); err != nil {
+		return Principal{}, fmt.Errorf("client certificate %s maps to invalid Sandcastle owner %q", fingerprint, principal.Owner)
+	}
+	projects, err := normalizeProjects(principal.Projects)
+	if err != nil {
+		return Principal{}, err
+	}
+	principal.Projects = projects
 	return principal, nil
 }
 
@@ -86,7 +93,7 @@ func principalCanAccessProject(principal Principal, incusProject string) bool {
 	return false
 }
 
-func normalizeProjects(projects []string) []string {
+func normalizeProjects(projects []string) ([]string, error) {
 	seen := map[string]bool{}
 	normalized := make([]string, 0, len(projects))
 	for _, project := range projects {
@@ -94,8 +101,11 @@ func normalizeProjects(projects []string) []string {
 		if project == "" || seen[project] {
 			continue
 		}
+		if err := naming.ValidateIncusProjectName(project); err != nil {
+			return nil, fmt.Errorf("invalid restricted project grant %q: %w", project, err)
+		}
 		seen[project] = true
 		normalized = append(normalized, project)
 	}
-	return normalized
+	return normalized, nil
 }
