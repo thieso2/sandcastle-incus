@@ -91,6 +91,45 @@ func TestPlanStatusAndParseStatus(t *testing.T) {
 	}
 }
 
+func TestParseStatusDoesNotPersistLoginURLs(t *testing.T) {
+	result, err := ParseStatus("alice/myproject", project.Summary{
+		Owner:     "alice",
+		Name:      "myproject",
+		IncusName: "sc-alice-myproject",
+	}, []byte(`{
+		"BackendState": "NeedsLogin",
+		"AuthURL": "https://login.tailscale.com/a/secret-token",
+		"CurrentTailnet": {"MagicDNSSuffix": "tailnet.ts.net"},
+		"Self": {
+			"DNSName": "sc-myproject.tailnet.ts.net.",
+			"LoginURL": "https://login.tailscale.com/b/secret-token",
+			"TailscaleIPs": ["100.80.12.34"],
+			"PrimaryRoutes": ["10.248.0.0/24"]
+		}
+	}`), time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tailscale.State != "NeedsLogin" {
+		t.Fatalf("State = %q", result.Tailscale.State)
+	}
+	if result.Tailscale.Tailnet != "tailnet.ts.net" {
+		t.Fatalf("Tailnet = %q", result.Tailscale.Tailnet)
+	}
+	if result.Tailscale.Hostname != "sc-myproject.tailnet.ts.net" {
+		t.Fatalf("Hostname = %q", result.Tailscale.Hostname)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"login.tailscale.com", "secret-token"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("status result leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
 func TestPlanDown(t *testing.T) {
 	plan, err := PlanDown(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), DownRequest{Reference: "alice/myproject"})
 	if err != nil {

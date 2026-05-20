@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -82,9 +83,11 @@ func TestTailscaleManagerRunsStatusAndUpdatesMetadata(t *testing.T) {
 	configMap := projectConfigForTailscaleTest(t)
 	resource := &fakeTailscaleResource{stdout: `{
 		"BackendState": "Running",
+		"AuthURL": "https://login.tailscale.com/a/secret-token",
 		"CurrentTailnet": {"Name": "example.com"},
 		"Self": {
 			"HostName": "sc-myproject",
+			"LoginURL": "https://login.tailscale.com/b/secret-token",
 			"TailscaleIPs": ["100.80.12.34"],
 			"PrimaryRoutes": ["10.248.0.0/24"]
 		}
@@ -115,6 +118,15 @@ func TestTailscaleManagerRunsStatusAndUpdatesMetadata(t *testing.T) {
 	}
 	if parsed.Tailscale.Tailnet != "example.com" {
 		t.Fatalf("Tailnet = %q", parsed.Tailscale.Tailnet)
+	}
+	encoded, err := json.Marshal(parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"login.tailscale.com", "secret-token"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("project metadata leaked %q: %s", forbidden, encoded)
+		}
 	}
 }
 

@@ -1138,6 +1138,12 @@ development sandboxes.
 - Passed: `go test ./internal/project ./internal/cli -run 'Test(PlanCreate|DomainClaims|AdminProjectCreate)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Added Tailscale status regressions proving login URLs and token-like values
+  from `tailscale status --json` are ignored by parsed status results and are
+  not persisted back into project metadata.
+- Passed: `go test ./internal/tailscale ./internal/incusx -run 'Test(ParseStatus|TailscaleManagerRunsStatus)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
