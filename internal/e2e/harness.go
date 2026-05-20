@@ -18,8 +18,13 @@ type Config struct {
 	RunID         string
 	Keep          bool
 	SandcastleBin string
+	RouteBroker   RouteBrokerConfig
 	Tailscale     TailscaleConfig
 	Images        ImageConfig
+}
+
+type RouteBrokerConfig struct {
+	IncusSocket string
 }
 
 type TailscaleConfig struct {
@@ -48,6 +53,9 @@ func LoadConfig() Config {
 		RunID:         os.Getenv("SANDCASTLE_E2E_RUN_ID"),
 		Keep:          os.Getenv("SANDCASTLE_E2E_KEEP") == "1",
 		SandcastleBin: os.Getenv("SANDCASTLE_E2E_SANDCASTLE_BIN"),
+		RouteBroker: RouteBrokerConfig{
+			IncusSocket: os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"),
+		},
 		Tailscale: TailscaleConfig{
 			AuthKey: os.Getenv("SANDCASTLE_E2E_TAILSCALE_AUTHKEY"),
 			Tag:     tag,

@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
+	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	sharedtls "github.com/lxc/incus/v6/shared/tls"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
@@ -34,11 +36,12 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	infraProject := safeInfrastructureProject("sc-infra-" + runID)
 	adminConfig := config.Admin{
-		Remote:                e2eConfig.Remote,
-		StoragePool:           e2eConfig.StoragePool,
-		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
-		InfrastructureProject: infraProject,
+		Remote:                 e2eConfig.Remote,
+		StoragePool:            e2eConfig.StoragePool,
+		CIDRPool:               e2eConfig.CIDRPool,
+		ProjectPrefix:          config.DefaultProjectPrefix,
+		InfrastructureProject:  infraProject,
+		RouteBrokerIncusSocket: strings.TrimSpace(e2eConfig.RouteBroker.IncusSocket),
 		Images: config.Images{
 			Base: config.DefaultBaseImageAlias,
 			AI:   config.DefaultAIImageAlias,
@@ -76,26 +79,65 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 	assertInstanceExists(t, projectServer, route.InfrastructureCaddyName)
 	assertInstanceExists(t, projectServer, infra.RouteBrokerName)
 	assertRouteBrokerMTLS(t, projectServer)
+	if adminConfig.RouteBrokerIncusSocket != "" {
+		assertRouteBrokerAuthorizedList(t, e2eConfig, server, projectServer, runID)
+	}
 
 	if err := deleter.DeleteInfrastructure(ctx, deletePlan); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func assertRouteBrokerMTLS(t *testing.T, server incus.InstanceServer) {
+func assertRouteBrokerAuthorizedList(t *testing.T, e2eConfig Config, adminServer incus.InstanceServer, server incus.InstanceServer, runID string) {
 	t.Helper()
+	owner := safeProjectName("broker-" + runID)
 	certPEM, keyPEM, err := sharedtls.GenerateMemCert(true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientCertPath := "/tmp/sandcastle-route-broker-client.crt"
-	clientKeyPath := "/tmp/sandcastle-route-broker-client.key"
+	fingerprint, err := sharedtls.CertFingerprintStr(string(certPEM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificateName := usertrust.CertificateNamePrefix + owner
+	if err := adminServer.CreateCertificate(api.CertificatesPost{CertificatePut: api.CertificatePut{
+		Name:        certificateName,
+		Type:        api.CertificateTypeClient,
+		Restricted:  true,
+		Projects:    []string{},
+		Certificate: string(certPEM),
+		Description: "Sandcastle route broker e2e user " + owner,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if e2eConfig.Keep {
+			t.Logf("keeping disposable certificate %s", certificateName)
+			return
+		}
+		if err := adminServer.DeleteCertificate(fingerprint); err != nil {
+			t.Logf("cleanup failed for certificate %s: %v", certificateName, err)
+		}
+	})
+	certPath, keyPath := writeRouteBrokerClientFiles(t, server, string(certPEM), string(keyPEM))
+	output := execInstanceOutput(t, server, infra.RouteBrokerName, []string{
+		"python3", "-c", routeBrokerAuthorizedListProbeScript(certPath, keyPath),
+	})
+	if !strings.Contains(output, "STATUS 200") {
+		t.Fatalf("route broker authorized list output = %q, want STATUS 200", output)
+	}
+}
+
+func writeRouteBrokerClientFiles(t *testing.T, server incus.InstanceServer, certPEM string, keyPEM string) (string, string) {
+	t.Helper()
+	certPath := "/tmp/sandcastle-route-broker-client.crt"
+	keyPath := "/tmp/sandcastle-route-broker-client.key"
 	for _, file := range []struct {
 		path    string
 		content string
 	}{
-		{path: clientCertPath, content: string(certPEM)},
-		{path: clientKeyPath, content: string(keyPEM)},
+		{path: certPath, content: certPEM},
+		{path: keyPath, content: keyPEM},
 	} {
 		if err := server.CreateInstanceFile(infra.RouteBrokerName, file.path, incus.InstanceFileArgs{
 			Content:   strings.NewReader(file.content),
@@ -106,6 +148,16 @@ func assertRouteBrokerMTLS(t *testing.T, server incus.InstanceServer) {
 			t.Fatalf("write route broker client TLS file %s: %v", file.path, err)
 		}
 	}
+	return certPath, keyPath
+}
+
+func assertRouteBrokerMTLS(t *testing.T, server incus.InstanceServer) {
+	t.Helper()
+	certPEM, keyPEM, err := sharedtls.GenerateMemCert(true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCertPath, clientKeyPath := writeRouteBrokerClientFiles(t, server, string(certPEM), string(keyPEM))
 	output := execInstanceOutput(t, server, infra.RouteBrokerName, []string{
 		"python3", "-c", routeBrokerMTLSProbeScript(clientCertPath, clientKeyPath),
 	})
@@ -132,6 +184,35 @@ for _ in range(50):
     except urllib.error.HTTPError as err:
         print('STATUS', err.code)
         sys.exit(0 if err.code == 401 else 1)
+    except Exception as err:
+        last = repr(err)
+        time.sleep(0.2)
+print('ERROR', last)
+sys.exit(1)
+`
+}
+
+func routeBrokerAuthorizedListProbeScript(certPath string, keyPath string) string {
+	return `
+import ssl, sys, time, urllib.error, urllib.request
+cert_path = ` + pythonQuote(certPath) + `
+key_path = ` + pythonQuote(keyPath) + `
+last = ''
+for _ in range(50):
+    try:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        context.load_cert_chain(cert_path, key_path)
+        response = urllib.request.urlopen('https://127.0.0.1:9443/routes', context=context, timeout=1)
+        body = response.read().decode('utf-8')
+        print('STATUS', response.status)
+        print('BODY', body)
+        sys.exit(0 if response.status == 200 else 1)
+    except urllib.error.HTTPError as err:
+        print('STATUS', err.code)
+        print('BODY', err.read().decode('utf-8'))
+        sys.exit(1)
     except Exception as err:
         last = repr(err)
         time.sleep(0.2)

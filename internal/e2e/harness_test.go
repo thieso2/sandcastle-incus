@@ -25,6 +25,17 @@ func TestLoadConfigDefaultsToDisabledAndSandcastleTag(t *testing.T) {
 	if config.Images.BuildTool != "docker" {
 		t.Fatalf("Images.BuildTool = %q, want docker", config.Images.BuildTool)
 	}
+	if config.RouteBroker.IncusSocket != "" {
+		t.Fatalf("RouteBroker.IncusSocket = %q, want empty", config.RouteBroker.IncusSocket)
+	}
+}
+
+func TestLoadConfigReadsRouteBrokerSocket(t *testing.T) {
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET", "/run/incus/unix.socket")
+	config := LoadConfig()
+	if config.RouteBroker.IncusSocket != "/run/incus/unix.socket" {
+		t.Fatalf("RouteBroker.IncusSocket = %q", config.RouteBroker.IncusSocket)
+	}
 }
 
 func TestValidateFailsClosedWhenE2EDisabled(t *testing.T) {

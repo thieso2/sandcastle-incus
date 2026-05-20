@@ -349,6 +349,11 @@ development sandboxes.
   When set, only `sc-route-broker` receives a disk mount of the host Incus Unix
   socket at `/var/lib/incus/unix.socket`, giving real broker-runtime route
   mutation e2e a concrete local-Incus access path without changing defaults.
+- Extended disposable infrastructure e2e with an optional trusted broker probe
+  when `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` is configured. The test creates a
+  disposable Sandcastle restricted user certificate, calls the containerized
+  route broker over mTLS, and expects `GET /routes` to return `200`, proving the
+  runtime broker can map mTLS identity through Incus and read route state.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -681,6 +686,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'TestDisposableInfrastructureCreateAndDelete|TestLoadConfig' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/config ./internal/infra -run 'Test(LoadAdminFromEnv|PlanCreate)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(LoadConfig|DisposableInfrastructureCreateAndDelete)' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 
 ## Open Scope
