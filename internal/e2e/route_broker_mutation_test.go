@@ -122,6 +122,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
 	store := incusx.NewProjectStore(e2eConfig.Remote)
+	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), e2eConfig.StoragePool, runID)
 	projectCreator := incusx.NewProjectCreator(e2eConfig.Remote)
 	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
 	projectDeletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})

@@ -1119,6 +1119,12 @@ development sandboxes.
 - Passed: `go test ./internal/config ./internal/domain ./internal/project -run 'Test(LoadAdminFromEnvOverrides|ValidateProjectDomain|PlanCreate)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Added failure-only project/topology diagnostics registration for the main
+  disposable project-backed e2e flows so real failures log run-id-filtered
+  Sandcastle project and topology state.
+- Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|ProjectDiagnostic|DisposableProjectCreateAndPurge|ProjectDNSE2E|SandboxLifecycleE2E|CLIAdd|CLIEnter|HostOverride|Tailscale|RestrictedUserSandboxLifecycle|RouteBrokerAuthorizedMutation|LocalTrust)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

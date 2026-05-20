@@ -186,6 +186,7 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
 	store := incusx.NewProjectStore(e2eConfig.Remote)
+	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), e2eConfig.StoragePool, runID)
 	creator := incusx.NewProjectCreator(e2eConfig.Remote)
 	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
 	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})

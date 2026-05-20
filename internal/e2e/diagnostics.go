@@ -13,6 +13,15 @@ func logProjectDiagnostics(t *testing.T, ctx context.Context, store project.Incu
 	logProjectDiagnosticsWithTopology(t, ctx, store, nil, "", runID)
 }
 
+func registerProjectDiagnostics(t *testing.T, ctx context.Context, store project.IncusProjectStore, topologyStore project.TopologyStore, storagePool string, runID string) {
+	t.Helper()
+	t.Cleanup(func() {
+		if t.Failed() {
+			logProjectDiagnosticsWithTopology(t, ctx, store, topologyStore, storagePool, runID)
+		}
+	})
+}
+
 func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store project.IncusProjectStore, topologyStore project.TopologyStore, storagePool string, runID string) {
 	t.Helper()
 	projects, err := project.List(ctx, store)

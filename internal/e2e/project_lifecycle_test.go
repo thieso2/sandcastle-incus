@@ -39,11 +39,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	topologyStore := incusx.NewTopologyStore(e2eConfig.Remote)
 	creator := incusx.NewProjectCreator(e2eConfig.Remote)
 	deleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	defer func() {
-		if t.Failed() {
-			logProjectDiagnosticsWithTopology(t, ctx, store, topologyStore, e2eConfig.StoragePool, runID)
-		}
-	}()
+	registerProjectDiagnostics(t, ctx, store, topologyStore, e2eConfig.StoragePool, runID)
 
 	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
