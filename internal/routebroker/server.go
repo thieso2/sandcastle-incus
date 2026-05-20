@@ -36,6 +36,8 @@ type addRequest struct {
 
 func (s Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/routes":
+		s.handleList(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/routes":
 		s.handleAdd(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/routes/"):
@@ -117,6 +119,40 @@ func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, plan)
+}
+
+func (s Server) handleList(w http.ResponseWriter, r *http.Request) {
+	principal, err := s.principal(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err)
+		return
+	}
+	plan, err := route.PlanList(s.Admin)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if s.Routes == nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("route manager is required"))
+		return
+	}
+	result, err := s.Routes.List(r.Context(), plan)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, filterRoutesForPrincipal(result, principal))
+}
+
+func filterRoutesForPrincipal(result route.ListResult, principal Principal) route.ListResult {
+	filtered := make([]route.Route, 0, len(result.Routes))
+	prefix := principal.Owner + "/"
+	for _, publicRoute := range result.Routes {
+		if strings.HasPrefix(publicRoute.TargetReference, prefix) {
+			filtered = append(filtered, publicRoute)
+		}
+	}
+	return route.ListResult{Routes: filtered}
 }
 
 func (s Server) principal(r *http.Request) (Principal, error) {

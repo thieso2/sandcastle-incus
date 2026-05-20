@@ -60,7 +60,24 @@ func (c Client) Remove(ctx context.Context, plan route.RemovePlan) error {
 }
 
 func (c Client) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
-	return route.ListResult{}, fmt.Errorf("route listing through the route broker is not implemented")
+	client, baseURL, err := c.client()
+	if err != nil {
+		return route.ListResult{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/routes", nil)
+	if err != nil {
+		return route.ListResult{}, err
+	}
+	response, err := doRouteBrokerRequestWithResponse(client, request, http.StatusOK)
+	if err != nil {
+		return route.ListResult{}, err
+	}
+	defer response.Body.Close()
+	var result route.ListResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return route.ListResult{}, fmt.Errorf("decode route broker list response: %w", err)
+	}
+	return result, nil
 }
 
 func (c Client) client() (*http.Client, string, error) {
@@ -86,14 +103,23 @@ func (c Client) client() (*http.Client, string, error) {
 }
 
 func doRouteBrokerRequest(client *http.Client, request *http.Request, wantStatus int) error {
-	response, err := client.Do(request)
+	response, err := doRouteBrokerRequestWithResponse(client, request, wantStatus)
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
-	if response.StatusCode == wantStatus {
-		return nil
+	_ = response.Body.Close()
+	return nil
+}
+
+func doRouteBrokerRequestWithResponse(client *http.Client, request *http.Request, wantStatus int) (*http.Response, error) {
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
 	}
+	if response.StatusCode == wantStatus {
+		return response, nil
+	}
+	defer response.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-	return fmt.Errorf("route broker %s %s: status %s: %s", request.Method, request.URL.Path, response.Status, strings.TrimSpace(string(body)))
+	return nil, fmt.Errorf("route broker %s %s: status %s: %s", request.Method, request.URL.Path, response.Status, strings.TrimSpace(string(body)))
 }

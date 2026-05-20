@@ -292,8 +292,10 @@ development sandboxes.
   plans route mutations, and delegates to the route manager.
 - Added a route broker HTTP mTLS client for user route mutations.
   `SANDCASTLE_ROUTE_BROKER_URL`, `SANDCASTLE_ROUTE_BROKER_CLIENT_CERT`, and
-  `SANDCASTLE_ROUTE_BROKER_CLIENT_KEY` switch `sandcastle route add/rm` from
-  direct infrastructure mutation to broker POST/DELETE requests.
+  `SANDCASTLE_ROUTE_BROKER_CLIENT_KEY` switch `sandcastle route list/add/rm`
+  from direct infrastructure mutation to broker GET/POST/DELETE requests.
+- Route broker list requests now require mTLS, delegate to the route manager,
+  and filter returned routes to the principal's owner prefix before responding.
 - Added route broker HTTPRunner mTLS integration coverage. The test starts a
   real TLS listener, presents a client certificate from an `http.Client`, and
   verifies an authorized route add flows through TLS client-certificate
@@ -620,6 +622,9 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'TestProjectDNSE2E|TestLoadConfig' -count=1 -v` with the expected project DNS e2e skip when real e2e is unset.
 - Passed: `go test ./internal/routebroker ./internal/cli -run 'Test(Client|RouteManagerFromEnv)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/routebroker -run 'Test(Client|Server)' -count=1 -v`
+- Passed: `go test ./internal/routebroker ./internal/cli -run 'Test(Client|Server|RouteManagerFromEnv)' -count=1 -v`
 - Passed: `go test ./...`
 
 ## Open Scope

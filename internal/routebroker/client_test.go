@@ -57,6 +57,28 @@ func TestClientRemovesRouteThroughBroker(t *testing.T) {
 	}
 }
 
+func TestClientListsRoutesThroughBroker(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/routes" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(route.ListResult{Routes: []route.Route{{
+			Hostname:        "app.example.com",
+			TargetReference: "alice/myproject/codex",
+			RoutePort:       3000,
+		}}})
+	}))
+	defer server.Close()
+
+	result, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).List(context.Background(), route.ListPlan{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Routes) != 1 || result.Routes[0].Hostname != "app.example.com" {
+		t.Fatalf("routes = %#v", result.Routes)
+	}
+}
+
 func TestClientRequiresBrokerURL(t *testing.T) {
 	err := (Client{}).Add(context.Background(), route.AddPlan{})
 	if err == nil {

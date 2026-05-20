@@ -19,6 +19,7 @@ import (
 type fakeBrokerRoutes struct {
 	added   *route.AddPlan
 	removed *route.RemovePlan
+	list    route.ListResult
 }
 
 func (r *fakeBrokerRoutes) Add(ctx context.Context, plan route.AddPlan) error {
@@ -32,7 +33,7 @@ func (r *fakeBrokerRoutes) Remove(ctx context.Context, plan route.RemovePlan) er
 }
 
 func (r *fakeBrokerRoutes) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
-	return route.ListResult{}, nil
+	return r.list, nil
 }
 
 type fakeBrokerSandboxStore struct{}
@@ -103,6 +104,27 @@ func TestServerRemovesAuthorizedRoute(t *testing.T) {
 	}
 	if routes.removed == nil || routes.removed.Hostname != "app.example.com" {
 		t.Fatalf("removed = %#v", routes.removed)
+	}
+}
+
+func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
+	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{
+		{Hostname: "app.example.com", TargetReference: "alice/myproject/codex", RoutePort: 3000},
+		{Hostname: "other.example.com", TargetReference: "bob/myproject/codex", RoutePort: 3000},
+	}}}
+	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodGet, "/routes", "")
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var result route.ListResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Routes) != 1 || result.Routes[0].Hostname != "app.example.com" {
+		t.Fatalf("routes = %#v", result.Routes)
 	}
 }
 
