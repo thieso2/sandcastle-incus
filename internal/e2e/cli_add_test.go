@@ -98,12 +98,28 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	t.Setenv("SANDCASTLE_INFRA_PROJECT", config.DefaultInfrastructureProject)
 	t.Setenv("SANDCASTLE_BASE_IMAGE", baseAlias)
 	t.Setenv("SANDCASTLE_AI_IMAGE", aiAlias)
-	if exitCode := cli.Execute("sandcastle", []string{"add", sandboxRef, "--detach"}); exitCode != 0 {
-		t.Fatalf("sandcastle add --detach exit code = %d", exitCode)
+	if exitCode := cli.Execute("sandcastle", []string{
+		"add", sandboxRef,
+		"--detach",
+		"--template", "base",
+		"--home-dir", "shared-home",
+		"--workspace-dir", ".",
+	}); exitCode != 0 {
+		t.Fatalf("sandcastle add --detach --template base exit code = %d", exitCode)
 	}
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
 	instanceName := "sc-" + sandboxName
 	assertInstanceExists(t, projectServer, instanceName)
+	instance, _, err := projectServer.GetInstance(instanceName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.Devices["home"]["source"] != project.HomeVolumeName+"/shared-home" {
+		t.Fatalf("home source = %q", instance.Devices["home"]["source"])
+	}
+	if instance.Devices["workspace"]["source"] != project.WorkspaceVolumeName+"/." {
+		t.Fatalf("workspace source = %q", instance.Devices["workspace"]["source"])
+	}
 	assertSandboxIngressFiles(t, projectServer, instanceName, sandboxName+"."+createProjectPlan.Domain, sandbox.DefaultAppPort)
 }

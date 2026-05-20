@@ -40,6 +40,12 @@ func TestPlanCreate(t *testing.T) {
 	if plan.AppPort != DefaultAppPort {
 		t.Fatalf("AppPort = %d", plan.AppPort)
 	}
+	if plan.Template != TemplateAI {
+		t.Fatalf("Template = %q", plan.Template)
+	}
+	if plan.HomeDir != "." || plan.WorkspaceDir != "." {
+		t.Fatalf("HomeDir/WorkspaceDir = %q/%q, want ./.", plan.HomeDir, plan.WorkspaceDir)
+	}
 	if plan.CAVolume != project.CAVolumeName {
 		t.Fatalf("CAVolume = %q", plan.CAVolume)
 	}
@@ -54,6 +60,43 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if !strings.Contains(plan.CaddyFile.Content, "reverse_proxy 127.0.0.1:3000") {
 		t.Fatalf("CaddyFile.Content = %q", plan.CaddyFile.Content)
+	}
+}
+
+func TestPlanCreateSupportsBaseTemplateAndCustomStorageDirs(t *testing.T) {
+	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{
+		Reference:    "alice/myproject/minimal",
+		Template:     TemplateBase,
+		HomeDir:      "shared-home",
+		WorkspaceDir: ".",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Template != TemplateBase {
+		t.Fatalf("Template = %q", plan.Template)
+	}
+	if plan.ImageAlias != config.DefaultBaseImageAlias {
+		t.Fatalf("ImageAlias = %q, want %q", plan.ImageAlias, config.DefaultBaseImageAlias)
+	}
+	if plan.Devices["home"]["source"] != project.HomeVolumeName+"/shared-home" {
+		t.Fatalf("home source = %q", plan.Devices["home"]["source"])
+	}
+	if plan.Devices["workspace"]["source"] != project.WorkspaceVolumeName+"/." {
+		t.Fatalf("workspace source = %q", plan.Devices["workspace"]["source"])
+	}
+}
+
+func TestPlanCreateRejectsUnknownTemplate(t *testing.T) {
+	_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), nil, CreateRequest{
+		Reference: "alice/myproject/codex",
+		Template:  "unknown",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported sandbox template") {
+		t.Fatalf("error = %q", err)
 	}
 }
 
@@ -123,6 +166,30 @@ func TestPlanCreateReusesExistingSandboxIP(t *testing.T) {
 	}
 	if plan.PrivateIP != "10.248.0.42" {
 		t.Fatalf("PrivateIP = %q, want 10.248.0.42", plan.PrivateIP)
+	}
+}
+
+func TestPlanCreateRequiresShareHomeForRunningSandboxHomeReuse(t *testing.T) {
+	_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{sandboxes: []meta.Sandbox{
+		{Name: "codex", HomeDir: "shared", PrivateIP: "10.248.0.20", Running: true},
+	}}, CreateRequest{Reference: "alice/myproject/claude", HomeDir: "shared"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--share-home") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestPlanCreateAllowsExplicitShareHome(t *testing.T) {
+	plan, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{sandboxes: []meta.Sandbox{
+		{Name: "codex", HomeDir: "shared", PrivateIP: "10.248.0.20", Running: true},
+	}}, CreateRequest{Reference: "alice/myproject/claude", HomeDir: "shared", ShareHome: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.HomeDir != "shared" {
+		t.Fatalf("HomeDir = %q", plan.HomeDir)
 	}
 }
 

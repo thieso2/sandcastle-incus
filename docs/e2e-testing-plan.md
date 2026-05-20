@@ -146,6 +146,9 @@ Test:
 1. Create `project/codex` from the default AI template.
 2. Verify container starts.
 3. Verify metadata, app port, user, home mount, and workspace mount.
+   The checked-in CLI `add --detach` e2e path now exercises `--template base`,
+   `--home-dir`, and `--workspace-dir` and verifies the resulting mount
+   sources on the Incus instance.
 4. Verify Caddy files and leaf certificate exist.
 5. Start a small HTTP app on port 3000.
 6. Verify private Caddy proxies to the app.

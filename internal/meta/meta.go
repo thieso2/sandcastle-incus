@@ -62,6 +62,7 @@ type Sandbox struct {
 	HomeDir      string   `json:"homeDir,omitempty"`
 	WorkspaceDir string   `json:"workspaceDir,omitempty"`
 	ExtraSANs    []string `json:"extraSANs,omitempty"`
+	Running      bool     `json:"running,omitempty"`
 }
 
 type Route struct {

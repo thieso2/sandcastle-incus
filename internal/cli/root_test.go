@@ -177,6 +177,48 @@ func TestAddDryRunJSON(t *testing.T) {
 	if payload.PrivateIP != "10.248.0.20" {
 		t.Fatalf("PrivateIP = %q", payload.PrivateIP)
 	}
+	if payload.Template != "ai" {
+		t.Fatalf("Template = %q", payload.Template)
+	}
+	if payload.HomeDir != "." || payload.WorkspaceDir != "." {
+		t.Fatalf("HomeDir/WorkspaceDir = %q/%q, want ./.", payload.HomeDir, payload.WorkspaceDir)
+	}
+}
+
+func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "add", "alice/myproject/minimal", "--dry-run", "--template", "base", "--home-dir", "shared-home", "--workspace-dir", ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sandbox.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Template != "base" {
+		t.Fatalf("Template = %q", payload.Template)
+	}
+	if payload.ImageAlias != scconfig.DefaultBaseImageAlias {
+		t.Fatalf("ImageAlias = %q", payload.ImageAlias)
+	}
+	if payload.HomeDir != "shared-home" || payload.WorkspaceDir != "." {
+		t.Fatalf("HomeDir/WorkspaceDir = %q/%q", payload.HomeDir, payload.WorkspaceDir)
+	}
 }
 
 func TestAddDetachSkipsEnter(t *testing.T) {

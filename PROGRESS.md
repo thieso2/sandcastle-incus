@@ -100,6 +100,15 @@ development sandboxes.
 - Added sandbox create planning for `sandcastle add owner/project/name`,
   including project lookup, default app port 3000, first private container IP,
   sandbox metadata, AI image alias, and home/workspace/network/root devices.
+- `sandcastle add` now supports per-sandbox `--template ai|base`, defaults to
+  the project's default template, and records the selected template plus image
+  alias in the sandbox creation plan.
+- Sandbox storage defaults now follow the v1 spec by mounting `"."` from the
+  project home/workspace volumes unless `--home-dir` or `--workspace-dir` is
+  provided.
+- `sandcastle add` now requires `--share-home` before reusing a home
+  subdirectory from another running sandbox, while workspace subdirectories
+  remain freely shareable.
 - Sandbox create planning now lists existing sandbox metadata and allocates the
   first free private IP in the sandbox range, preserving an existing sandbox's
   IP for idempotent replans instead of reusing `.20` for every sandbox.
@@ -598,6 +607,10 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh tailscale` with the expected
   base/AI image source skip when no real image sources are configured.
+- Passed: `go test ./internal/sandbox -run 'TestPlanCreate' -count=1 -v`
+- Passed: `go test ./internal/cli -run 'TestAdd' -count=1 -v`
+- Passed: `go test ./internal/e2e -run 'TestCLIAddDetachE2E|TestLoadConfig' -count=1 -v` with the expected CLI add e2e skip when real e2e is unset.
+- Passed: `go test ./...`
 
 ## Open Scope
 

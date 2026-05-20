@@ -84,6 +84,7 @@ func (m HostOverrideManager) ListSandboxes(ctx context.Context, summary project.
 		if err != nil {
 			return nil, fmt.Errorf("parse sandbox metadata for %s: %w", instance.Name, err)
 		}
+		sandbox.Running = instance.IsActive()
 		sandboxes = append(sandboxes, sandbox)
 	}
 	return sandboxes, nil

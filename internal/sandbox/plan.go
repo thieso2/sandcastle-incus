@@ -18,6 +18,10 @@ import (
 
 const DefaultAppPort = 3000
 const (
+	TemplateAI   = "ai"
+	TemplateBase = "base"
+)
+const (
 	CaddyfilePath       = "/etc/caddy/Caddyfile"
 	SandboxCertPath     = "/etc/caddy/certs/tls.crt"
 	SandboxCertKeyPath  = "/etc/caddy/certs/tls.key"
@@ -27,9 +31,11 @@ const (
 
 type CreateRequest struct {
 	Reference               string
+	Template                string
 	AppPort                 int
 	HomeDir                 string
 	WorkspaceDir            string
+	ShareHome               bool
 	ProjectCACertificatePEM []byte
 	ProjectCAPrivateKeyPEM  []byte
 }
@@ -45,6 +51,7 @@ type CreatePlan struct {
 	WorkspaceDir     string            `json:"workspaceDir"`
 	StoragePool      string            `json:"storagePool"`
 	CAVolume         string            `json:"caVolume"`
+	Template         string            `json:"template"`
 	ImageAlias       string            `json:"imageAlias"`
 	MetadataConfig   map[string]string `json:"metadataConfig"`
 	Devices          map[string]Device `json:"devices"`
@@ -84,6 +91,17 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	template := request.Template
+	if template == "" {
+		template = summary.DefaultTemplate
+	}
+	if template == "" {
+		template = TemplateAI
+	}
+	imageAlias, err := imageAliasForTemplate(admin, template)
+	if err != nil {
+		return CreatePlan{}, err
+	}
 	appPort := request.AppPort
 	if appPort == 0 {
 		appPort = DefaultAppPort
@@ -101,11 +119,14 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	}
 	homeDir := request.HomeDir
 	if homeDir == "" {
-		homeDir = sandboxName
+		homeDir = "."
 	}
 	workspaceDir := request.WorkspaceDir
 	if workspaceDir == "" {
-		workspaceDir = sandboxName
+		workspaceDir = "."
+	}
+	if err := validateHomeSharing(sandboxName, homeDir, request.ShareHome, existingSandboxes); err != nil {
+		return CreatePlan{}, err
 	}
 	state := meta.Sandbox{
 		Owner:        projectRef.Owner,
@@ -138,7 +159,8 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		WorkspaceDir:   workspaceDir,
 		StoragePool:    admin.StoragePool,
 		CAVolume:       project.CAVolumeName,
-		ImageAlias:     admin.Images.AI,
+		Template:       template,
+		ImageAlias:     imageAlias,
 		MetadataConfig: metadataConfig,
 		Devices: map[string]Device{
 			"root": {
@@ -167,6 +189,32 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		CaddyFile:        caddyFile,
 		CertificateFiles: certificateFiles,
 	}, nil
+}
+
+func imageAliasForTemplate(admin config.Admin, template string) (string, error) {
+	switch template {
+	case TemplateAI:
+		return admin.Images.AI, nil
+	case TemplateBase:
+		return admin.Images.Base, nil
+	default:
+		return "", fmt.Errorf("unsupported sandbox template %q", template)
+	}
+}
+
+func validateHomeSharing(sandboxName string, homeDir string, shareHome bool, existing []meta.Sandbox) error {
+	if shareHome {
+		return nil
+	}
+	for _, sandbox := range existing {
+		if sandbox.Name == sandboxName || !sandbox.Running {
+			continue
+		}
+		if sandbox.HomeDir == homeDir {
+			return fmt.Errorf("home directory %q is already used by running sandbox %s; pass --share-home to confirm sharing", homeDir, sandbox.Name)
+		}
+	}
+	return nil
 }
 
 func certificateFilesFromRequest(request CreateRequest, sandboxName string, domain string) ([]File, error) {

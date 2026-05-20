@@ -11,9 +11,11 @@ import (
 func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	var detach bool
+	var template string
 	var appPort int
 	var homeDir string
 	var workspaceDir string
+	var shareHome bool
 	command := &cobra.Command{
 		Use:   "add owner/project/name",
 		Short: "Create a Sandcastle container sandbox",
@@ -21,9 +23,11 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := sandbox.PlanCreate(cmd.Context(), config.adminConfig, config.projectStore, config.sandboxStore, sandbox.CreateRequest{
 				Reference:    args[0],
+				Template:     template,
 				AppPort:      appPort,
 				HomeDir:      homeDir,
 				WorkspaceDir: workspaceDir,
+				ShareHome:    shareHome,
 			})
 			if err != nil {
 				return err
@@ -57,9 +61,11 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the sandbox creation plan without creating a container")
 	command.Flags().BoolVar(&detach, "detach", false, "create the sandbox without entering it")
+	command.Flags().StringVar(&template, "template", "", "sandbox template to use (ai or base)")
 	command.Flags().IntVar(&appPort, "app-port", 0, "application port proxied by sandbox Caddy")
 	command.Flags().StringVar(&homeDir, "home-dir", "", "project home volume subdirectory")
 	command.Flags().StringVar(&workspaceDir, "workspace-dir", "", "project workspace volume subdirectory")
+	command.Flags().BoolVar(&shareHome, "share-home", false, "confirm sharing a home subdirectory with another running sandbox")
 	return command
 }
 
@@ -69,6 +75,9 @@ func formatSandboxPlan(plan sandbox.CreatePlan) string {
 	fmt.Fprintf(&builder, "Instance: %s\n", plan.InstanceName)
 	fmt.Fprintf(&builder, "Private IP: %s\n", plan.PrivateIP)
 	fmt.Fprintf(&builder, "App port: %d\n", plan.AppPort)
+	fmt.Fprintf(&builder, "Template: %s\n", plan.Template)
+	fmt.Fprintf(&builder, "Home dir: %s\n", plan.HomeDir)
+	fmt.Fprintf(&builder, "Workspace dir: %s\n", plan.WorkspaceDir)
 	fmt.Fprintf(&builder, "Image: %s", plan.ImageAlias)
 	return builder.String()
 }
