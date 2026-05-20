@@ -115,10 +115,11 @@ GitHub Actions:
   `unit`, `gated`, and unprivileged `local`.
 - `.github/workflows/e2e-gates.yml` is manual (`workflow_dispatch`) for real
   environment gates: `incus`, `restricted`, `tailscale`, `images`,
-  `route-broker`, `local-vm`, and `public-routes`. It sets `SANDCASTLE_E2E=1`
-  and relies on
+  `route-broker`, `local-vm`, `public-routes`, and `cleanup`. It sets
+  `SANDCASTLE_E2E=1` and relies on
   `scripts/e2e.sh` to fail closed when a selected tier's required variables are
-  missing.
+  missing. Use the optional `run_id` input to set `SANDCASTLE_E2E_RUN_ID` for
+  cleanup or for correlated disposable runs.
 - Configure non-secret values as repository or environment variables using the
   same names as the local shell environment, such as
   `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, `SANDCASTLE_E2E_AI_IMAGE_SOURCE`,

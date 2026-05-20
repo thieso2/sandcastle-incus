@@ -15,6 +15,11 @@ on:
           - route-broker
           - local-vm
           - public-routes
+          - cleanup
+      run_id:
+        description: Optional SANDCASTLE_E2E_RUN_ID for cleanup or correlated disposable runs
+        required: false
+        default: ""
       runner:
         description: GitHub Actions runner label
         required: true
@@ -33,6 +38,7 @@ jobs:
       SANDCASTLE_E2E_STORAGE_POOL: ${{ vars.SANDCASTLE_E2E_STORAGE_POOL || 'default' }}
       SANDCASTLE_E2E_CIDR_POOL: ${{ vars.SANDCASTLE_E2E_CIDR_POOL || '10.248.0.0/16' }}
       SANDCASTLE_E2E_DOMAIN_SUFFIX: ${{ vars.SANDCASTLE_E2E_DOMAIN_SUFFIX || 'e2e.project-tld' }}
+      SANDCASTLE_E2E_RUN_ID: ${{ inputs.run_id || vars.SANDCASTLE_E2E_RUN_ID }}
       SANDCASTLE_E2E_KEEP: ${{ vars.SANDCASTLE_E2E_KEEP || '0' }}
       SANDCASTLE_E2E_LOCAL_VM: ${{ inputs.tier == 'local-vm' && '1' || vars.SANDCASTLE_E2E_LOCAL_VM }}
       SANDCASTLE_E2E_BASE_IMAGE_SOURCE: ${{ vars.SANDCASTLE_E2E_BASE_IMAGE_SOURCE }}

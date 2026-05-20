@@ -39,6 +39,6 @@ SANDCASTLE_E2E=1 SANDCASTLE_E2E_RUN_ID=e2e-20260520-120000 scripts/e2e.sh cleanu
 
 The destructive tiers refuse to run unless their required environment variables
 are set. See the e2e testing plan for Incus, restricted HTTPS remote, image,
-Tailscale, route broker, public route, and disposable VM requirements. Safe tiers run
-automatically in GitHub Actions; real environment gates are available through
-the manual `Destructive e2e gates` workflow.
+Tailscale, route broker, public route, cleanup, and disposable VM requirements. Safe
+tiers run automatically in GitHub Actions; real environment gates are available
+through the manual `Destructive e2e gates` workflow.

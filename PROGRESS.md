@@ -562,6 +562,9 @@ development sandboxes.
   Sandcastle project or infrastructure projects whose metadata/name contains the
   safe run token. Incus-free unit coverage verifies missing/short run IDs are
   rejected and that cleanup selection only matches the requested run id.
+- Exposed the cleanup tier in the manual destructive GitHub Actions workflow and
+  added an optional `run_id` workflow input that maps to `SANDCASTLE_E2E_RUN_ID`
+  for cleanup or correlated disposable runs.
 
 ## Next Slice
 
@@ -919,6 +922,10 @@ development sandboxes.
   with the expected too-short run id rejection before cleanup mutation.
 - Passed: `go test ./internal/e2e -run 'Test(Cleanup|LoadConfig)' -count=1 -v`
   with the expected cleanup e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
 
