@@ -371,6 +371,10 @@ development sandboxes.
   and verifies the trusted first-owner broker client receives `403 Forbidden`
   when attempting to add a public route to that unowned sandbox, with no route
   profile or ingress device created.
+- Route broker mutation e2e now verifies public route port pinning: after a
+  broker-created route is present in infrastructure Caddy, the test changes the
+  sandbox app port and asserts the public Caddy route still proxies to the
+  original stored route port before removing the route.
 - Infrastructure Caddy now accepts optional Let’s Encrypt contact email via
   `SANDCASTLE_LETSENCRYPT_EMAIL`. Infrastructure bootstrap Caddyfiles, route
   refreshes, and the route broker runtime env preserve that setting so public
@@ -725,6 +729,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/config ./internal/caddy ./internal/infra ./internal/incusx ./internal/e2e -run 'Test(LoadAdminFromEnv|RenderInfrastructure|PlanCreate|RouteManager|LoadConfig)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 
 ## Open Scope

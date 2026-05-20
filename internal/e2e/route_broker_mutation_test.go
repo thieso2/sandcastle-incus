@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -192,9 +193,33 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	addRouteBrokerHostsEntry(t, infraServer, hostname, adminConfig.InfrastructureHost)
 
 	output := execInstanceOutput(t, infraServer, infra.RouteBrokerName, []string{
-		"python3", "-c", routeBrokerMutationProbeScript(certPath, keyPath, hostname, sandboxRef, unownedHostname, otherSandboxRef),
+		"python3", "-c", routeBrokerAddProbeScript(certPath, keyPath, hostname, sandboxRef, unownedHostname, otherSandboxRef),
 	})
-	for _, want := range []string{"UNOWNED 403", "ADD 201", "LIST-ADD 200", "REMOVE 200", "LIST-REMOVE 200"} {
+	for _, want := range []string{"UNOWNED 403", "ADD 201", "LIST-ADD 200"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("broker mutation output missing %q:\n%s", want, output)
+		}
+	}
+	assertInfrastructureRoutePort(t, infraServer, hostname, sandboxPlan.PrivateIP, sandboxPlan.AppPort)
+	portPlan, err := sandbox.PlanSetPort(ctx, adminConfig, store, sandbox.PortSetRequest{
+		Reference: sandboxRef,
+		AppPort:   5174,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := incusx.NewSandboxPortSetter(e2eConfig.Remote).SetAppPort(ctx, portPlan); err != nil {
+		t.Fatal(err)
+	}
+	assertInfrastructureRoutePort(t, infraServer, hostname, sandboxPlan.PrivateIP, sandboxPlan.AppPort)
+	caddyfile := readInstanceFile(t, infraServer, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile")
+	if strings.Contains(caddyfile, sandboxPlan.PrivateIP+":5174") {
+		t.Fatalf("infrastructure route was not pinned after sandbox app port change: %q", caddyfile)
+	}
+	output = execInstanceOutput(t, infraServer, infra.RouteBrokerName, []string{
+		"python3", "-c", routeBrokerRemoveProbeScript(certPath, keyPath, hostname),
+	})
+	for _, want := range []string{"REMOVE 200", "LIST-REMOVE 200"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("broker mutation output missing %q:\n%s", want, output)
 		}
@@ -220,6 +245,15 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	}
 	if _, _, err := infraServer.GetProfile(route.ProfileName(unownedHostname)); !api.StatusErrorCheck(err, 404) {
 		t.Fatalf("expected no route profile for rejected unowned route %s, err = %v", unownedHostname, err)
+	}
+}
+
+func assertInfrastructureRoutePort(t *testing.T, server incus.InstanceServer, hostname string, targetIP string, routePort int) {
+	t.Helper()
+	caddyfile := readInstanceFile(t, server, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile")
+	expected := "reverse_proxy http://" + targetIP + ":" + strconv.Itoa(routePort)
+	if !strings.Contains(caddyfile, hostname) || !strings.Contains(caddyfile, expected) {
+		t.Fatalf("infrastructure Caddyfile missing pinned route %s/%s: %q", hostname, expected, caddyfile)
 	}
 }
 
@@ -263,7 +297,7 @@ func addRouteBrokerHostsEntry(t *testing.T, server incus.InstanceServer, hostnam
 	})
 }
 
-func routeBrokerMutationProbeScript(certPath string, keyPath string, hostname string, targetRef string, unownedHostname string, unownedTargetRef string) string {
+func routeBrokerAddProbeScript(certPath string, keyPath string, hostname string, targetRef string, unownedHostname string, unownedTargetRef string) string {
 	return `
 import json, ssl, sys, time, urllib.error, urllib.request
 cert_path = ` + pythonQuote(certPath) + `
@@ -319,6 +353,36 @@ try:
     print('LIST-ADD-BODY', list_body)
     if hostname not in list_body:
         sys.exit(1)
+except urllib.error.HTTPError as err:
+    print('HTTP-ERROR', err.code, err.read().decode('utf-8'))
+    sys.exit(1)
+except Exception as err:
+    print('ERROR', repr(err))
+    sys.exit(1)
+`
+}
+
+func routeBrokerRemoveProbeScript(certPath string, keyPath string, hostname string) string {
+	return `
+import json, ssl, sys, time, urllib.error, urllib.request
+cert_path = ` + pythonQuote(certPath) + `
+key_path = ` + pythonQuote(keyPath) + `
+hostname = ` + pythonQuote(hostname) + `
+context = ssl.create_default_context()
+context.check_hostname = False
+context.verify_mode = ssl.CERT_NONE
+context.load_cert_chain(cert_path, key_path)
+
+def request(method, path, payload=None):
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload).encode('utf-8')
+        headers['Content-Type'] = 'application/json'
+    req = urllib.request.Request('https://127.0.0.1:9443' + path, data=data, method=method, headers=headers)
+    return urllib.request.urlopen(req, context=context, timeout=3)
+
+try:
     response = request('DELETE', '/routes/' + hostname)
     print('REMOVE', response.status)
     print('REMOVE-BODY', response.read().decode('utf-8'))
