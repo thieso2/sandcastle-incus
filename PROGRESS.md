@@ -300,6 +300,9 @@ development sandboxes.
   real TLS listener, presents a client certificate from an `http.Client`, and
   verifies an authorized route add flows through TLS client-certificate
   extraction, trust mapping, authorization, and route manager delegation.
+- Strengthened route broker mTLS integration coverage to use the production
+  `routebroker.Client` over the live TLS listener for route add and list,
+  covering the same client path used by `SANDCASTLE_ROUTE_BROKER_URL`.
 - Added an Incus-backed route broker trust mapper. Broker mTLS certificate
   fingerprints can now be resolved against Incus trust state, accepting only
   Sandcastle restricted user certificates named `sandcastle-<owner>`.
@@ -625,6 +628,8 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/routebroker -run 'Test(Client|Server)' -count=1 -v`
 - Passed: `go test ./internal/routebroker ./internal/cli -run 'Test(Client|Server|RouteManagerFromEnv)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go test ./internal/routebroker -run 'TestHTTPRunnerServesAuthorizedRouteOverMTLS|TestClient|TestServer' -count=1 -v`
 - Passed: `go test ./...`
 
 ## Open Scope

@@ -1,11 +1,8 @@
 package routebroker
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"net"
-	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -13,6 +10,7 @@ import (
 
 	sharedtls "github.com/lxc/incus/v6/shared/tls"
 	"github.com/thieso2/sandcastle-incus/internal/certs"
+	"github.com/thieso2/sandcastle-incus/internal/route"
 )
 
 func TestPlanServeDefaultsAddress(t *testing.T) {
@@ -58,12 +56,13 @@ func TestHTTPRunnerServesAuthorizedRouteOverMTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientCertificate, err := tls.X509KeyPair(clientCertPEM, clientKeyPEM)
-	if err != nil {
-		t.Fatal(err)
-	}
+	clientCertFile, clientKeyFile := writePEMFiles(t, clientCertPEM, clientKeyPEM)
 
-	routes := &fakeBrokerRoutes{}
+	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{{
+		Hostname:        "app.example.com",
+		TargetReference: "alice/myproject/codex",
+		RoutePort:       5173,
+	}}}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	address := freeLocalAddress(t)
@@ -75,19 +74,23 @@ func TestHTTPRunnerServesAuthorizedRouteOverMTLS(t *testing.T) {
 			KeyFile:  keyFile,
 		})
 	}()
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
-		Certificates:       []tls.Certificate{clientCertificate},
+	client := Client{
+		BaseURL:            "https://" + address,
+		CertFile:           clientCertFile,
+		KeyFile:            clientKeyFile,
 		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS12,
-	}}}
-
-	response := postRouteWithRetry(t, client, "https://"+address+"/routes")
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d", response.StatusCode)
 	}
+
+	addRouteWithRetry(t, client)
 	if routes.added == nil {
 		t.Fatal("expected route add")
+	}
+	result, err := client.List(ctx, route.ListPlan{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Routes) != 1 || result.Routes[0].Hostname != "app.example.com" {
+		t.Fatalf("routes = %#v", result.Routes)
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -109,6 +112,20 @@ func writeTLSFiles(t *testing.T, pair certs.KeyPair) (string, string) {
 	return certFile, keyFile
 }
 
+func writePEMFiles(t *testing.T, certPEM []byte, keyPEM []byte) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	certFile := dir + "/client.crt"
+	keyFile := dir + "/client.key"
+	if err := os.WriteFile(certFile, certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, keyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return certFile, keyFile
+}
+
 func freeLocalAddress(t *testing.T) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -119,18 +136,20 @@ func freeLocalAddress(t *testing.T) string {
 	return listener.Addr().String()
 }
 
-func postRouteWithRetry(t *testing.T, client *http.Client, url string) *http.Response {
+func addRouteWithRetry(t *testing.T, client Client) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		response, err := client.Post(url, "application/json", bytes.NewBufferString(`{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`))
+		err := client.Add(context.Background(), route.AddPlan{
+			Hostname:        "app.example.com",
+			TargetReference: "alice/myproject/codex",
+		})
 		if err == nil {
-			return response
+			return
 		}
 		lastErr = err
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("post route over mTLS: %v", lastErr)
-	return nil
 }
