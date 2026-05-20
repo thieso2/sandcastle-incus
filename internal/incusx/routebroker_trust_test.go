@@ -58,6 +58,24 @@ func TestRouteBrokerTrustMapperRejectsNonSandcastleCertificate(t *testing.T) {
 	}
 }
 
+func TestRouteBrokerTrustMapperRejectsInvalidSandcastleOwner(t *testing.T) {
+	mapper := RouteBrokerTrustMapper{Server: fakeRouteBrokerTrustServer{certificates: []api.Certificate{{
+		CertificatePut: api.CertificatePut{
+			Name:       "sandcastle-bad_owner",
+			Type:       api.CertificateTypeClient,
+			Restricted: true,
+		},
+		Fingerprint: "abcd",
+	}}}}
+	_, err := mapper.PrincipalForFingerprint(context.Background(), "abcd")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not a Sandcastle") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestRouteBrokerTrustMapperRejectsUnrestrictedCertificate(t *testing.T) {
 	mapper := RouteBrokerTrustMapper{Server: fakeRouteBrokerTrustServer{certificates: []api.Certificate{{
 		CertificatePut: api.CertificatePut{

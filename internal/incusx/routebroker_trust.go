@@ -7,6 +7,7 @@ import (
 
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 )
 
@@ -75,7 +76,11 @@ func ownerFromCertificateName(name string) string {
 	if !strings.HasPrefix(name, "sandcastle-") {
 		return ""
 	}
-	return strings.TrimPrefix(name, "sandcastle-")
+	owner := strings.TrimPrefix(name, "sandcastle-")
+	if _, err := naming.ParseProjectRef(owner + "/placeholder"); err != nil {
+		return ""
+	}
+	return owner
 }
 
 func normalizeFingerprint(value string) string {

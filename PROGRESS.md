@@ -1337,6 +1337,10 @@ development sandboxes.
 - Passed: `go test ./internal/incusx -run 'TestTrustManagerGrant' -count=1 -v`
 - Passed safe runner tiers in this environment: `scripts/e2e.sh unit`,
   `scripts/e2e.sh gated`, and `scripts/e2e.sh local`.
+- Hardened route broker trust mapping so `sandcastle-<owner>` client
+  certificate names must contain a valid Sandcastle owner before they map to a
+  public-route principal.
+- Passed: `go test ./internal/incusx -run 'TestRouteBrokerTrustMapper' -count=1 -v`
 
 ## Open Scope
 
