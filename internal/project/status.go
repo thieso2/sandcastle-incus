@@ -25,7 +25,6 @@ type TopologyStore interface {
 
 type TopologyRequest struct {
 	IncusProject string
-	StoragePool  string
 	Domain       string
 }
 

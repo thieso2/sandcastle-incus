@@ -42,7 +42,7 @@ func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 		Reference:         ref.String(),
 		IncusProject:      incusName,
 		PrivateNetwork:    PrivateNetworkName(incusName),
-		StoragePool:       admin.StoragePool,
+		StoragePool:       incusName,
 		DurableVolumes:    []string{HomeVolumeName, WorkspaceVolumeName, CAVolumeName},
 		SidecarInstances:  []string{TailscaleInstanceName(incusName), DNSName},
 		PurgeDurableState: request.Purge,

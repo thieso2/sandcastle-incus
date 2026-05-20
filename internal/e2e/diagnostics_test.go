@@ -44,7 +44,7 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 				{Instance: project.DNSName, Path: "/etc/coredns/zones/db.project.e2e.project-tld", Error: "missing"},
 			},
 		},
-	}, "default", "e2e-test")
+	}, "e2e-test")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -92,7 +92,7 @@ func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, nil, "", "e2e-test")
+	lines := projectDiagnosticLines(context.Background(), summaries, nil, "e2e-test")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -134,7 +134,7 @@ func TestProjectDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, nil, "", "e2e-test")
+	lines := projectDiagnosticLines(context.Background(), summaries, nil, "e2e-test")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -154,7 +154,7 @@ func TestProjectDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, fakeDiagnosticTopologyStore{err: errors.New("boom")}, "default", "e2e-test")
+	lines := projectDiagnosticLines(context.Background(), summaries, fakeDiagnosticTopologyStore{err: errors.New("boom")}, "e2e-test")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -181,7 +181,7 @@ func TestProjectDiagnosticLinesMatchRunIDInDomain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, nil, "", "e2e-domain-only")
+	lines := projectDiagnosticLines(context.Background(), summaries, nil, "e2e-domain-only")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -196,11 +196,11 @@ func TestProjectDiagnosticLinesRequireRunID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, nil, "", "")
+	lines := projectDiagnosticLines(context.Background(), summaries, nil, "")
 	if len(lines) != 0 {
 		t.Fatalf("lines = %#v, want no diagnostics for empty run id", lines)
 	}
-	lines = projectDiagnosticLines(context.Background(), summaries, nil, "", "   ")
+	lines = projectDiagnosticLines(context.Background(), summaries, nil, "   ")
 	if len(lines) != 0 {
 		t.Fatalf("lines = %#v, want no diagnostics for blank run id", lines)
 	}

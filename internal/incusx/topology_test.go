@@ -101,7 +101,6 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 	}}}
 	topology, err := store.GetTopology(context.Background(), project.TopologyRequest{
 		IncusProject: "sc-alice-myproject",
-		StoragePool:  "default",
 		Domain:       "myproject.project-tld",
 	})
 	if err != nil {

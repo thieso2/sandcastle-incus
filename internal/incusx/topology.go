@@ -70,7 +70,7 @@ func (s TopologyStore) GetTopology(ctx context.Context, request project.Topology
 		return project.Topology{}, fmt.Errorf("get private network %s: %w", privateNetworkName, err)
 	}
 	for _, volume := range []string{project.HomeVolumeName, project.WorkspaceVolumeName, project.CAVolumeName} {
-		if _, _, err := projectServer.GetStoragePoolVolume(request.StoragePool, "custom", volume); err == nil {
+		if _, _, err := projectServer.GetStoragePoolVolume(request.IncusProject, "custom", volume); err == nil {
 			topology.DurableVolumes[volume] = true
 		} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
 			return project.Topology{}, fmt.Errorf("get durable volume %s: %w", volume, err)

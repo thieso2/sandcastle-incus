@@ -14,26 +14,26 @@ import (
 )
 
 func logProjectDiagnostics(t *testing.T, ctx context.Context, store project.IncusProjectStore, runID string) {
-	logProjectDiagnosticsWithTopology(t, ctx, store, nil, "", runID)
+	logProjectDiagnosticsWithTopology(t, ctx, store, nil, runID)
 }
 
-func registerProjectDiagnostics(t *testing.T, ctx context.Context, store project.IncusProjectStore, topologyStore project.TopologyStore, storagePool string, runID string) {
+func registerProjectDiagnostics(t *testing.T, ctx context.Context, store project.IncusProjectStore, topologyStore project.TopologyStore, runID string) {
 	t.Helper()
 	t.Cleanup(func() {
 		if t.Failed() {
-			logProjectDiagnosticsWithTopology(t, ctx, store, topologyStore, storagePool, runID)
+			logProjectDiagnosticsWithTopology(t, ctx, store, topologyStore, runID)
 		}
 	})
 }
 
-func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store project.IncusProjectStore, topologyStore project.TopologyStore, storagePool string, runID string) {
+func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store project.IncusProjectStore, topologyStore project.TopologyStore, runID string) {
 	t.Helper()
 	projects, err := project.List(ctx, store)
 	if err != nil {
 		t.Logf("diagnostics: list projects failed: %v", err)
 		return
 	}
-	lines := projectDiagnosticLines(ctx, projects, topologyStore, storagePool, runID)
+	lines := projectDiagnosticLines(ctx, projects, topologyStore, runID)
 	localDNSLines, err := localDNSDiagnosticLines(localdns.DefaultStatePath(), runID)
 	if err != nil {
 		t.Logf("diagnostics: local DNS state failed: %v", err)
@@ -46,7 +46,7 @@ func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store 
 	t.Logf("diagnostics: matching Sandcastle projects:\n%s", strings.Join(lines, "\n"))
 }
 
-func projectDiagnosticLines(ctx context.Context, projects []project.Summary, topologyStore project.TopologyStore, storagePool string, runID string) []string {
+func projectDiagnosticLines(ctx context.Context, projects []project.Summary, topologyStore project.TopologyStore, runID string) []string {
 	var lines []string
 	for _, summary := range projects {
 		if !matchesProjectRun(summary, runID) {
@@ -62,7 +62,7 @@ func projectDiagnosticLines(ctx context.Context, projects []project.Summary, top
 			summary.Status,
 		)
 		if topologyStore != nil {
-			line += "\n  topology: " + projectTopologyDiagnostics(ctx, topologyStore, storagePool, summary)
+			line += "\n  topology: " + projectTopologyDiagnostics(ctx, topologyStore, summary)
 		}
 		if tailscaleLine := projectTailscaleDiagnostics(summary); tailscaleLine != "" {
 			line += "\n  tailscale: " + tailscaleLine
@@ -82,10 +82,9 @@ func matchesProjectRun(summary project.Summary, runID string) bool {
 		strings.Contains(summary.Domain, runID)
 }
 
-func projectTopologyDiagnostics(ctx context.Context, topologyStore project.TopologyStore, storagePool string, summary project.Summary) string {
+func projectTopologyDiagnostics(ctx context.Context, topologyStore project.TopologyStore, summary project.Summary) string {
 	topology, err := topologyStore.GetTopology(ctx, project.TopologyRequest{
 		IncusProject: summary.IncusName,
-		StoragePool:  storagePool,
 		Domain:       summary.Domain,
 	})
 	if err != nil {

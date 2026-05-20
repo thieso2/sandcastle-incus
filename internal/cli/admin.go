@@ -80,7 +80,7 @@ func newAdminProjectStatusCommand(config commandConfig, opts *rootOptions) *cobr
 				cmd.Context(),
 				config.projectStore,
 				config.topologyStore,
-				project.TopologyRequest{StoragePool: config.adminConfig.StoragePool},
+				project.TopologyRequest{},
 				args[0],
 			)
 			if err != nil {

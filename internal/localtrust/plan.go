@@ -66,7 +66,7 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 				Reference:       ref.String(),
 				IncusProject:    summary.IncusName,
 				Domain:          summary.Domain,
-				StoragePool:     admin.StoragePool,
+				StoragePool:     summary.IncusName,
 				CAVolume:        project.CAVolumeName,
 				CertificatePath: project.ProjectCACertPath,
 				TrustName:       trustName(ref),

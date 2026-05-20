@@ -23,7 +23,7 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				cmd.Context(),
 				config.projectStore,
 				config.topologyStore,
-				project.TopologyRequest{StoragePool: config.adminConfig.StoragePool},
+				project.TopologyRequest{},
 				ref.String(),
 			)
 			if err != nil {

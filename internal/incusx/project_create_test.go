@@ -16,8 +16,10 @@ import (
 
 type fakeCreateServer struct {
 	project        *api.Project
+	pool           *api.StoragePool
 	createdProject *api.ProjectsPost
 	updatedProject *api.ProjectPut
+	createdPool    *api.StoragePoolsPost
 	resourceServer *fakeResourceServer
 }
 
@@ -42,9 +44,28 @@ func (s *fakeCreateServer) UseProject(name string) ProjectResourceServer {
 	return s.resourceServer
 }
 
+func (s *fakeCreateServer) GetStoragePool(name string) (*api.StoragePool, string, error) {
+	if s.pool != nil && s.pool.Name == name {
+		return s.pool, "etag", nil
+	}
+	return &api.StoragePool{
+		Name:   name,
+		Driver: "zfs",
+		StoragePoolPut: api.StoragePoolPut{
+			Config: api.ConfigMap{"source": "default"},
+		},
+	}, "etag", nil
+}
+
+func (s *fakeCreateServer) CreateStoragePool(pool api.StoragePoolsPost) error {
+	s.createdPool = &pool
+	return nil
+}
+
 type fakeResourceServer struct {
 	networks           map[string]*api.Network
 	volumes            map[string]*api.StorageVolume
+	profiles           map[string]*api.Profile
 	instances          map[string]*api.Instance
 	createdNetwork     *api.NetworksPost
 	createdVolumes     []api.StorageVolumesPost
@@ -79,6 +100,29 @@ func (s *fakeResourceServer) GetStoragePoolVolume(pool string, volType string, n
 func (s *fakeResourceServer) CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error {
 	s.createdVolumes = append(s.createdVolumes, volume)
 	s.volumes[volume.Name] = &api.StorageVolume{Name: volume.Name, Type: volume.Type}
+	return nil
+}
+
+func (s *fakeResourceServer) GetProfile(name string) (*api.Profile, string, error) {
+	if profile := s.profiles[name]; profile != nil {
+		return profile, "etag", nil
+	}
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+}
+
+func (s *fakeResourceServer) CreateProfile(profile api.ProfilesPost) error {
+	if s.profiles == nil {
+		s.profiles = map[string]*api.Profile{}
+	}
+	s.profiles[profile.Name] = &api.Profile{Name: profile.Name, ProfilePut: profile.ProfilePut}
+	return nil
+}
+
+func (s *fakeResourceServer) UpdateProfile(name string, profile api.ProfilePut, etag string) error {
+	if s.profiles == nil {
+		s.profiles = map[string]*api.Profile{}
+	}
+	s.profiles[name] = &api.Profile{Name: name, ProfilePut: profile}
 	return nil
 }
 

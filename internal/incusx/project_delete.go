@@ -14,6 +14,7 @@ import (
 
 type ProjectDeleteServer interface {
 	DeleteProject(name string) error
+	DeleteStoragePool(name string) error
 	UseProject(name string) ProjectDeleteResourceServer
 }
 
@@ -93,6 +94,10 @@ func (d ProjectDeleter) DeleteProject(ctx context.Context, plan project.DeletePl
 		if err := ignoreNotFound(server.DeleteProject(plan.IncusProject)); err != nil {
 			return fmt.Errorf("delete Incus project %s: %w", plan.IncusProject, err)
 		}
+		d.log("delete storage pool " + plan.StoragePool)
+		if err := ignoreNotFound(server.DeleteStoragePool(plan.StoragePool)); err != nil {
+			return fmt.Errorf("delete storage pool %s: %w", plan.StoragePool, err)
+		}
 	}
 	d.log("done")
 	return nil
@@ -134,6 +139,9 @@ type sdkDeleteServer struct {
 }
 
 func (s sdkDeleteServer) DeleteProject(name string) error { return s.inner.DeleteProject(name) }
+func (s sdkDeleteServer) DeleteStoragePool(name string) error {
+	return s.inner.DeleteStoragePool(name)
+}
 func (s sdkDeleteServer) UseProject(name string) ProjectDeleteResourceServer {
 	return sdkDeleteResourceServer{inner: s.inner.UseProject(name)}
 }

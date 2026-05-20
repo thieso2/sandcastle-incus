@@ -20,6 +20,8 @@ type ProjectCreateServer interface {
 	CreateProject(project api.ProjectsPost) error
 	UpdateProject(name string, project api.ProjectPut, ETag string) error
 	UseProject(name string) ProjectResourceServer
+	GetStoragePool(name string) (*api.StoragePool, string, error)
+	CreateStoragePool(pool api.StoragePoolsPost) error
 }
 
 type ProjectResourceServer interface {
@@ -28,6 +30,9 @@ type ProjectResourceServer interface {
 	GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error)
 	CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
+	GetProfile(name string) (*api.Profile, string, error)
+	CreateProfile(profile api.ProfilesPost) error
+	UpdateProfile(name string, profile api.ProfilePut, ETag string) error
 	GetInstance(name string) (*api.Instance, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
@@ -81,6 +86,10 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 	if err := ensureProject(server, plan); err != nil {
 		return err
 	}
+	c.log("ensure storage pool " + plan.StoragePool)
+	if err := ensureStoragePool(server, plan); err != nil {
+		return err
+	}
 	projectServer := server.UseProject(plan.IncusProject)
 	c.log("ensure private network " + plan.PrivateNetwork)
 	if err := ensurePrivateNetwork(projectServer, plan); err != nil {
@@ -105,6 +114,10 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 		if err := configureSidecarNetwork(projectServer, sidecar, plan.PrivateCIDR); err != nil {
 			return err
 		}
+	}
+	c.log("ensure container profile")
+	if err := ensureContainerProfile(projectServer, plan); err != nil {
+		return err
 	}
 	c.log("ensure DNS files")
 	if err := ensureDNSFiles(projectServer, plan); err != nil {
@@ -316,6 +329,72 @@ func configureSidecarNetwork(server ProjectResourceServer, sidecar project.Sidec
 	return nil
 }
 
+func ensureStoragePool(server ProjectCreateServer, plan project.CreatePlan) error {
+	_, _, err := server.GetStoragePool(plan.StoragePool)
+	if err == nil {
+		return nil
+	}
+	if !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("get storage pool %s: %w", plan.StoragePool, err)
+	}
+	adminPool, _, err := server.GetStoragePool(plan.AdminStoragePool)
+	if err != nil {
+		return fmt.Errorf("get admin storage pool %s: %w", plan.AdminStoragePool, err)
+	}
+	poolConfig := api.ConfigMap{
+		meta.KeyKind:    "pool",
+		meta.KeyOwner:   ownerFromPlan(plan),
+		meta.KeyProject: projectFromPlan(plan),
+		meta.KeyVersion: "1",
+	}
+	if source := adminPool.Config["source"]; source != "" {
+		poolConfig["source"] = source + "/" + plan.StoragePool
+	}
+	return server.CreateStoragePool(api.StoragePoolsPost{
+		Name:   plan.StoragePool,
+		Driver: adminPool.Driver,
+		StoragePoolPut: api.StoragePoolPut{
+			Description: "Sandcastle per-project storage for " + plan.Reference,
+			Config:      poolConfig,
+		},
+	})
+}
+
+func ensureContainerProfile(server ProjectResourceServer, plan project.CreatePlan) error {
+	profilePut := api.ProfilePut{
+		Description: "Sandcastle container defaults for " + plan.Reference,
+		Config: api.ConfigMap{
+			meta.KeyKind:    "profile",
+			meta.KeyOwner:   ownerFromPlan(plan),
+			meta.KeyProject: projectFromPlan(plan),
+			meta.KeyVersion: "1",
+		},
+		Devices: api.DevicesMap{
+			"root": {
+				"type": "disk",
+				"pool": plan.StoragePool,
+				"path": "/",
+			},
+			"eth0": {
+				"type":    "nic",
+				"nictype": "bridged",
+				"parent":  plan.PrivateNetwork,
+			},
+		},
+	}
+	_, etag, err := server.GetProfile("container")
+	if err == nil {
+		return server.UpdateProfile("container", profilePut, etag)
+	}
+	if !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("get container profile: %w", err)
+	}
+	return server.CreateProfile(api.ProfilesPost{
+		Name:       "container",
+		ProfilePut: profilePut,
+	})
+}
+
 func networkRequest(plan project.CreatePlan) api.NetworksPost {
 	return api.NetworksPost{
 		Name: plan.PrivateNetwork,
@@ -457,6 +536,14 @@ func (s sdkProjectServer) UseProject(name string) ProjectResourceServer {
 	return sdkResourceServer{inner: s.inner.UseProject(name)}
 }
 
+func (s sdkProjectServer) GetStoragePool(name string) (*api.StoragePool, string, error) {
+	return s.inner.GetStoragePool(name)
+}
+
+func (s sdkProjectServer) CreateStoragePool(pool api.StoragePoolsPost) error {
+	return s.inner.CreateStoragePool(pool)
+}
+
 type sdkResourceServer struct {
 	inner incus.InstanceServer
 }
@@ -479,6 +566,18 @@ func (s sdkResourceServer) CreateStoragePoolVolume(pool string, volume api.Stora
 
 func (s sdkResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateStorageVolumeFile(pool, volumeType, volumeName, filePath, args)
+}
+
+func (s sdkResourceServer) GetProfile(name string) (*api.Profile, string, error) {
+	return s.inner.GetProfile(name)
+}
+
+func (s sdkResourceServer) CreateProfile(profile api.ProfilesPost) error {
+	return s.inner.CreateProfile(profile)
+}
+
+func (s sdkResourceServer) UpdateProfile(name string, profile api.ProfilePut, etag string) error {
+	return s.inner.UpdateProfile(name, profile, etag)
 }
 
 func (s sdkResourceServer) GetInstance(name string) (*api.Instance, string, error) {

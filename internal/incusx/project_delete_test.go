@@ -13,11 +13,17 @@ import (
 
 type fakeDeleteServer struct {
 	deletedProject string
+	deletedPool    string
 	resourceServer *fakeDeleteResourceServer
 }
 
 func (s *fakeDeleteServer) DeleteProject(name string) error {
 	s.deletedProject = name
+	return nil
+}
+
+func (s *fakeDeleteServer) DeleteStoragePool(name string) error {
+	s.deletedPool = name
 	return nil
 }
 

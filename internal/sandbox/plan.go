@@ -173,7 +173,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		LinuxUser:      linuxUser,
 		HomeDir:        homeDir,
 		WorkspaceDir:   workspaceDir,
-		StoragePool:    admin.StoragePool,
+		StoragePool:    summary.IncusName,
 		CAVolume:       project.CAVolumeName,
 		Template:       template,
 		ImageAlias:     imageAlias,
@@ -182,7 +182,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		Devices: map[string]Device{
 			"root": {
 				"type": "disk",
-				"pool": admin.StoragePool,
+				"pool": summary.IncusName,
 				"path": "/",
 			},
 			"eth0": {
@@ -193,13 +193,13 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 			},
 			"home": {
 				"type":   "disk",
-				"pool":   admin.StoragePool,
+				"pool":   summary.IncusName,
 				"source": project.HomeVolumeName + "/" + homeDir,
 				"path":   "/home/" + linuxUser,
 			},
 			"workspace": {
 				"type":   "disk",
-				"pool":   admin.StoragePool,
+				"pool":   summary.IncusName,
 				"source": project.WorkspaceVolumeName + "/" + workspaceDir,
 				"path":   "/workspace",
 			},

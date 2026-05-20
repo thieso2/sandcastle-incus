@@ -124,7 +124,7 @@ func TestGetStatusWithTopology(t *testing.T) {
 				DNSName:             {Present: true, Running: true, Status: "Running"},
 			},
 		}},
-		TopologyRequest{StoragePool: "default"},
+		TopologyRequest{},
 		"alice/myproject",
 	)
 	if err != nil {
