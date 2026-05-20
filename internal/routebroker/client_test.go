@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 )
 
@@ -139,6 +143,34 @@ func TestClientRequiresBrokerURL(t *testing.T) {
 	err := (Client{}).Add(context.Background(), route.AddPlan{})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestClientLoadsTrimmedCertificatePaths(t *testing.T) {
+	keyPair, err := certs.GenerateSelfSignedServer("client", []string{"client.example.com"}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "client.crt")
+	keyPath := filepath.Join(dir, "client.key")
+	if err := os.WriteFile(certPath, keyPair.CertificatePEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, keyPair.PrivateKeyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, baseURL, err := (Client{
+		BaseURL:  " https://broker.example.com/ ",
+		CertFile: " " + certPath + " ",
+		KeyFile:  " " + keyPath + " ",
+	}).client()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseURL != "https://broker.example.com" {
+		t.Fatalf("baseURL = %q", baseURL)
 	}
 }
 

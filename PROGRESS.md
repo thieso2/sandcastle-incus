@@ -1421,6 +1421,13 @@ development sandboxes.
 - Passed: `go test ./internal/naming ./internal/config ./internal/infra ./internal/cli -run 'Test(ValidateIncusProjectName|ValidateProjectPrefix|AdminValidate|Plan(Create|Delete)|AdminInfra)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened route broker client env handling by trimming client certificate/key
+  paths and the insecure-skip-verify flag before constructing or loading the
+  mTLS client, preventing whitespace in normal-user route broker config from
+  breaking the certificate-backed route path.
+- Passed: `go test ./internal/routebroker ./internal/cli -run 'Test(Client|RouteManagerFromEnv)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

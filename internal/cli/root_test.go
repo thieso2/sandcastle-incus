@@ -1279,17 +1279,17 @@ func routeAdminConfigForTest() scconfig.Admin {
 }
 
 func TestRouteManagerFromEnvUsesBrokerClient(t *testing.T) {
-	t.Setenv("SANDCASTLE_ROUTE_BROKER_URL", "https://broker.example.com")
-	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_CERT", "/tmp/client.crt")
-	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY", "/tmp/client.key")
-	t.Setenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY", "1")
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_URL", " https://broker.example.com/ ")
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_CERT", " /tmp/client.crt ")
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY", " /tmp/client.key ")
+	t.Setenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY", " 1 ")
 
 	manager := routeManagerFromEnv(&fakeRouteManager{})
 	client, ok := manager.(routebroker.Client)
 	if !ok {
 		t.Fatalf("manager = %T, want routebroker.Client", manager)
 	}
-	if client.BaseURL != "https://broker.example.com" || client.CertFile != "/tmp/client.crt" || client.KeyFile != "/tmp/client.key" {
+	if client.BaseURL != "https://broker.example.com/" || client.CertFile != "/tmp/client.crt" || client.KeyFile != "/tmp/client.key" {
 		t.Fatalf("client = %#v", client)
 	}
 	if !client.InsecureSkipVerify {

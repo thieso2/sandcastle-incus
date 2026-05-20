@@ -137,9 +137,9 @@ func routeManagerFromEnv(fallback route.Manager) route.Manager {
 	}
 	return routebroker.Client{
 		BaseURL:            brokerURL,
-		CertFile:           os.Getenv("SANDCASTLE_ROUTE_BROKER_CLIENT_CERT"),
-		KeyFile:            os.Getenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY"),
-		InsecureSkipVerify: os.Getenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY") == "1",
+		CertFile:           strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_CLIENT_CERT")),
+		KeyFile:            strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY")),
+		InsecureSkipVerify: strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY")) == "1",
 	}
 }
 

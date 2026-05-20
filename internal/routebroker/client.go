@@ -114,10 +114,12 @@ func (c Client) client() (*http.Client, string, error) {
 	if c.HTTPClient != nil {
 		return c.HTTPClient, baseURL, nil
 	}
-	if strings.TrimSpace(c.CertFile) == "" || strings.TrimSpace(c.KeyFile) == "" {
+	certFile := strings.TrimSpace(c.CertFile)
+	keyFile := strings.TrimSpace(c.KeyFile)
+	if certFile == "" || keyFile == "" {
 		return nil, "", fmt.Errorf("route broker client certificate and key are required")
 	}
-	certificate, err := tls.LoadX509KeyPair(c.CertFile, c.KeyFile)
+	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, "", fmt.Errorf("load route broker client certificate: %w", err)
 	}
