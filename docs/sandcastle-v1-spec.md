@@ -63,6 +63,13 @@ also unique per owner. Two different owners may use the same private domain
 because each project is attached to the owner's chosen tailnet, and DNS is
 installed locally per developer machine.
 
+Project domain validation uses a deny-list, not an allow-list. Sandcastle ships
+with an embedded snapshot of public TLDs and special-use names, refreshed from
+authoritative IANA data by an admin command. Project domains are rejected when
+their final label is a current public TLD, an IANA special-use name, or an
+admin-denied local suffix. Admins may add local deny-list entries and explicit
+lab overrides.
+
 Each project contains:
 
 - one private Incus bridge network;
@@ -140,6 +147,8 @@ allocates its CIDR from a configured pool and records the allocation in Incus
 metadata. Allocation is stable because it is persisted, not derived only from a
 hash of the project name.
 
+The bridge is named `sc-private` inside the Incus project.
+
 Example:
 
 ```text
@@ -153,6 +162,22 @@ claude:      10.88.17.22
 Containers get exactly one private IP by default. A container gets a second
 ingress IP only if it is targeted by a public route.
 
+Sandcastle assigns static private IPs from project metadata. Infrastructure
+addresses are reserved, and sandbox addresses are allocated sequentially from a
+container range.
+
+Default private address convention:
+
+```text
+gateway:    .1
+tailscale:  .2
+dns:        .53
+containers: .20-.199
+reserved:   .200-.254
+```
+
+Deleted sandbox IPs may be reused after deletion.
+
 The private project network is routed over Tailscale by the project Tailscale
 sidecar. This is the normal developer access path.
 
@@ -160,6 +185,9 @@ sidecar. This is the normal developer access path.
 
 Each project has one Tailscale sidecar container. The admin creates and prepares
 the sidecar, but does not connect it to a tailnet.
+
+The sidecar is created and started during project creation. Before
+authentication, its status is `running-logged-out`.
 
 The project owner connects it:
 
@@ -196,6 +224,9 @@ Sandcastle does not use Tailscale DNS in v1.
 Each project runs its own CoreDNS server on the private project network. The DNS
 server is reached through the Tailscale-advertised private CIDR. CoreDNS is not
 itself a Tailscale node.
+
+CoreDNS is created and started during project creation with a minimal zone, even
+before any user sandboxes exist.
 
 The project DNS server is authoritative for the project domain chosen by the
 user:
@@ -444,6 +475,8 @@ users, allocate CIDRs, or manage Tailscale.
 The product command is `sandcastle`. Install `sc` as a symlink/alias to the same
 binary.
 
+The CLI is implemented in Go with Cobra from the start.
+
 Normal user resource addresses use `project/container`:
 
 ```bash
@@ -496,6 +529,8 @@ sandcastle status myproject --json
 
 - The existing older docs describe one Incus project per tenant and YAML specs
   as desired state. That is superseded by this v1 spec.
+- The first implementation starts with the Go CLI, not scripts.
+- Management operations use the official Incus Go SDK wherever practical.
 - Project creation is admin-driven in v1 because it allocates CIDRs, creates
   Incus projects, prepares infrastructure, and manages restricted trust.
 - User day-to-day operations use restricted Incus access and Incus metadata.

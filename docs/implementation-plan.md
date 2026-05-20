@@ -8,6 +8,8 @@ ordered around vertical slices that can be verified against a real Incus host.
 - The Incus project is the Sandcastle project boundary.
 - Incus metadata is the authoritative source of truth.
 - Normal users operate through restricted Incus certificates.
+- Restricted user certificates are implemented in the first phase, with
+  admin-only mode only as a temporary bootstrap path.
 - Admin commands own privileged setup: users, projects, CIDR allocation, images,
   and global infrastructure.
 - User commands own day-to-day sandbox lifecycle.
@@ -15,6 +17,31 @@ ordered around vertical slices that can be verified against a real Incus host.
 - AI is a default template/image, not a separate resource type.
 - Management operations use the Incus Go SDK. Interactive `enter` may delegate
   to `incus exec` for PTY quality.
+- Public routes are deferred until the private Tailscale/DNS/Caddy path works
+  end to end.
+
+## Initial Go Package Layout
+
+```text
+cmd/sandcastle/
+internal/cli/
+internal/incusx/
+internal/meta/
+internal/naming/
+internal/cidr/
+internal/project/
+internal/usertrust/
+internal/sandbox/
+internal/dns/
+internal/certs/
+internal/tailscale/
+internal/images/
+internal/routebroker/
+internal/e2e/
+```
+
+Feature packages own use-case orchestration. Shared infrastructure packages
+such as `incusx`, `meta`, `naming`, and `cidr` stay small and stable.
 
 ## Milestone 0: Repository And Tooling
 
@@ -78,12 +105,14 @@ Deliverables:
 - Project creation:
   - Incus project `sc-<owner>-<project>`;
   - project metadata;
-  - private bridge network;
+  - dedicated `sc-private` managed bridge network;
   - home and workspace volumes;
   - CA volume and project CA generation;
-  - prepared Tailscale sidecar;
-  - prepared CoreDNS sidecar;
+  - real `sc-tailscale` sidecar at `.2`, started but unauthenticated;
+  - real `sc-dns` CoreDNS sidecar at `.53`, started with a minimal zone;
   - default templates, with `ai` as default.
+- Domain deny-list validation seeded by embedded IANA public TLD and
+  special-use snapshots.
 - Project deletion plan with data-preserving default and explicit purge.
 
 Commands:
@@ -100,6 +129,8 @@ Exit criteria:
 - A second project receives a non-conflicting CIDR.
 - Project metadata is sufficient for user commands without YAML.
 - Deletion preserves volumes unless purge is explicit.
+- `sandcastle admin tld refresh` or equivalent can refresh the deny-list
+  snapshot from IANA.
 
 ## Milestone 3: User Certificates And Restrictions
 
@@ -129,6 +160,8 @@ Exit criteria:
 Deliverables:
 
 - Container creation from project default template.
+- Sequential next-free static private IP allocation from `.20-.199`, persisted
+  in sandbox metadata.
 - Home/workspace volume mounts with independent subdir configuration.
 - Default Linux user creation.
 - App port metadata, defaulting to 3000.
@@ -255,6 +288,8 @@ Exit criteria:
 
 ## Milestone 9: Infrastructure Caddy And Route Broker
 
+This milestone is intentionally after the private developer path is working.
+
 Deliverables:
 
 - Infrastructure project creation.
@@ -301,7 +336,10 @@ sandcastle admin image sync sandcastle/ai:debian-13
 
 Exit criteria:
 
-- New projects default to template `ai`.
+- The base image works first for lifecycle, DNS, Caddy, and certificate tests.
+- The AI image is then layered on top before the default template is considered
+  complete.
+- New projects default to template `ai` once the AI image exists.
 - Container creation does not require apt bootstrapping for Caddy or core
   sandbox prerequisites.
 - Credentials are absent from images and stored only in mounted home state.
@@ -316,4 +354,3 @@ Exit criteria:
 - Defensive path handling for purge operations.
 - Documentation for admin setup, user setup, Tailscale auth, DNS install, and
   trust install.
-

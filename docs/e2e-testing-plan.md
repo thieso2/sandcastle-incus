@@ -28,6 +28,8 @@ Safety:
 - Tests refuse to run unless `SANDCASTLE_E2E=1`.
 - Tests refuse unsafe names that do not include the disposable prefix.
 - Cleanup runs at the end and can also be invoked as a standalone command.
+- Tests that mutate local DNS, trust stores, launch services, or `/etc/hosts`
+  must run inside disposable test VMs, not on the developer workstation.
 
 Suggested environment:
 
@@ -56,6 +58,14 @@ The harness should:
 - collect Incus diagnostics on failure;
 - clean up even after partial failures;
 - leave resources only when `SANDCASTLE_E2E_KEEP=1`.
+
+Use two e2e tiers:
+
+- Core Incus-only e2e: does not require Tailscale, validates project topology,
+  metadata, bridge networking, CoreDNS from inside Incus, sandbox lifecycle, and
+  sandbox Caddy.
+- Full network e2e: gated by `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`, validates real
+  Tailscale route advertisement and access through the routed private CIDR.
 
 ## Phase 1: Admin Project Lifecycle
 
@@ -91,6 +101,8 @@ Primary assertions:
 
 - Project scoping is enforced by Incus trust restrictions.
 - Sandcastle user commands work with the restricted remote.
+- The first implementation may use admin-only mode as a bootstrap step, but the
+  normal e2e path must rerun sandbox lifecycle through a restricted user remote.
 
 ## Phase 3: Container Lifecycle
 
@@ -151,9 +163,13 @@ Primary assertions:
 - Tailscale auth secrets are not stored in metadata.
 - DNS and HTTPS work over the advertised route.
 
+Core e2e must still pass without this phase when no Tailscale auth key is
+provided.
+
 ## Phase 6: Local DNS Forwarder
 
-Run only on supported OSes or in a controlled test VM.
+Run only inside a disposable VM. Linux is the first target, using Debian 13 or
+Ubuntu 24.04 with systemd-resolved. macOS resolver and Keychain tests come later.
 
 Test:
 
@@ -171,8 +187,7 @@ Primary assertions:
 
 ## Phase 7: Trust And Host Override
 
-Run only where the test runner can safely mutate trust and hosts state, usually
-inside a disposable VM.
+Run only inside a disposable VM.
 
 Test:
 
@@ -240,4 +255,3 @@ Cleanup should remove:
 - local hosts entries;
 - local trust entries;
 - route metadata and Caddy routes.
-
