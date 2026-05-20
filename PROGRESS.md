@@ -284,11 +284,15 @@ development sandboxes.
   `SANDCASTLE_E2E_AI_IMAGE_SOURCE`, syncs both into disposable aliases, creates
   a disposable project and sandbox, exercises stop/start/restart/remove, and
   purges the project and aliases unless `SANDCASTLE_E2E_KEEP=1`.
+- Added gated CLI-path e2e coverage for `sandcastle add --detach`.
+  `TestCLIAddDetachE2E` syncs disposable base/AI aliases, creates a disposable
+  project through the Incus executor, invokes the production CLI entrypoint with
+  `add <owner/project/name> --detach`, and asserts the sandbox instance exists.
 
 ## Next Slice
 
-- Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
-  `--detach` once disposable images can support interactive exec safely.
+- Add real-Incus e2e coverage for `sandcastle add` default enter behavior once
+  disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
 - Add AI image sync e2e once a disposable AI source image is available.
@@ -456,6 +460,7 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin image import base oci:sandcastle/base:debian-13 --dry-run`
 - Passed: `go test ./internal/e2e -run 'Test(ImageBuild|LoadConfig)' -count=1 -v` with the expected image build skips when real e2e/build gates are unset.
 - Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|LoadConfig)' -count=1 -v` with the expected sandbox lifecycle skip when real e2e is unset.
+- Passed: `go test ./internal/e2e -run 'Test(CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected CLI add skip when real e2e is unset.
 
 ## Open Scope
 
