@@ -71,6 +71,13 @@ func TestServerAddsAuthorizedRoute(t *testing.T) {
 	if routes.added.RoutePort != 5173 {
 		t.Fatalf("RoutePort = %d", routes.added.RoutePort)
 	}
+	routeMetadata, err := meta.ParseRouteConfig(routes.added.MetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if routeMetadata.CreatedBy != "alice" {
+		t.Fatalf("CreatedBy = %q", routeMetadata.CreatedBy)
+	}
 }
 
 func TestServerRejectsUnownedRouteAdd(t *testing.T) {

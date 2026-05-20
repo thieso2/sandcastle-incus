@@ -70,6 +70,11 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, err)
 		return
 	}
+	plan, err = stampRouteCreator(plan, principal.Owner)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	if s.Routes == nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("route manager is required"))
 		return
@@ -79,6 +84,20 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, plan)
+}
+
+func stampRouteCreator(plan route.AddPlan, owner string) (route.AddPlan, error) {
+	metadata, err := meta.ParseRouteConfig(plan.MetadataConfig)
+	if err != nil {
+		return route.AddPlan{}, fmt.Errorf("parse route metadata: %w", err)
+	}
+	metadata.CreatedBy = owner
+	metadataConfig, err := meta.RouteConfig(metadata)
+	if err != nil {
+		return route.AddPlan{}, err
+	}
+	plan.MetadataConfig = metadataConfig
+	return plan, nil
 }
 
 func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
