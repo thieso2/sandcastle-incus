@@ -612,6 +612,9 @@ development sandboxes.
   metadata, so users can inspect a sandbox's instance name, private IP, app
   port, storage subdirectories, running state, and host override SANs in text
   or JSON.
+- Extended the real CLI add-detach e2e path to run `sandcastle inspect` after
+  creating the disposable sandbox and assert the JSON output matches the
+  Incus-backed sandbox instance and metadata.
 
 ## Next Slice
 
@@ -907,6 +910,10 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle inspect alice/myproject/codex 2>&1 || true`
   with the expected local Incus connection failure on macOS.
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'TestCLIAddDetachE2E|TestLoadConfig' -count=1 -v`
+  with the expected CLI add-detach e2e skip when real e2e is unset.
+- Passed: `go test ./...`
 - Passed: `git diff --check`
 - Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard
   when `SANDCASTLE_E2E` is unset.

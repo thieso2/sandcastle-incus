@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"strings"
@@ -44,6 +45,31 @@ func TestCLIAddDetachE2E(t *testing.T) {
 		t.Fatalf("workspace source = %q", instance.Devices["workspace"]["source"])
 	}
 	assertSandboxIngressFiles(t, projectServer, instanceName, fixture.SandboxName+"."+fixture.Project.Domain, sandbox.DefaultAppPort)
+	sandcastleBin := strings.TrimSpace(fixture.Config.SandcastleBin)
+	if sandcastleBin == "" {
+		sandcastleBin = buildSandcastleForE2E(t)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, sandcastleBin, "--output", "json", "inspect", fixture.SandboxRef)
+	command.Env = append(os.Environ(), sandcastleCLIEnv(fixture)...)
+	output, err := command.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Fatalf("sandcastle inspect timed out\n%s", strings.TrimSpace(string(output)))
+	}
+	if err != nil {
+		t.Fatalf("sandcastle inspect: %v\n%s", err, strings.TrimSpace(string(output)))
+	}
+	var inspect sandbox.InspectResult
+	if err := json.Unmarshal(output, &inspect); err != nil {
+		t.Fatalf("decode inspect output: %v\n%s", err, strings.TrimSpace(string(output)))
+	}
+	if inspect.InstanceName != instanceName {
+		t.Fatalf("inspect instance = %q, want %q", inspect.InstanceName, instanceName)
+	}
+	if inspect.Sandbox.PrivateIP == "" || inspect.Sandbox.AppPort != sandbox.DefaultAppPort || !inspect.Sandbox.Running {
+		t.Fatalf("inspect sandbox = %#v", inspect.Sandbox)
+	}
 }
 
 func TestCLIAddDefaultEnterE2E(t *testing.T) {
