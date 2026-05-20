@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -28,6 +29,7 @@ type ProjectResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
+	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 }
 
 type ProjectCreator struct {
@@ -74,6 +76,9 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 		if err := ensureSidecar(projectServer, sidecar); err != nil {
 			return err
 		}
+	}
+	if err := ensureDNSFiles(projectServer, plan); err != nil {
+		return err
 	}
 	return nil
 }
@@ -150,6 +155,30 @@ func ensureSidecar(server ProjectResourceServer, sidecar project.SidecarPlan) er
 	}
 	if err := op.Wait(); err != nil {
 		return fmt.Errorf("wait for sidecar %s create: %w", sidecar.Name, err)
+	}
+	return nil
+}
+
+func ensureDNSFiles(server ProjectResourceServer, plan project.CreatePlan) error {
+	for _, directory := range []string{"/etc/coredns", "/etc/coredns/zones"} {
+		err := server.CreateInstanceFile(plan.DNSInstance, directory, incus.InstanceFileArgs{
+			Type: "directory",
+			Mode: 0o755,
+		})
+		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
+			return fmt.Errorf("create DNS config directory %s: %w", directory, err)
+		}
+	}
+	for _, file := range plan.DNSFiles {
+		err := server.CreateInstanceFile(plan.DNSInstance, file.Path, incus.InstanceFileArgs{
+			Content:   strings.NewReader(file.Content),
+			Mode:      file.Mode,
+			Type:      "file",
+			WriteMode: "overwrite",
+		})
+		if err != nil {
+			return fmt.Errorf("write DNS config file %s: %w", file.Path, err)
+		}
 	}
 	return nil
 }
@@ -315,4 +344,8 @@ func (s sdkResourceServer) CreateInstance(instance api.InstancesPost) (incus.Ope
 
 func (s sdkResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
 	return s.inner.UpdateInstanceState(name, state, etag)
+}
+
+func (s sdkResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+	return s.inner.CreateInstanceFile(instanceName, path, args)
 }

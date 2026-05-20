@@ -8,6 +8,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
@@ -43,6 +44,7 @@ type CreatePlan struct {
 	DNSAddress            string            `json:"dnsAddress"`
 	DefaultTemplate       string            `json:"defaultTemplate"`
 	Sidecars              []SidecarPlan     `json:"sidecars"`
+	DNSFiles              []dns.File        `json:"dnsFiles"`
 	ProjectMetadataConfig map[string]string `json:"projectMetadataConfig"`
 }
 
@@ -102,6 +104,10 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	dnsFiles, err := dns.RenderInitial(domain, dnsAddress.String())
+	if err != nil {
+		return CreatePlan{}, err
+	}
 
 	return CreatePlan{
 		Reference:         ref.String(),
@@ -122,6 +128,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 			sidecarPlan(ref, admin, TailscaleName, "tailscale", tailscaleAddress.String()),
 			sidecarPlan(ref, admin, DNSName, "dns", dnsAddress.String()),
 		},
+		DNSFiles:              dnsFiles,
 		ProjectMetadataConfig: metadataConfig,
 	}, nil
 }

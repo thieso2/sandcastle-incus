@@ -62,12 +62,16 @@ development sandboxes.
   and start intent.
 - Extended the Incus project create executor to create missing sidecar
   containers and start stopped existing sidecars.
+- Added `internal/dns` initial CoreDNS renderer for a minimal authoritative
+  project zone with NS/SOA records and no project-wide wildcard.
+- Project create plans now include rendered CoreDNS files, and the Incus
+  executor writes them into the DNS sidecar under `/etc/coredns`.
 
 ## Next Slice
 
-- Add initial CoreDNS config/zone rendering and attach it to the DNS sidecar.
 - Extend e2e from read-only Incus detection to disposable project creation once
   the executor exists.
+- Add cleanup/delete executor for disposable project e2e.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -90,6 +94,8 @@ development sandboxes.
 - Passed: `./bin/sandcastle version && ./bin/sc version`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run | rg 'dnsFiles|Corefile|db.myproject|ns IN A'`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 - Passed: `go test ./...`

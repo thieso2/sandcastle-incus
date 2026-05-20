@@ -48,6 +48,9 @@ func TestPlanCreate(t *testing.T) {
 	if plan.Sidecars[1].Name != DNSName || plan.Sidecars[1].Address != "10.248.1.53" {
 		t.Fatalf("dns sidecar = %#v", plan.Sidecars[1])
 	}
+	if len(plan.DNSFiles) != 2 {
+		t.Fatalf("DNS files = %d, want 2", len(plan.DNSFiles))
+	}
 }
 
 func TestPlanCreateRejectsInvalidReference(t *testing.T) {

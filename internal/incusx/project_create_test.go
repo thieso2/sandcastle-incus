@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"testing"
 
@@ -47,6 +48,7 @@ type fakeResourceServer struct {
 	createdNetwork   *api.NetworksPost
 	createdVolumes   []api.StorageVolumesPost
 	createdInstances []api.InstancesPost
+	createdFiles     map[string]string
 	startedInstances []string
 }
 
@@ -106,6 +108,22 @@ func (s *fakeResourceServer) UpdateInstanceState(name string, state api.Instance
 	return fakeOperation{}, nil
 }
 
+func (s *fakeResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+	if s.createdFiles == nil {
+		s.createdFiles = map[string]string{}
+	}
+	if args.Type == "directory" {
+		s.createdFiles[instanceName+":"+path] = "<dir>"
+		return nil
+	}
+	content, err := io.ReadAll(args.Content)
+	if err != nil {
+		return err
+	}
+	s.createdFiles[instanceName+":"+path] = string(content)
+	return nil
+}
+
 type fakeOperation struct{}
 
 func (fakeOperation) AddHandler(func(api.Operation)) (*incus.EventTarget, error) { return nil, nil }
@@ -120,9 +138,10 @@ func (fakeOperation) WaitContext(context.Context) error                         
 func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	plan := createPlanForTest(t)
 	resourceServer := &fakeResourceServer{
-		networks:  map[string]*api.Network{},
-		volumes:   map[string]*api.StorageVolume{},
-		instances: map[string]*api.Instance{},
+		networks:     map[string]*api.Network{},
+		volumes:      map[string]*api.StorageVolume{},
+		instances:    map[string]*api.Instance{},
+		createdFiles: map[string]string{},
 	}
 	server := &fakeCreateServer{resourceServer: resourceServer}
 	creator := ProjectCreator{Server: server}
@@ -160,6 +179,12 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.53" {
 		t.Fatalf("dns address = %q", got)
 	}
+	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/Corefile"]; got == "" {
+		t.Fatal("expected CoreDNS Corefile to be written")
+	}
+	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/zones/db.myproject.project-tld"]; got == "" {
+		t.Fatal("expected CoreDNS zone to be written")
+	}
 }
 
 func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
@@ -175,6 +200,7 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 			plan.TailscaleInstance: {Name: plan.TailscaleInstance, Status: "Running", StatusCode: api.Running},
 			plan.DNSInstance:       {Name: plan.DNSInstance, Status: "Running", StatusCode: api.Running},
 		},
+		createdFiles: map[string]string{},
 	}
 	server := &fakeCreateServer{
 		project: &api.Project{
@@ -212,6 +238,9 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	if len(resourceServer.createdInstances) != 0 {
 		t.Fatalf("created instances = %d, want 0", len(resourceServer.createdInstances))
 	}
+	if resourceServer.createdFiles[project.DNSName+":/etc/coredns/Corefile"] == "" {
+		t.Fatal("expected DNS files to be refreshed")
+	}
 }
 
 func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
@@ -227,6 +256,7 @@ func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
 			plan.TailscaleInstance: {Name: plan.TailscaleInstance, Status: "Stopped", StatusCode: api.Stopped},
 			plan.DNSInstance:       {Name: plan.DNSInstance, Status: "Running", StatusCode: api.Running},
 		},
+		createdFiles: map[string]string{},
 	}
 	server := &fakeCreateServer{
 		project:        &api.Project{Name: plan.IncusProject},
