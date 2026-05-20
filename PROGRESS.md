@@ -224,6 +224,9 @@ development sandboxes.
   with distinct private IPs, applies DNS, then queries `sc-dns` from inside the
   sandbox network to verify exact sandbox records, a per-sandbox wildcard
   record, and absence of a project-wide wildcard.
+- Strengthened project DNS e2e coverage for sandbox removal. The same e2e now
+  removes one sandbox, reapplies DNS from Incus metadata, and verifies the
+  removed sandbox's record no longer resolves.
 - Added `scripts/e2e.sh`, a tiered e2e runner for reproducible local, gated,
   real-Incus, Tailscale, and image-build e2e runs. Destructive tiers fail closed
   unless `SANDCASTLE_E2E=1` is set, while `unit`, `gated`, and `local` provide
@@ -611,6 +614,7 @@ development sandboxes.
 - Passed: `go test ./internal/cli -run 'TestAdd' -count=1 -v`
 - Passed: `go test ./internal/e2e -run 'TestCLIAddDetachE2E|TestLoadConfig' -count=1 -v` with the expected CLI add e2e skip when real e2e is unset.
 - Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'TestProjectDNSE2E|TestLoadConfig' -count=1 -v` with the expected project DNS e2e skip when real e2e is unset.
 
 ## Open Scope
 

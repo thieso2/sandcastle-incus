@@ -174,7 +174,8 @@ Test:
    The checked-in `TestProjectDNSE2E` covers two sandbox exact records,
    per-sandbox wildcard records, distinct sandbox private IPs, and project-wide
    wildcard denial by querying `sc-dns` from inside the sandbox network
-   namespace.
+   namespace. It also removes one sandbox, reapplies DNS, and verifies the
+   removed sandbox's record is gone.
 4. Verify exact records:
    - `codex.<domain>`
    - `claude.<domain>`

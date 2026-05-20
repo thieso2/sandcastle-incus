@@ -135,6 +135,27 @@ func TestProjectDNSE2E(t *testing.T) {
 	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstWildcard, createFirstSandboxPlan.PrivateIP)
 	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, secondExact, createSecondSandboxPlan.PrivateIP)
 	assertCoreDNSNoAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, absent)
+
+	removeSecondPlan, err := sandbox.PlanLifecycle(ctx, adminConfig, store, sandbox.LifecycleRequest{
+		Reference: secondSandboxRef,
+		Action:    sandbox.ActionRemove,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := incusx.NewSandboxController(e2eConfig.Remote).ApplyLifecycle(ctx, removeSecondPlan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Project{
+		IncusName:   createProjectPlan.IncusProject,
+		Owner:       owner,
+		Name:        name,
+		Domain:      createProjectPlan.Domain,
+		PrivateCIDR: createProjectPlan.PrivateCIDR,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertCoreDNSNoAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, secondExact)
 }
 
 func assertCoreDNSAnswer(t *testing.T, server incus.InstanceServer, instance string, dnsAddress string, name string, wantIP string) {
