@@ -9,6 +9,23 @@ type File struct {
 }
 
 func RenderSandbox(hostname string, appPort int, certPath string, keyPath string) File {
+	return RenderSandboxHosts([]string{hostname}, appPort, certPath, keyPath)
+}
+
+func RenderSandboxHosts(hostnames []string, appPort int, certPath string, keyPath string) File {
+	hosts := ""
+	for i, hostname := range hostnames {
+		if hostname == "" {
+			continue
+		}
+		if hosts != "" {
+			hosts += ", "
+		}
+		hosts += hostname
+		if i == len(hostnames)-1 && hosts == "" {
+			hosts = hostname
+		}
+	}
 	return File{
 		Path: "/etc/caddy/Caddyfile",
 		Mode: 0o644,
@@ -16,6 +33,6 @@ func RenderSandbox(hostname string, appPort int, certPath string, keyPath string
     tls %s %s
     reverse_proxy 127.0.0.1:%d
 }
-`, hostname, certPath, keyPath, appPort),
+`, hosts, certPath, keyPath, appPort),
 	}
 }

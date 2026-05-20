@@ -172,12 +172,16 @@ func certificateFilesFromRequest(request CreateRequest, sandboxName string, doma
 }
 
 func IssueCertificateFiles(sandboxName string, domain string, caCertPEM []byte, caKeyPEM []byte) ([]File, error) {
+	return IssueCertificateFilesWithExtraSANs(sandboxName, domain, nil, caCertPEM, caKeyPEM)
+}
+
+func IssueCertificateFilesWithExtraSANs(sandboxName string, domain string, extraSANs []string, caCertPEM []byte, caKeyPEM []byte) ([]File, error) {
 	hostname := sandboxName + "." + domain
 	leaf, err := certs.IssueSandboxLeaf(
 		caCertPEM,
 		caKeyPEM,
 		hostname,
-		certs.SandboxDNSNames(sandboxName, domain, nil),
+		certs.SandboxDNSNames(sandboxName, domain, extraSANs),
 		time.Now().UTC(),
 	)
 	if err != nil {

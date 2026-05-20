@@ -17,3 +17,10 @@ func TestRenderSandbox(t *testing.T) {
 		t.Fatalf("content missing proxy port: %q", file.Content)
 	}
 }
+
+func TestRenderSandboxHosts(t *testing.T) {
+	file := RenderSandboxHosts([]string{"codex.myproject.project-tld", "example.com"}, 5173, "/etc/caddy/certs/tls.crt", "/etc/caddy/certs/tls.key")
+	if !strings.Contains(file.Content, "codex.myproject.project-tld, example.com {") {
+		t.Fatalf("content missing hostnames: %q", file.Content)
+	}
+}

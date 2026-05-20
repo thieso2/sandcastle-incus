@@ -21,6 +21,9 @@ type AddPlan struct {
 	Reference         string          `json:"reference"`
 	Project           project.Summary `json:"project"`
 	Sandbox           meta.Sandbox    `json:"sandbox"`
+	InstanceName      string          `json:"instanceName"`
+	StoragePool       string          `json:"storagePool"`
+	CAVolume          string          `json:"caVolume"`
 	Hostname          string          `json:"hostname"`
 	IPAddress         string          `json:"ipAddress"`
 	ExtraSANs         []string        `json:"extraSANs"`
@@ -74,6 +77,9 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		Reference:         request.Reference,
 		Project:           summary,
 		Sandbox:           sandbox,
+		InstanceName:      "sc-" + sandboxName,
+		StoragePool:       admin.StoragePool,
+		CAVolume:          project.CAVolumeName,
 		Hostname:          hostname,
 		IPAddress:         sandbox.PrivateIP,
 		ExtraSANs:         []string{hostname},
