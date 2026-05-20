@@ -2,9 +2,12 @@ package incusx
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
@@ -25,6 +28,7 @@ type fakeRouteResourceServer struct {
 	createdProfile *api.ProfilesPost
 	updatedProfile *api.ProfilePut
 	deletedProfile string
+	createdFiles   map[string]string
 }
 
 func (s *fakeRouteResourceServer) GetProfile(name string) (*api.Profile, string, error) {
@@ -60,6 +64,19 @@ func (s *fakeRouteResourceServer) DeleteProfile(name string) error {
 	return nil
 }
 
+func (s *fakeRouteResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+	if s.createdFiles == nil {
+		s.createdFiles = map[string]string{}
+	}
+	if args.Content != nil {
+		content, _ := io.ReadAll(args.Content)
+		s.createdFiles[instanceName+":"+path] = string(content)
+	} else {
+		s.createdFiles[instanceName+":"+path] = args.Type
+	}
+	return nil
+}
+
 func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
 	manager := RouteManager{Server: &fakeRouteServer{resource: resource}}
@@ -79,6 +96,10 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	}
 	if routeMetadata.RoutePort != 5173 {
 		t.Fatalf("RoutePort = %d", routeMetadata.RoutePort)
+	}
+	caddyfile := resource.createdFiles["sc-caddy:/etc/caddy/Caddyfile"]
+	if !strings.Contains(caddyfile, "app.example.com") || !strings.Contains(caddyfile, "10.248.0.20:5173") {
+		t.Fatalf("Caddyfile = %q", caddyfile)
 	}
 }
 
@@ -121,6 +142,9 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	}
 	if resource.deletedProfile != "sc-route-app-example-com" {
 		t.Fatalf("deleted profile = %q", resource.deletedProfile)
+	}
+	if _, ok := resource.createdFiles["sc-caddy:/etc/caddy/Caddyfile"]; !ok {
+		t.Fatal("expected infrastructure Caddyfile rewrite")
 	}
 }
 

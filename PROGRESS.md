@@ -201,6 +201,10 @@ development sandboxes.
   hostname uniqueness through the infrastructure project namespace. Route add
   creates/updates route profiles, route list reads managed route profiles, and
   route remove deletes the matching profile.
+- Route metadata changes now refresh the infrastructure Caddyfile. After route
+  add/update/remove, the Incus route manager renders all managed route profiles
+  into deterministic infrastructure Caddy reverse-proxy config and writes it to
+  the `sc-caddy` instance.
 
 ## Next Slice
 
@@ -211,7 +215,7 @@ development sandboxes.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
 - Add route broker authorization, ingress attachment, and infrastructure Caddy
-  reload after route metadata changes.
+  process reload after route metadata changes.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -310,6 +314,10 @@ development sandboxes.
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/route ./internal/incusx ./internal/cli`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route list 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./internal/incusx ./internal/route`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route list 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com 2>&1 || true` with expected local Incus connection failure on macOS.

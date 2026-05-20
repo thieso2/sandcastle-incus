@@ -13,6 +13,8 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 )
 
+const InfrastructureCaddyName = "sc-caddy"
+
 type AddRequest struct {
 	Hostname        string
 	TargetReference string

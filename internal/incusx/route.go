@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	"github.com/thieso2/sandcastle-incus/internal/caddy"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 )
@@ -23,6 +25,7 @@ type RouteResourceServer interface {
 	CreateProfile(profile api.ProfilesPost) error
 	UpdateProfile(name string, profile api.ProfilePut, ETag string) error
 	DeleteProfile(name string) error
+	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 }
 
 type RouteManager struct {
@@ -52,18 +55,21 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 		}, etag); err != nil {
 			return fmt.Errorf("update route metadata %s: %w", plan.Hostname, err)
 		}
-		return nil
+		return refreshInfrastructureCaddy(projectServer)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get route metadata %s: %w", plan.Hostname, err)
 	}
-	return projectServer.CreateProfile(api.ProfilesPost{
+	if err := projectServer.CreateProfile(api.ProfilesPost{
 		Name: name,
 		ProfilePut: api.ProfilePut{
 			Description: "Sandcastle public route " + plan.Hostname,
 			Config:      api.ConfigMap(plan.MetadataConfig),
 		},
-	})
+	}); err != nil {
+		return err
+	}
+	return refreshInfrastructureCaddy(projectServer)
 }
 
 func (m RouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
@@ -75,7 +81,7 @@ func (m RouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
 	if err := projectServer.DeleteProfile(route.ProfileName(plan.Hostname)); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("delete route metadata %s: %w", plan.Hostname, err)
 	}
-	return nil
+	return refreshInfrastructureCaddy(projectServer)
 }
 
 func (m RouteManager) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
@@ -84,19 +90,12 @@ func (m RouteManager) List(ctx context.Context, plan route.ListPlan) (route.List
 		return route.ListResult{}, err
 	}
 	projectServer := server.UseProject(plan.InfrastructureProject)
-	profiles, err := projectServer.GetProfiles()
+	metadataRoutes, err := listRouteMetadata(projectServer)
 	if err != nil {
-		return route.ListResult{}, fmt.Errorf("list route metadata: %w", err)
+		return route.ListResult{}, err
 	}
 	routes := []route.Route{}
-	for _, profile := range profiles {
-		if profile.Config[meta.KeyKind] != meta.KindRoute {
-			continue
-		}
-		routeMetadata, err := meta.ParseRouteConfig(map[string]string(profile.Config))
-		if err != nil {
-			return route.ListResult{}, fmt.Errorf("parse route metadata for %s: %w", profile.Name, err)
-		}
+	for _, routeMetadata := range metadataRoutes {
 		routes = append(routes, route.Route{
 			Hostname:        routeMetadata.Hostname,
 			TargetReference: routeMetadata.TargetOwner + "/" + routeMetadata.TargetProject + "/" + routeMetadata.TargetSandbox,
@@ -107,6 +106,48 @@ func (m RouteManager) List(ctx context.Context, plan route.ListPlan) (route.List
 		return routes[i].Hostname < routes[j].Hostname
 	})
 	return route.ListResult{Routes: routes}, nil
+}
+
+func refreshInfrastructureCaddy(server RouteResourceServer) error {
+	routes, err := listRouteMetadata(server)
+	if err != nil {
+		return err
+	}
+	file := caddy.RenderInfrastructure(routes)
+	if err := server.CreateInstanceFile(route.InfrastructureCaddyName, "/etc/caddy", incus.InstanceFileArgs{Type: "directory", Mode: 0o755}); err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
+		return fmt.Errorf("create infrastructure Caddy config directory: %w", err)
+	}
+	if err := server.CreateInstanceFile(route.InfrastructureCaddyName, file.Path, incus.InstanceFileArgs{
+		Content:   strings.NewReader(file.Content),
+		Type:      "file",
+		Mode:      file.Mode,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("write infrastructure Caddyfile: %w", err)
+	}
+	return nil
+}
+
+func listRouteMetadata(server RouteResourceServer) ([]meta.Route, error) {
+	profiles, err := server.GetProfiles()
+	if err != nil {
+		return nil, fmt.Errorf("list route metadata: %w", err)
+	}
+	routes := []meta.Route{}
+	for _, profile := range profiles {
+		if profile.Config[meta.KeyKind] != meta.KindRoute {
+			continue
+		}
+		routeMetadata, err := meta.ParseRouteConfig(map[string]string(profile.Config))
+		if err != nil {
+			return nil, fmt.Errorf("parse route metadata for %s: %w", profile.Name, err)
+		}
+		routes = append(routes, routeMetadata)
+	}
+	sort.Slice(routes, func(i, j int) bool {
+		return routes[i].Hostname < routes[j].Hostname
+	})
+	return routes, nil
 }
 
 func (m RouteManager) server() (RouteServer, error) {
@@ -158,4 +199,8 @@ func (s sdkRouteResourceServer) UpdateProfile(name string, profile api.ProfilePu
 
 func (s sdkRouteResourceServer) DeleteProfile(name string) error {
 	return s.inner.DeleteProfile(name)
+}
+
+func (s sdkRouteResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+	return s.inner.CreateInstanceFile(instanceName, path, args)
 }
