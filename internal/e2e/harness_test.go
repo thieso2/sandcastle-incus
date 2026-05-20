@@ -86,6 +86,20 @@ func TestValidateAcceptsMinimalEnabledConfig(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidTailscaleTag(t *testing.T) {
+	t.Setenv("SANDCASTLE_E2E", "1")
+	t.Setenv("SANDCASTLE_E2E_TAILSCALE_TAG", "sandcastle")
+
+	config := LoadConfig()
+	err := config.Validate()
+	if err == nil {
+		t.Fatal("expected invalid Tailscale tag error")
+	}
+	if !strings.Contains(err.Error(), "SANDCASTLE_E2E_TAILSCALE_TAG") || !strings.Contains(err.Error(), "tag:<name>") {
+		t.Fatalf("error = %q, want Tailscale tag hint", err.Error())
+	}
+}
+
 func TestDisposableRunIDUsesSafeOverride(t *testing.T) {
 	t.Setenv("SANDCASTLE_E2E_RUN_ID", "Test_Run.1")
 	config := LoadConfig()

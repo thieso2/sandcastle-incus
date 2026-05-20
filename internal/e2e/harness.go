@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 )
 
 const enabledEnv = "SANDCASTLE_E2E"
@@ -51,7 +53,7 @@ type ImageConfig struct {
 }
 
 func LoadConfig() Config {
-	tag := getenv("SANDCASTLE_E2E_TAILSCALE_TAG", "tag:sandcastle")
+	tag := getenv("SANDCASTLE_E2E_TAILSCALE_TAG", tailscale.DefaultAdvertiseTag)
 	return Config{
 		Enabled:       os.Getenv(enabledEnv) == "1",
 		Remote:        getenv("SANDCASTLE_E2E_REMOTE", "local"),
@@ -104,6 +106,9 @@ func (c Config) Validate() error {
 	}
 	if c.Tailscale.Tag == "" {
 		return fmt.Errorf("SANDCASTLE_E2E_TAILSCALE_TAG is required when e2e is enabled")
+	}
+	if _, err := tailscale.NormalizeAdvertiseTags([]string{c.Tailscale.Tag}); err != nil {
+		return fmt.Errorf("SANDCASTLE_E2E_TAILSCALE_TAG: %w", err)
 	}
 	return nil
 }

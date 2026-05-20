@@ -1247,6 +1247,13 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker -run 'Test(Server|Client)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened the e2e harness Tailscale gate so
+  `SANDCASTLE_E2E_TAILSCALE_TAG` reuses the product default
+  `tag:sandcastle` and validates the `tag:<name>` syntax before destructive
+  e2e runs begin.
+- Passed: `go test ./internal/e2e ./internal/tailscale -run 'Test(LoadConfig|Validate|PlanUp|TailscaleUp)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

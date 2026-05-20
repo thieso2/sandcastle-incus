@@ -54,7 +54,7 @@ func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectS
 	if err != nil {
 		return UpPlan{}, err
 	}
-	tags, err := normalizeTags(request.AdvertiseTags)
+	tags, err := NormalizeAdvertiseTags(request.AdvertiseTags)
 	if err != nil {
 		return UpPlan{}, err
 	}
@@ -109,7 +109,7 @@ func shellQuoteArgs(args []string) []string {
 	return quoted
 }
 
-func normalizeTags(values []string) ([]string, error) {
+func NormalizeAdvertiseTags(values []string) ([]string, error) {
 	seen := map[string]bool{}
 	output := []string{}
 	for _, value := range values {
