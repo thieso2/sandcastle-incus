@@ -153,6 +153,29 @@ func TestServerDecodesRemoveRouteHostname(t *testing.T) {
 	}
 }
 
+func TestServerNormalizesRemoveRouteHostnameBeforeLookup(t *testing.T) {
+	routes := &fakeBrokerRoutes{}
+	metadata := &recordingBrokerMetadata{route: meta.Route{
+		Hostname:      "app.example.com",
+		TargetOwner:   "alice",
+		TargetProject: "myproject",
+		TargetSandbox: "codex",
+	}}
+	server := brokerServerForTest(t, routes, metadata)
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodDelete, "/routes/App.Example.COM.", "")
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if metadata.hostname != "app.example.com" {
+		t.Fatalf("metadata lookup hostname = %q", metadata.hostname)
+	}
+	if routes.removed == nil || routes.removed.Hostname != "app.example.com" {
+		t.Fatalf("removed = %#v", routes.removed)
+	}
+}
+
 func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
 	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{
 		{Hostname: "app.example.com", TargetReference: "alice/myproject/codex", RoutePort: 3000},

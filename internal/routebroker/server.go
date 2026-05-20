@@ -116,22 +116,22 @@ func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("route hostname is required"))
 		return
 	}
+	plan, err := route.PlanRemove(s.Admin, route.RemoveRequest{Hostname: hostname})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if s.RouteMetadata == nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("route metadata store is required"))
 		return
 	}
-	routeMetadata, err := s.RouteMetadata.FindRoute(r.Context(), hostname)
+	routeMetadata, err := s.RouteMetadata.FindRoute(r.Context(), plan.Hostname)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
 	if err := AuthorizeRemove(principal, routeMetadata); err != nil {
 		writeError(w, http.StatusForbidden, err)
-		return
-	}
-	plan, err := route.PlanRemove(s.Admin, route.RemoveRequest{Hostname: hostname})
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	if s.Routes == nil {

@@ -1176,6 +1176,12 @@ development sandboxes.
 - Passed: `go test ./internal/localtrust ./internal/incusx ./internal/cli -run 'Test(CommandStore|FileStore|PlanInstall|Trust)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Hardened route broker removal so DELETE hostnames are normalized before
+  authoritative route metadata lookup, matching the route planner and avoiding
+  stale public routes when users remove mixed-case or trailing-dot hostnames.
+- Passed: `go test ./internal/routebroker ./internal/route -run 'Test(Server|PlanRemove|Client)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
