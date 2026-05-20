@@ -420,6 +420,14 @@ development sandboxes.
 - Extended the `local-vm` runner tier to include all `TestLocalTrust.*E2E`
   coverage so file-backed and platform-backed local trust paths share the same
   explicit disposable-VM gate.
+- Added disposable-VM `/etc/hosts` mutation e2e coverage.
+  `TestHostOverrideHostsFileE2E` uses the production default hosts manager,
+  adds a unique managed Sandcastle block to `/etc/hosts`, verifies the hostname
+  and markers exist, removes the block, and verifies cleanup. The test skips
+  unless both `SANDCASTLE_E2E=1` and `SANDCASTLE_E2E_LOCAL_VM=1` are set.
+- Extended the `local-vm` runner tier to include all `TestHostOverride.*E2E`
+  coverage so the temp-file host override flow and the real `/etc/hosts`
+  mutation flow share the same explicit disposable-VM gate.
 - Tightened `scripts/e2e.sh tailscale` and `scripts/e2e.sh images` so they fail
   closed in the runner when required image source, auth key, image build, and
   pinned AI CLI version environment variables are missing instead of relying on
@@ -545,8 +553,6 @@ development sandboxes.
 - Run `scripts/e2e.sh public-routes` against a real delegated public test
   domain and extend it to assert externally trusted Let’s Encrypt certificates
   over the public hostname.
-- Extend `scripts/e2e.sh local-vm` with OS-level `/etc/hosts` mutation
-  assertions inside a disposable VM.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -846,6 +852,14 @@ development sandboxes.
   with the expected local trust e2e skips when real e2e is unset.
 - Passed: `SANDCASTLE_E2E=1 go test ./internal/e2e -run 'TestLocalTrustPlatformInstallUninstallE2E|TestLoadConfig' -count=1 -v`
   with the expected platform trust e2e skip when `SANDCASTLE_E2E_LOCAL_VM` is
+  unset.
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
+- Passed: `go test ./internal/e2e -run 'Test(HostOverride.*E2E|LoadConfig)' -count=1 -v`
+  with the expected host override e2e skips when real e2e is unset.
+- Passed: `SANDCASTLE_E2E=1 go test ./internal/e2e -run 'TestHostOverrideHostsFileE2E|TestLoadConfig' -count=1 -v`
+  with the expected `/etc/hosts` e2e skip when `SANDCASTLE_E2E_LOCAL_VM` is
   unset.
 - Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
 - Passed: `go test ./...`

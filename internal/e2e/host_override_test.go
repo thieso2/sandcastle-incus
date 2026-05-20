@@ -162,6 +162,54 @@ func TestHostOverrideE2E(t *testing.T) {
 	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-host-override")
 }
 
+func TestHostOverrideHostsFileE2E(t *testing.T) {
+	e2eConfig := LoadConfig()
+	if !e2eConfig.Enabled {
+		t.Skip("set SANDCASTLE_E2E=1 to run destructive real Incus e2e tests")
+	}
+	if err := e2eConfig.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !e2eConfig.LocalVM {
+		t.Skip("set SANDCASTLE_E2E_LOCAL_VM=1 to run disposable-VM /etc/hosts e2e tests")
+	}
+
+	runID := e2eConfig.DisposableRunID()
+	reference := "owner-" + safeToken(runID) + "/project-" + safeToken(runID) + "/box-" + safeToken(runID)
+	hostname := "host-" + safeToken(runID) + ".override.test"
+	entry := hostoverride.RenderHostsEntry(reference, hostname, "127.0.0.1")
+	manager := hostoverride.NewFileHostsManager("")
+	ctx := context.Background()
+
+	removePlan := hostoverride.RemovePlan{HostsEntry: entry}
+	_ = manager.RemoveHostsEntry(ctx, removePlan)
+	added := false
+	t.Cleanup(func() {
+		if !added {
+			return
+		}
+		if err := manager.RemoveHostsEntry(context.Background(), removePlan); err != nil {
+			t.Logf("hosts cleanup failed: %v", err)
+		}
+	})
+
+	if err := manager.AddHostsEntry(ctx, hostoverride.AddPlan{HostsEntry: entry}); err != nil {
+		t.Fatal(err)
+	}
+	added = true
+	assertHostsFileContains(t, hostoverride.DefaultHostsPath, hostname)
+	assertHostsFileContains(t, hostoverride.DefaultHostsPath, entry.BeginLine)
+	assertHostsFileContains(t, hostoverride.DefaultHostsPath, entry.EndLine)
+
+	if err := manager.RemoveHostsEntry(ctx, removePlan); err != nil {
+		t.Fatal(err)
+	}
+	added = false
+	assertHostsFileMissing(t, hostoverride.DefaultHostsPath, hostname)
+	assertHostsFileMissing(t, hostoverride.DefaultHostsPath, entry.BeginLine)
+	assertHostsFileMissing(t, hostoverride.DefaultHostsPath, entry.EndLine)
+}
+
 func assertHostsFileContains(t *testing.T, path string, hostname string) {
 	t.Helper()
 	content, err := os.ReadFile(path)

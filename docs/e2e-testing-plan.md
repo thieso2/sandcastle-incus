@@ -302,6 +302,9 @@ Test:
    The checked-in `TestHostOverrideE2E` redirects `/etc/hosts` writes to a
    disposable file, adds an exact override, verifies the host entry, sandbox
    Caddy routing, and the extra certificate SAN, then removes the override.
+   The checked-in `TestHostOverrideHostsFileE2E` uses the default hosts manager
+   against `/etc/hosts` under the explicit `local-vm` gate and verifies the
+   managed block is added and removed.
 3. Verify `/etc/hosts` contains a managed entry.
 4. Verify sandbox certificate includes the extra SAN.
 5. Curl `https://<override-host>` successfully.
