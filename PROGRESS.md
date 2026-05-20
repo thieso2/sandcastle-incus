@@ -486,6 +486,11 @@ development sandboxes.
   `TestCLIAddDetachE2E` syncs disposable base/AI aliases, creates a disposable
   project through the Incus executor, invokes the production CLI entrypoint with
   `add <owner/project/name> --detach`, and asserts the sandbox instance exists.
+- Added gated CLI-path e2e coverage for default `sandcastle add` interactive
+  entry. `TestCLIAddDefaultEnterE2E` builds or uses a real Sandcastle binary,
+  creates a disposable project, runs `add <owner/project/name>` without
+  `--detach`, feeds a marker command plus `exit` to the default login shell over
+  stdin, and asserts the subprocess exits after creating the sandbox.
 - Added gated CLI-path e2e coverage for deterministic sandbox command
   execution. `TestCLIEnterCommandE2E` creates a disposable project and sandbox,
   then invokes the production CLI entrypoint with `enter <owner/project/name>
@@ -517,8 +522,6 @@ development sandboxes.
 
 ## Next Slice
 
-- Add real-Incus e2e coverage for `sandcastle add` default interactive enter
-  behavior once a stable test TTY strategy is available.
 - Promote route broker HTTP mTLS mutation e2e into regular CI/dev gates once
   disposable infrastructure image sources and broker Incus socket access are
   available in that environment.
@@ -803,6 +806,13 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'TestRestrictedUser(Token|GrantAccess|SandboxLifecycle)E2E|TestLoadConfig' -count=1 -v`
   with the expected restricted-user e2e skips when real e2e is unset.
 - Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(CLIAddDetachE2E|CLIAddDefaultEnterE2E|LoadConfig)' -count=1 -v`
+  with the expected CLI add e2e skips when real e2e is unset.
+- Passed: `go test ./internal/cli ./internal/e2e -run 'Test(Add|CLIAdd|LoadConfig)' -count=1 -v`
+  with the expected CLI add e2e skips when real e2e is unset.
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/incusx -run 'TestRouteManager' -count=1 -v`

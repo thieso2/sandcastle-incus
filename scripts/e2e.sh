@@ -72,7 +72,7 @@ run_local_vm() {
 
 run_incus() {
   require_e2e incus
-  run go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge|DisposableInfrastructureCreateAndDelete|RouteBrokerAuthorizedMutationE2E|ImageSync.*AliasE2E|ProjectDNSE2E|SandboxLifecycleE2E|HostOverrideE2E|LocalTrustInstallUninstallE2E|CLIAddDetachE2E|CLIEnterCommandE2E)' -count=1 -v
+  run go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge|DisposableInfrastructureCreateAndDelete|RouteBrokerAuthorizedMutationE2E|ImageSync.*AliasE2E|ProjectDNSE2E|SandboxLifecycleE2E|HostOverrideE2E|LocalTrustInstallUninstallE2E|CLIAdd.*E2E|CLIEnterCommandE2E)' -count=1 -v
 }
 
 run_restricted() {

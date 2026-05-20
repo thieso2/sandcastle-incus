@@ -189,6 +189,9 @@ Test:
    The checked-in CLI `add --detach` e2e path now exercises `--template base`,
    `--home-dir`, and `--workspace-dir` and verifies the resulting mount
    sources on the Incus instance.
+   The checked-in CLI default `add` e2e path runs a real Sandcastle subprocess,
+   feeds a marker command plus `exit` to the default login shell over stdin, and
+   verifies the sandbox was created.
 4. Verify Caddy files and leaf certificate exist.
 5. Start a small HTTP app on port 3000.
 6. Verify private Caddy proxies to the app.
@@ -201,6 +204,7 @@ Primary assertions:
 
 - New containers start by default.
 - `--detach` avoids interactive attach.
+- Default `add` enters the sandbox shell and can exit cleanly under automation.
 - Home/workspace subdirs persist.
 - Caddy uses project CA leaf certs.
 
