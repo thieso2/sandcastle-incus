@@ -24,6 +24,7 @@ type Admin struct {
 	ProjectPrefix         string
 	InfrastructureProject string
 	InfrastructureHost    string
+	DeniedDomainSuffixes  []string
 	Images                Images
 }
 
@@ -40,6 +41,7 @@ func LoadAdminFromEnv() Admin {
 		ProjectPrefix:         getenv("SANDCASTLE_PROJECT_PREFIX", DefaultProjectPrefix),
 		InfrastructureProject: getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
 		InfrastructureHost:    getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
+		DeniedDomainSuffixes:  splitList(os.Getenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES")),
 		Images: Images{
 			Base: getenv("SANDCASTLE_BASE_IMAGE", DefaultBaseImageAlias),
 			AI:   getenv("SANDCASTLE_AI_IMAGE", DefaultAIImageAlias),
@@ -78,4 +80,16 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func splitList(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }

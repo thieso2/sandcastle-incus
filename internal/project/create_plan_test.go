@@ -78,3 +78,15 @@ func TestPlanCreateRejectsInvalidDomain(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestPlanCreateRejectsDeniedProjectDomain(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.DeniedDomainSuffixes = []string{"corp.example"}
+	_, err := PlanCreate(admin, CreateRequest{
+		Reference: "alice/myproject",
+		Domain:    "myproject.corp.example",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

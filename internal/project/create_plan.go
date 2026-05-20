@@ -2,15 +2,14 @@ package project
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
-	"strings"
 	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
+	domainrules "github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
@@ -84,7 +83,9 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	domain, err := normalizeDomain(request.Domain)
+	projectDomain, err := domainrules.ValidateProjectDomain(request.Domain, domainrules.Policy{
+		DeniedSuffixes: admin.DeniedDomainSuffixes,
+	})
 	if err != nil {
 		return CreatePlan{}, err
 	}
@@ -108,7 +109,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	projectMetadata := meta.Project{
 		Owner:           ref.Owner,
 		Project:         ref.Project,
-		Domain:          domain,
+		Domain:          projectDomain,
 		PrivateCIDR:     projectCIDR.String(),
 		DefaultTemplate: "ai",
 	}
@@ -116,7 +117,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	dnsFiles, err := dns.RenderInitial(domain, dnsAddress.String())
+	dnsFiles, err := dns.RenderInitial(projectDomain, dnsAddress.String())
 	if err != nil {
 		return CreatePlan{}, err
 	}
@@ -128,7 +129,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	return CreatePlan{
 		Reference:         ref.String(),
 		IncusProject:      incusName,
-		Domain:            domain,
+		Domain:            projectDomain,
 		PrivateCIDR:       projectCIDR.String(),
 		PrivateNetwork:    PrivateNetworkName,
 		StoragePool:       admin.StoragePool,
@@ -183,17 +184,6 @@ func sidecarPlan(ref naming.ProjectRef, admin config.Admin, name string, role st
 		},
 		Start: true,
 	}
-}
-
-func normalizeDomain(value string) (string, error) {
-	domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
-	if domain == "" {
-		return "", fmt.Errorf("domain is required")
-	}
-	if strings.Contains(domain, "/") || strings.Contains(domain, " ") {
-		return "", fmt.Errorf("invalid project domain %q", value)
-	}
-	return domain, nil
 }
 
 func roleAddress(prefix netip.Prefix, hostOctet byte) (netip.Addr, error) {

@@ -255,9 +255,15 @@ development sandboxes.
 - Added gated real-Incus e2e coverage for image alias sync. The test is opt-in
   through `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, creates a disposable
   `sandcastle/base:<run-id>` alias, verifies its target, and cleans it up.
+- Added project domain deny-list validation for project creation. Domains now
+  normalize through a dedicated validator, reject malformed labels, reject an
+  embedded public/special-use suffix snapshot, and honor comma-separated
+  `SANDCASTLE_DENIED_DOMAIN_SUFFIXES` admin policy.
 
 ## Next Slice
 
+- Add `sandcastle admin tld refresh` or equivalent to generate the full
+  embedded public TLD snapshot from authoritative IANA data.
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
@@ -415,9 +421,14 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/localdns ./internal/cli`
 - Passed: `go test ./...`
+- Passed: `go test ./internal/domain ./internal/project ./internal/config`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle admin project create alice/myproject --domain myproject.com --dry-run` with expected denied-suffix error.
+- Passed: `go test ./...`
 
 ## Open Scope
 
-- Restricted certificates, project creation, sandbox lifecycle, DNS,
-  certificates, Tailscale execution, local DNS service installation, host
-  overrides, public routes, and full real-Incus e2e remain to be implemented.
+- Full authoritative TLD snapshot refresh, actual OCI image build/import,
+  sandbox lifecycle e2e with disposable images, restricted-user e2e, full
+  Tailscale network e2e, local DNS service install/reload wrappers, route
+  broker mTLS e2e, and broader real-Incus coverage remain open.
