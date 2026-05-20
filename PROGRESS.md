@@ -954,6 +954,10 @@ development sandboxes.
   with the expected local Incus connection failure on macOS after route target
   shorthand argument parsing.
 - Passed: `git diff --check`
+- Passed: `scripts/e2e.sh gated` with expected destructive e2e skips when real
+  e2e is unset.
+- Passed: `scripts/e2e.sh local` with generated
+  `SANDCASTLE_E2E_RUN_ID=e2e-20260520-114001-11973`.
 - Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard
   when `SANDCASTLE_E2E` is unset.
 - Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh local-vm` with the expected
