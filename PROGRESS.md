@@ -354,6 +354,12 @@ development sandboxes.
   disposable Sandcastle restricted user certificate, calls the containerized
   route broker over mTLS, and expects `GET /routes` to return `200`, proving the
   runtime broker can map mTLS identity through Incus and read route state.
+- Added gated broker-authorized mutation e2e coverage.
+  `TestRouteBrokerAuthorizedMutationE2E` runs when real e2e, broker socket
+  mounting, and base/AI image sources are configured. It creates disposable
+  infrastructure, a project, a sandbox, a trusted mTLS client certificate, and a
+  broker-local DNS proof, then adds, lists, removes, and verifies cleanup of a
+  public route through the running broker process.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -688,6 +694,8 @@ development sandboxes.
 - Passed: `go test ./internal/config ./internal/infra -run 'Test(LoadAdminFromEnv|PlanCreate)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(LoadConfig|DisposableInfrastructureCreateAndDelete)' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 
 ## Open Scope

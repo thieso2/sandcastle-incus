@@ -289,6 +289,11 @@ Test:
    also creates a disposable restricted user certificate and verifies the
    containerized route broker can map that mTLS identity through Incus and list
    routes.
+   `TestRouteBrokerAuthorizedMutationE2E` goes further when the socket and base
+   image sources are configured: it creates disposable infrastructure, a project,
+   a sandbox, a trusted broker client certificate, and a temporary DNS proof in
+   the broker container before adding, listing, and removing a route through the
+   running broker.
 3. Create a sandbox app on port 3000.
 4. Point a disposable public hostname at infrastructure.
 5. As restricted user, call route broker with Incus client certificate mTLS.
