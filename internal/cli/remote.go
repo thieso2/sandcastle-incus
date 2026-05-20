@@ -40,13 +40,23 @@ is saved as the default in ~/.config/sandcastle/config.yml.`,
 
 			// Pass the join token as the address argument — incus detects it is
 			// a JSON token and extracts the server address from it automatically.
-			incusCmd := exec.CommandContext(cmd.Context(), "incus", "remote", "add", name, joinToken)
-			incusCmd.Env = append(os.Environ(), "INCUS_CONF="+incusDir)
-			incusCmd.Stdin = config.stdin
-			incusCmd.Stdout = config.stdout
-			incusCmd.Stderr = config.stderr
-			if err := incusCmd.Run(); err != nil {
+			env := append(os.Environ(), "INCUS_CONF="+incusDir)
+
+			addCmd := exec.CommandContext(cmd.Context(), "incus", "remote", "add", name, joinToken)
+			addCmd.Env = env
+			addCmd.Stdin = config.stdin
+			addCmd.Stdout = config.stdout
+			addCmd.Stderr = config.stderr
+			if err := addCmd.Run(); err != nil {
 				return fmt.Errorf("incus remote add: %w", err)
+			}
+
+			switchCmd := exec.CommandContext(cmd.Context(), "incus", "remote", "switch", name)
+			switchCmd.Env = env
+			switchCmd.Stdout = config.stdout
+			switchCmd.Stderr = config.stderr
+			if err := switchCmd.Run(); err != nil {
+				return fmt.Errorf("incus remote switch: %w", err)
 			}
 
 			cfgPath := scconfig.DefaultConfigPath()
