@@ -455,10 +455,46 @@ Bootstrap:
   <h2>9. Manage images <span class="badge badge-admin">admin</span></h2>
 
   <div class="step">
-    <h3>Build an image locally</h3>
-    <pre><code><span class="cmd">sandcastle admin image build</span> <span class="arg">base</span>
-<span class="cmd">sandcastle admin image build</span> <span class="arg">ai</span>
-<span class="cmd">sandcastle admin image build</span> <span class="arg">ai</span> <span class="flag">--claude-version</span> <span class="arg">1.2.3</span></code></pre>
+    <h3>Build and upload the AI image (latest tool versions) — recommended</h3>
+    <p>Resolves the latest npm versions of Codex, Claude Code, and Gemini CLI at runtime, builds the OCI image, and imports it into Incus via zstd-compressed tarball.</p>
+    <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
+<span class="cmd">mise run image:ai:build-upload</span></code></pre>
+    <p>Pin specific versions by setting env vars before running:</p>
+    <pre><code><span class="env">SANDCASTLE_CODEX_VERSION</span>=0.132.0 <span class="env">SANDCASTLE_CLAUDE_VERSION</span>=2.1.145 <span class="env">SANDCASTLE_GEMINI_VERSION</span>=0.42.0 \
+  <span class="cmd">mise run image:ai:build-upload</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Build and upload the base image</h3>
+    <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
+<span class="cmd">mise run image:base:build-upload</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>All image mise tasks</h3>
+    <table>
+      <thead><tr><th>Task</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>mise run image:ai:build-upload</td><td>Build AI image with latest tool versions and upload to Incus</td></tr>
+        <tr><td>mise run image:base:build-upload</td><td>Build base image and upload to Incus</td></tr>
+        <tr><td>mise run image:base:build</td><td>Build base image locally only</td></tr>
+        <tr><td>mise run image:base:upload</td><td>Upload a previously built base image</td></tr>
+        <tr><td>mise run image:deps</td><td>Check that docker, incus, tar, zstd are installed</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h3>Build an AI image manually (explicit versions)</h3>
+    <pre><code><span class="cmd">sandcastle admin image build</span> <span class="arg">ai</span> \
+  <span class="flag">--codex-version</span>  <span class="arg">0.132.0</span> \
+  <span class="flag">--claude-version</span> <span class="arg">2.1.145</span> \
+  <span class="flag">--gemini-version</span> <span class="arg">0.42.0</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Build the base image manually</h3>
+    <pre><code><span class="cmd">sandcastle admin image build</span> <span class="arg">base</span></code></pre>
   </div>
 
   <div class="step">
@@ -507,6 +543,8 @@ Bootstrap:
         <tr><td>sandcastle admin user token &lt;user&gt;</td><td>Re-issue add-token for user</td></tr>
         <tr><td>sandcastle admin infra create</td><td>Create shared infrastructure</td></tr>
         <tr><td>sandcastle admin infra delete</td><td>Delete shared infrastructure</td></tr>
+        <tr><td>mise run image:ai:build-upload</td><td>Build AI image (auto latest versions) and upload</td></tr>
+        <tr><td>mise run image:base:build-upload</td><td>Build base image and upload</td></tr>
         <tr><td>sandcastle admin image build</td><td>Build sandbox OCI image</td></tr>
         <tr><td>sandcastle admin image import</td><td>Import OCI image into Incus</td></tr>
         <tr><td>sandcastle admin image sync</td><td>Sync imported image to alias</td></tr>

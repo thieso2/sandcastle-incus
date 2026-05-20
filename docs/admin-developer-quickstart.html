@@ -288,16 +288,19 @@ export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
 export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
 
       <h3>3. Prepare images</h3>
-      <p>Projects use the base image for sidecars and the AI image as the default sandbox template. If local mise tasks are available, build and import the base image with:</p>
-      <pre><code>mise run image:base:build-upload</code></pre>
-      <p>Build or import the AI image before onboarding developers, or set <code>SANDCASTLE_AI_IMAGE</code> to an existing compatible image.</p>
-      <pre><code>./bin/sc admin image build ai \
-  --codex-version VERSION \
-  --claude-version VERSION \
-  --gemini-version VERSION \
-  --tag "$SANDCASTLE_AI_IMAGE"
+      <p>Projects use the base image for sidecars and the AI image as the default sandbox template.</p>
+      <pre><code># Build base image and upload (zstd-compressed, fast)
+mise run image:base:build-upload
 
-./bin/sc admin image import ai SOURCE_REF</code></pre>
+# Build AI image with latest Codex / Claude Code / Gemini CLI versions and upload
+mise run image:ai:build-upload</code></pre>
+      <p>The AI task resolves the latest npm versions automatically. To pin versions:</p>
+      <pre><code>SANDCASTLE_CODEX_VERSION=0.132.0 \
+SANDCASTLE_CLAUDE_VERSION=2.1.145 \
+SANDCASTLE_GEMINI_VERSION=0.42.0 \
+  mise run image:ai:build-upload</code></pre>
+      <p>Or import a pre-built image from a registry:</p>
+      <pre><code>./bin/sc admin image import ai SOURCE_REF</code></pre>
 
       <h3>4. Create the project</h3>
       <pre><code>./bin/sc admin project create alice/myproject \
