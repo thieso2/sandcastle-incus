@@ -81,12 +81,16 @@ development sandboxes.
 - Added `sandcastle status <owner/project>` and
   `sandcastle admin project status <owner/project>`, backed by managed project
   metadata and basic metadata/domain/CIDR checks.
+- Extended status with optional live topology checks for `sc-private`, durable
+  home/workspace/CA volumes, and `sc-tailscale`/`sc-dns` sidecar presence and
+  running state.
+- Added `internal/incusx` topology adapter for live Incus network, volume, and
+  sidecar reads.
 
 ## Next Slice
 
-- Extend status with live topology checks for private network, durable volumes,
-  and sidecar instances.
 - Add user/trust command planning for restricted certificate workflow.
+- Add restricted user certificate executor and admin commands.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -117,6 +121,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge)' -count=1 -v` with expected skips when `SANDCASTLE_E2E` is not enabled.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|DisposableProjectCreateAndPurge)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`

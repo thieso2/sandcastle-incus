@@ -29,6 +29,7 @@ type commandConfig struct {
 	adminConfig    scconfig.Admin
 	projectCreator project.Creator
 	projectDeleter project.Deleter
+	topologyStore  project.TopologyStore
 }
 
 type rootOptions struct {
@@ -48,6 +49,7 @@ func Execute(name string, args []string) int {
 		),
 		projectCreator: incusx.NewProjectCreator(adminConfig.Remote),
 		projectDeleter: incusx.NewProjectDeleter(adminConfig.Remote),
+		topologyStore:  incusx.NewTopologyStore(adminConfig.Remote),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)

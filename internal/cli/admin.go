@@ -65,7 +65,13 @@ func newAdminProjectStatusCommand(config commandConfig, opts *rootOptions) *cobr
 		Short: "Show Sandcastle-managed Incus project status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			status, err := project.GetStatus(cmd.Context(), config.projectStore, args[0])
+			status, err := project.GetStatusWithTopology(
+				cmd.Context(),
+				config.projectStore,
+				config.topologyStore,
+				project.TopologyRequest{StoragePool: config.adminConfig.StoragePool},
+				args[0],
+			)
 			if err != nil {
 				return err
 			}
