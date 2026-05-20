@@ -126,13 +126,16 @@ development sandboxes.
   reads `ca.crt`/`ca.key` from that volume when certificate files are not
   already present, so real `sandcastle add` can issue sandbox certs from stored
   project CA material.
+- `sandcastle port set` plans a matching Caddyfile and the Incus executor
+  overwrites the sandbox Caddyfile after metadata updates, keeping the private
+  HTTPS reverse proxy aligned with the configured app port.
 
 ## Next Slice
 
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
-- Refresh sandbox Caddy/TLS files when `sandcastle port set` changes the
-  proxied app port.
+- Add sandbox lifecycle e2e assertions for private Caddy config and issued
+  sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
   token bootstrap can be exercised safely.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -174,6 +177,8 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run && ./bin/sandcastle admin user token alice 2>&1 || true` with expected local Incus connection failure on macOS for non-dry-run token creation.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle port set alice/myproject/codex 5173 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`

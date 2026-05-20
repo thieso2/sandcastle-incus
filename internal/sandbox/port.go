@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/thieso2/sandcastle-incus/internal/caddy"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 )
@@ -19,6 +20,7 @@ type PortSetPlan struct {
 	Name         string          `json:"name"`
 	InstanceName string          `json:"instanceName"`
 	AppPort      int             `json:"appPort"`
+	CaddyFile    caddy.File      `json:"caddyFile"`
 }
 
 type PortSetter interface {
@@ -46,5 +48,6 @@ func PlanSetPort(ctx context.Context, admin config.Admin, store project.IncusPro
 		Name:         sandboxName,
 		InstanceName: "sc-" + sandboxName,
 		AppPort:      request.AppPort,
+		CaddyFile:    caddy.RenderSandbox(sandboxName+"."+summary.Domain, request.AppPort, SandboxCertPath, SandboxCertKeyPath),
 	}, nil
 }

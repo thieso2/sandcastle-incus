@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -32,6 +33,9 @@ func TestPlanSetPort(t *testing.T) {
 	}
 	if plan.AppPort != 5173 {
 		t.Fatalf("AppPort = %d", plan.AppPort)
+	}
+	if !strings.Contains(plan.CaddyFile.Content, "reverse_proxy 127.0.0.1:5173") {
+		t.Fatalf("CaddyFile.Content = %q", plan.CaddyFile.Content)
 	}
 }
 

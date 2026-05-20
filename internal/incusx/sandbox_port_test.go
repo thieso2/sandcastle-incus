@@ -2,10 +2,12 @@ package incusx
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
+	"github.com/thieso2/sandcastle-incus/internal/caddy"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
@@ -20,8 +22,9 @@ func (s fakeSandboxPortServer) UseProject(name string) SandboxPortResourceServer
 }
 
 type fakeSandboxPortResource struct {
-	instance *api.Instance
-	updated  *api.InstancePut
+	instance     *api.Instance
+	updated      *api.InstancePut
+	createdFiles map[string]string
 }
 
 func (r *fakeSandboxPortResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -31,6 +34,22 @@ func (r *fakeSandboxPortResource) GetInstance(name string) (*api.Instance, strin
 func (r *fakeSandboxPortResource) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
 	r.updated = &instance
 	return fakeOperation{}, nil
+}
+
+func (r *fakeSandboxPortResource) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+	if r.createdFiles == nil {
+		r.createdFiles = map[string]string{}
+	}
+	if args.Content == nil {
+		r.createdFiles[path] = args.Type
+		return nil
+	}
+	content, err := io.ReadAll(args.Content)
+	if err != nil {
+		return err
+	}
+	r.createdFiles[path] = string(content)
+	return nil
 }
 
 func TestSandboxPortSetterUpdatesMetadata(t *testing.T) {
@@ -57,6 +76,7 @@ func TestSandboxPortSetterUpdatesMetadata(t *testing.T) {
 		Name:         "codex",
 		InstanceName: "sc-codex",
 		AppPort:      5173,
+		CaddyFile:    caddy.RenderSandbox("codex.myproject.project-tld", 5173, sandbox.SandboxCertPath, sandbox.SandboxCertKeyPath),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,5 +93,8 @@ func TestSandboxPortSetterUpdatesMetadata(t *testing.T) {
 	}
 	if parsed.AppPort != 5173 {
 		t.Fatalf("state AppPort = %d", parsed.AppPort)
+	}
+	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
+		t.Fatal("expected Caddyfile write")
 	}
 }
