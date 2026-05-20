@@ -35,6 +35,19 @@ func TestPlanGrant(t *testing.T) {
 	}
 }
 
+func TestPlanGrantDeduplicatesProjects(t *testing.T) {
+	plan, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{
+		User:     "alice",
+		Projects: []string{"alice/myproject", "alice/myproject"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Projects) != 1 || plan.Projects[0] != "sc-alice-myproject" {
+		t.Fatalf("Projects = %#v", plan.Projects)
+	}
+}
+
 func TestPlanGrantRequiresProject(t *testing.T) {
 	_, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{User: "alice"})
 	if err == nil {

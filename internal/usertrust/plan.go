@@ -57,6 +57,7 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return UserPlan{}, err
 	}
+	seenProjects := map[string]bool{}
 	projects := make([]string, 0, len(request.Projects))
 	for _, raw := range request.Projects {
 		ref, err := naming.ParseProjectRef(raw)
@@ -67,6 +68,10 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 		if err != nil {
 			return UserPlan{}, err
 		}
+		if seenProjects[name] {
+			continue
+		}
+		seenProjects[name] = true
 		projects = append(projects, name)
 	}
 	if len(projects) == 0 {

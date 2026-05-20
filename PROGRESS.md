@@ -1230,6 +1230,11 @@ development sandboxes.
 - Passed: `go test ./internal/localdns -run 'TestForwarder' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Normalized restricted-user grant planning by deduplicating Incus project names
+  after owner/project references are expanded with the admin project prefix.
+- Passed: `go test ./internal/usertrust ./internal/cli -run 'Test(PlanGrant|AdminUserGrantDryRunJSON)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
