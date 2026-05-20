@@ -76,11 +76,13 @@ development sandboxes.
 - Added gated destructive e2e `TestDisposableProjectCreateAndPurge`, which
   creates a disposable Sandcastle project, verifies it is listed, and purges it
   unless `SANDCASTLE_E2E_KEEP=1`.
+- Added e2e diagnostics logging for failed disposable project runs, filtered to
+  Sandcastle project summaries matching the run id.
 
 ## Next Slice
 
-- Add diagnostics collection for failed disposable e2e project runs.
 - Add project status command backed by project metadata and topology checks.
+- Add user/trust command planning for restricted certificate workflow.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -109,6 +111,8 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle admin project delete alice/myproject 2>&1 || true`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge)' -count=1 -v` with expected skips when `SANDCASTLE_E2E` is not enabled.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|DisposableProjectCreateAndPurge)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 - Passed: `go test ./...`

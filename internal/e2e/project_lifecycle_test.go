@@ -38,6 +38,11 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	store := incusx.NewProjectStore(e2eConfig.Remote)
 	creator := incusx.NewProjectCreator(e2eConfig.Remote)
 	deleter := incusx.NewProjectDeleter(e2eConfig.Remote)
+	defer func() {
+		if t.Failed() {
+			logProjectDiagnostics(t, ctx, store, runID)
+		}
+	}()
 
 	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
