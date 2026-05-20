@@ -121,5 +121,10 @@ func doRouteBrokerRequestWithResponse(client *http.Client, request *http.Request
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-	return nil, fmt.Errorf("route broker %s %s: status %s: %s", request.Method, request.URL.Path, response.Status, strings.TrimSpace(string(body)))
+	message := strings.TrimSpace(string(body))
+	var payload map[string]string
+	if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload["error"]) != "" {
+		message = strings.TrimSpace(payload["error"])
+	}
+	return nil, fmt.Errorf("route broker %s %s: status %s: %s", request.Method, request.URL.Path, response.Status, message)
 }

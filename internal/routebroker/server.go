@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -106,7 +107,11 @@ func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, err)
 		return
 	}
-	hostname := strings.TrimPrefix(r.URL.Path, "/routes/")
+	hostname, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, "/routes/"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("decode route hostname: %w", err))
+		return
+	}
 	if hostname == "" {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("route hostname is required"))
 		return

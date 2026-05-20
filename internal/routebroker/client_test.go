@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/route"
@@ -83,5 +84,26 @@ func TestClientRequiresBrokerURL(t *testing.T) {
 	err := (Client{}).Add(context.Background(), route.AddPlan{})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestClientReportsBrokerJSONError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "route owner mismatch"})
+	}))
+	defer server.Close()
+
+	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Remove(context.Background(), route.RemovePlan{
+		Hostname: "app.example.com",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "route owner mismatch") {
+		t.Fatalf("error = %q", err.Error())
+	}
+	if strings.Contains(err.Error(), "{\"error\"") {
+		t.Fatalf("error should use decoded JSON message, got %q", err.Error())
 	}
 }

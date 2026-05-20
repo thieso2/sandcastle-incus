@@ -114,6 +114,29 @@ func TestServerRemovesAuthorizedRoute(t *testing.T) {
 	}
 }
 
+func TestServerDecodesRemoveRouteHostname(t *testing.T) {
+	routes := &fakeBrokerRoutes{}
+	metadata := &recordingBrokerMetadata{route: meta.Route{
+		Hostname:      "app-test.example.com",
+		TargetOwner:   "alice",
+		TargetProject: "myproject",
+		TargetSandbox: "codex",
+	}}
+	server := brokerServerForTest(t, routes, metadata)
+	response := httptest.NewRecorder()
+	request := brokerRequest(t, http.MethodDelete, "/routes/app%2dtest.example.com", "")
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if metadata.hostname != "app-test.example.com" {
+		t.Fatalf("metadata lookup hostname = %q", metadata.hostname)
+	}
+	if routes.removed == nil || routes.removed.Hostname != "app-test.example.com" {
+		t.Fatalf("removed = %#v", routes.removed)
+	}
+}
+
 func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
 	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{
 		{Hostname: "app.example.com", TargetReference: "alice/myproject/codex", RoutePort: 3000},
@@ -178,6 +201,16 @@ func projectStoreForBrokerTest(t *testing.T) project.MemoryStore {
 		t.Fatal(err)
 	}
 	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-alice-myproject", Config: configMap}}}
+}
+
+type recordingBrokerMetadata struct {
+	route    meta.Route
+	hostname string
+}
+
+func (s *recordingBrokerMetadata) FindRoute(ctx context.Context, hostname string) (meta.Route, error) {
+	s.hostname = hostname
+	return s.route, nil
 }
 
 func decodeError(t *testing.T, response *httptest.ResponseRecorder) string {

@@ -316,6 +316,9 @@ development sandboxes.
   from direct infrastructure mutation to broker GET/POST/DELETE requests.
 - Route broker list requests now require mTLS, delegate to the route manager,
   and filter returned routes to the principal's owner prefix before responding.
+- Route broker DELETE now decodes the escaped route hostname path segment before
+  authorization/removal, and the broker client reports JSON error payloads as
+  plain actionable messages.
 - Added route broker HTTPRunner mTLS integration coverage. The test starts a
   real TLS listener, presents a client certificate from an `http.Client`, and
   verifies an authorized route add flows through TLS client-certificate
@@ -662,6 +665,8 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(LogProjectDiagnostics|ProjectDiagnosticLines|DisposableProjectCreateAndPurge)' -count=1 -v` with the expected disposable project e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/project ./internal/e2e -run 'Test(GetStatus|LogProjectDiagnostics|ProjectDiagnosticLines|DisposableProjectCreateAndPurge)' -count=1 -v` with the expected disposable project e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/routebroker -run 'Test(Client|Server)' -count=1 -v`
 - Passed: `go test ./...`
 
 ## Open Scope
