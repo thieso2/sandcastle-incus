@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"time"
 
+	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
@@ -45,6 +47,7 @@ type CreatePlan struct {
 	DefaultTemplate       string            `json:"defaultTemplate"`
 	Sidecars              []SidecarPlan     `json:"sidecars"`
 	DNSFiles              []dns.File        `json:"dnsFiles"`
+	ProjectCA             ProjectCA         `json:"projectCA"`
 	ProjectMetadataConfig map[string]string `json:"projectMetadataConfig"`
 }
 
@@ -63,6 +66,13 @@ type SidecarPlan struct {
 }
 
 type Device map[string]string
+
+type ProjectCA struct {
+	CertificatePath string `json:"certificatePath"`
+	PrivateKeyPath  string `json:"privateKeyPath"`
+	CertificatePEM  []byte `json:"-"`
+	PrivateKeyPEM   []byte `json:"-"`
+}
 
 func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
@@ -108,6 +118,10 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	ca, err := certs.GenerateCA("Sandcastle "+ref.String()+" project CA", time.Now().UTC())
+	if err != nil {
+		return CreatePlan{}, err
+	}
 
 	return CreatePlan{
 		Reference:         ref.String(),
@@ -128,7 +142,13 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 			sidecarPlan(ref, admin, TailscaleName, "tailscale", tailscaleAddress.String()),
 			sidecarPlan(ref, admin, DNSName, "dns", dnsAddress.String()),
 		},
-		DNSFiles:              dnsFiles,
+		DNSFiles: dnsFiles,
+		ProjectCA: ProjectCA{
+			CertificatePath: "/ca.crt",
+			PrivateKeyPath:  "/ca.key",
+			CertificatePEM:  ca.CertificatePEM,
+			PrivateKeyPEM:   ca.PrivateKeyPEM,
+		},
 		ProjectMetadataConfig: metadataConfig,
 	}, nil
 }

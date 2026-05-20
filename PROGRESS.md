@@ -115,13 +115,16 @@ development sandboxes.
 - Added certificate foundation for project CA generation and sandbox leaf
   certificate issuance with exact sandbox SAN, per-sandbox wildcard SAN, and
   extra SANs for future host overrides.
+- Project creation now generates project CA material and writes `ca.crt` plus
+  `ca.key` into the project CA custom volume. Dry-run output shows only CA file
+  paths, not PEM contents.
 
 ## Next Slice
 
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
-- Wire project CA and sandbox leaf certificate material into project/sandbox
-  executors.
+- Wire sandbox leaf certificate material and Caddy config into sandbox
+  creation.
 - Add restricted-user e2e path for certificate/token grant verification after
   token bootstrap can be exercised safely.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -129,6 +132,7 @@ development sandboxes.
 ## Verification Log
 
 - Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run | rg 'projectCA|PRIVATE KEY|CERTIFICATE|ca.crt|ca.key'`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle`
 - Passed: `go build -o bin/sc ./cmd/sc`
 - Passed: `./bin/sandcastle version`

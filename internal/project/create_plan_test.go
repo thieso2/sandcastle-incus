@@ -51,6 +51,12 @@ func TestPlanCreate(t *testing.T) {
 	if len(plan.DNSFiles) != 2 {
 		t.Fatalf("DNS files = %d, want 2", len(plan.DNSFiles))
 	}
+	if plan.ProjectCA.CertificatePath != "/ca.crt" {
+		t.Fatalf("CA certificate path = %q", plan.ProjectCA.CertificatePath)
+	}
+	if len(plan.ProjectCA.CertificatePEM) == 0 || len(plan.ProjectCA.PrivateKeyPEM) == 0 {
+		t.Fatal("expected generated project CA material")
+	}
 }
 
 func TestPlanCreateRejectsInvalidReference(t *testing.T) {

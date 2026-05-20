@@ -26,6 +26,7 @@ type ProjectResourceServer interface {
 	CreateNetwork(network api.NetworksPost) error
 	GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error)
 	CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error
+	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 	GetInstance(name string) (*api.Instance, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
@@ -71,6 +72,9 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 		if err := ensureStorageVolume(projectServer, plan.StoragePool, volume); err != nil {
 			return err
 		}
+	}
+	if err := ensureProjectCA(projectServer, plan); err != nil {
+		return err
 	}
 	for _, sidecar := range plan.Sidecars {
 		if err := ensureSidecar(projectServer, sidecar); err != nil {
@@ -127,6 +131,29 @@ func ensureStorageVolume(server ProjectResourceServer, pool string, volume api.S
 		return fmt.Errorf("get storage volume %s/%s: %w", pool, volume.Name, err)
 	}
 	return server.CreateStoragePoolVolume(pool, volume)
+}
+
+func ensureProjectCA(server ProjectResourceServer, plan project.CreatePlan) error {
+	if len(plan.ProjectCA.CertificatePEM) == 0 || len(plan.ProjectCA.PrivateKeyPEM) == 0 {
+		return fmt.Errorf("project CA material is missing")
+	}
+	if err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.ProjectCA.CertificatePath, incus.InstanceFileArgs{
+		Content:   strings.NewReader(string(plan.ProjectCA.CertificatePEM)),
+		Type:      "file",
+		Mode:      0o644,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("write project CA certificate: %w", err)
+	}
+	if err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.ProjectCA.PrivateKeyPath, incus.InstanceFileArgs{
+		Content:   strings.NewReader(string(plan.ProjectCA.PrivateKeyPEM)),
+		Type:      "file",
+		Mode:      0o600,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("write project CA private key: %w", err)
+	}
+	return nil
 }
 
 func ensureSidecar(server ProjectResourceServer, sidecar project.SidecarPlan) error {
@@ -332,6 +359,10 @@ func (s sdkResourceServer) GetStoragePoolVolume(pool string, volType string, nam
 
 func (s sdkResourceServer) CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error {
 	return s.inner.CreateStoragePoolVolume(pool, volume)
+}
+
+func (s sdkResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+	return s.inner.CreateStorageVolumeFile(pool, volumeType, volumeName, filePath, args)
 }
 
 func (s sdkResourceServer) GetInstance(name string) (*api.Instance, string, error) {

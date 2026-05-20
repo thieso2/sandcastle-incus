@@ -42,14 +42,15 @@ func (s *fakeCreateServer) UseProject(name string) ProjectResourceServer {
 }
 
 type fakeResourceServer struct {
-	networks         map[string]*api.Network
-	volumes          map[string]*api.StorageVolume
-	instances        map[string]*api.Instance
-	createdNetwork   *api.NetworksPost
-	createdVolumes   []api.StorageVolumesPost
-	createdInstances []api.InstancesPost
-	createdFiles     map[string]string
-	startedInstances []string
+	networks           map[string]*api.Network
+	volumes            map[string]*api.StorageVolume
+	instances          map[string]*api.Instance
+	createdNetwork     *api.NetworksPost
+	createdVolumes     []api.StorageVolumesPost
+	createdVolumeFiles map[string]string
+	createdInstances   []api.InstancesPost
+	createdFiles       map[string]string
+	startedInstances   []string
 }
 
 func (s *fakeResourceServer) GetNetwork(name string) (*api.Network, string, error) {
@@ -75,6 +76,18 @@ func (s *fakeResourceServer) GetStoragePoolVolume(pool string, volType string, n
 func (s *fakeResourceServer) CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error {
 	s.createdVolumes = append(s.createdVolumes, volume)
 	s.volumes[volume.Name] = &api.StorageVolume{Name: volume.Name, Type: volume.Type}
+	return nil
+}
+
+func (s *fakeResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+	if s.createdVolumeFiles == nil {
+		s.createdVolumeFiles = map[string]string{}
+	}
+	content, err := io.ReadAll(args.Content)
+	if err != nil {
+		return err
+	}
+	s.createdVolumeFiles[volumeName+":"+filePath] = string(content)
 	return nil
 }
 
@@ -138,10 +151,11 @@ func (fakeOperation) WaitContext(context.Context) error                         
 func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	plan := createPlanForTest(t)
 	resourceServer := &fakeResourceServer{
-		networks:     map[string]*api.Network{},
-		volumes:      map[string]*api.StorageVolume{},
-		instances:    map[string]*api.Instance{},
-		createdFiles: map[string]string{},
+		networks:           map[string]*api.Network{},
+		volumes:            map[string]*api.StorageVolume{},
+		instances:          map[string]*api.Instance{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
 	}
 	server := &fakeCreateServer{resourceServer: resourceServer}
 	creator := ProjectCreator{Server: server}
@@ -163,6 +177,12 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	}
 	if len(resourceServer.createdVolumes) != 3 {
 		t.Fatalf("created volumes = %d, want 3", len(resourceServer.createdVolumes))
+	}
+	if resourceServer.createdVolumeFiles[project.CAVolumeName+":/ca.crt"] == "" {
+		t.Fatal("expected CA certificate to be written")
+	}
+	if resourceServer.createdVolumeFiles[project.CAVolumeName+":/ca.key"] == "" {
+		t.Fatal("expected CA private key to be written")
 	}
 	if len(resourceServer.createdInstances) != 2 {
 		t.Fatalf("created instances = %d, want 2", len(resourceServer.createdInstances))
@@ -200,7 +220,8 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 			plan.TailscaleInstance: {Name: plan.TailscaleInstance, Status: "Running", StatusCode: api.Running},
 			plan.DNSInstance:       {Name: plan.DNSInstance, Status: "Running", StatusCode: api.Running},
 		},
-		createdFiles: map[string]string{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
 	}
 	server := &fakeCreateServer{
 		project: &api.Project{
@@ -241,6 +262,9 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	if resourceServer.createdFiles[project.DNSName+":/etc/coredns/Corefile"] == "" {
 		t.Fatal("expected DNS files to be refreshed")
 	}
+	if resourceServer.createdVolumeFiles[project.CAVolumeName+":/ca.crt"] == "" {
+		t.Fatal("expected CA files to be refreshed")
+	}
 }
 
 func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
@@ -256,7 +280,8 @@ func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
 			plan.TailscaleInstance: {Name: plan.TailscaleInstance, Status: "Stopped", StatusCode: api.Stopped},
 			plan.DNSInstance:       {Name: plan.DNSInstance, Status: "Running", StatusCode: api.Running},
 		},
-		createdFiles: map[string]string{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
 	}
 	server := &fakeCreateServer{
 		project:        &api.Project{Name: plan.IncusProject},
