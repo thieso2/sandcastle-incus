@@ -151,6 +151,13 @@ func TestPlanDelete(t *testing.T) {
 	}
 }
 
+func TestPlanDeleteRejectsInvalidExplicitProject(t *testing.T) {
+	_, err := PlanDelete(config.LoadAdminFromEnv(), DeleteRequest{Project: "bad_project"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func runtimeFileContent(plan CreatePlan, instance string, path string) string {
 	for _, file := range plan.RuntimeFiles {
 		if file.Instance == instance && file.Path == path {

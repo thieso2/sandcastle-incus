@@ -82,6 +82,16 @@ func ValidateProjectPrefix(prefix string) error {
 	return nil
 }
 
+func ValidateIncusProjectName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("incus project name is required")
+	}
+	if !safeNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid incus project name %q", name)
+	}
+	return nil
+}
+
 func ValidateSandboxName(name string) error {
 	if !safeNamePattern.MatchString(name) {
 		return fmt.Errorf("invalid sandbox name %q", name)

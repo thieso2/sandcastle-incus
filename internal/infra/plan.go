@@ -11,6 +11,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 )
 
@@ -268,6 +269,9 @@ func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 	}
 	if project == "" {
 		return DeletePlan{}, fmt.Errorf("infrastructure project is required")
+	}
+	if err := naming.ValidateIncusProjectName(project); err != nil {
+		return DeletePlan{}, err
 	}
 	return DeletePlan{
 		Project:          project,

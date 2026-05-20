@@ -82,6 +82,14 @@ func TestAdminValidateRejectsInvalidProjectPrefix(t *testing.T) {
 	}
 }
 
+func TestAdminValidateRejectsInvalidInfrastructureProject(t *testing.T) {
+	config := LoadAdminFromEnv()
+	config.InfrastructureProject = "bad_project"
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestAdminValidateAcceptsDefaults(t *testing.T) {
 	config := LoadAdminFromEnv()
 	if err := config.Validate(); err != nil {

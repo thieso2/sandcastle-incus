@@ -79,6 +79,9 @@ func (c Admin) Validate() error {
 	if strings.TrimSpace(c.InfrastructureProject) == "" {
 		return fmt.Errorf("infrastructure project is required")
 	}
+	if err := naming.ValidateIncusProjectName(c.InfrastructureProject); err != nil {
+		return err
+	}
 	if strings.TrimSpace(c.Images.Base) == "" {
 		return fmt.Errorf("base image alias is required")
 	}

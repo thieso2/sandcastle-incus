@@ -1415,6 +1415,12 @@ development sandboxes.
 - Re-ran the safe e2e runner tiers at the current head after CLI install,
   env-config, and project-prefix validation changes.
 - Passed: `make e2e-safe`
+- Added shared Incus project-name validation for infrastructure project names,
+  rejecting malformed `SANDCASTLE_INFRA_PROJECT` values during admin config
+  validation and rejecting malformed explicit infrastructure delete targets.
+- Passed: `go test ./internal/naming ./internal/config ./internal/infra ./internal/cli -run 'Test(ValidateIncusProjectName|ValidateProjectPrefix|AdminValidate|Plan(Create|Delete)|AdminInfra)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

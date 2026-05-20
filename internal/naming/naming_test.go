@@ -84,6 +84,23 @@ func TestValidateProjectPrefix(t *testing.T) {
 	}
 }
 
+func TestValidateIncusProjectName(t *testing.T) {
+	for _, name := range []string{"sc-infra", "sc-alice-myproject"} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateIncusProjectName(name); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	for _, name := range []string{"", "s", "Bad", "bad_project", "bad.project"} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateIncusProjectName(name); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
 func TestReservedSandboxNames(t *testing.T) {
 	for _, name := range []string{"ca", "dns", "tailscale", "sc-ca", "sc-dns", "sc-tailscale"} {
 		if !IsReservedSandboxName(name) {
