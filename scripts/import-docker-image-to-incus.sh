@@ -39,7 +39,9 @@ cleanup() {
 trap cleanup EXIT
 
 container_id="$(docker create --platform "linux/$arch" "$image_ref" /bin/true)"
-docker export "$container_id" | xz -T0 -c >"$tmpdir/rootfs.tar.xz"
+echo "Exporting and compressing rootfs (this may take a minute)..."
+docker export "$container_id" | gzip -1 -c >"$tmpdir/rootfs.tar.gz"
+echo "Rootfs size: $(du -sh "$tmpdir/rootfs.tar.gz" | cut -f1)"
 
 serial="$(date -u +%Y%m%d%H%M%S)"
 cat >"$tmpdir/metadata.yaml" <<EOF
@@ -55,8 +57,10 @@ properties:
 templates: {}
 EOF
 
-tar -C "$tmpdir" -cJf "$tmpdir/metadata.tar.xz" metadata.yaml
+tar -C "$tmpdir" -czf "$tmpdir/metadata.tar.gz" metadata.yaml
 
-incus image import "$tmpdir/metadata.tar.xz" "$tmpdir/rootfs.tar.xz" "$remote:" \
+echo "Importing into Incus remote $remote..."
+incus image import "$tmpdir/metadata.tar.gz" "$tmpdir/rootfs.tar.gz" "$remote:" \
   --alias "$alias_name" \
   --reuse
+echo "Done."
