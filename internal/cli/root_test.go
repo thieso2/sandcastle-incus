@@ -14,6 +14,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -744,6 +745,67 @@ func TestTrustUninstallRunsExecutor(t *testing.T) {
 	}
 }
 
+func TestRouteAddDryRunJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		routeSandbox: fakeRouteSandboxStore{},
+	}, "--output", "json", "route", "add", "App.Example.COM", "alice/myproject/codex", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload route.AddPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Hostname != "app.example.com" {
+		t.Fatalf("Hostname = %q", payload.Hostname)
+	}
+	if payload.RoutePort != 5173 {
+		t.Fatalf("RoutePort = %d", payload.RoutePort)
+	}
+}
+
+func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		routeSandbox: fakeRouteSandboxStore{},
+	}, "route", "add", "app.example.com", "alice/myproject/codex")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "route broker") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
@@ -959,6 +1021,18 @@ func (f *fakeHostOverrideManager) Add(ctx context.Context, plan hostoverride.Add
 func (f *fakeHostOverrideManager) Remove(ctx context.Context, plan hostoverride.RemovePlan) error {
 	f.removed = true
 	return nil
+}
+
+type fakeRouteSandboxStore struct{}
+
+func (f fakeRouteSandboxStore) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
+	return meta.Sandbox{
+		Owner:     summary.Owner,
+		Project:   summary.Name,
+		Name:      name,
+		AppPort:   5173,
+		PrivateIP: "10.248.0.20",
+	}, nil
 }
 
 type fakeHostFiles struct {

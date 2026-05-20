@@ -15,6 +15,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -51,6 +52,8 @@ type commandConfig struct {
 	hostSandbox    hostoverride.SandboxStore
 	hostFiles      hostoverride.HostsManager
 	localTrust     localtrust.Manager
+	routes         route.Manager
+	routeSandbox   route.SandboxStore
 }
 
 type rootOptions struct {
@@ -84,6 +87,7 @@ func Execute(name string, args []string) int {
 		hostSandbox:    incusx.NewHostOverrideManager(adminConfig.Remote),
 		hostFiles:      hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
 		localTrust:     incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
+		routeSandbox:   incusx.NewHostOverrideManager(adminConfig.Remote),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
@@ -139,6 +143,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newTailscaleCommand(config, opts))
 	root.AddCommand(newHostCommand(config, opts))
 	root.AddCommand(newTrustCommand(config, opts))
+	root.AddCommand(newRouteCommand(config, opts))
 	root.AddCommand(newAdminCommand(config, opts))
 
 	return root
