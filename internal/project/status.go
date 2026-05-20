@@ -60,6 +60,7 @@ func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topolog
 					{Name: "metadata", Status: "ok", Detail: "Sandcastle project metadata is present"},
 					{Name: "cidr", Status: checkPresent(summary.PrivateCIDR), Detail: summary.PrivateCIDR},
 					{Name: "domain", Status: checkPresent(summary.Domain), Detail: summary.Domain},
+					tailscaleRouteCheck(summary),
 				},
 			}
 			if topologyStore != nil {
@@ -75,6 +76,18 @@ func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topolog
 		}
 	}
 	return Status{}, fmt.Errorf("Sandcastle project %s not found", ref.String())
+}
+
+func tailscaleRouteCheck(summary Summary) Check {
+	if summary.Tailscale.State == "" {
+		return Check{Name: "tailscale:route", Status: "unknown", Detail: "no Tailscale status recorded"}
+	}
+	for _, route := range summary.Tailscale.AdvertisedRoutes {
+		if route == summary.PrivateCIDR {
+			return Check{Name: "tailscale:route", Status: "ok", Detail: route}
+		}
+	}
+	return Check{Name: "tailscale:route", Status: "missing", Detail: summary.PrivateCIDR}
 }
 
 func checkPresent(value string) string {
