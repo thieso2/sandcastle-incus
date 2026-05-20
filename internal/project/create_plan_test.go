@@ -45,8 +45,14 @@ func TestPlanCreate(t *testing.T) {
 	if plan.Sidecars[0].Name != TailscaleName || plan.Sidecars[0].Address != "10.248.1.2" {
 		t.Fatalf("tailscale sidecar = %#v", plan.Sidecars[0])
 	}
+	if tun := plan.Sidecars[0].Devices["tun"]; tun["type"] != "unix-char" || tun["path"] != "/dev/net/tun" {
+		t.Fatalf("tailscale tun device = %#v", tun)
+	}
 	if plan.Sidecars[1].Name != DNSName || plan.Sidecars[1].Address != "10.248.1.53" {
 		t.Fatalf("dns sidecar = %#v", plan.Sidecars[1])
+	}
+	if _, ok := plan.Sidecars[1].Devices["tun"]; ok {
+		t.Fatalf("dns sidecar should not have tun device: %#v", plan.Sidecars[1].Devices)
 	}
 	if len(plan.DNSFiles) != 2 {
 		t.Fatalf("DNS files = %d, want 2", len(plan.DNSFiles))

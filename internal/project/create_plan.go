@@ -169,21 +169,32 @@ func sidecarPlan(ref naming.ProjectRef, admin config.Admin, name string, role st
 			meta.KeyName:    name,
 			meta.KeyVersion: "1",
 		},
-		Devices: map[string]Device{
-			"root": {
-				"type": "disk",
-				"pool": admin.StoragePool,
-				"path": "/",
-			},
-			"eth0": {
-				"type":         "nic",
-				"nictype":      "bridged",
-				"parent":       PrivateNetworkName,
-				"ipv4.address": address,
-			},
-		},
-		Start: true,
+		Devices: sidecarDevices(admin, role, address),
+		Start:   true,
 	}
+}
+
+func sidecarDevices(admin config.Admin, role string, address string) map[string]Device {
+	devices := map[string]Device{
+		"root": {
+			"type": "disk",
+			"pool": admin.StoragePool,
+			"path": "/",
+		},
+		"eth0": {
+			"type":         "nic",
+			"nictype":      "bridged",
+			"parent":       PrivateNetworkName,
+			"ipv4.address": address,
+		},
+	}
+	if role == "tailscale" {
+		devices["tun"] = Device{
+			"type": "unix-char",
+			"path": "/dev/net/tun",
+		}
+	}
+	return devices
 }
 
 func roleAddress(prefix netip.Prefix, hostOctet byte) (netip.Addr, error) {

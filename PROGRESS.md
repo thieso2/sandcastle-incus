@@ -202,9 +202,24 @@ development sandboxes.
   configured upstream, refreshes state to a second upstream and verifies live
   reload behavior, then uninstalls and verifies resolver cleanup.
 - Added `scripts/e2e.sh`, a tiered e2e runner for reproducible local, gated,
-  real-Incus, and image-build e2e runs. Destructive tiers fail closed unless
-  `SANDCASTLE_E2E=1` is set, while `unit`, `gated`, and `local` provide safe
-  local verification entry points.
+  real-Incus, Tailscale, and image-build e2e runs. Destructive tiers fail closed
+  unless `SANDCASTLE_E2E=1` is set, while `unit`, `gated`, and `local` provide
+  safe local verification entry points.
+- Added Tailscale sidecar runtime prerequisites: the base image installs the
+  Tailscale Debian 13 package from Tailscale's stable apt repository, prepares
+  Tailscale state/runtime directories, and writes forwarding sysctl defaults.
+  Project sidecar planning now attaches `/dev/net/tun` only to `sc-tailscale`.
+- Base and AI images now default to `sleep infinity` so sidecars and sandboxes
+  stay running for Incus exec workflows instead of exiting from a noninteractive
+  login shell.
+- `sandcastle tailscale up` now bootstraps `tailscaled` inside the sidecar
+  before running `tailscale up`, so the flow does not depend on systemd being
+  present in OCI-imported containers.
+- Added gated real-tailnet e2e coverage for Tailscale attachment. The
+  `tailscale` runner tier creates a disposable project with a disposable base
+  image alias, runs `tailscale up` with `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`,
+  polls status until connected, asserts the project CIDR is advertised, and
+  runs `tailscale down` during cleanup.
 - Added public route planning and command shape for `sandcastle route add`,
   `sandcastle route list`, and `sandcastle route rm`. Route add validates exact
   public hostnames, resolves the target sandbox metadata, pins the current
@@ -512,11 +527,20 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(RestrictedUserTokenE2E|LoadConfig)' -count=1 -v` with the expected restricted-user token e2e skip when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(RestrictedUser(Token|GrantAccess)E2E|LoadConfig)' -count=1 -v` with the expected restricted-user e2e skips when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected sandbox e2e skips when real e2e is unset.
+- Passed: `go test ./internal/project ./internal/tailscale ./internal/incusx ./internal/e2e`
+- Passed: `scripts/e2e.sh --help`
+- Passed: `SANDCASTLE_E2E=1 scripts/e2e.sh tailscale` with the expected
+  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` skip when no real base image source is
+  configured.
+- Passed: `scripts/e2e.sh tailscale` with the expected fail-closed e2e guard
+  when `SANDCASTLE_E2E` is unset.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'TestTailscaleAttachmentE2E|TestLoadConfig' -count=1 -v` with the expected Tailscale e2e skip when real e2e is unset.
 
 ## Open Scope
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
   disposable images in CI/dev, restricted cert grant/access e2e against an HTTPS
-  Incus remote, full Tailscale network e2e, privileged OS resolver/service e2e
-  in a disposable VM, route broker mTLS e2e, and broader real-Incus coverage
-  remain open.
+  Incus remote, full Tailscale DNS/HTTPS routed-access e2e, privileged OS
+  resolver/service e2e in a disposable VM, route broker mTLS e2e, and broader
+  real-Incus coverage remain open.

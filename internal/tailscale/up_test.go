@@ -36,6 +36,9 @@ func TestPlanUp(t *testing.T) {
 	if !strings.Contains(strings.Join(ExecCommand(plan), " "), "tskey-secret") {
 		t.Fatalf("ExecCommand missing auth key")
 	}
+	if !strings.Contains(strings.Join(ExecCommand(plan), " "), "tailscaled --state=/var/lib/tailscale/tailscaled.state") {
+		t.Fatalf("ExecCommand missing tailscaled bootstrap: %#v", ExecCommand(plan))
+	}
 	encoded, err := json.Marshal(plan)
 	if err != nil {
 		t.Fatal(err)

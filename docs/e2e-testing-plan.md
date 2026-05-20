@@ -60,6 +60,7 @@ scripts/e2e.sh unit
 scripts/e2e.sh gated
 scripts/e2e.sh local
 SANDCASTLE_E2E=1 scripts/e2e.sh incus
+SANDCASTLE_E2E=1 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
 ```
 
@@ -71,6 +72,9 @@ Tier meanings:
 - `local`: unprivileged local e2e flows, currently local DNS
   install/forward/refresh/uninstall with temporary state.
 - `incus`: destructive real-Incus flows, requiring `SANDCASTLE_E2E=1`.
+- `tailscale`: destructive real-Incus plus real-tailnet flow, requiring
+  `SANDCASTLE_E2E=1`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, and
+  `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
 - `images`: real image build flows, requiring `SANDCASTLE_E2E=1`,
   `SANDCASTLE_E2E_IMAGE_BUILD=1`, and pinned AI CLI versions for the AI image.
 
@@ -178,6 +182,9 @@ Test:
    `tag:sandcastle` advertised.
 2. Verify sidecar reaches connected state.
 3. Verify project private CIDR is advertised.
+   The checked-in `TestTailscaleAttachmentE2E` covers steps 1-3 against a real
+   Incus project and real Tailscale auth key when the `tailscale` tier is
+   enabled.
 4. From the test runner, query CoreDNS through the Tailscale-routed private IP.
 5. Curl sandbox private Caddy through the Tailscale route.
 6. Record observed Tailscale status in project metadata.

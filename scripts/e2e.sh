@@ -10,12 +10,14 @@ Tiers:
   gated     Run e2e package with gates/default skips.
   local     Run unprivileged local e2e flows with SANDCASTLE_E2E=1.
   incus     Run destructive real-Incus e2e flows. Requires SANDCASTLE_E2E=1.
+  tailscale Run real Tailscale routed-access e2e. Requires SANDCASTLE_E2E=1 and auth key env.
   images    Run real image build e2e. Requires SANDCASTLE_E2E=1 and image build env.
-  all       Run unit, gated, local, incus, and images tiers.
+  all       Run unit, gated, local, incus, tailscale, and images tiers.
 
 Examples:
   scripts/e2e.sh unit
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=local scripts/e2e.sh incus
+  SANDCASTLE_E2E=1 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
 USAGE
 }
@@ -54,6 +56,11 @@ run_images() {
   run go test ./internal/e2e -run 'Test(ImageBuildBaseE2E|ImageBuildAIE2E)' -count=1 -v
 }
 
+run_tailscale() {
+  require_e2e tailscale
+  run go test ./internal/e2e -run 'TestTailscaleAttachmentE2E' -count=1 -v
+}
+
 tier="${1:-}"
 case "$tier" in
   unit)
@@ -68,6 +75,9 @@ case "$tier" in
   incus)
     run_incus
     ;;
+  tailscale)
+    run_tailscale
+    ;;
   images)
     run_images
     ;;
@@ -76,6 +86,7 @@ case "$tier" in
     run_gated
     run_local
     run_incus
+    run_tailscale
     run_images
     ;;
   -h|--help|help|"")

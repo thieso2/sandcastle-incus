@@ -84,7 +84,26 @@ func command(plan UpPlan, redact bool) []string {
 		}
 		args = append(args, "--auth-key="+authKey)
 	}
-	return args
+	if redact {
+		return args
+	}
+	return []string{"/bin/sh", "-lc", tailscaledBootstrapScript() + "; exec " + strings.Join(shellQuoteArgs(args), " ")}
+}
+
+func tailscaledBootstrapScript() string {
+	return strings.Join([]string{
+		"install -d /run/tailscale /var/lib/tailscale",
+		"if ! pgrep -x tailscaled >/dev/null 2>&1; then tailscaled --state=/var/lib/tailscale/tailscaled.state >/var/log/tailscaled.log 2>&1 & fi",
+		"for i in $(seq 1 50); do tailscale status >/dev/null 2>&1 && break; sleep 0.1; done",
+	}, "; ")
+}
+
+func shellQuoteArgs(args []string) []string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = "'" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
+	}
+	return quoted
 }
 
 func normalizeTags(values []string) []string {

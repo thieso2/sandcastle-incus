@@ -28,4 +28,4 @@ RUN npm install -g \
         "@google/gemini-cli@${GEMINI_CLI_VERSION}"
 
 WORKDIR /workspace
-CMD ["/bin/bash", "-l"]
+CMD ["sleep", "infinity"]
