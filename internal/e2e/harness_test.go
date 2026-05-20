@@ -16,6 +16,9 @@ func TestLoadConfigDefaultsToDisabledAndSandcastleTag(t *testing.T) {
 	if config.Tailscale.Tag != "tag:sandcastle" {
 		t.Fatalf("Tailscale tag = %q, want tag:sandcastle", config.Tailscale.Tag)
 	}
+	if config.DomainSuffix != "e2e.project-tld" {
+		t.Fatalf("DomainSuffix = %q, want e2e.project-tld", config.DomainSuffix)
+	}
 }
 
 func TestValidateFailsClosedWhenE2EDisabled(t *testing.T) {
@@ -35,5 +38,13 @@ func TestValidateAcceptsMinimalEnabledConfig(t *testing.T) {
 	config := LoadConfig()
 	if err := config.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDisposableRunIDUsesSafeOverride(t *testing.T) {
+	t.Setenv("SANDCASTLE_E2E_RUN_ID", "Test_Run.1")
+	config := LoadConfig()
+	if got := config.DisposableRunID(); got != "test-run-1" {
+		t.Fatalf("DisposableRunID = %q, want test-run-1", got)
 	}
 }
