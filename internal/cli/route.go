@@ -21,7 +21,7 @@ func newRouteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 func newRouteAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "add hostname owner/project/name",
+		Use:   "add hostname project/name",
 		Short: "Plan a public HTTP route",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

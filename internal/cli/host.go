@@ -27,7 +27,7 @@ func newHostCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 func newHostOverrideAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "add owner/project/name hostname",
+		Use:   "add project/name hostname",
 		Short: "Plan a local exact host override",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -61,7 +61,7 @@ func newHostOverrideAddCommand(config commandConfig, opts *rootOptions) *cobra.C
 
 func newHostOverrideListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list owner/project",
+		Use:   "list project",
 		Short: "List local host override metadata",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -77,7 +77,7 @@ func newHostOverrideListCommand(config commandConfig, opts *rootOptions) *cobra.
 func newHostOverrideRemoveCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "rm owner/project/name hostname",
+		Use:   "rm project/name hostname",
 		Short: "Remove a local exact host override",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -58,6 +58,24 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 	}
 }
 
+func TestPlanAddSupportsProjectNameShorthandWithOwner(t *testing.T) {
+	admin := scconfig.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	plan, err := PlanAdd(context.Background(), admin, projectStoreForTest(t), fakeSandboxStore{sandbox: meta.Sandbox{
+		Owner:     "alice",
+		Project:   "myproject",
+		Name:      "codex",
+		AppPort:   5173,
+		PrivateIP: "10.248.0.20",
+	}}, AddRequest{Hostname: "app.example.com", TargetReference: "myproject/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.TargetReference != "alice/myproject/codex" {
+		t.Fatalf("TargetReference = %q", plan.TargetReference)
+	}
+}
+
 func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
 	plan, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{sandbox: meta.Sandbox{
 		Owner:     "alice",

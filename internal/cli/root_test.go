@@ -790,6 +790,7 @@ func TestTailscaleDownDryRunJSON(t *testing.T) {
 }
 
 func TestHostOverrideAddDryRunJSON(t *testing.T) {
+	t.Setenv("SANDCASTLE_OWNER", "alice")
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",
 		Project:         "myproject",
@@ -807,7 +808,7 @@ func TestHostOverrideAddDryRunJSON(t *testing.T) {
 			Config: configMap,
 		}}},
 		hostSandbox: fakeHostSandboxStore{},
-	}, "--output", "json", "host", "override", "add", "alice/myproject/codex", "Example.COM", "--dry-run")
+	}, "--output", "json", "host", "override", "add", "myproject/codex", "Example.COM", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -861,6 +862,7 @@ func TestHostOverrideAddAppliesSandboxAndHosts(t *testing.T) {
 }
 
 func TestHostOverrideListJSON(t *testing.T) {
+	t.Setenv("SANDCASTLE_OWNER", "alice")
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",
 		Project:         "myproject",
@@ -878,7 +880,7 @@ func TestHostOverrideListJSON(t *testing.T) {
 			Config: configMap,
 		}}},
 		hostSandbox: fakeHostSandboxStore{},
-	}, "--output", "json", "host", "override", "list", "alice/myproject")
+	}, "--output", "json", "host", "override", "list", "myproject")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1018,6 +1020,7 @@ func TestTrustUninstallRunsExecutor(t *testing.T) {
 }
 
 func TestRouteAddDryRunJSON(t *testing.T) {
+	t.Setenv("SANDCASTLE_OWNER", "alice")
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",
 		Project:         "myproject",
@@ -1035,7 +1038,7 @@ func TestRouteAddDryRunJSON(t *testing.T) {
 			Config: configMap,
 		}}},
 		routeSandbox: fakeRouteSandboxStore{},
-	}, "--output", "json", "route", "add", "App.Example.COM", "alice/myproject/codex", "--dry-run")
+	}, "--output", "json", "route", "add", "App.Example.COM", "myproject/codex", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}

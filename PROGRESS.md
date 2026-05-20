@@ -624,6 +624,11 @@ development sandboxes.
   flows: `sandcastle status`, `dns apply/status/install/refresh/uninstall`,
   `tailscale up/status/down`, and `trust install/uninstall` now accept
   `project` while preserving explicit `owner/project`.
+- Extended `SANDCASTLE_OWNER` shorthand to host override and public route
+  targets: `sandcastle host override add/rm project/sandbox ...`,
+  `sandcastle host override list project`, and
+  `sandcastle route add hostname project/sandbox` now accept normal-user
+  references while preserving explicit owner-qualified forms.
 
 ## Next Slice
 
@@ -941,6 +946,12 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_OWNER=alice ./bin/sandcastle status myproject 2>&1 || true`
   with the expected local Incus connection failure on macOS after project
+  shorthand argument parsing.
+- Passed: `git diff --check`
+- Passed: `go test ./internal/hostoverride ./internal/route ./internal/cli -run 'Test(PlanAdd|PlanList|PlanRemove|HostOverride|RouteAdd)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_OWNER=alice ./bin/sandcastle --output json route add app.example.com myproject/codex --dry-run 2>&1 || true`
+  with the expected local Incus connection failure on macOS after route target
   shorthand argument parsing.
 - Passed: `git diff --check`
 - Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard

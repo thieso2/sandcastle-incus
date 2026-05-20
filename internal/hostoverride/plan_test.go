@@ -35,6 +35,21 @@ func TestPlanAdd(t *testing.T) {
 	}
 }
 
+func TestPlanAddSupportsProjectNameShorthandWithOwner(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	plan, err := PlanAdd(context.Background(), admin, projectStoreForTest(t), sandboxStoreForTest{}, AddRequest{
+		Reference: "myproject/codex",
+		Hostname:  "example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project.Owner != "alice" || plan.Project.Name != "myproject" || plan.Sandbox.Name != "codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestPlanAddRejectsWildcardHostname(t *testing.T) {
 	_, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreForTest{}, AddRequest{
 		Reference: "alice/myproject/codex",
@@ -81,6 +96,18 @@ func TestPlanList(t *testing.T) {
 	}
 	if result.Overrides[0].Hostname != "example.com" {
 		t.Fatalf("Hostname = %q", result.Overrides[0].Hostname)
+	}
+}
+
+func TestPlanListSupportsProjectShorthandWithOwner(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	result, err := PlanList(context.Background(), admin, projectStoreForTest(t), sandboxStoreForTest{}, ListRequest{Reference: "myproject"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Project.Owner != "alice" || result.Project.Name != "myproject" {
+		t.Fatalf("project = %#v", result.Project)
 	}
 }
 
