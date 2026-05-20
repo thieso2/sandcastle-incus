@@ -43,6 +43,8 @@ type CreatePlan struct {
 	AppPort          int               `json:"appPort"`
 	HomeDir          string            `json:"homeDir"`
 	WorkspaceDir     string            `json:"workspaceDir"`
+	StoragePool      string            `json:"storagePool"`
+	CAVolume         string            `json:"caVolume"`
 	ImageAlias       string            `json:"imageAlias"`
 	MetadataConfig   map[string]string `json:"metadataConfig"`
 	Devices          map[string]Device `json:"devices"`
@@ -113,7 +115,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	instanceName := "sc-" + sandboxName
 	hostname := sandboxName + "." + summary.Domain
 	caddyFile := caddy.RenderSandbox(hostname, appPort, SandboxCertPath, SandboxCertKeyPath)
-	certificateFiles, err := sandboxCertificateFiles(request, sandboxName, summary.Domain)
+	certificateFiles, err := certificateFilesFromRequest(request, sandboxName, summary.Domain)
 	if err != nil {
 		return CreatePlan{}, err
 	}
@@ -126,6 +128,8 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		AppPort:        appPort,
 		HomeDir:        homeDir,
 		WorkspaceDir:   workspaceDir,
+		StoragePool:    admin.StoragePool,
+		CAVolume:       project.CAVolumeName,
 		ImageAlias:     admin.Images.AI,
 		MetadataConfig: metadataConfig,
 		Devices: map[string]Device{
@@ -157,17 +161,21 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 	}, nil
 }
 
-func sandboxCertificateFiles(request CreateRequest, sandboxName string, domain string) ([]File, error) {
+func certificateFilesFromRequest(request CreateRequest, sandboxName string, domain string) ([]File, error) {
 	if len(request.ProjectCACertificatePEM) == 0 && len(request.ProjectCAPrivateKeyPEM) == 0 {
 		return nil, nil
 	}
 	if len(request.ProjectCACertificatePEM) == 0 || len(request.ProjectCAPrivateKeyPEM) == 0 {
 		return nil, fmt.Errorf("project CA certificate and private key are both required to issue a sandbox certificate")
 	}
+	return IssueCertificateFiles(sandboxName, domain, request.ProjectCACertificatePEM, request.ProjectCAPrivateKeyPEM)
+}
+
+func IssueCertificateFiles(sandboxName string, domain string, caCertPEM []byte, caKeyPEM []byte) ([]File, error) {
 	hostname := sandboxName + "." + domain
 	leaf, err := certs.IssueSandboxLeaf(
-		request.ProjectCACertificatePEM,
-		request.ProjectCAPrivateKeyPEM,
+		caCertPEM,
+		caKeyPEM,
 		hostname,
 		certs.SandboxDNSNames(sandboxName, domain, nil),
 		time.Now().UTC(),

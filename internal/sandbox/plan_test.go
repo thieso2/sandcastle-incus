@@ -40,6 +40,9 @@ func TestPlanCreate(t *testing.T) {
 	if plan.AppPort != DefaultAppPort {
 		t.Fatalf("AppPort = %d", plan.AppPort)
 	}
+	if plan.CAVolume != project.CAVolumeName {
+		t.Fatalf("CAVolume = %q", plan.CAVolume)
+	}
 	if plan.MetadataConfig[meta.KeyKind] != meta.KindSandbox {
 		t.Fatalf("metadata kind = %q", plan.MetadataConfig[meta.KeyKind])
 	}

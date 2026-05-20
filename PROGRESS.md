@@ -122,14 +122,17 @@ development sandboxes.
   hostname and can issue sandbox leaf certificate/key files when project CA
   material is supplied. The Incus sandbox executor writes the Caddyfile and TLS
   files into the sandbox instance with overwrite semantics.
+- Non-dry-run sandbox creation now records the project CA volume in the plan and
+  reads `ca.crt`/`ca.key` from that volume when certificate files are not
+  already present, so real `sandcastle add` can issue sandbox certs from stored
+  project CA material.
 
 ## Next Slice
 
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
-- Read project CA material from the project CA volume during real sandbox
-  creation so non-dry-run `sandcastle add` can issue sandbox certificates
-  without caller-supplied PEM.
+- Refresh sandbox Caddy/TLS files when `sandcastle port set` changes the
+  proxied app port.
 - Add restricted-user e2e path for certificate/token grant verification after
   token bootstrap can be exercised safely.
 - Keep tests Incus-free for core logic, with e2e gated separately.
@@ -169,6 +172,8 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run && ./bin/sandcastle admin user token alice 2>&1 || true` with expected local Incus connection failure on macOS for non-dry-run token creation.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`

@@ -20,6 +20,8 @@ const (
 	HomeVolumeName      = "sc-home"
 	WorkspaceVolumeName = "sc-workspace"
 	CAVolumeName        = "sc-ca"
+	ProjectCACertPath   = "/ca.crt"
+	ProjectCAKeyPath    = "/ca.key"
 	TailscaleName       = "sc-tailscale"
 	DNSName             = "sc-dns"
 )
@@ -144,8 +146,8 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		},
 		DNSFiles: dnsFiles,
 		ProjectCA: ProjectCA{
-			CertificatePath: "/ca.crt",
-			PrivateKeyPath:  "/ca.key",
+			CertificatePath: ProjectCACertPath,
+			PrivateKeyPath:  ProjectCAKeyPath,
 			CertificatePEM:  ca.CertificatePEM,
 			PrivateKeyPEM:   ca.PrivateKeyPEM,
 		},

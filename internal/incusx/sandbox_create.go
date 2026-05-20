@@ -3,12 +3,14 @@ package incusx
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
 )
 
@@ -21,6 +23,7 @@ type SandboxResourceServer interface {
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
+	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 }
 
 type SandboxCreator struct {
@@ -78,6 +81,14 @@ func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePl
 }
 
 func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+	certificateFiles := plan.CertificateFiles
+	if len(certificateFiles) == 0 {
+		var err error
+		certificateFiles, err = issueSandboxCertificateFilesFromProjectCA(server, plan)
+		if err != nil {
+			return err
+		}
+	}
 	for _, directory := range []string{"/etc/caddy", "/etc/caddy/certs"} {
 		err := server.CreateInstanceFile(plan.InstanceName, directory, incus.InstanceFileArgs{
 			Type: "directory",
@@ -95,7 +106,7 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 	}); err != nil {
 		return fmt.Errorf("write sandbox Caddyfile %s: %w", plan.CaddyFile.Path, err)
 	}
-	for _, file := range plan.CertificateFiles {
+	for _, file := range certificateFiles {
 		if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
 			Content:   strings.NewReader(string(file.Content)),
 			Type:      "file",
@@ -106,6 +117,31 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 		}
 	}
 	return nil
+}
+
+func issueSandboxCertificateFilesFromProjectCA(server SandboxResourceServer, plan sandbox.CreatePlan) ([]sandbox.File, error) {
+	caCertPEM, err := readProjectCAFile(server, plan, project.ProjectCACertPath)
+	if err != nil {
+		return nil, fmt.Errorf("read project CA certificate: %w", err)
+	}
+	caKeyPEM, err := readProjectCAFile(server, plan, project.ProjectCAKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read project CA private key: %w", err)
+	}
+	files, err := sandbox.IssueCertificateFiles(plan.Name, plan.Project.Domain, caCertPEM, caKeyPEM)
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+func readProjectCAFile(server SandboxResourceServer, plan sandbox.CreatePlan, path string) ([]byte, error) {
+	content, _, err := server.GetStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, path)
+	if err != nil {
+		return nil, err
+	}
+	defer content.Close()
+	return io.ReadAll(content)
 }
 
 func sandboxRequest(plan sandbox.CreatePlan) api.InstancesPost {
@@ -160,4 +196,8 @@ func (s sdkSandboxResourceServer) UpdateInstanceState(name string, state api.Ins
 
 func (s sdkSandboxResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateInstanceFile(instanceName, path, args)
+}
+
+func (s sdkSandboxResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	return s.inner.GetStorageVolumeFile(pool, volumeType, volumeName, filePath)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ type fakeSandboxResource struct {
 	created      *api.InstancesPost
 	started      bool
 	createdFiles map[string]string
+	caFiles      map[string]string
 }
 
 func (r *fakeSandboxResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -66,9 +68,17 @@ func (r *fakeSandboxResource) CreateInstanceFile(instanceName string, path strin
 	return nil
 }
 
+func (r *fakeSandboxResource) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	content, ok := r.caFiles[filePath]
+	if !ok {
+		return nil, nil, api.StatusErrorf(http.StatusNotFound, "not found")
+	}
+	return io.NopCloser(strings.NewReader(content)), &incus.InstanceFileResponse{Type: "file"}, nil
+}
+
 func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	plan := sandboxPlanForTest(t)
-	resource := &fakeSandboxResource{}
+	resource := fakeSandboxResourceWithCA(t)
 	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
 	if err := creator.CreateSandbox(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -95,7 +105,8 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 
 func TestSandboxCreatorStartsExistingStoppedInstance(t *testing.T) {
 	plan := sandboxPlanForTest(t)
-	resource := &fakeSandboxResource{instance: &api.Instance{Name: plan.InstanceName, StatusCode: api.Stopped}}
+	resource := fakeSandboxResourceWithCA(t)
+	resource.instance = &api.Instance{Name: plan.InstanceName, StatusCode: api.Stopped}
 	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
 	if err := creator.CreateSandbox(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -120,20 +131,24 @@ func sandboxPlanForTest(t *testing.T) sandbox.CreatePlan {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ca, err := certs.GenerateCA("test CA", time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
 	plan, err := sandbox.PlanCreate(context.Background(), config.LoadAdminFromEnv(), project.MemoryStore{Projects: []project.IncusProject{{
 		Name:   "sc-alice-myproject",
 		Config: projectConfig,
-	}}}, sandbox.CreateRequest{
-		Reference:               "alice/myproject/codex",
-		ProjectCACertificatePEM: ca.CertificatePEM,
-		ProjectCAPrivateKeyPEM:  ca.PrivateKeyPEM,
-	})
+	}}}, sandbox.CreateRequest{Reference: "alice/myproject/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func fakeSandboxResourceWithCA(t *testing.T) *fakeSandboxResource {
+	t.Helper()
+	ca, err := certs.GenerateCA("test CA", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &fakeSandboxResource{caFiles: map[string]string{
+		project.ProjectCACertPath: string(ca.CertificatePEM),
+		project.ProjectCAKeyPath:  string(ca.PrivateKeyPEM),
+	}}
 }
