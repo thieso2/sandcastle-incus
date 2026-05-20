@@ -120,7 +120,10 @@ GitHub Actions:
   `SANDCASTLE_E2E=1` and relies on
   `scripts/e2e.sh` to fail closed when a selected tier's required variables are
   missing. Use the optional `run_id` input to set `SANDCASTLE_E2E_RUN_ID` for
-  cleanup or for correlated disposable runs.
+  cleanup or for correlated disposable runs. Non-cleanup workflow runs generate
+  a job-scoped run id from the GitHub run id and attempt when neither `run_id`
+  nor repository variable `SANDCASTLE_E2E_RUN_ID` is set; cleanup still requires
+  an explicit run id from the input or repository variable.
 - Configure non-secret values as repository or environment variables using the
   same names as the local shell environment, such as
   `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, `SANDCASTLE_E2E_AI_IMAGE_SOURCE`,

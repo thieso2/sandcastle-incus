@@ -38,7 +38,6 @@ jobs:
       SANDCASTLE_E2E_STORAGE_POOL: ${{ vars.SANDCASTLE_E2E_STORAGE_POOL || 'default' }}
       SANDCASTLE_E2E_CIDR_POOL: ${{ vars.SANDCASTLE_E2E_CIDR_POOL || '10.248.0.0/16' }}
       SANDCASTLE_E2E_DOMAIN_SUFFIX: ${{ vars.SANDCASTLE_E2E_DOMAIN_SUFFIX || 'e2e.project-tld' }}
-      SANDCASTLE_E2E_RUN_ID: ${{ inputs.run_id || vars.SANDCASTLE_E2E_RUN_ID }}
       SANDCASTLE_E2E_KEEP: ${{ vars.SANDCASTLE_E2E_KEEP || '0' }}
       SANDCASTLE_E2E_LOCAL_VM: ${{ inputs.tier == 'local-vm' && '1' || vars.SANDCASTLE_E2E_LOCAL_VM }}
       SANDCASTLE_E2E_BASE_IMAGE_SOURCE: ${{ vars.SANDCASTLE_E2E_BASE_IMAGE_SOURCE }}
@@ -54,6 +53,9 @@ jobs:
       SANDCASTLE_E2E_PUBLIC_DOMAIN: ${{ vars.SANDCASTLE_E2E_PUBLIC_DOMAIN }}
       SANDCASTLE_E2E_INFRA_HOST: ${{ vars.SANDCASTLE_E2E_INFRA_HOST }}
       SANDCASTLE_E2E_LETSENCRYPT_EMAIL: ${{ vars.SANDCASTLE_E2E_LETSENCRYPT_EMAIL }}
+      E2E_TIER: ${{ inputs.tier }}
+      REQUESTED_E2E_RUN_ID: ${{ inputs.run_id }}
+      CONFIGURED_E2E_RUN_ID: ${{ vars.SANDCASTLE_E2E_RUN_ID }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -63,6 +65,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Select e2e run id
+        run: |
+          run_id="${REQUESTED_E2E_RUN_ID:-${CONFIGURED_E2E_RUN_ID:-}}"
+          if [[ -z "$run_id" ]]; then
+            if [[ "$E2E_TIER" == "cleanup" ]]; then
+              echo "error: provide run_id or SANDCASTLE_E2E_RUN_ID for cleanup" >&2
+              exit 2
+            fi
+            run_id="e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          fi
+          echo "SANDCASTLE_E2E_RUN_ID=$run_id" >> "$GITHUB_ENV"
+          echo "SANDCASTLE_E2E_RUN_ID=$run_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run destructive e2e tier
         run: scripts/e2e.sh "${{ inputs.tier }}"

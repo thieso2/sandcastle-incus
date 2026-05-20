@@ -570,6 +570,10 @@ development sandboxes.
   `sandcastle/ai:<run>` image aliases in addition to project and infrastructure
   projects. Selection remains guarded by explicit long run IDs and Incus-free
   tests cover managed/unmanaged matching for certificates and image aliases.
+- Updated the manual destructive e2e workflow to select one job-scoped
+  `SANDCASTLE_E2E_RUN_ID` for non-cleanup runs when no explicit run id is
+  provided, while keeping cleanup fail-closed unless a run id input or
+  repository variable is present.
 
 ## Next Slice
 
@@ -937,6 +941,7 @@ development sandboxes.
   with the expected cleanup e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Passed: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/e2e-gates.yml"); YAML.load_file(".github/workflows/ci.yml")'`
 
 ## Open Scope
 
