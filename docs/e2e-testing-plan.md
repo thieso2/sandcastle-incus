@@ -269,7 +269,11 @@ Primary assertions:
 
 ## Phase 8: Public HTTP Route Broker
 
-Requires a public test domain and infrastructure IP/name.
+Requires a public test domain and infrastructure IP/name. Configure
+`SANDCASTLE_E2E_PUBLIC_DOMAIN` for delegated disposable hostnames,
+`SANDCASTLE_E2E_INFRA_HOST` for the DNS proof target, and
+`SANDCASTLE_E2E_LETSENCRYPT_EMAIL` for the contact email that should be passed
+to infrastructure Caddy as `SANDCASTLE_LETSENCRYPT_EMAIL`.
 
 Test:
 

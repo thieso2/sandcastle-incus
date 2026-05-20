@@ -19,12 +19,19 @@ type Config struct {
 	Keep          bool
 	SandcastleBin string
 	RouteBroker   RouteBrokerConfig
+	PublicRoutes  PublicRouteConfig
 	Tailscale     TailscaleConfig
 	Images        ImageConfig
 }
 
 type RouteBrokerConfig struct {
 	IncusSocket string
+}
+
+type PublicRouteConfig struct {
+	Domain             string
+	InfrastructureHost string
+	LetsEncryptEmail   string
 }
 
 type TailscaleConfig struct {
@@ -55,6 +62,11 @@ func LoadConfig() Config {
 		SandcastleBin: os.Getenv("SANDCASTLE_E2E_SANDCASTLE_BIN"),
 		RouteBroker: RouteBrokerConfig{
 			IncusSocket: os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"),
+		},
+		PublicRoutes: PublicRouteConfig{
+			Domain:             strings.TrimPrefix(os.Getenv("SANDCASTLE_E2E_PUBLIC_DOMAIN"), "."),
+			InfrastructureHost: os.Getenv("SANDCASTLE_E2E_INFRA_HOST"),
+			LetsEncryptEmail:   os.Getenv("SANDCASTLE_E2E_LETSENCRYPT_EMAIL"),
 		},
 		Tailscale: TailscaleConfig{
 			AuthKey: os.Getenv("SANDCASTLE_E2E_TAILSCALE_AUTHKEY"),

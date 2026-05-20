@@ -31,6 +31,7 @@ func TestLoadAdminFromEnvOverrides(t *testing.T) {
 	t.Setenv("SANDCASTLE_PROJECT_PREFIX", "dev")
 	t.Setenv("SANDCASTLE_INFRA_PROJECT", "dev-infra")
 	t.Setenv("SANDCASTLE_INFRA_HOST", "203.0.113.10")
+	t.Setenv("SANDCASTLE_LETSENCRYPT_EMAIL", "ops@example.com")
 	t.Setenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET", "/var/lib/incus/unix.socket")
 	t.Setenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES", "corp.example, internal.example ")
 	t.Setenv("SANDCASTLE_BASE_IMAGE", "images:debian/13")
@@ -45,6 +46,9 @@ func TestLoadAdminFromEnvOverrides(t *testing.T) {
 	}
 	if config.InfrastructureHost != "203.0.113.10" {
 		t.Fatalf("InfrastructureHost = %q", config.InfrastructureHost)
+	}
+	if config.LetsEncryptEmail != "ops@example.com" {
+		t.Fatalf("LetsEncryptEmail = %q", config.LetsEncryptEmail)
 	}
 	if config.RouteBrokerIncusSocket != "/var/lib/incus/unix.socket" {
 		t.Fatalf("RouteBrokerIncusSocket = %q", config.RouteBrokerIncusSocket)

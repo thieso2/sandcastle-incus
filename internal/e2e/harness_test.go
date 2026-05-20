@@ -38,6 +38,22 @@ func TestLoadConfigReadsRouteBrokerSocket(t *testing.T) {
 	}
 }
 
+func TestLoadConfigReadsPublicRouteSettings(t *testing.T) {
+	t.Setenv("SANDCASTLE_E2E_PUBLIC_DOMAIN", ".routes.example.com")
+	t.Setenv("SANDCASTLE_E2E_INFRA_HOST", "198.51.100.10")
+	t.Setenv("SANDCASTLE_E2E_LETSENCRYPT_EMAIL", "ops@example.com")
+	config := LoadConfig()
+	if config.PublicRoutes.Domain != "routes.example.com" {
+		t.Fatalf("PublicRoutes.Domain = %q", config.PublicRoutes.Domain)
+	}
+	if config.PublicRoutes.InfrastructureHost != "198.51.100.10" {
+		t.Fatalf("PublicRoutes.InfrastructureHost = %q", config.PublicRoutes.InfrastructureHost)
+	}
+	if config.PublicRoutes.LetsEncryptEmail != "ops@example.com" {
+		t.Fatalf("PublicRoutes.LetsEncryptEmail = %q", config.PublicRoutes.LetsEncryptEmail)
+	}
+}
+
 func TestValidateFailsClosedWhenE2EDisabled(t *testing.T) {
 	config := LoadConfig()
 	err := config.Validate()

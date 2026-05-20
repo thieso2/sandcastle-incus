@@ -36,6 +36,7 @@ type RouteManager struct {
 	Remote                string
 	ConfigPath            string
 	InfrastructureProject string
+	LetsEncryptEmail      string
 	Server                RouteServer
 	Resolver              route.DNSResolver
 }
@@ -81,7 +82,7 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 	}); err != nil {
 		return err
 	}
-	return refreshInfrastructureCaddy(projectServer)
+	return refreshInfrastructureCaddy(projectServer, m.LetsEncryptEmail)
 }
 
 func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan) error {
@@ -191,7 +192,7 @@ func (m RouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
 	if err := projectServer.DeleteProfile(route.ProfileName(plan.Hostname)); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("delete route metadata %s: %w", plan.Hostname, err)
 	}
-	return refreshInfrastructureCaddy(projectServer)
+	return refreshInfrastructureCaddy(projectServer, m.LetsEncryptEmail)
 }
 
 func (m RouteManager) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
@@ -230,12 +231,12 @@ func (m RouteManager) FindRoute(ctx context.Context, hostname string) (meta.Rout
 	return routeMetadataByHostname(server.UseProject(infrastructureProject), hostname)
 }
 
-func refreshInfrastructureCaddy(server RouteResourceServer) error {
+func refreshInfrastructureCaddy(server RouteResourceServer, letsEncryptEmail string) error {
 	routes, err := listRouteMetadata(server)
 	if err != nil {
 		return err
 	}
-	file := caddy.RenderInfrastructure(routes)
+	file := caddy.RenderInfrastructureWithOptions(routes, caddy.InfrastructureOptions{LetsEncryptEmail: letsEncryptEmail})
 	if err := server.CreateInstanceFile(route.InfrastructureCaddyName, "/etc/caddy", incus.InstanceFileArgs{Type: "directory", Mode: 0o755}); err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
 		return fmt.Errorf("create infrastructure Caddy config directory: %w", err)
 	}

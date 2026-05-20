@@ -136,7 +136,7 @@ func runtimeDirectories() []RuntimeDirectory {
 }
 
 func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
-	caddyFile := caddy.RenderInfrastructure(nil)
+	caddyFile := caddy.RenderInfrastructureWithOptions(nil, caddy.InfrastructureOptions{LetsEncryptEmail: admin.LetsEncryptEmail})
 	return []RuntimeFile{
 		{
 			Instance: route.InfrastructureCaddyName,
@@ -157,6 +157,7 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 				envLine("SANDCASTLE_PROJECT_PREFIX", admin.ProjectPrefix),
 				envLine("SANDCASTLE_INFRA_PROJECT", admin.InfrastructureProject),
 				envLine("SANDCASTLE_INFRA_HOST", admin.InfrastructureHost),
+				envLine("SANDCASTLE_LETSENCRYPT_EMAIL", admin.LetsEncryptEmail),
 				envLine("SANDCASTLE_BASE_IMAGE", admin.Images.Base),
 				envLine("SANDCASTLE_AI_IMAGE", admin.Images.AI),
 				"",

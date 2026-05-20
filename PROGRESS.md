@@ -371,6 +371,14 @@ development sandboxes.
   and verifies the trusted first-owner broker client receives `403 Forbidden`
   when attempting to add a public route to that unowned sandbox, with no route
   profile or ingress device created.
+- Infrastructure Caddy now accepts optional Let’s Encrypt contact email via
+  `SANDCASTLE_LETSENCRYPT_EMAIL`. Infrastructure bootstrap Caddyfiles, route
+  refreshes, and the route broker runtime env preserve that setting so public
+  route TLS configuration is explicit and testable.
+- The e2e harness now reads public route settings
+  `SANDCASTLE_E2E_PUBLIC_DOMAIN`, `SANDCASTLE_E2E_INFRA_HOST`, and
+  `SANDCASTLE_E2E_LETSENCRYPT_EMAIL` for the future delegated-domain public
+  route gate.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -716,10 +724,13 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
+- Passed: `go test ./internal/config ./internal/caddy ./internal/infra ./internal/incusx ./internal/e2e -run 'Test(LoadAdminFromEnv|RenderInfrastructure|PlanCreate|RouteManager|LoadConfig)' -count=1 -v`
+- Passed: `go test ./...`
 
 ## Open Scope
 
 - Running the real image build gates in CI/dev, sandbox lifecycle e2e with
   disposable images in CI/dev, restricted HTTPS-remote e2e in CI/dev,
-  privileged OS resolver/service e2e in a disposable VM, authorized route
-  broker mutation e2e, and broader real-Incus coverage remain open.
+  privileged OS resolver/service e2e in a disposable VM, route broker mutation
+  e2e in regular CI/dev, public delegated-domain/Let’s Encrypt route e2e, and
+  broader real-Incus coverage remain open.

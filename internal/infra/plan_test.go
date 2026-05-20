@@ -13,6 +13,7 @@ func TestPlanCreate(t *testing.T) {
 	binaryPath := writeRuntimeBinaryForTest(t)
 	t.Setenv("SANDCASTLE_BIN", binaryPath)
 	admin := config.LoadAdminFromEnv()
+	admin.LetsEncryptEmail = "ops@example.com"
 	plan, err := PlanCreate(admin, CreateRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +48,9 @@ func TestPlanCreate(t *testing.T) {
 	if runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile") == "" {
 		t.Fatal("expected bootstrap infrastructure Caddyfile")
 	}
+	if !strings.Contains(runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile"), "email ops@example.com") {
+		t.Fatalf("Caddyfile = %q", runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile"))
+	}
 	env := runtimeFileContent(plan, RouteBrokerName, RouteBrokerEnvPath)
 	if !strings.Contains(env, "SANDCASTLE_ROUTE_BROKER_LISTEN=':9443'") {
 		t.Fatalf("env = %q", env)
@@ -57,6 +61,7 @@ func TestPlanCreate(t *testing.T) {
 		"SANDCASTLE_CIDR_POOL='" + admin.CIDRPool + "'",
 		"SANDCASTLE_PROJECT_PREFIX='" + admin.ProjectPrefix + "'",
 		"SANDCASTLE_INFRA_PROJECT='" + admin.InfrastructureProject + "'",
+		"SANDCASTLE_LETSENCRYPT_EMAIL='ops@example.com'",
 		"SANDCASTLE_BASE_IMAGE='" + admin.Images.Base + "'",
 		"SANDCASTLE_AI_IMAGE='" + admin.Images.AI + "'",
 	} {
@@ -91,6 +96,7 @@ func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Remote = "local remote"
 	admin.InfrastructureHost = "public.example.com"
+	admin.LetsEncryptEmail = "ops+test@example.com"
 	admin.Images.Base = "sandcastle/base:quote'test"
 	plan, err := PlanCreate(admin, CreateRequest{})
 	if err != nil {
@@ -100,6 +106,7 @@ func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
 	for _, want := range []string{
 		"SANDCASTLE_REMOTE='local remote'",
 		"SANDCASTLE_INFRA_HOST='public.example.com'",
+		"SANDCASTLE_LETSENCRYPT_EMAIL='ops+test@example.com'",
 		"SANDCASTLE_BASE_IMAGE='sandcastle/base:quote'\"'\"'test'",
 	} {
 		if !strings.Contains(env, want) {

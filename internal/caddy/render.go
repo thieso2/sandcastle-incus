@@ -3,6 +3,7 @@ package caddy
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
@@ -11,6 +12,10 @@ type File struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Mode    int    `json:"mode"`
+}
+
+type InfrastructureOptions struct {
+	LetsEncryptEmail string
 }
 
 func RenderSandbox(hostname string, appPort int, certPath string, keyPath string) File {
@@ -43,10 +48,22 @@ func RenderSandboxHosts(hostnames []string, appPort int, certPath string, keyPat
 }
 
 func RenderInfrastructure(routes []meta.Route) File {
+	return RenderInfrastructureWithOptions(routes, InfrastructureOptions{})
+}
+
+func RenderInfrastructureWithOptions(routes []meta.Route, options InfrastructureOptions) File {
 	sort.Slice(routes, func(i, j int) bool {
 		return routes[i].Hostname < routes[j].Hostname
 	})
 	content := ""
+	email := strings.TrimSpace(options.LetsEncryptEmail)
+	if email != "" {
+		content += fmt.Sprintf(`{
+    email %s
+}
+
+`, email)
+	}
 	for _, route := range routes {
 		if route.Hostname == "" || route.TargetIP == "" || route.RoutePort == 0 {
 			continue

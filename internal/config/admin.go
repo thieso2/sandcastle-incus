@@ -13,6 +13,7 @@ const (
 	DefaultProjectPrefix         = "sc"
 	DefaultInfrastructureProject = "sc-infra"
 	DefaultInfrastructureHost    = ""
+	DefaultLetsEncryptEmail      = ""
 	DefaultBaseImageAlias        = "sandcastle/base:latest"
 	DefaultAIImageAlias          = "sandcastle/ai:latest"
 )
@@ -24,6 +25,7 @@ type Admin struct {
 	ProjectPrefix          string
 	InfrastructureProject  string
 	InfrastructureHost     string
+	LetsEncryptEmail       string
 	RouteBrokerIncusSocket string
 	DeniedDomainSuffixes   []string
 	Images                 Images
@@ -42,6 +44,7 @@ func LoadAdminFromEnv() Admin {
 		ProjectPrefix:          getenv("SANDCASTLE_PROJECT_PREFIX", DefaultProjectPrefix),
 		InfrastructureProject:  getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
 		InfrastructureHost:     getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
+		LetsEncryptEmail:       getenv("SANDCASTLE_LETSENCRYPT_EMAIL", DefaultLetsEncryptEmail),
 		RouteBrokerIncusSocket: os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"),
 		DeniedDomainSuffixes:   splitList(os.Getenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES")),
 		Images: Images{

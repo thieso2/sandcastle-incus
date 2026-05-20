@@ -117,8 +117,9 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
 	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
 	manager := RouteManager{
-		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
-		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
+		Server:           &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
+		Resolver:         fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
+		LetsEncryptEmail: "ops@example.com",
 	}
 	plan := routePlanForTest(t)
 	if err := manager.Add(context.Background(), plan); err != nil {
@@ -140,6 +141,9 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	caddyfile := resource.createdFiles["sc-caddy:/etc/caddy/Caddyfile"]
 	if !strings.Contains(caddyfile, "app.example.com") || !strings.Contains(caddyfile, "10.248.0.20:5173") {
 		t.Fatalf("Caddyfile = %q", caddyfile)
+	}
+	if !strings.HasPrefix(caddyfile, "{\n    email ops@example.com\n}\n\n") {
+		t.Fatalf("Caddyfile missing Let's Encrypt email: %q", caddyfile)
 	}
 	if resource.execInstance != route.InfrastructureCaddyName {
 		t.Fatalf("reload instance = %q", resource.execInstance)

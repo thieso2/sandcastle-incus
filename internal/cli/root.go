@@ -76,6 +76,7 @@ func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadAdminFromEnv()
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
+	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
 	userRouteManager := routeManagerFromEnv(directRouteManager)
 	cmd := NewRootCommand(commandConfig{
 		name:        name,

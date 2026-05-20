@@ -46,3 +46,15 @@ func TestRenderInfrastructureBootstrap(t *testing.T) {
 		t.Fatalf("content = %q", file.Content)
 	}
 }
+
+func TestRenderInfrastructureIncludesLetsEncryptEmail(t *testing.T) {
+	file := RenderInfrastructureWithOptions([]meta.Route{
+		{Hostname: "app.example.com", TargetIP: "10.248.0.20", RoutePort: 5173},
+	}, InfrastructureOptions{LetsEncryptEmail: " ops@example.com "})
+	if !strings.HasPrefix(file.Content, "{\n    email ops@example.com\n}\n\n") {
+		t.Fatalf("content = %q", file.Content)
+	}
+	if !strings.Contains(file.Content, "app.example.com {\n    reverse_proxy http://10.248.0.20:5173") {
+		t.Fatalf("content missing app route: %q", file.Content)
+	}
+}
