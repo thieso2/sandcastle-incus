@@ -29,6 +29,16 @@ func ParseProjectRef(value string) (ProjectRef, error) {
 	return ref, nil
 }
 
+func ParseProjectRefWithDefaultOwner(value string, defaultOwner string) (ProjectRef, error) {
+	if strings.Contains(value, "/") {
+		return ParseProjectRef(value)
+	}
+	if strings.TrimSpace(defaultOwner) == "" {
+		return ProjectRef{}, fmt.Errorf("project reference must be owner/project or set SANDCASTLE_OWNER to use project")
+	}
+	return ParseProjectRef(defaultOwner + "/" + value)
+}
+
 func (r ProjectRef) Validate() error {
 	if !safeNamePattern.MatchString(r.Owner) {
 		return fmt.Errorf("invalid owner %q", r.Owner)

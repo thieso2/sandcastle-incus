@@ -42,6 +42,31 @@ func TestPlanInstallFindsManagedProject(t *testing.T) {
 	}
 }
 
+func TestPlanInstallSupportsProjectShorthandWithOwner(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := scconfig.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	plan, err := PlanInstall(context.Background(), admin, project.MemoryStore{Projects: []project.IncusProject{{
+		Name:   "sc-alice-myproject",
+		Config: configMap,
+	}}}, Request{Reference: "myproject"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Reference != "alice/myproject" {
+		t.Fatalf("Reference = %q", plan.Reference)
+	}
+}
+
 func TestPlanInstallRejectsMissingProject(t *testing.T) {
 	_, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), project.MemoryStore{}, Request{Reference: "alice/missing"})
 	if err == nil {

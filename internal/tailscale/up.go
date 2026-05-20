@@ -46,7 +46,7 @@ func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectS
 	if err := admin.Validate(); err != nil {
 		return UpPlan{}, err
 	}
-	ref, err := naming.ParseProjectRef(request.Reference)
+	ref, err := naming.ParseProjectRefWithDefaultOwner(request.Reference, admin.Owner)
 	if err != nil {
 		return UpPlan{}, err
 	}

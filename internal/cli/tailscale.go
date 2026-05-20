@@ -25,7 +25,7 @@ func newTailscaleUpCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 	var authKey string
 	var advertiseTags []string
 	command := &cobra.Command{
-		Use:   "up owner/project",
+		Use:   "up project",
 		Short: "Attach a project Tailscale sidecar",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -60,7 +60,7 @@ func newTailscaleUpCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 
 func newTailscaleStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status owner/project",
+		Use:   "status project",
 		Short: "Check project Tailscale sidecar status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -87,7 +87,7 @@ func newTailscaleStatusCommand(config commandConfig, opts *rootOptions) *cobra.C
 func newTailscaleDownCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "down owner/project",
+		Use:   "down project",
 		Short: "Detach a project Tailscale sidecar",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -28,11 +28,11 @@ func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func newDNSApplyCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "apply owner/project",
+		Use:   "apply project",
 		Short: "Render and apply project CoreDNS records",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0])
+			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], config.adminConfig.Owner)
 			if err != nil {
 				return err
 			}
@@ -50,11 +50,11 @@ func newDNSApplyCommand(config commandConfig, opts *rootOptions) *cobra.Command 
 
 func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status owner/project",
+		Use:   "status project",
 		Short: "Render project DNS status without applying it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0])
+			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], config.adminConfig.Owner)
 			if err != nil {
 				return err
 			}
@@ -70,7 +70,7 @@ func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command
 func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "install owner/project",
+		Use:   "install project",
 		Short: "Install local resolver state for a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -98,7 +98,7 @@ func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "refresh owner/project",
+		Use:   "refresh project",
 		Short: "Refresh local resolver state for a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -126,7 +126,7 @@ func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 func newDNSUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "uninstall owner/project",
+		Use:   "uninstall project",
 		Short: "Remove local resolver state for a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -264,8 +264,8 @@ func newDNSServiceUninstallCommand(config commandConfig, opts *rootOptions) *cob
 	return command
 }
 
-func findProjectSummary(ctx context.Context, store project.IncusProjectStore, reference string) (project.Summary, error) {
-	ref, err := naming.ParseProjectRef(reference)
+func findProjectSummary(ctx context.Context, store project.IncusProjectStore, reference string, defaultOwner string) (project.Summary, error) {
+	ref, err := naming.ParseProjectRefWithDefaultOwner(reference, defaultOwner)
 	if err != nil {
 		return project.Summary{}, err
 	}

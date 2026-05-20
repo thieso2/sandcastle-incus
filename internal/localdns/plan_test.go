@@ -30,6 +30,20 @@ func TestPlanInstallUsesProjectDNSRoleAddress(t *testing.T) {
 	}
 }
 
+func TestPlanInstallSupportsProjectShorthandWithOwner(t *testing.T) {
+	admin := scconfig.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(t.TempDir(), "dns.yaml"))
+	t.Setenv("SANDCASTLE_RESOLVER_DIR", t.TempDir())
+	plan, err := PlanInstall(context.Background(), admin, storeForTest(t), Request{Reference: "myproject"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Reference != "alice/myproject" {
+		t.Fatalf("Reference = %q", plan.Reference)
+	}
+}
+
 func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	dir := t.TempDir()
 	plan := Plan{

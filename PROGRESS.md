@@ -620,6 +620,10 @@ development sandboxes.
   explicit `owner/project/sandbox` references for automation and admin-driven
   tests. The CLI add-detach e2e now creates and inspects the disposable sandbox
   through the shorthand form.
+- Extended the same `SANDCASTLE_OWNER` shorthand to project-level normal-user
+  flows: `sandcastle status`, `dns apply/status/install/refresh/uninstall`,
+  `tailscale up/status/down`, and `trust install/uninstall` now accept
+  `project` while preserving explicit `owner/project`.
 
 ## Next Slice
 
@@ -932,6 +936,12 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_OWNER=alice ./bin/sandcastle add myproject/codex --dry-run 2>&1 || true`
   with the expected local Incus connection failure on macOS after shorthand
   argument parsing.
+- Passed: `git diff --check`
+- Passed: `go test ./internal/naming ./internal/localdns ./internal/localtrust ./internal/tailscale ./internal/cli -run 'Test(ParseProjectRef|PlanInstall|PlanUp|PlanStatus|PlanDown|StatusJSON|DNS|Trust|Tailscale)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_OWNER=alice ./bin/sandcastle status myproject 2>&1 || true`
+  with the expected local Incus connection failure on macOS after project
+  shorthand argument parsing.
 - Passed: `git diff --check`
 - Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard
   when `SANDCASTLE_E2E` is unset.

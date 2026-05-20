@@ -12,6 +12,33 @@ func TestParseProjectRef(t *testing.T) {
 	}
 }
 
+func TestParseProjectRefWithDefaultOwner(t *testing.T) {
+	ref, err := ParseProjectRefWithDefaultOwner("myproject", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Owner != "alice" || ref.Project != "myproject" {
+		t.Fatalf("ref = %#v", ref)
+	}
+}
+
+func TestParseProjectRefWithDefaultOwnerPreservesExplicitOwner(t *testing.T) {
+	ref, err := ParseProjectRefWithDefaultOwner("bob/myproject", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Owner != "bob" || ref.Project != "myproject" {
+		t.Fatalf("ref = %#v", ref)
+	}
+}
+
+func TestParseProjectRefWithDefaultOwnerRejectsMissingOwner(t *testing.T) {
+	_, err := ParseProjectRefWithDefaultOwner("myproject", "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestParseProjectRefRejectsMissingOwner(t *testing.T) {
 	_, err := ParseProjectRef("/myproject")
 	if err == nil {

@@ -102,7 +102,7 @@ func projectSummary(ctx context.Context, admin config.Admin, store project.Incus
 	if err := admin.Validate(); err != nil {
 		return project.Summary{}, "", err
 	}
-	ref, err := naming.ParseProjectRef(reference)
+	ref, err := naming.ParseProjectRefWithDefaultOwner(reference, admin.Owner)
 	if err != nil {
 		return project.Summary{}, "", err
 	}

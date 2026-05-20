@@ -5,21 +5,26 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 )
 
 func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status owner/project",
+		Use:   "status project",
 		Short: "Show Sandcastle project status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ref, err := naming.ParseProjectRefWithDefaultOwner(args[0], config.adminConfig.Owner)
+			if err != nil {
+				return err
+			}
 			status, err := project.GetStatusWithTopology(
 				cmd.Context(),
 				config.projectStore,
 				config.topologyStore,
 				project.TopologyRequest{StoragePool: config.adminConfig.StoragePool},
-				args[0],
+				ref.String(),
 			)
 			if err != nil {
 				return err

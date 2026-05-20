@@ -20,7 +20,7 @@ func newTrustCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "install owner/project",
+		Use:   "install project",
 		Short: "Install a project CA into local trust",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,7 +48,7 @@ func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 func newTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "uninstall owner/project",
+		Use:   "uninstall project",
 		Short: "Remove a project CA from local trust",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

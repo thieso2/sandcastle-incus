@@ -48,6 +48,18 @@ func TestPlanUp(t *testing.T) {
 	}
 }
 
+func TestPlanUpSupportsProjectShorthandWithOwner(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Owner = "alice"
+	plan, err := PlanUp(context.Background(), admin, projectStoreForTest(t), UpRequest{Reference: "myproject"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Reference != "alice/myproject" {
+		t.Fatalf("Reference = %q", plan.Reference)
+	}
+}
+
 func TestPlanStatusAndParseStatus(t *testing.T) {
 	plan, err := PlanStatus(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), StatusRequest{Reference: "alice/myproject"})
 	if err != nil {
