@@ -20,6 +20,7 @@ type Config struct {
 	SandcastleBin string
 	RouteBroker   RouteBrokerConfig
 	PublicRoutes  PublicRouteConfig
+	LocalVM       bool
 	Tailscale     TailscaleConfig
 	Images        ImageConfig
 }
@@ -68,6 +69,7 @@ func LoadConfig() Config {
 			InfrastructureHost: os.Getenv("SANDCASTLE_E2E_INFRA_HOST"),
 			LetsEncryptEmail:   os.Getenv("SANDCASTLE_E2E_LETSENCRYPT_EMAIL"),
 		},
+		LocalVM: os.Getenv("SANDCASTLE_E2E_LOCAL_VM") == "1",
 		Tailscale: TailscaleConfig{
 			AuthKey: os.Getenv("SANDCASTLE_E2E_TAILSCALE_AUTHKEY"),
 			Tag:     tag,

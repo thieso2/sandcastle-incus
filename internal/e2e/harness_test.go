@@ -28,6 +28,9 @@ func TestLoadConfigDefaultsToDisabledAndSandcastleTag(t *testing.T) {
 	if config.RouteBroker.IncusSocket != "" {
 		t.Fatalf("RouteBroker.IncusSocket = %q, want empty", config.RouteBroker.IncusSocket)
 	}
+	if config.LocalVM {
+		t.Fatal("LocalVM = true, want false")
+	}
 }
 
 func TestLoadConfigReadsRouteBrokerSocket(t *testing.T) {
@@ -51,6 +54,14 @@ func TestLoadConfigReadsPublicRouteSettings(t *testing.T) {
 	}
 	if config.PublicRoutes.LetsEncryptEmail != "ops@example.com" {
 		t.Fatalf("PublicRoutes.LetsEncryptEmail = %q", config.PublicRoutes.LetsEncryptEmail)
+	}
+}
+
+func TestLoadConfigReadsLocalVMGate(t *testing.T) {
+	t.Setenv("SANDCASTLE_E2E_LOCAL_VM", "1")
+	config := LoadConfig()
+	if !config.LocalVM {
+		t.Fatal("LocalVM = false, want true")
 	}
 }
 

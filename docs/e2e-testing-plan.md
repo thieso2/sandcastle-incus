@@ -59,6 +59,9 @@ SANDCASTLE_E2E=1 go test ./internal/e2e -run TestProjectLifecycle -count=1
 The checked-in `scripts/e2e.sh public-routes` tier fails closed unless the
 broker socket, disposable image sources, delegated public route domain,
 infrastructure DNS proof target, and Let's Encrypt contact email are all set.
+The checked-in `scripts/e2e.sh local-vm` tier fails closed unless
+`SANDCASTLE_E2E_LOCAL_VM=1` is set, keeping local resolver, trust, and hosts
+mutation coverage opt-in for disposable VM runs.
 
 The checked-in runner keeps common tiers reproducible:
 
@@ -67,6 +70,7 @@ scripts/e2e.sh unit
 scripts/e2e.sh gated
 scripts/e2e.sh local
 SANDCASTLE_E2E=1 scripts/e2e.sh incus
+SANDCASTLE_E2E=1 SANDCASTLE_E2E_LOCAL_VM=1 scripts/e2e.sh local-vm
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
 ```
@@ -78,6 +82,8 @@ Tier meanings:
   and skip behavior.
 - `local`: unprivileged local e2e flows, currently local DNS
   install/forward/refresh/uninstall with temporary state.
+- `local-vm`: disposable-VM local mutation flows for local DNS, local CA trust,
+  and host override coverage. Requires `SANDCASTLE_E2E_LOCAL_VM=1`.
 - `incus`: destructive real-Incus flows, requiring `SANDCASTLE_E2E=1`.
 - `tailscale`: destructive real-Incus plus real-tailnet flow, requiring
   `SANDCASTLE_E2E=1`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`,

@@ -397,6 +397,12 @@ development sandboxes.
   `SANDCASTLE_E2E_PUBLIC_DOMAIN`, `SANDCASTLE_E2E_INFRA_HOST`, and
   `SANDCASTLE_E2E_LETSENCRYPT_EMAIL` for the future delegated-domain public
   route gate.
+- Added an explicit `scripts/e2e.sh local-vm` tier for local resolver, trust,
+  and hosts mutation coverage. It fails closed unless `SANDCASTLE_E2E=1` and
+  `SANDCASTLE_E2E_LOCAL_VM=1` are set, keeping privileged workstation-style e2e
+  scoped to disposable VM runs.
+- The e2e harness now exposes `SANDCASTLE_E2E_LOCAL_VM` as `Config.LocalVM`, so
+  future OS-level local DNS/trust/hosts tests can share the same safety gate.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -493,6 +499,8 @@ development sandboxes.
 - Run `scripts/e2e.sh public-routes` against a real delegated public test
   domain and extend it to assert externally trusted Let’s Encrypt certificates
   over the public hostname.
+- Extend `scripts/e2e.sh local-vm` with OS-level resolver, service, trust store,
+  and `/etc/hosts` mutation assertions inside a disposable VM.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -743,6 +751,10 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/routebroker -run 'TestClient' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `scripts/e2e.sh local-vm` with the expected fail-closed e2e guard when `SANDCASTLE_E2E` is unset.
+- Passed: `go test ./internal/e2e -run 'Test(LoadConfig|LocalDNSInstallForwardRefreshUninstallE2E|LocalTrustInstallUninstallE2E|HostOverrideE2E)' -count=1 -v` with the expected local e2e skips when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
