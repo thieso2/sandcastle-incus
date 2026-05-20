@@ -1440,6 +1440,13 @@ development sandboxes.
 - Re-ran the safe e2e runner tiers at the current head after route-broker
   principal validation.
 - Passed: `make e2e-safe`
+- Extended public route DNS proof so the configured infrastructure target may
+  be either an IP address or a DNS hostname. Hostname targets are resolved and
+  compared by address set, matching the v1 requirement that public DNS can
+  point at the Sandcastle infrastructure IP/name before route mutation.
+- Passed: `go test ./internal/route ./internal/routebroker ./internal/incusx -run 'Test(VerifyDNSProof|PlanAdd|Server|RouteManager)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

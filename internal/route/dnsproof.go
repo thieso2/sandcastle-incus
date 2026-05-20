@@ -32,15 +32,36 @@ func VerifyDNSProof(ctx context.Context, resolver DNSResolver, proof DNSProof) (
 	if err != nil {
 		return proof, fmt.Errorf("resolve public route hostname %s: %w", proof.Hostname, err)
 	}
-	normalizedExpected := normalizeDNSTarget(proof.ExpectedTarget)
-	for _, target := range resolved {
-		if normalizeDNSTarget(target) == normalizedExpected {
-			proof.ResolvedTargets = sortedTargets(resolved)
+	proof.ResolvedTargets = sortedTargets(resolved)
+	expectedTargets, err := resolveExpectedTargets(ctx, resolver, proof.ExpectedTarget)
+	if err != nil {
+		return proof, err
+	}
+	for _, target := range proof.ResolvedTargets {
+		if expectedTargets[normalizeDNSTarget(target)] {
 			return proof, nil
 		}
 	}
-	proof.ResolvedTargets = sortedTargets(resolved)
 	return proof, fmt.Errorf("public route hostname %s resolves to %s, want %s", proof.Hostname, strings.Join(proof.ResolvedTargets, ","), proof.ExpectedTarget)
+}
+
+func resolveExpectedTargets(ctx context.Context, resolver DNSResolver, expectedTarget string) (map[string]bool, error) {
+	normalizedExpected := normalizeDNSTarget(expectedTarget)
+	if normalizedExpected == "" {
+		return nil, fmt.Errorf("infrastructure DNS proof target is not configured")
+	}
+	if net.ParseIP(normalizedExpected) != nil {
+		return map[string]bool{normalizedExpected: true}, nil
+	}
+	resolved, err := resolver.LookupHost(ctx, normalizedExpected)
+	if err != nil {
+		return nil, fmt.Errorf("resolve infrastructure DNS proof target %s: %w", expectedTarget, err)
+	}
+	targets := map[string]bool{}
+	for _, target := range resolved {
+		targets[normalizeDNSTarget(target)] = true
+	}
+	return targets, nil
 }
 
 func normalizeDNSTarget(value string) string {
