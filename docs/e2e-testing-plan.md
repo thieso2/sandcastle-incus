@@ -53,6 +53,27 @@ Use Go integration tests with explicit build tags or environment gates:
 SANDCASTLE_E2E=1 go test ./internal/e2e -run TestProjectLifecycle -count=1
 ```
 
+The checked-in runner keeps common tiers reproducible:
+
+```bash
+scripts/e2e.sh unit
+scripts/e2e.sh gated
+scripts/e2e.sh local
+SANDCASTLE_E2E=1 scripts/e2e.sh incus
+SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 scripts/e2e.sh images
+```
+
+Tier meanings:
+
+- `unit`: all Incus-free Go tests.
+- `gated`: the e2e package with default environment gates, useful for compile
+  and skip behavior.
+- `local`: unprivileged local e2e flows, currently local DNS
+  install/forward/refresh/uninstall with temporary state.
+- `incus`: destructive real-Incus flows, requiring `SANDCASTLE_E2E=1`.
+- `images`: real image build flows, requiring `SANDCASTLE_E2E=1`,
+  `SANDCASTLE_E2E_IMAGE_BUILD=1`, and pinned AI CLI versions for the AI image.
+
 The harness should:
 
 - create a run context with owner, project, domain, and CIDR names;

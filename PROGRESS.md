@@ -201,6 +201,10 @@ development sandboxes.
   forwarder on loopback, verifies a sandbox hostname query reaches the
   configured upstream, refreshes state to a second upstream and verifies live
   reload behavior, then uninstalls and verifies resolver cleanup.
+- Added `scripts/e2e.sh`, a tiered e2e runner for reproducible local, gated,
+  real-Incus, and image-build e2e runs. Destructive tiers fail closed unless
+  `SANDCASTLE_E2E=1` is set, while `unit`, `gated`, and `local` provide safe
+  local verification entry points.
 - Added public route planning and command shape for `sandcastle route add`,
   `sandcastle route list`, and `sandcastle route rm`. Route add validates exact
   public hostnames, resolves the target sandbox metadata, pins the current
@@ -482,6 +486,11 @@ development sandboxes.
 - Passed: `go test ./internal/localdns ./internal/cli`
 - Passed: `go test ./internal/e2e -run 'Test(LocalDNSInstallForwardRefreshUninstallE2E|LoadConfig)' -count=1 -v` with the expected local DNS e2e skip when real e2e is unset.
 - Passed: `SANDCASTLE_E2E=1 go test ./internal/e2e -run 'TestLocalDNSInstallForwardRefreshUninstallE2E' -count=1 -v`
+- Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
+- Passed: `scripts/e2e.sh gated`
+- Passed: `scripts/e2e.sh local`
+- Passed: `scripts/e2e.sh incus >/tmp/sandcastle-incus-runner-incus.out 2>&1; rc=$?; cat /tmp/sandcastle-incus-runner-incus.out; test "$rc" -eq 2` with the expected fail-closed e2e guard when `SANDCASTLE_E2E` is unset.
+- Passed: `scripts/e2e.sh unit`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/domain ./internal/project ./internal/config`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`

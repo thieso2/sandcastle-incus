@@ -13,3 +13,23 @@ publish HTTP routes through a shared infrastructure Caddy.
 - [Implementation plan](docs/implementation-plan.md)
 - [End-to-end testing plan](docs/e2e-testing-plan.md)
 
+## Testing
+
+Run the normal test suite:
+
+```bash
+go test ./...
+```
+
+Run reproducible e2e tiers through the checked-in runner:
+
+```bash
+scripts/e2e.sh unit
+scripts/e2e.sh gated
+scripts/e2e.sh local
+SANDCASTLE_E2E=1 scripts/e2e.sh incus
+```
+
+The destructive tiers refuse to run unless `SANDCASTLE_E2E=1` is set. See the
+e2e testing plan for required Incus, image, Tailscale, and disposable VM
+environment variables.
