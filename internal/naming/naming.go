@@ -71,6 +71,16 @@ func IncusProjectNameWithPrefix(prefix string, ref ProjectRef) (string, error) {
 	return name, nil
 }
 
+func ValidateSandboxName(name string) error {
+	if !safeNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid sandbox name %q", name)
+	}
+	if IsReservedSandboxName(name) {
+		return fmt.Errorf("sandbox name %q is reserved", name)
+	}
+	return nil
+}
+
 func IsReservedSandboxName(name string) bool {
 	switch name {
 	case "ca", "dns", "tailscale", "sc-ca", "sc-dns", "sc-tailscale":

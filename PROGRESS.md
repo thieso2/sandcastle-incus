@@ -1374,6 +1374,13 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker -run 'TestServerListsOnlyPrincipalRoutes|TestServerAddsAuthorizedRoute|TestServerRejectsUnownedRouteAdd' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Centralized sandbox name validation in `internal/naming` and reused it across
+  sandbox creation/parsing, host override targets, public route targets, and
+  route broker list filtering so reserved infrastructure names and malformed
+  sandbox names are handled consistently.
+- Passed: `go test ./internal/naming ./internal/sandbox ./internal/hostoverride ./internal/route ./internal/routebroker -count=1`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

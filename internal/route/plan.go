@@ -218,8 +218,8 @@ func parseSandboxRef(value string, defaultOwner string) (naming.ProjectRef, stri
 		if err != nil {
 			return naming.ProjectRef{}, "", err
 		}
-		if err := (naming.ProjectRef{Owner: parts[1], Project: "placeholder"}).Validate(); err != nil {
-			return naming.ProjectRef{}, "", fmt.Errorf("invalid sandbox name %q", parts[1])
+		if err := naming.ValidateSandboxName(parts[1]); err != nil {
+			return naming.ProjectRef{}, "", err
 		}
 		return projectRef, parts[1], nil
 	}
@@ -230,8 +230,8 @@ func parseSandboxRef(value string, defaultOwner string) (naming.ProjectRef, stri
 	if err != nil {
 		return naming.ProjectRef{}, "", err
 	}
-	if err := (naming.ProjectRef{Owner: parts[2], Project: "placeholder"}).Validate(); err != nil {
-		return naming.ProjectRef{}, "", fmt.Errorf("invalid sandbox name %q", parts[2])
+	if err := naming.ValidateSandboxName(parts[2]); err != nil {
+		return naming.ProjectRef{}, "", err
 	}
 	return projectRef, parts[2], nil
 }

@@ -74,3 +74,16 @@ func TestReservedSandboxNames(t *testing.T) {
 		t.Fatal("codex should not be reserved")
 	}
 }
+
+func TestValidateSandboxName(t *testing.T) {
+	if err := ValidateSandboxName("codex"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"bad_name", "x", "sc-dns"} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateSandboxName(name); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}

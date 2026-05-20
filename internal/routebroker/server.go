@@ -209,7 +209,7 @@ func targetIncusProject(targetReference string, projectPrefix string) string {
 	if len(parts) != 3 {
 		return ""
 	}
-	if err := (naming.ProjectRef{Owner: parts[2], Project: "placeholder"}).Validate(); err != nil {
+	if err := naming.ValidateSandboxName(parts[2]); err != nil {
 		return ""
 	}
 	incusProject, err := naming.IncusProjectNameWithPrefix(projectPrefix, naming.ProjectRef{Owner: parts[0], Project: parts[1]})
