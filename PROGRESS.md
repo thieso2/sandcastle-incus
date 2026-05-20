@@ -259,11 +259,13 @@ development sandboxes.
   normalize through a dedicated validator, reject malformed labels, reject an
   embedded public/special-use suffix snapshot, and honor comma-separated
   `SANDCASTLE_DENIED_DOMAIN_SUFFIXES` admin policy.
+- Added `sandcastle admin tld refresh`, which fetches IANA's
+  `tlds-alpha-by-domain.txt`, validates and normalizes the labels, and rewrites
+  the generated embedded public-TLD deny-list snapshot. The current checked-in
+  snapshot was refreshed from IANA and contains 1,437 public TLDs.
 
 ## Next Slice
 
-- Add `sandcastle admin tld refresh` or equivalent to generate the full
-  embedded public TLD snapshot from authoritative IANA data.
 - Add sandbox lifecycle e2e coverage for create/start/stop/restart/remove once
   disposable image prerequisites are available.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
@@ -425,10 +427,14 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle admin project create alice/myproject --domain myproject.com --dry-run` with expected denied-suffix error.
 - Passed: `go test ./...`
+- Passed: `go test ./internal/domain ./internal/cli`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle admin tld refresh --output-file internal/domain/tld_snapshot_generated.go`
+- Passed: `go test ./internal/domain ./internal/cli ./internal/project`
+- Passed: `go test ./internal/localdns -run TestForwarderRoutesByStateAndReloads -count=1 -v && go test ./...` after one transient UDP local-DNS refusal on the first full-suite run.
 
 ## Open Scope
 
-- Full authoritative TLD snapshot refresh, actual OCI image build/import,
-  sandbox lifecycle e2e with disposable images, restricted-user e2e, full
-  Tailscale network e2e, local DNS service install/reload wrappers, route
-  broker mTLS e2e, and broader real-Incus coverage remain open.
+- Actual OCI image build/import, sandbox lifecycle e2e with disposable images,
+  restricted-user e2e, full Tailscale network e2e, local DNS service
+  install/reload wrappers, route broker mTLS e2e, and broader real-Incus
+  coverage remain open.

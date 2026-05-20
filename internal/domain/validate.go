@@ -29,8 +29,11 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 		}
 	}
 	finalLabel := labels[len(labels)-1]
-	if deniedFinalLabels[finalLabel] {
+	if specialUseFinalLabels[finalLabel] {
 		return "", fmt.Errorf("project domain %q uses denied suffix %q", domain, finalLabel)
+	}
+	if publicTLDs[finalLabel] {
+		return "", fmt.Errorf("project domain %q uses denied public TLD %q", domain, finalLabel)
 	}
 	for _, suffix := range policy.DeniedSuffixes {
 		suffix = strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(suffix)), "."), ".")
@@ -44,7 +47,7 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 	return domain, nil
 }
 
-var deniedFinalLabels = map[string]bool{
+var specialUseFinalLabels = map[string]bool{
 	// IANA special-use and infrastructure names.
 	"arpa":      true,
 	"example":   true,
@@ -54,25 +57,4 @@ var deniedFinalLabels = map[string]bool{
 	"local":     true,
 	"onion":     true,
 	"test":      true,
-	// Common public TLD snapshot. The refresh command will replace this with a
-	// generated IANA snapshot in a later slice.
-	"app":   true,
-	"biz":   true,
-	"cloud": true,
-	"club":  true,
-	"co":    true,
-	"com":   true,
-	"dev":   true,
-	"edu":   true,
-	"gov":   true,
-	"info":  true,
-	"io":    true,
-	"me":    true,
-	"mil":   true,
-	"net":   true,
-	"org":   true,
-	"site":  true,
-	"store": true,
-	"tech":  true,
-	"us":    true,
 }

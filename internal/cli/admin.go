@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/project"
@@ -22,6 +23,7 @@ func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	admin.AddCommand(newAdminUserCommand(config, opts))
 	admin.AddCommand(newAdminInfraCommand(config, opts))
 	admin.AddCommand(newAdminImageCommand(config, opts))
+	admin.AddCommand(newAdminTLDCommand(config, opts))
 	admin.AddCommand(newAdminRouteBrokerCommand(config))
 	return admin
 }
@@ -294,6 +296,48 @@ func formatImageSyncPlan(plan images.SyncPlan) string {
 
 func formatImageSyncResult(result images.SyncResult) string {
 	return fmt.Sprintf("Image: %s\nAlias: %s\nFingerprint: %s\nAction: %s", result.SourceRef, result.Alias, result.Fingerprint, result.Action)
+}
+
+func newAdminTLDCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	tldCommand := &cobra.Command{
+		Use:   "tld",
+		Short: "Manage project domain deny-list snapshots",
+	}
+	tldCommand.AddCommand(newAdminTLDRefreshCommand(config, opts))
+	return tldCommand
+}
+
+func newAdminTLDRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var sourceURL string
+	var outputPath string
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "refresh",
+		Short: "Refresh the embedded public TLD deny-list snapshot",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := domain.RefreshTLDSnapshot(cmd.Context(), nil, domain.RefreshRequest{
+				SourceURL:  sourceURL,
+				OutputPath: outputPath,
+				DryRun:     dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatTLDRefreshResult(result), result)
+		},
+	}
+	command.Flags().StringVar(&sourceURL, "source-url", domain.IANAAlphaTLDURL, "IANA alpha TLD list URL")
+	command.Flags().StringVar(&outputPath, "output-file", domain.DefaultTLDSnapshotOutput, "generated Go source output path")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "fetch and validate without writing the generated snapshot")
+	return command
+}
+
+func formatTLDRefreshResult(result domain.RefreshResult) string {
+	if result.Written {
+		return fmt.Sprintf("Refreshed %d public TLDs from %s into %s", result.Count, result.SourceURL, result.OutputPath)
+	}
+	return fmt.Sprintf("Validated %d public TLDs from %s; %s was not written", result.Count, result.SourceURL, result.OutputPath)
 }
 
 func newAdminUserCommand(config commandConfig, opts *rootOptions) *cobra.Command {

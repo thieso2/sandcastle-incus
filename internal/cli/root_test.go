@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
+	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
@@ -879,6 +884,52 @@ func TestAdminProjectCreateRequiresExecutor(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "executor") {
 		t.Fatalf("error = %q, want executor hint", err.Error())
+	}
+}
+
+func TestAdminTLDRefreshWritesSnapshot(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("# Version 2026050700\nCOM\nORG\n"))
+	}))
+	defer server.Close()
+
+	output := filepath.Join(t.TempDir(), "tld_snapshot_generated.go")
+	stdout, err := executeForTest(t, "sandcastle", "admin", "tld", "refresh", "--source-url", server.URL, "--output-file", output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Refreshed 2 public TLDs") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	content, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `"com": true`) {
+		t.Fatalf("content = %s", string(content))
+	}
+}
+
+func TestAdminTLDRefreshDryRunJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("COM\nORG\n"))
+	}))
+	defer server.Close()
+
+	output := filepath.Join(t.TempDir(), "tld_snapshot_generated.go")
+	stdout, err := executeForTest(t, "sandcastle", "--output", "json", "admin", "tld", "refresh", "--source-url", server.URL, "--output-file", output, "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload domain.RefreshResult
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Count != 2 || payload.Written {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("expected dry run not to write output, stat err = %v", err)
 	}
 }
 
