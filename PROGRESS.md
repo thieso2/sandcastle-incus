@@ -1283,6 +1283,12 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker -run 'Test(Client|Server)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Extended `route add --dry-run` text output with the required public DNS proof
+  target so operators see the hostname-to-infrastructure-host requirement
+  before broker mutation.
+- Passed: `go test ./internal/cli ./internal/route -run 'Test(RouteAdd|PlanAdd)' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 

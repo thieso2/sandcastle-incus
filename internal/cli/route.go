@@ -98,7 +98,11 @@ func newRouteRemoveCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 }
 
 func formatRouteAdd(plan route.AddPlan) string {
-	return fmt.Sprintf("Route: %s -> %s:%d", plan.Hostname, plan.TargetReference, plan.RoutePort)
+	output := fmt.Sprintf("Route: %s -> %s:%d", plan.Hostname, plan.TargetReference, plan.RoutePort)
+	if plan.DNSProof.Required {
+		output += fmt.Sprintf("\nDNS proof: %s must resolve to %s", plan.DNSProof.Hostname, plan.DNSProof.ExpectedTarget)
+	}
+	return output
 }
 
 func formatRouteRemove(plan route.RemovePlan) string {

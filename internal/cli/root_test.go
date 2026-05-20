@@ -1188,6 +1188,38 @@ func TestRouteAddDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestRouteAddDryRunTextShowsDNSProofTarget(t *testing.T) {
+	t.Setenv("SANDCASTLE_OWNER", "alice")
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: routeAdminConfigForTest(),
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		routeSandbox: fakeRouteSandboxStore{},
+	}, "route", "add", "App.Example.COM", "myproject/codex", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Route: app.example.com -> alice/myproject/codex:5173") {
+		t.Fatalf("stdout missing route: %q", stdout)
+	}
+	if !strings.Contains(stdout, "DNS proof: app.example.com must resolve to 203.0.113.10") {
+		t.Fatalf("stdout missing DNS proof target: %q", stdout)
+	}
+}
+
 func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
 	configMap, err := meta.ProjectConfig(meta.Project{
 		Owner:           "alice",
