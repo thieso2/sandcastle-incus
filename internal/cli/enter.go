@@ -9,12 +9,13 @@ import (
 
 func newEnterCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "enter owner/project/name",
+		Use:   "enter owner/project/name [-- command...]",
 		Short: "Enter a Sandcastle sandbox",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, sandbox.EnterRequest{
 				Reference: args[0],
+				Command:   args[1:],
 			})
 			if err != nil {
 				return err

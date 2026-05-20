@@ -51,18 +51,25 @@ func (e SandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan
 	exec := api.InstanceExecPost{
 		Command:     plan.Command,
 		Cwd:         plan.WorkingDir,
-		Interactive: true,
+		Interactive: plan.Interactive,
 		WaitForWS:   true,
 	}
-	if file, ok := session.Stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
-		width, height, err := term.GetSize(int(file.Fd()))
-		if err == nil {
-			exec.Width = width
-			exec.Height = height
-		}
-		oldState, err := term.MakeRaw(int(file.Fd()))
-		if err == nil {
-			defer term.Restore(int(file.Fd()), oldState)
+	if exec.Interactive {
+		exec.RecordOutput = false
+	} else {
+		exec.RecordOutput = true
+	}
+	if exec.Interactive {
+		if file, ok := session.Stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
+			width, height, err := term.GetSize(int(file.Fd()))
+			if err == nil {
+				exec.Width = width
+				exec.Height = height
+			}
+			oldState, err := term.MakeRaw(int(file.Fd()))
+			if err == nil {
+				defer term.Restore(int(file.Fd()), oldState)
+			}
 		}
 	}
 	dataDone := make(chan bool)

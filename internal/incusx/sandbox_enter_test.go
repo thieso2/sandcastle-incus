@@ -41,6 +41,7 @@ func TestSandboxEntererExecsInteractiveShell(t *testing.T) {
 		InstanceName: "sc-codex",
 		Command:      []string{"/bin/bash", "-l"},
 		WorkingDir:   "/workspace",
+		Interactive:  true,
 	}, sandbox.EnterSession{
 		Stdin:  io.Reader(nil),
 		Stdout: io.Discard,
@@ -55,7 +56,35 @@ func TestSandboxEntererExecsInteractiveShell(t *testing.T) {
 	if !resource.exec.Interactive {
 		t.Fatal("expected interactive exec")
 	}
+	if resource.exec.RecordOutput {
+		t.Fatal("interactive exec should not record output")
+	}
 	if resource.exec.Cwd != "/workspace" {
 		t.Fatalf("Cwd = %q", resource.exec.Cwd)
+	}
+}
+
+func TestSandboxEntererExecsCommandNonInteractively(t *testing.T) {
+	resource := &fakeSandboxEnterResource{}
+	enterer := SandboxEnterer{Server: fakeSandboxEnterServer{resource: resource}}
+	err := enterer.EnterSandbox(context.Background(), sandbox.EnterPlan{
+		Project:      project.Summary{IncusName: "sc-alice-myproject"},
+		InstanceName: "sc-codex",
+		Command:      []string{"pwd"},
+		WorkingDir:   "/workspace",
+		Interactive:  false,
+	}, sandbox.EnterSession{
+		Stdin:  io.Reader(nil),
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resource.exec.Interactive {
+		t.Fatal("expected non-interactive exec")
+	}
+	if !resource.exec.RecordOutput {
+		t.Fatal("non-interactive exec should record output")
 	}
 }

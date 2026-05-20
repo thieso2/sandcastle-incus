@@ -36,4 +36,33 @@ func TestPlanEnter(t *testing.T) {
 	if plan.WorkingDir != "/workspace" {
 		t.Fatalf("WorkingDir = %q", plan.WorkingDir)
 	}
+	if !plan.Interactive {
+		t.Fatal("expected default enter to be interactive")
+	}
+}
+
+func TestPlanEnterCommand(t *testing.T) {
+	projectConfig, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanEnter(context.Background(), config.LoadAdminFromEnv(), project.MemoryStore{Projects: []project.IncusProject{{
+		Name:   "sc-alice-myproject",
+		Config: projectConfig,
+	}}}, EnterRequest{Reference: "alice/myproject/codex", Command: []string{"pwd"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Command) != 1 || plan.Command[0] != "pwd" {
+		t.Fatalf("Command = %#v", plan.Command)
+	}
+	if plan.Interactive {
+		t.Fatal("expected explicit command enter to be non-interactive")
+	}
 }

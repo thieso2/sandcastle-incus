@@ -277,6 +277,40 @@ func TestEnterCommandUsesEnterer(t *testing.T) {
 	if enterer.plan.InstanceName != "sc-codex" {
 		t.Fatalf("entered instance = %q", enterer.plan.InstanceName)
 	}
+	if !enterer.plan.Interactive {
+		t.Fatal("expected default enter to be interactive")
+	}
+}
+
+func TestEnterCommandAcceptsExplicitCommand(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		sandboxEnterer: enterer,
+	}, "enter", "alice/myproject/codex", "pwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enterer.plan.Interactive {
+		t.Fatal("expected explicit enter command to be non-interactive")
+	}
+	if len(enterer.plan.Command) != 1 || enterer.plan.Command[0] != "pwd" {
+		t.Fatalf("Command = %#v", enterer.plan.Command)
+	}
 }
 
 func TestRemoveRequiresConfirmation(t *testing.T) {

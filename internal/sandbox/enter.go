@@ -21,6 +21,7 @@ type EnterPlan struct {
 	InstanceName string          `json:"instanceName"`
 	Command      []string        `json:"command"`
 	WorkingDir   string          `json:"workingDir"`
+	Interactive  bool            `json:"interactive"`
 }
 
 type EnterSession struct {
@@ -46,8 +47,10 @@ func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProje
 		return EnterPlan{}, err
 	}
 	command := request.Command
+	interactive := false
 	if len(command) == 0 {
 		command = []string{"/bin/bash", "-l"}
+		interactive = true
 	}
 	if len(command) == 0 || command[0] == "" {
 		return EnterPlan{}, fmt.Errorf("enter command is required")
@@ -59,5 +62,6 @@ func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProje
 		InstanceName: "sc-" + sandboxName,
 		Command:      command,
 		WorkingDir:   "/workspace",
+		Interactive:  interactive,
 	}, nil
 }

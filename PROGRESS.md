@@ -133,6 +133,9 @@ development sandboxes.
   exec support for `/bin/bash -l` in `/workspace`. Non-dry-run `sandcastle add`
   now enters the sandbox by default after creation and supports `--detach` for
   automation/background creation.
+- `sandcastle enter owner/project/name -- command...` now supports explicit
+  non-interactive command execution in `/workspace`, while the default no-command
+  form remains an interactive login shell.
 - Added `sandcastle tailscale up owner/project` planning, dry-run output, and
   Incus execution inside the `sc-tailscale` sidecar. Plans advertise the project
   private CIDR, default to `tag:sandcastle`, support unattended `--auth-key`,
@@ -288,11 +291,15 @@ development sandboxes.
   `TestCLIAddDetachE2E` syncs disposable base/AI aliases, creates a disposable
   project through the Incus executor, invokes the production CLI entrypoint with
   `add <owner/project/name> --detach`, and asserts the sandbox instance exists.
+- Added gated CLI-path e2e coverage for deterministic sandbox command
+  execution. `TestCLIEnterCommandE2E` creates a disposable project and sandbox,
+  then invokes the production CLI entrypoint with `enter <owner/project/name>
+  pwd` to verify non-interactive command execution without requiring a test TTY.
 
 ## Next Slice
 
-- Add real-Incus e2e coverage for `sandcastle add` default enter behavior once
-  disposable images can support interactive exec safely.
+- Add real-Incus e2e coverage for `sandcastle add` default interactive enter
+  behavior once a stable test TTY strategy is available.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
 - Add AI image sync e2e once a disposable AI source image is available.
@@ -461,6 +468,7 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(ImageBuild|LoadConfig)' -count=1 -v` with the expected image build skips when real e2e/build gates are unset.
 - Passed: `go test ./internal/e2e -run 'Test(SandboxLifecycleE2E|LoadConfig)' -count=1 -v` with the expected sandbox lifecycle skip when real e2e is unset.
 - Passed: `go test ./internal/e2e -run 'Test(CLIAddDetachE2E|LoadConfig)' -count=1 -v` with the expected CLI add skip when real e2e is unset.
+- Passed: `go test ./internal/sandbox ./internal/incusx ./internal/cli ./internal/e2e -run 'Test(PlanEnter|SandboxEnterer|EnterCommand|CLIEnterCommandE2E|LoadConfig)' -count=1 -v` with the expected CLI enter e2e skip when real e2e is unset.
 
 ## Open Scope
 
