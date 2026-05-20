@@ -107,3 +107,25 @@ func TestClientReportsBrokerJSONError(t *testing.T) {
 		t.Fatalf("error should use decoded JSON message, got %q", err.Error())
 	}
 }
+
+func TestClientReturnsTypedConflictForClaimedRoute(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "public route hostname app.example.com is already claimed"})
+	}))
+	defer server.Close()
+
+	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Add(context.Background(), route.AddPlan{
+		Hostname:        "app.example.com",
+		TargetReference: "alice/myproject/codex",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !route.IsConflict(err) {
+		t.Fatalf("error = %T %q, want route conflict", err, err.Error())
+	}
+	if !strings.Contains(err.Error(), "already claimed") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}

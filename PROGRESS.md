@@ -367,6 +367,9 @@ development sandboxes.
 - Route broker route mutations now preserve public hostname conflicts as HTTP
   `409 Conflict` responses instead of reporting them as generic upstream
   failures.
+- The route broker HTTP client now maps broker `409 Conflict` responses back to
+  the typed route conflict error, so CLI and automation callers can distinguish
+  claimed-hostname conflicts without string matching.
 - Route broker mutation e2e now also creates a second disposable owner/project
   and verifies the trusted first-owner broker client receives `403 Forbidden`
   when attempting to add a public route to that unowned sandbox, with no route
@@ -738,6 +741,8 @@ development sandboxes.
 - Passed: `bash -n scripts/e2e.sh && scripts/e2e.sh --help`
 - Passed: `scripts/e2e.sh public-routes` with the expected fail-closed e2e guard when `SANDCASTLE_E2E` is unset.
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/routebroker -run 'TestClient' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`

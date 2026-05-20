@@ -126,5 +126,8 @@ func doRouteBrokerRequestWithResponse(client *http.Client, request *http.Request
 	if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload["error"]) != "" {
 		message = strings.TrimSpace(payload["error"])
 	}
+	if response.StatusCode == http.StatusConflict {
+		return nil, route.NewConflictError("%s", message)
+	}
 	return nil, fmt.Errorf("route broker %s %s: status %s: %s", request.Method, request.URL.Path, response.Status, message)
 }
