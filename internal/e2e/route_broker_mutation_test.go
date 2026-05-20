@@ -224,6 +224,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 			t.Fatalf("broker mutation output missing %q:\n%s", want, output)
 		}
 	}
+	assertInfrastructureRouteAbsent(t, infraServer, hostname)
 	targetServer := server.UseProject(createProjectPlan.IncusProject)
 	target, _, err := targetServer.GetInstance(sandboxPlan.InstanceName)
 	if err != nil {
@@ -246,6 +247,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if _, _, err := infraServer.GetProfile(route.ProfileName(unownedHostname)); !api.StatusErrorCheck(err, 404) {
 		t.Fatalf("expected no route profile for rejected unowned route %s, err = %v", unownedHostname, err)
 	}
+	assertInfrastructureRouteAbsent(t, infraServer, unownedHostname)
 }
 
 func assertInfrastructureRoutePort(t *testing.T, server incus.InstanceServer, hostname string, targetIP string, routePort int) {
@@ -254,6 +256,14 @@ func assertInfrastructureRoutePort(t *testing.T, server incus.InstanceServer, ho
 	expected := "reverse_proxy http://" + targetIP + ":" + strconv.Itoa(routePort)
 	if !strings.Contains(caddyfile, hostname) || !strings.Contains(caddyfile, expected) {
 		t.Fatalf("infrastructure Caddyfile missing pinned route %s/%s: %q", hostname, expected, caddyfile)
+	}
+}
+
+func assertInfrastructureRouteAbsent(t *testing.T, server incus.InstanceServer, hostname string) {
+	t.Helper()
+	caddyfile := readInstanceFile(t, server, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile")
+	if strings.Contains(caddyfile, hostname) {
+		t.Fatalf("infrastructure Caddyfile still contains route %s: %q", hostname, caddyfile)
 	}
 }
 

@@ -375,6 +375,9 @@ development sandboxes.
   broker-created route is present in infrastructure Caddy, the test changes the
   sandbox app port and asserts the public Caddy route still proxies to the
   original stored route port before removing the route.
+- Route broker mutation e2e now also reads the infrastructure Caddyfile after
+  route removal and rejected unowned route attempts, verifying removed or
+  unauthorized public hostnames are absent from rendered Caddy config.
 - Infrastructure Caddy now accepts optional Let’s Encrypt contact email via
   `SANDCASTLE_LETSENCRYPT_EMAIL`. Infrastructure bootstrap Caddyfiles, route
   refreshes, and the route broker runtime env preserve that setting so public
@@ -718,6 +721,8 @@ development sandboxes.
 - Passed: `go test ./internal/config ./internal/infra -run 'Test(LoadAdminFromEnv|PlanCreate)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(LoadConfig|DisposableInfrastructureCreateAndDelete)' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
 - Passed: `go test ./...`
