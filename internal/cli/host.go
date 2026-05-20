@@ -43,6 +43,12 @@ func newHostOverrideAddCommand(config commandConfig, opts *rootOptions) *cobra.C
 				if err := config.hostOverrides.Add(cmd.Context(), plan); err != nil {
 					return err
 				}
+				if config.hostFiles == nil {
+					return fmt.Errorf("host file editor is not configured")
+				}
+				if err := config.hostFiles.AddHostsEntry(cmd.Context(), plan); err != nil {
+					return err
+				}
 			}
 			return writeOutput(config.stdout, opts.output, formatHostOverrideAdd(plan), plan)
 		},

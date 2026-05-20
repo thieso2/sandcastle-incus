@@ -487,6 +487,43 @@ func TestHostOverrideAddDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestHostOverrideAddAppliesSandboxAndHosts(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &fakeHostOverrideManager{}
+	files := &fakeHostFiles{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		hostSandbox:   fakeHostSandboxStore{},
+		hostOverrides: manager,
+		hostFiles:     files,
+	}, "host", "override", "add", "alice/myproject/codex", "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.called {
+		t.Fatal("expected host override manager call")
+	}
+	if !files.called {
+		t.Fatal("expected hosts file editor call")
+	}
+	if files.plan.Hostname != "example.com" {
+		t.Fatalf("Hostname = %q", files.plan.Hostname)
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
@@ -651,4 +688,26 @@ func (f fakeHostSandboxStore) FindSandbox(ctx context.Context, summary project.S
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
 	}, nil
+}
+
+type fakeHostOverrideManager struct {
+	called bool
+	plan   hostoverride.AddPlan
+}
+
+func (f *fakeHostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan) error {
+	f.called = true
+	f.plan = plan
+	return nil
+}
+
+type fakeHostFiles struct {
+	called bool
+	plan   hostoverride.AddPlan
+}
+
+func (f *fakeHostFiles) AddHostsEntry(ctx context.Context, plan hostoverride.AddPlan) error {
+	f.called = true
+	f.plan = plan
+	return nil
 }

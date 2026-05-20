@@ -46,6 +46,7 @@ type commandConfig struct {
 	tailscale      tailscale.Runner
 	hostOverrides  hostoverride.Manager
 	hostSandbox    hostoverride.SandboxStore
+	hostFiles      hostoverride.HostsManager
 }
 
 type rootOptions struct {
@@ -76,6 +77,7 @@ func Execute(name string, args []string) int {
 		tailscale:      incusx.NewTailscaleManager(adminConfig.Remote),
 		hostOverrides:  incusx.NewHostOverrideManager(adminConfig.Remote),
 		hostSandbox:    incusx.NewHostOverrideManager(adminConfig.Remote),
+		hostFiles:      hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)

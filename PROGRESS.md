@@ -153,6 +153,10 @@ development sandboxes.
   CA material, reissues sandbox TLS files with the override hostname, and
   refreshes sandbox Caddy to serve both the project hostname and override
   hostname. Local `/etc/hosts` mutation remains explicit follow-up work.
+- Host override add now has a managed hosts-file editor that writes/replaces a
+  Sandcastle-marked block and is wired after the sandbox ingress update.
+  Production defaults to `/etc/hosts`; tests and automation can override with
+  `SANDCASTLE_HOSTS_FILE`.
 
 ## Next Slice
 
@@ -161,7 +165,8 @@ development sandboxes.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
-- Implement local managed `/etc/hosts` mutation plus host override list/remove.
+- Implement host override list/remove and remove managed hosts entries plus
+  extra SANs.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -203,6 +208,8 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json host override add alice/myproject/codex example.com --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project/sandbox metadata.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle host override add alice/myproject/codex example.com 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_HOSTS_FILE=/tmp/sandcastle-hosts-test ./bin/sandcastle host override add alice/myproject/codex example.com 2>&1 || true` with expected local Incus connection failure on macOS before hosts mutation.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run`
 - Passed: `go test ./...`
