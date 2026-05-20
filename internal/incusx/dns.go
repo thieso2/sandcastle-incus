@@ -11,6 +11,7 @@ import (
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/project"
 )
 
 type DNSServer interface {
@@ -89,13 +90,13 @@ func listSandboxMetadata(server DNSResourceServer) ([]meta.Sandbox, error) {
 
 func writeDNSFiles(server DNSResourceServer, files []dns.File) error {
 	for _, directory := range []string{"/etc/coredns", "/etc/coredns/zones"} {
-		err := server.CreateInstanceFile("sc-dns", directory, incus.InstanceFileArgs{Type: "directory", Mode: 0o755})
+		err := server.CreateInstanceFile(project.DNSName, directory, incus.InstanceFileArgs{Type: "directory", Mode: 0o755})
 		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
 			return fmt.Errorf("create DNS config directory %s: %w", directory, err)
 		}
 	}
 	for _, file := range files {
-		if err := server.CreateInstanceFile("sc-dns", file.Path, incus.InstanceFileArgs{
+		if err := server.CreateInstanceFile(project.DNSName, file.Path, incus.InstanceFileArgs{
 			Content:   strings.NewReader(file.Content),
 			Type:      "file",
 			Mode:      file.Mode,

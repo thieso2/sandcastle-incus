@@ -81,8 +81,8 @@ func TestProjectDeleterPurgesProjectResources(t *testing.T) {
 	}
 	resourceServer := &fakeDeleteResourceServer{
 		instances: map[string]*api.Instance{
-			project.TailscaleName: {Name: project.TailscaleName, StatusCode: api.Running},
-			project.DNSName:       {Name: project.DNSName, StatusCode: api.Stopped},
+			plan.SidecarInstances[0]: {Name: plan.SidecarInstances[0], StatusCode: api.Running},
+			project.DNSName:          {Name: project.DNSName, StatusCode: api.Stopped},
 		},
 	}
 	server := &fakeDeleteServer{resourceServer: resourceServer}
@@ -91,7 +91,7 @@ func TestProjectDeleterPurgesProjectResources(t *testing.T) {
 	if err := deleter.DeleteProject(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	if len(resourceServer.stoppedInstances) != 1 || resourceServer.stoppedInstances[0] != project.TailscaleName {
+	if len(resourceServer.stoppedInstances) != 1 || resourceServer.stoppedInstances[0] != plan.SidecarInstances[0] {
 		t.Fatalf("stopped instances = %#v", resourceServer.stoppedInstances)
 	}
 	if len(resourceServer.deletedInstances) != 2 {

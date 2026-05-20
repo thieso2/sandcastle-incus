@@ -56,7 +56,7 @@ func TestTailscaleManagerRunsUpInSidecar(t *testing.T) {
 	manager := TailscaleManager{Server: &fakeTailscaleServer{resource: resource}}
 	err := manager.RunUp(context.Background(), tailscale.UpPlan{
 		Project:         project.Summary{IncusName: "sc-alice-myproject"},
-		InstanceName:    project.TailscaleName,
+		InstanceName:    "sc-alice-myproject",
 		AdvertiseRoutes: []string{"10.248.0.0/24"},
 		AdvertiseTags:   []string{"tag:sandcastle"},
 		AuthKey:         "tskey-secret",
@@ -64,7 +64,7 @@ func TestTailscaleManagerRunsUpInSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resource.instanceName != project.TailscaleName {
+	if resource.instanceName != "sc-alice-myproject" {
 		t.Fatalf("instanceName = %q", resource.instanceName)
 	}
 	command := strings.Join(resource.exec.Command, " ")
@@ -100,7 +100,7 @@ func TestTailscaleManagerRunsStatusAndUpdatesMetadata(t *testing.T) {
 	result, err := manager.RunStatus(context.Background(), tailscale.StatusPlan{
 		Reference:    "alice/myproject",
 		Project:      project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject"},
-		InstanceName: project.TailscaleName,
+		InstanceName: "sc-alice-myproject",
 		Command:      []string{"tailscale", "status", "--json"},
 	}, tailscale.RunSession{Stderr: io.Discard})
 	if err != nil {
@@ -139,7 +139,7 @@ func TestTailscaleManagerRunsDownAndUpdatesMetadata(t *testing.T) {
 	manager := TailscaleManager{Server: server}
 	err := manager.RunDown(context.Background(), tailscale.DownPlan{
 		Project:      project.Summary{IncusName: "sc-alice-myproject"},
-		InstanceName: project.TailscaleName,
+		InstanceName: "sc-alice-myproject",
 		Command:      []string{"tailscale", "down"},
 	}, tailscale.RunSession{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {

@@ -61,7 +61,7 @@ func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectS
 	plan := UpPlan{
 		Reference:       ref.String(),
 		Project:         summary,
-		InstanceName:    project.TailscaleName,
+		InstanceName:    project.TailscaleInstanceName(summary.IncusName),
 		AdvertiseRoutes: []string{summary.PrivateCIDR},
 		AdvertiseTags:   tags,
 		HasAuthKey:      strings.TrimSpace(request.AuthKey) != "",

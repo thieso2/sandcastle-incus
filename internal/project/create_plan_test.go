@@ -49,7 +49,7 @@ func TestPlanCreate(t *testing.T) {
 	if len(plan.Sidecars) != 2 {
 		t.Fatalf("sidecars = %d, want 2", len(plan.Sidecars))
 	}
-	if plan.Sidecars[0].Name != TailscaleName || plan.Sidecars[0].Address != "10.248.1.2" {
+	if plan.Sidecars[0].Name != TailscaleInstanceName(plan.IncusProject) || plan.Sidecars[0].Address != "10.248.1.2" {
 		t.Fatalf("tailscale sidecar = %#v", plan.Sidecars[0])
 	}
 	if tun := plan.Sidecars[0].Devices["tun"]; tun["type"] != "unix-char" || tun["path"] != "/dev/net/tun" {

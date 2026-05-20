@@ -31,6 +31,7 @@ type TopologyRequest struct {
 
 type Topology struct {
 	PrivateNetworkPresent bool
+	TailscaleInstance     string
 	DurableVolumes        map[string]bool
 	Sidecars              map[string]SidecarStatus
 	DiagnosticFiles       []DiagnosticFile
@@ -119,7 +120,7 @@ func TopologyChecks(topology Topology) []Check {
 	for _, volume := range []string{HomeVolumeName, WorkspaceVolumeName, CAVolumeName} {
 		checks = append(checks, Check{Name: "volume:" + volume, Status: presentStatus(topology.DurableVolumes[volume])})
 	}
-	for _, sidecar := range []string{TailscaleName, DNSName} {
+	for _, sidecar := range []string{topology.TailscaleInstance, DNSName} {
 		status := topology.Sidecars[sidecar]
 		check := Check{Name: "sidecar:" + sidecar, Status: presentStatus(status.Present), Detail: status.Status}
 		if status.Present && !status.Running {

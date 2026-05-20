@@ -102,7 +102,7 @@ func TestValidateIncusProjectName(t *testing.T) {
 }
 
 func TestReservedSandboxNames(t *testing.T) {
-	for _, name := range []string{"ca", "dns", "tailscale", "sc-ca", "sc-dns", "sc-tailscale"} {
+	for _, name := range []string{"ca", "dns", "tailscale", "sc-ca", "sc-dns"} {
 		if !IsReservedSandboxName(name) {
 			t.Fatalf("%q should be reserved", name)
 		}

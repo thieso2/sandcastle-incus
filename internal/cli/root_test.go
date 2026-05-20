@@ -836,7 +836,7 @@ func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.InstanceName != project.TailscaleName {
+	if payload.InstanceName != "sc-alice-myproject" {
 		t.Fatalf("InstanceName = %q", payload.InstanceName)
 	}
 	if !payload.HasAuthKey {
@@ -930,7 +930,7 @@ func TestTailscaleUpRunsExecutor(t *testing.T) {
 	if !runner.called {
 		t.Fatal("expected tailscale runner call")
 	}
-	if runner.plan.InstanceName != project.TailscaleName {
+	if runner.plan.InstanceName != "sc-alice-myproject" {
 		t.Fatalf("InstanceName = %q", runner.plan.InstanceName)
 	}
 	if runner.plan.AuthKey != "tskey-secret" {

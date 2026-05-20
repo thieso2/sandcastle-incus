@@ -73,7 +73,7 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 			project.CAVolumeName:   {Name: project.CAVolumeName},
 		},
 		instances: map[string]*api.Instance{
-			project.TailscaleName: {Name: project.TailscaleName, Status: "Stopped", StatusCode: api.Stopped},
+			"sc-alice-myproject": {Name: "sc-alice-myproject", Status: "Stopped", StatusCode: api.Stopped},
 			project.DNSName:       {Name: project.DNSName, Status: "Running", StatusCode: api.Running},
 			"sc-codex": {
 				Name: "sc-codex",
@@ -116,7 +116,7 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 	if topology.DurableVolumes[project.WorkspaceVolumeName] {
 		t.Fatal("workspace volume should be missing")
 	}
-	if topology.Sidecars[project.TailscaleName].Running {
+	if topology.Sidecars[topology.TailscaleInstance].Running {
 		t.Fatal("tailscale sidecar should be stopped")
 	}
 	if !topology.Sidecars[project.DNSName].Running {

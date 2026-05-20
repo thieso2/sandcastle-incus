@@ -57,9 +57,11 @@ func (s TopologyStore) GetTopology(ctx context.Context, request project.Topology
 		server = sdkTopologyServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(request.IncusProject)
+	tailscaleInstance := project.TailscaleInstanceName(request.IncusProject)
 	topology := project.Topology{
-		DurableVolumes: map[string]bool{},
-		Sidecars:       map[string]project.SidecarStatus{},
+		TailscaleInstance: tailscaleInstance,
+		DurableVolumes:    map[string]bool{},
+		Sidecars:          map[string]project.SidecarStatus{},
 	}
 	privateNetworkName := project.PrivateNetworkName(request.IncusProject)
 	if _, _, err := projectServer.GetNetwork(privateNetworkName); err == nil {
@@ -74,7 +76,7 @@ func (s TopologyStore) GetTopology(ctx context.Context, request project.Topology
 			return project.Topology{}, fmt.Errorf("get durable volume %s: %w", volume, err)
 		}
 	}
-	for _, sidecar := range []string{project.TailscaleName, project.DNSName} {
+	for _, sidecar := range []string{tailscaleInstance, project.DNSName} {
 		instance, _, err := projectServer.GetInstance(sidecar)
 		if err == nil {
 			topology.Sidecars[sidecar] = project.SidecarStatus{

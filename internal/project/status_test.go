@@ -113,14 +113,15 @@ func TestGetStatusWithTopology(t *testing.T) {
 		MemoryStore{Projects: []IncusProject{{Name: "sc-alice-myproject", Config: config}}},
 		fakeTopologyStore{topology: Topology{
 			PrivateNetworkPresent: true,
+			TailscaleInstance:     "sc-alice-myproject",
 			DurableVolumes: map[string]bool{
 				HomeVolumeName:      true,
 				WorkspaceVolumeName: true,
 				CAVolumeName:        true,
 			},
 			Sidecars: map[string]SidecarStatus{
-				TailscaleName: {Present: true, Running: false, Status: "Stopped"},
-				DNSName:       {Present: true, Running: true, Status: "Running"},
+				"sc-alice-myproject": {Present: true, Running: false, Status: "Stopped"},
+				DNSName:             {Present: true, Running: true, Status: "Running"},
 			},
 		}},
 		TopologyRequest{StoragePool: "default"},

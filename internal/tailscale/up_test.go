@@ -21,7 +21,7 @@ func TestPlanUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.InstanceName != project.TailscaleName {
+	if plan.InstanceName != "sc-alice-myproject" {
 		t.Fatalf("InstanceName = %q", plan.InstanceName)
 	}
 	if len(plan.AdvertiseRoutes) != 1 || plan.AdvertiseRoutes[0] != "10.248.0.0/24" {
@@ -85,7 +85,7 @@ func TestPlanStatusAndParseStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.InstanceName != project.TailscaleName {
+	if plan.InstanceName != "sc-alice-myproject" {
 		t.Fatalf("InstanceName = %q", plan.InstanceName)
 	}
 	result, err := ParseStatus("alice/myproject", plan.Project, []byte(`{

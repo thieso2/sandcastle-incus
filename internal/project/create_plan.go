@@ -22,9 +22,14 @@ const (
 	CAVolumeName        = "sc-ca"
 	ProjectCACertPath   = "/ca.crt"
 	ProjectCAKeyPath    = "/ca.key"
-	TailscaleName       = "sc-tailscale"
 	DNSName             = "sc-dns"
 )
+
+// TailscaleInstanceName returns the Incus instance name for the project's Tailscale sidecar.
+// It uses the Incus project name so the host appears with the project identity in the Tailnet.
+func TailscaleInstanceName(incusProjectName string) string {
+	return incusProjectName
+}
 
 // PrivateNetworkName returns a project-unique bridge network name derived from the Incus project
 // name via FNV-32a hash. Bridge networks share the default namespace, so each project needs a
@@ -160,13 +165,13 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		HomeVolume:        HomeVolumeName,
 		WorkspaceVolume:   WorkspaceVolumeName,
 		CAVolume:          CAVolumeName,
-		TailscaleInstance: TailscaleName,
+		TailscaleInstance: TailscaleInstanceName(incusName),
 		TailscaleAddress:  tailscaleAddress.String(),
 		DNSInstance:       DNSName,
 		DNSAddress:        dnsAddress.String(),
 		DefaultTemplate:   projectMetadata.DefaultTemplate,
 		Sidecars: []SidecarPlan{
-			sidecarPlan(ref, admin, incusName, TailscaleName, "tailscale", tailscaleAddress.String()),
+			sidecarPlan(ref, admin, incusName, TailscaleInstanceName(incusName), "tailscale", tailscaleAddress.String()),
 			sidecarPlan(ref, admin, incusName, DNSName, "dns", dnsAddress.String()),
 		},
 		DNSFiles: dnsFiles,

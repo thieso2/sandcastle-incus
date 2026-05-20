@@ -49,7 +49,7 @@ func PlanStatus(ctx context.Context, admin config.Admin, store project.IncusProj
 	return StatusPlan{
 		Reference:    reference,
 		Project:      summary,
-		InstanceName: project.TailscaleName,
+		InstanceName: project.TailscaleInstanceName(summary.IncusName),
 		Command:      []string{"tailscale", "status", "--json"},
 	}, nil
 }
@@ -62,7 +62,7 @@ func PlanDown(ctx context.Context, admin config.Admin, store project.IncusProjec
 	return DownPlan{
 		Reference:    reference,
 		Project:      summary,
-		InstanceName: project.TailscaleName,
+		InstanceName: project.TailscaleInstanceName(summary.IncusName),
 		Command:      []string{"tailscale", "down"},
 	}, nil
 }

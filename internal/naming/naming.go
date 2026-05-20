@@ -104,7 +104,7 @@ func ValidateSandboxName(name string) error {
 
 func IsReservedSandboxName(name string) bool {
 	switch name {
-	case "ca", "dns", "tailscale", "sc-ca", "sc-dns", "sc-tailscale":
+	case "ca", "dns", "tailscale", "sc-ca", "sc-dns":
 		return true
 	default:
 		return false

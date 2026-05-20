@@ -44,7 +44,7 @@ func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 		PrivateNetwork:    PrivateNetworkName(incusName),
 		StoragePool:       admin.StoragePool,
 		DurableVolumes:    []string{HomeVolumeName, WorkspaceVolumeName, CAVolumeName},
-		SidecarInstances:  []string{TailscaleName, DNSName},
+		SidecarInstances:  []string{TailscaleInstanceName(incusName), DNSName},
 		PurgeDurableState: request.Purge,
 	}, nil
 }

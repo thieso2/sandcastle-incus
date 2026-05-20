@@ -199,7 +199,7 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if len(resourceServer.createdInstances) != 2 {
 		t.Fatalf("created instances = %d, want 2", len(resourceServer.createdInstances))
 	}
-	if resourceServer.createdInstances[0].Name != project.TailscaleName {
+	if resourceServer.createdInstances[0].Name != plan.TailscaleInstance {
 		t.Fatalf("first sidecar = %q", resourceServer.createdInstances[0].Name)
 	}
 	if got := resourceServer.createdInstances[0].Devices["eth0"]["ipv4.address"]; got != "10.248.0.2" {
@@ -221,7 +221,7 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
 	}
 	// First two execs configure networking for tailscale and dns sidecars.
-	for i, name := range []string{project.TailscaleName, project.DNSName} {
+	for i, name := range []string{plan.TailscaleInstance, project.DNSName} {
 		if resourceServer.execInstances[i] != name {
 			t.Fatalf("exec[%d] instance = %q, want %q", i, resourceServer.execInstances[i], name)
 		}

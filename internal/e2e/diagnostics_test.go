@@ -30,13 +30,14 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 	lines := projectDiagnosticLines(context.Background(), summaries, fakeDiagnosticTopologyStore{
 		topology: project.Topology{
 			PrivateNetworkPresent: true,
+			TailscaleInstance:     "sc-owner-e2e-test-project-e2e-test",
 			DurableVolumes: map[string]bool{
 				project.HomeVolumeName: true,
 				project.CAVolumeName:   true,
 			},
 			Sidecars: map[string]project.SidecarStatus{
-				project.TailscaleName: {Present: true, Running: true, Status: "Running"},
-				project.DNSName:       {Present: true, Running: false, Status: "Stopped"},
+				"sc-owner-e2e-test-project-e2e-test": {Present: true, Running: true, Status: "Running"},
+				project.DNSName:                      {Present: true, Running: false, Status: "Stopped"},
 			},
 			DiagnosticFiles: []project.DiagnosticFile{
 				{Instance: project.DNSName, Path: "/etc/coredns/Corefile", Content: ".:53 {\n  errors\n}"},
@@ -52,7 +53,7 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 		"network:sc-private=ok",
 		"volume:sc-home=ok",
 		"volume:sc-workspace=missing",
-		"sidecar:sc-tailscale=ok(Running)",
+		"sidecar:sc-owner-e2e-test-project-e2e-test=ok(Running)",
 		"sidecar:sc-dns=stopped(Stopped)",
 		"files:",
 		"sc-dns:/etc/coredns/Corefile",
