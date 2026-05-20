@@ -1,0 +1,243 @@
+# Sandcastle Incus End-To-End Testing Plan
+
+The e2e suite validates Sandcastle against a real Incus instance. It should be
+explicitly enabled and destructive only inside disposable resource prefixes.
+
+## Test Environment
+
+Required:
+
+- A working Incus instance reachable by the admin Incus config.
+- A storage pool suitable for disposable custom volumes.
+- Ability to create Incus projects, networks, containers, and trusted client
+  certificates.
+- Sandcastle base and AI images synced or buildable for the test.
+
+Optional but required for full network tests:
+
+- `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`, an ephemeral or reusable auth key for a
+  test tailnet.
+- A tailnet policy that auto-approves the advertised test subnet route, or a
+  documented manual approval step for non-CI runs.
+- A public test domain or delegated subdomain for infrastructure Caddy tests.
+
+Safety:
+
+- Every e2e run uses a unique run id.
+- Every owner/project/domain/resource name includes that run id.
+- Tests refuse to run unless `SANDCASTLE_E2E=1`.
+- Tests refuse unsafe names that do not include the disposable prefix.
+- Cleanup runs at the end and can also be invoked as a standalone command.
+
+Suggested environment:
+
+```text
+SANDCASTLE_E2E=1
+SANDCASTLE_E2E_REMOTE=local
+SANDCASTLE_E2E_STORAGE_POOL=default
+SANDCASTLE_E2E_CIDR_POOL=10.248.0.0/16
+SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-...
+SANDCASTLE_E2E_DOMAIN_SUFFIX=e2e.project-tld
+SANDCASTLE_E2E_PUBLIC_DOMAIN=*.e2e.example.com
+```
+
+## Harness Shape
+
+Use Go integration tests with explicit build tags or environment gates:
+
+```bash
+SANDCASTLE_E2E=1 go test ./internal/e2e -run TestProjectLifecycle -count=1
+```
+
+The harness should:
+
+- create a run context with owner, project, domain, and CIDR names;
+- call the same CLI or command-layer code users call;
+- collect Incus diagnostics on failure;
+- clean up even after partial failures;
+- leave resources only when `SANDCASTLE_E2E_KEEP=1`.
+
+## Phase 1: Admin Project Lifecycle
+
+Test:
+
+1. Create disposable owner.
+2. Create disposable project.
+3. Verify Incus project exists.
+4. Verify project metadata.
+5. Verify private bridge network and CIDR.
+6. Verify home, workspace, CA, DNS, and Tailscale state resources.
+7. Re-run create and verify idempotence.
+8. Delete without purge and verify durable data is preserved.
+9. Delete with purge and verify durable data is removed.
+
+Primary assertions:
+
+- Project name is `sc-<owner>-<project>`.
+- CIDR is allocated from the configured pool and does not collide.
+- Metadata alone can reconstruct project state.
+
+## Phase 2: Restricted User Access
+
+Test:
+
+1. Create restricted user certificate/token for the owner.
+2. Configure a user remote for the test.
+3. Verify user can list owned project metadata.
+4. Verify user cannot access another test project.
+5. Verify user cannot mutate global Incus state.
+
+Primary assertions:
+
+- Project scoping is enforced by Incus trust restrictions.
+- Sandcastle user commands work with the restricted remote.
+
+## Phase 3: Container Lifecycle
+
+Test:
+
+1. Create `project/codex` from the default AI template.
+2. Verify container starts.
+3. Verify metadata, app port, user, home mount, and workspace mount.
+4. Verify Caddy files and leaf certificate exist.
+5. Start a small HTTP app on port 3000.
+6. Verify private Caddy proxies to the app.
+7. Change app port to 5173 and verify Caddy reconfiguration.
+8. Stop, start, enter/check command execution, and remove.
+
+Primary assertions:
+
+- New containers start by default.
+- `--detach` avoids interactive attach.
+- Home/workspace subdirs persist.
+- Caddy uses project CA leaf certs.
+
+## Phase 4: Project DNS
+
+Test:
+
+1. Create two containers: `codex` and `claude`.
+2. Apply DNS.
+3. Query CoreDNS directly on the private network.
+4. Verify exact records:
+   - `codex.<domain>`
+   - `claude.<domain>`
+5. Verify per-sandbox wildcard:
+   - `test.codex.<domain>`
+6. Verify project-wide wildcard does not resolve:
+   - `anything.<domain>`
+7. Remove one container and verify records update.
+
+Primary assertions:
+
+- DNS is rendered from Incus metadata.
+- CoreDNS does not need Incus API access.
+
+## Phase 5: Tailscale Routed Access
+
+Requires `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
+
+Test:
+
+1. Run `sandcastle tailscale up <project>` with the auth key.
+2. Verify sidecar reaches connected state.
+3. Verify project private CIDR is advertised.
+4. From the test runner, query CoreDNS through the Tailscale-routed private IP.
+5. Curl sandbox private Caddy through the Tailscale route.
+6. Record observed Tailscale status in project metadata.
+
+Primary assertions:
+
+- Tailscale auth secrets are not stored in metadata.
+- DNS and HTTPS work over the advertised route.
+
+## Phase 6: Local DNS Forwarder
+
+Run only on supported OSes or in a controlled test VM.
+
+Test:
+
+1. Install local DNS state for the test project.
+2. Start or reload the local forwarder.
+3. Verify resolver config points to loopback and stable port.
+4. Resolve `codex.<domain>` through the OS resolver.
+5. Refresh endpoint state and verify the forwarder reloads.
+6. Uninstall and verify resolver state is removed.
+
+Primary assertions:
+
+- The forwarder uses local state, not live Incus lookups per query.
+- Resolver installation is reversible.
+
+## Phase 7: Trust And Host Override
+
+Run only where the test runner can safely mutate trust and hosts state, usually
+inside a disposable VM.
+
+Test:
+
+1. Install project CA trust.
+2. Add exact host override for a disposable FQDN.
+3. Verify `/etc/hosts` contains a managed entry.
+4. Verify sandbox certificate includes the extra SAN.
+5. Curl `https://<override-host>` successfully.
+6. Remove override.
+7. Verify hosts entry and extra SAN are removed.
+8. Uninstall CA trust.
+
+Primary assertions:
+
+- Host overrides are local-only.
+- Wildcards are not supported in v1.
+- Trust install/uninstall is explicit and reversible.
+
+## Phase 8: Public HTTP Route Broker
+
+Requires a public test domain and infrastructure IP/name.
+
+Test:
+
+1. Create infrastructure project and Caddy.
+2. Start route broker on the private/Tailscale network.
+3. Create a sandbox app on port 3000.
+4. Point a disposable public hostname at infrastructure.
+5. As restricted user, call route broker with Incus client certificate mTLS.
+6. Verify broker accepts only owned project targets.
+7. Verify broker rejects unowned project targets.
+8. Verify broker creates route metadata and ingress attachment.
+9. Verify infrastructure Caddy obtains/serves Let's Encrypt cert.
+10. Curl public hostname and verify response from sandbox app.
+11. Change sandbox appPort and verify public route remains pinned to original
+    route port.
+12. Remove route and verify Caddy no longer serves it.
+
+Primary assertions:
+
+- Users do not need direct access to the infrastructure Incus project.
+- Route hostnames are globally unique in route metadata.
+- Public routes are HTTP/HTTPS only and proxy HTTP to the sandbox route port.
+
+## Cleanup And Diagnostics
+
+Every e2e test should capture on failure:
+
+- Sandcastle command logs.
+- Incus project list filtered by run id.
+- Incus instance/network/volume config for disposable projects.
+- CoreDNS rendered zone.
+- Caddy rendered configs.
+- Tailscale status output with secrets redacted.
+- Local DNS forwarder state when relevant.
+
+Cleanup should remove:
+
+- disposable containers;
+- disposable networks;
+- disposable volumes when purge is enabled;
+- disposable Incus projects;
+- disposable restricted certificates;
+- local resolver files;
+- local hosts entries;
+- local trust entries;
+- route metadata and Caddy routes.
+
