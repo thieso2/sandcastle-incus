@@ -173,6 +173,62 @@ func TestRouteManagerRejectsRouteWhenDNSProofFails(t *testing.T) {
 	}
 }
 
+func TestRouteManagerRejectsClaimedHostname(t *testing.T) {
+	metadata, err := meta.RouteConfig(meta.Route{
+		Hostname:      "app.example.com",
+		TargetOwner:   "bob",
+		TargetProject: "other",
+		TargetSandbox: "web",
+		TargetIP:      "10.248.0.30",
+		RoutePort:     3000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{
+		"sc-route-app-example-com": {Name: "sc-route-app-example-com", ProfilePut: api.ProfilePut{Config: api.ConfigMap(metadata)}},
+	}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	manager := RouteManager{
+		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
+		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
+	}
+	err = manager.Add(context.Background(), routePlanForTest(t))
+	if err == nil {
+		t.Fatal("expected claimed hostname error")
+	}
+	if !strings.Contains(err.Error(), "already claimed by bob/other/web") {
+		t.Fatalf("error = %q", err.Error())
+	}
+	if target.updated != nil {
+		t.Fatal("target sandbox should not be mutated when route hostname is claimed")
+	}
+	if resource.updatedProfile != nil {
+		t.Fatal("existing route metadata should not be updated")
+	}
+}
+
+func TestRouteManagerRejectsInfrastructureProfileConflict(t *testing.T) {
+	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{
+		"sc-route-app-example-com": {Name: "sc-route-app-example-com", ProfilePut: api.ProfilePut{Config: api.ConfigMap{}}},
+	}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	manager := RouteManager{
+		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
+		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
+	}
+	err := manager.Add(context.Background(), routePlanForTest(t))
+	if err == nil {
+		t.Fatal("expected profile conflict error")
+	}
+	if !strings.Contains(err.Error(), "conflicts with existing infrastructure profile") {
+		t.Fatalf("error = %q", err.Error())
+	}
+	if target.updated != nil {
+		t.Fatal("target sandbox should not be mutated when profile conflicts")
+	}
+}
+
 func TestRouteManagerListsRouteProfiles(t *testing.T) {
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",

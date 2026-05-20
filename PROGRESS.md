@@ -360,6 +360,10 @@ development sandboxes.
   infrastructure, a project, a sandbox, a trusted mTLS client certificate, and a
   broker-local DNS proof, then adds, lists, removes, and verifies cleanup of a
   public route through the running broker process.
+- Route add now rejects already-claimed public hostnames before DNS proof or
+  target sandbox ingress mutation. Existing managed route profiles report the
+  current owner/project/sandbox claimant, and unmanaged infrastructure profile
+  name conflicts fail closed instead of being overwritten.
 - Infrastructure creation now provisions route broker TLS material and runs
   runtime activation commands inside the infrastructure containers without
   depending on systemd inside OCI-imported containers. The creator uploads the
@@ -450,8 +454,9 @@ development sandboxes.
 
 - Add real-Incus e2e coverage for `sandcastle add` default interactive enter
   behavior once a stable test TTY strategy is available.
-- Add route broker HTTP e2e over mTLS once disposable infrastructure networking
-  and broker Incus access are wired end-to-end.
+- Promote route broker HTTP mTLS mutation e2e into regular CI/dev gates once
+  disposable infrastructure image sources and broker Incus socket access are
+  available in that environment.
 - Keep tests Incus-free for core logic, with e2e gated separately.
 
 ## Verification Log
@@ -696,6 +701,9 @@ development sandboxes.
 - Passed: `go test ./internal/e2e -run 'Test(LoadConfig|DisposableInfrastructureCreateAndDelete)' -count=1 -v` with the expected infrastructure e2e skip when real e2e is unset.
 - Passed: `go test ./...`
 - Passed: `go test ./internal/e2e -run 'Test(RouteBrokerAuthorizedMutationE2E|LoadConfig)' -count=1 -v` with the expected route broker mutation e2e skip when real e2e is unset.
+- Passed: `go test ./...`
+- Passed: `go test ./internal/incusx -run 'TestRouteManager' -count=1 -v`
+- Passed: `go test ./internal/routebroker ./internal/incusx -run 'Test(Server|RouteManager)' -count=1 -v`
 - Passed: `go test ./...`
 
 ## Open Scope

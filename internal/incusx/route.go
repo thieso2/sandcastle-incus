@@ -50,28 +50,27 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 		return err
 	}
 	projectServer := server.UseProject(plan.InfrastructureProject)
-	targetProjectServer := server.UseProject(plan.Project.IncusName)
-	if _, err := route.VerifyDNSProof(ctx, m.Resolver, plan.DNSProof); err != nil {
-		return err
-	}
-	if err := ensureRouteIngressAttachment(targetProjectServer, plan); err != nil {
-		return err
-	}
 	name := route.ProfileName(plan.Hostname)
-	existing, etag, err := projectServer.GetProfile(name)
+	existing, _, err := projectServer.GetProfile(name)
 	if err == nil {
-		config := mergeConfig(map[string]string(existing.Config), plan.MetadataConfig)
-		if err := projectServer.UpdateProfile(name, api.ProfilePut{
-			Description: "Sandcastle public route " + plan.Hostname,
-			Config:      api.ConfigMap(config),
-			Devices:     existing.Devices,
-		}, etag); err != nil {
-			return fmt.Errorf("update route metadata %s: %w", plan.Hostname, err)
+		if existing.Config[meta.KeyKind] == meta.KindRoute {
+			routeMetadata, parseErr := meta.ParseRouteConfig(map[string]string(existing.Config))
+			if parseErr != nil {
+				return fmt.Errorf("parse existing route metadata for %s: %w", plan.Hostname, parseErr)
+			}
+			return fmt.Errorf("public route hostname %s is already claimed by %s/%s/%s", plan.Hostname, routeMetadata.TargetOwner, routeMetadata.TargetProject, routeMetadata.TargetSandbox)
 		}
-		return refreshInfrastructureCaddy(projectServer)
+		return fmt.Errorf("public route hostname %s conflicts with existing infrastructure profile %s", plan.Hostname, name)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get route metadata %s: %w", plan.Hostname, err)
+	}
+	if _, err := route.VerifyDNSProof(ctx, m.Resolver, plan.DNSProof); err != nil {
+		return err
+	}
+	targetProjectServer := server.UseProject(plan.Project.IncusName)
+	if err := ensureRouteIngressAttachment(targetProjectServer, plan); err != nil {
+		return err
 	}
 	if err := projectServer.CreateProfile(api.ProfilesPost{
 		Name: name,
