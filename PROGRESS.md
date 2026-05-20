@@ -212,6 +212,9 @@ development sandboxes.
   ingress NIC device before route metadata is stored and infrastructure Caddy
   is refreshed. The device is named from the route hostname and tagged with
   Sandcastle route metadata for later cleanup and auditing.
+- Route removal now reads the stored route metadata before deleting it and
+  removes the matching Sandcastle-managed route ingress NIC from the target
+  sandbox, then refreshes and reloads infrastructure Caddy.
 
 ## Next Slice
 
@@ -221,7 +224,7 @@ development sandboxes.
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
 - Add local DNS service install/reload wrappers.
-- Add route broker authorization and ingress cleanup on route removal.
+- Add route broker authorization and public DNS proof enforcement.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -316,6 +319,9 @@ development sandboxes.
 - Passed: `go test ./internal/route ./internal/cli`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json route add app.example.com alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project/sandbox metadata.
+- Passed: `go test ./internal/incusx ./internal/route ./internal/cli`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle route rm app.example.com --dry-run`
 - Passed: `go test ./internal/route ./internal/meta ./internal/caddy`
 - Passed: `go test ./...`

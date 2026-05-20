@@ -88,6 +88,9 @@ func TestPlanRemove(t *testing.T) {
 	if plan.Hostname != "app.example.com" {
 		t.Fatalf("Hostname = %q", plan.Hostname)
 	}
+	if plan.ProjectPrefix != "sc" {
+		t.Fatalf("ProjectPrefix = %q", plan.ProjectPrefix)
+	}
 	if !plan.RequiresBroker {
 		t.Fatal("expected broker requirement")
 	}

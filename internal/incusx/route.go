@@ -12,6 +12,7 @@ import (
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/caddy"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 )
 
@@ -117,12 +118,72 @@ func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan
 	return nil
 }
 
+func removeRouteIngressAttachment(server RouteServer, plan route.RemovePlan, routeMetadata meta.Route) error {
+	projectRef := naming.ProjectRef{Owner: routeMetadata.TargetOwner, Project: routeMetadata.TargetProject}
+	incusProject, err := naming.IncusProjectNameWithPrefix(plan.ProjectPrefix, projectRef)
+	if err != nil {
+		return err
+	}
+	projectServer := server.UseProject(incusProject)
+	instanceName := "sc-" + routeMetadata.TargetSandbox
+	instance, etag, err := projectServer.GetInstance(instanceName)
+	if err != nil {
+		return fmt.Errorf("get route target sandbox %s/%s/%s: %w", routeMetadata.TargetOwner, routeMetadata.TargetProject, routeMetadata.TargetSandbox, err)
+	}
+	put := instance.Writable()
+	deviceName := route.ProfileName(plan.Hostname)
+	if put.Devices[deviceName] == nil {
+		return nil
+	}
+	devices := api.DevicesMap{}
+	for name, device := range put.Devices {
+		if name == deviceName {
+			continue
+		}
+		copied := map[string]string{}
+		for key, value := range device {
+			copied[key] = value
+		}
+		devices[name] = copied
+	}
+	put.Devices = devices
+	op, err := projectServer.UpdateInstance(instanceName, put, etag)
+	if err != nil {
+		return fmt.Errorf("remove route ingress for %s: %w", plan.Hostname, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for route ingress removal for %s: %w", plan.Hostname, err)
+	}
+	return nil
+}
+
+func routeMetadataByHostname(server RouteResourceServer, hostname string) (meta.Route, error) {
+	profile, _, err := server.GetProfile(route.ProfileName(hostname))
+	if err != nil {
+		return meta.Route{}, err
+	}
+	routeMetadata, err := meta.ParseRouteConfig(map[string]string(profile.Config))
+	if err != nil {
+		return meta.Route{}, fmt.Errorf("parse route metadata for %s: %w", hostname, err)
+	}
+	return routeMetadata, nil
+}
+
 func (m RouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
 	server, err := m.server()
 	if err != nil {
 		return err
 	}
 	projectServer := server.UseProject(plan.InfrastructureProject)
+	routeMetadata, err := routeMetadataByHostname(projectServer, plan.Hostname)
+	if err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return err
+	}
+	if err == nil {
+		if err := removeRouteIngressAttachment(server, plan, routeMetadata); err != nil {
+			return err
+		}
+	}
 	if err := projectServer.DeleteProfile(route.ProfileName(plan.Hostname)); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("delete route metadata %s: %w", plan.Hostname, err)
 	}

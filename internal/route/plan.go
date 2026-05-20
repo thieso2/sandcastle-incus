@@ -43,6 +43,7 @@ type AddPlan struct {
 type RemovePlan struct {
 	Hostname              string `json:"hostname"`
 	InfrastructureProject string `json:"infrastructureProject"`
+	ProjectPrefix         string `json:"projectPrefix"`
 	RequiresBroker        bool   `json:"requiresBroker"`
 }
 
@@ -141,6 +142,7 @@ func PlanRemove(admin config.Admin, request RemoveRequest) (RemovePlan, error) {
 	return RemovePlan{
 		Hostname:              hostname,
 		InfrastructureProject: admin.InfrastructureProject,
+		ProjectPrefix:         admin.ProjectPrefix,
 		RequiresBroker:        true,
 	}, nil
 }

@@ -182,11 +182,26 @@ func TestRouteManagerListsRouteProfiles(t *testing.T) {
 }
 
 func TestRouteManagerRemovesRouteProfile(t *testing.T) {
+	metadata, err := meta.RouteConfig(meta.Route{
+		Hostname:      "app.example.com",
+		TargetOwner:   "alice",
+		TargetProject: "myproject",
+		TargetSandbox: "codex",
+		TargetIP:      "10.248.0.20",
+		RoutePort:     5173,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{
-		"sc-route-app-example-com": {Name: "sc-route-app-example-com"},
+		"sc-route-app-example-com": {Name: "sc-route-app-example-com", ProfilePut: api.ProfilePut{Config: api.ConfigMap(metadata)}},
 	}}
-	manager := RouteManager{Server: &fakeRouteServer{resource: resource}}
-	if err := manager.Remove(context.Background(), route.RemovePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra"}); err != nil {
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{
+		"eth0":                     {"type": "nic"},
+		"sc-route-app-example-com": {"type": "nic", "parent": "sc-private"},
+	}}}}
+	manager := RouteManager{Server: &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"}}
+	if err := manager.Remove(context.Background(), route.RemovePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra", ProjectPrefix: "sc"}); err != nil {
 		t.Fatal(err)
 	}
 	if resource.deletedProfile != "sc-route-app-example-com" {
@@ -194,6 +209,12 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	}
 	if _, ok := resource.createdFiles["sc-caddy:/etc/caddy/Caddyfile"]; !ok {
 		t.Fatal("expected infrastructure Caddyfile rewrite")
+	}
+	if target.updated == nil {
+		t.Fatal("expected target sandbox ingress device removal")
+	}
+	if target.updated.Devices["sc-route-app-example-com"] != nil {
+		t.Fatalf("devices = %#v", target.updated.Devices)
 	}
 }
 
