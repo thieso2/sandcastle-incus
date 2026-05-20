@@ -10,6 +10,7 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
+	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/project"
 	"github.com/thieso2/sandcastle-incus/internal/sandbox"
@@ -589,6 +590,98 @@ func TestHostOverrideRemoveAppliesSandboxAndHosts(t *testing.T) {
 	}
 }
 
+func TestTrustInstallDryRunJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "trust", "install", "alice/myproject", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload localtrust.Plan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.CAVolume != project.CAVolumeName {
+		t.Fatalf("CAVolume = %q", payload.CAVolume)
+	}
+	if !strings.Contains(payload.Warning, "mint certificates") {
+		t.Fatalf("Warning = %q", payload.Warning)
+	}
+}
+
+func TestTrustInstallRunsExecutor(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &fakeLocalTrustManager{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		localTrust: manager,
+	}, "trust", "install", "alice/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.installed {
+		t.Fatal("expected local trust install call")
+	}
+	if manager.plan.IncusProject != "sc-alice-myproject" {
+		t.Fatalf("IncusProject = %q", manager.plan.IncusProject)
+	}
+}
+
+func TestTrustUninstallRunsExecutor(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &fakeLocalTrustManager{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		localTrust: manager,
+	}, "trust", "uninstall", "alice/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.removed {
+		t.Fatal("expected local trust uninstall call")
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
@@ -796,4 +889,22 @@ func (f *fakeHostFiles) AddHostsEntry(ctx context.Context, plan hostoverride.Add
 func (f *fakeHostFiles) RemoveHostsEntry(ctx context.Context, plan hostoverride.RemovePlan) error {
 	f.removed = true
 	return nil
+}
+
+type fakeLocalTrustManager struct {
+	installed bool
+	removed   bool
+	plan      localtrust.Plan
+}
+
+func (f *fakeLocalTrustManager) Install(ctx context.Context, plan localtrust.Plan) (localtrust.Result, error) {
+	f.installed = true
+	f.plan = plan
+	return localtrust.Result{Reference: plan.Reference, TrustName: plan.TrustName, Action: "install", Platform: "fake"}, nil
+}
+
+func (f *fakeLocalTrustManager) Uninstall(ctx context.Context, plan localtrust.Plan) (localtrust.Result, error) {
+	f.removed = true
+	f.plan = plan
+	return localtrust.Result{Reference: plan.Reference, TrustName: plan.TrustName, Action: "uninstall", Platform: "fake"}, nil
 }

@@ -160,6 +160,14 @@ development sandboxes.
 - Added host override list/remove support. List reads sandbox `extraSANs`
   metadata, while remove deletes the hostname from sandbox metadata, reissues
   sandbox TLS/Caddy without that SAN, and removes the managed hosts-file block.
+- Added local project CA trust planning and `sandcastle trust install` /
+  `sandcastle trust uninstall`. Plans resolve the managed project, CA volume,
+  CA certificate path, platform, trust name, and explicit trust warning.
+- Added Incus-backed local trust execution that reads the project CA
+  certificate from the project CA volume and installs/removes it through a
+  platform trust store. Production supports macOS Keychain and Linux
+  `update-ca-certificates`; tests and disposable automation can use
+  `SANDCASTLE_TRUST_DIR` for file-backed trust state.
 
 ## Next Slice
 
@@ -168,7 +176,7 @@ development sandboxes.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
-- Add local trust install/uninstall planning and platform-specific executors.
+- Add local DNS install/refresh/uninstall planning and local forwarder state.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -254,9 +262,13 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin project create alice/myproject --domain myproject.project-tld --dry-run`
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./internal/localtrust ./internal/incusx ./internal/cli`
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json trust install alice/myproject --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project metadata.
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_TRUST_DIR=/tmp/sandcastle-trust-test ./bin/sandcastle trust uninstall alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS before local trust mutation.
 
 ## Open Scope
 
 - Restricted certificates, project creation, sandbox lifecycle, DNS,
-  certificates, Tailscale execution, local DNS/trust, host overrides, public
-  routes, and full real-Incus e2e remain to be implemented.
+  certificates, Tailscale execution, local DNS, host overrides, public routes,
+  and full real-Incus e2e remain to be implemented.
