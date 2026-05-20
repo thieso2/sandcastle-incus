@@ -127,6 +127,9 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	if resource.execEnvs[0]["SANDCASTLE_USER"] != "alice" {
 		t.Fatalf("bootstrap env = %#v", resource.execEnvs[0])
 	}
+	if resource.execEnvs[0]["SANDCASTLE_UID"] != "1000" || resource.execEnvs[0]["SANDCASTLE_GID"] != "1000" {
+		t.Fatalf("bootstrap uid/gid env = %#v", resource.execEnvs[0])
+	}
 	if !strings.Contains(strings.Join(resource.execCommands[1], " "), "caddy") {
 		t.Fatalf("caddy command = %#v", resource.execCommands[1])
 	}

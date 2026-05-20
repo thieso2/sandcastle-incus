@@ -129,6 +129,8 @@ func bootstrapSandboxUser(server SandboxResourceServer, plan sandbox.CreatePlan)
 		Command: []string{"/usr/local/bin/sandcastle-bootstrap"},
 		Environment: map[string]string{
 			"SANDCASTLE_USER": plan.LinuxUser,
+			"SANDCASTLE_UID":  fmt.Sprintf("%d", sandbox.DefaultLinuxUID),
+			"SANDCASTLE_GID":  fmt.Sprintf("%d", sandbox.DefaultLinuxGID),
 		},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{

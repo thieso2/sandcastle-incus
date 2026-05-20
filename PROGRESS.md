@@ -1188,6 +1188,12 @@ development sandboxes.
 - Passed: `go test ./internal/routebroker ./internal/incusx -run 'Test(RouteBroker|Authorize|Principal|Server|HTTPRunner)' -count=1 -v`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Wired the planned default sandbox UID/GID through the Incus bootstrap exec
+  environment so the image bootstrap script receives the full user identity
+  contract instead of relying on hidden script defaults.
+- Passed: `go test ./internal/incusx -run 'TestSandboxCreator' -count=1 -v`
+- Passed: `go test ./...`
+- Passed: `git diff --check`
 
 ## Open Scope
 
