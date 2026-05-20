@@ -1,19 +1,24 @@
 package incusx
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 )
 
 type TailscaleServer interface {
 	UseProject(name string) TailscaleResourceServer
+	GetProject(name string) (*api.Project, string, error)
+	UpdateProject(name string, project api.ProjectPut, ETag string) error
 }
 
 type TailscaleResourceServer interface {
@@ -68,6 +73,115 @@ func (m TailscaleManager) RunUp(ctx context.Context, plan tailscale.UpPlan, sess
 	return nil
 }
 
+func (m TailscaleManager) RunStatus(ctx context.Context, plan tailscale.StatusPlan, session tailscale.RunSession) (tailscale.StatusResult, error) {
+	server, err := m.server()
+	if err != nil {
+		return tailscale.StatusResult{}, err
+	}
+	projectServer := server.UseProject(plan.Project.IncusName)
+	var stdout bytes.Buffer
+	dataDone := make(chan bool)
+	op, err := projectServer.ExecInstance(plan.InstanceName, api.InstanceExecPost{
+		Command:   plan.Command,
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		Stdout:   &stdout,
+		Stderr:   writerOrDiscard(session.Stderr),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return tailscale.StatusResult{}, fmt.Errorf("run tailscale status in %s: %w", plan.InstanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return tailscale.StatusResult{}, fmt.Errorf("wait for tailscale status in %s: %w", plan.InstanceName, err)
+	}
+	<-dataDone
+	result, err := tailscale.ParseStatus(plan.Reference, plan.Project, stdout.Bytes(), time.Now().UTC())
+	if err != nil {
+		return tailscale.StatusResult{}, err
+	}
+	if err := updateProjectTailscale(server, plan.Project.IncusName, result.Tailscale); err != nil {
+		return tailscale.StatusResult{}, err
+	}
+	return result, nil
+}
+
+func (m TailscaleManager) RunDown(ctx context.Context, plan tailscale.DownPlan, session tailscale.RunSession) error {
+	server, err := m.server()
+	if err != nil {
+		return err
+	}
+	projectServer := server.UseProject(plan.Project.IncusName)
+	dataDone := make(chan bool)
+	op, err := projectServer.ExecInstance(plan.InstanceName, api.InstanceExecPost{
+		Command:   plan.Command,
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		Stdout:   writerOrDiscard(session.Stdout),
+		Stderr:   writerOrDiscard(session.Stderr),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("run tailscale down in %s: %w", plan.InstanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for tailscale down in %s: %w", plan.InstanceName, err)
+	}
+	<-dataDone
+	return updateProjectTailscale(server, plan.Project.IncusName, meta.Tailscale{
+		State:         "stopped",
+		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (m TailscaleManager) server() (TailscaleServer, error) {
+	if m.Server != nil {
+		return m.Server, nil
+	}
+	loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("load Incus config: %w", err)
+	}
+	remote := m.Remote
+	if remote == "" {
+		remote = loaded.DefaultRemote
+	}
+	instanceServer, err := loaded.GetInstanceServer(remote)
+	if err != nil {
+		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+	}
+	return sdkTailscaleServer{inner: instanceServer}, nil
+}
+
+func updateProjectTailscale(server TailscaleServer, name string, state meta.Tailscale) error {
+	projectState, etag, err := server.GetProject(name)
+	if err != nil {
+		return fmt.Errorf("get project %s: %w", name, err)
+	}
+	managed, err := meta.ParseProjectConfig(map[string]string(projectState.Config))
+	if err != nil {
+		return fmt.Errorf("parse project metadata for %s: %w", name, err)
+	}
+	managed.Tailscale = state
+	config, err := meta.ProjectConfig(managed)
+	if err != nil {
+		return err
+	}
+	put := projectState.Writable()
+	if put.Config == nil {
+		put.Config = api.ConfigMap{}
+	}
+	for key, value := range config {
+		put.Config[key] = value
+	}
+	if err := server.UpdateProject(name, put, etag); err != nil {
+		return fmt.Errorf("update project %s tailscale metadata: %w", name, err)
+	}
+	return nil
+}
+
 func writerOrDiscard(writer io.Writer) io.Writer {
 	if writer == nil {
 		return io.Discard
@@ -81,6 +195,14 @@ type sdkTailscaleServer struct {
 
 func (s sdkTailscaleServer) UseProject(name string) TailscaleResourceServer {
 	return sdkTailscaleResourceServer{inner: s.inner.UseProject(name)}
+}
+
+func (s sdkTailscaleServer) GetProject(name string) (*api.Project, string, error) {
+	return s.inner.GetProject(name)
+}
+
+func (s sdkTailscaleServer) UpdateProject(name string, project api.ProjectPut, etag string) error {
+	return s.inner.UpdateProject(name, project, etag)
 }
 
 type sdkTailscaleResourceServer struct {

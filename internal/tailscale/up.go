@@ -38,6 +38,8 @@ type RunSession struct {
 
 type Runner interface {
 	RunUp(context.Context, UpPlan, RunSession) error
+	RunStatus(context.Context, StatusPlan, RunSession) (StatusResult, error)
+	RunDown(context.Context, DownPlan, RunSession) error
 }
 
 func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request UpRequest) (UpPlan, error) {

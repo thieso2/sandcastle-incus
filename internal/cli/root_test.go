@@ -384,6 +384,74 @@ func TestTailscaleUpRunsExecutor(t *testing.T) {
 	}
 }
 
+func TestTailscaleStatusRunsExecutor(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeTailscaleRunner{status: tailscale.StatusResult{
+		Reference: "alice/myproject",
+		Tailscale: meta.Tailscale{State: "Running", TailscaleIPs: []string{"100.80.12.34"}},
+	}}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		tailscale: runner,
+	}, "--output", "json", "tailscale", "status", "alice/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.statusCalled {
+		t.Fatal("expected tailscale status runner call")
+	}
+	var payload tailscale.StatusResult
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Tailscale.State != "Running" {
+		t.Fatalf("State = %q", payload.Tailscale.State)
+	}
+}
+
+func TestTailscaleDownDryRunJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "tailscale", "down", "alice/myproject", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload tailscale.DownPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(payload.Command, " ") != "tailscale down" {
+		t.Fatalf("Command = %#v", payload.Command)
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
@@ -515,12 +583,25 @@ func (f *fakeSandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.Ente
 }
 
 type fakeTailscaleRunner struct {
-	called bool
-	plan   tailscale.UpPlan
+	called       bool
+	statusCalled bool
+	downCalled   bool
+	plan         tailscale.UpPlan
+	status       tailscale.StatusResult
 }
 
 func (f *fakeTailscaleRunner) RunUp(ctx context.Context, plan tailscale.UpPlan, session tailscale.RunSession) error {
 	f.called = true
 	f.plan = plan
+	return nil
+}
+
+func (f *fakeTailscaleRunner) RunStatus(ctx context.Context, plan tailscale.StatusPlan, session tailscale.RunSession) (tailscale.StatusResult, error) {
+	f.statusCalled = true
+	return f.status, nil
+}
+
+func (f *fakeTailscaleRunner) RunDown(ctx context.Context, plan tailscale.DownPlan, session tailscale.RunSession) error {
+	f.downCalled = true
 	return nil
 }

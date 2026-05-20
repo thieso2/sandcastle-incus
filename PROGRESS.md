@@ -137,6 +137,11 @@ development sandboxes.
   Incus execution inside the `sc-tailscale` sidecar. Plans advertise the project
   private CIDR, default to `tag:sandcastle`, support unattended `--auth-key`,
   and redact auth keys from JSON/text dry-run output.
+- Added `sandcastle tailscale status owner/project` and
+  `sandcastle tailscale down owner/project`. Status executes
+  `tailscale status --json` in the sidecar, parses observed tailnet, hostname,
+  advertised routes, and Tailscale IPs, then writes that state into project
+  metadata. Down executes `tailscale down` and records stopped state.
 
 ## Next Slice
 
@@ -144,8 +149,8 @@ development sandboxes.
   disposable image prerequisites are available.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
   `--detach` once disposable images can support interactive exec safely.
-- Add Tailscale status/down commands and metadata recording for observed
-  Tailscale state.
+- Add route-availability checks for Tailscale advertised project CIDRs and
+  gated full-network Tailscale e2e when an auth key is available.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -195,6 +200,9 @@ development sandboxes.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json tailscale up alice/myproject --auth-key tskey-secret --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project metadata.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle tailscale up alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle tailscale status alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json tailscale down alice/myproject --dry-run 2>&1 || true` with expected local Incus connection failure on macOS before dry-run can resolve project metadata.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle port set alice/myproject/codex 5173 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle add alice/myproject/codex --dry-run 2>&1 || true` with expected local Incus connection failure on macOS.

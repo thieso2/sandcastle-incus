@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
@@ -41,6 +42,47 @@ func TestPlanUp(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "tskey-secret") {
 		t.Fatalf("plan JSON leaked auth key: %s", encoded)
+	}
+}
+
+func TestPlanStatusAndParseStatus(t *testing.T) {
+	plan, err := PlanStatus(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), StatusRequest{Reference: "alice/myproject"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.InstanceName != project.TailscaleName {
+		t.Fatalf("InstanceName = %q", plan.InstanceName)
+	}
+	result, err := ParseStatus("alice/myproject", plan.Project, []byte(`{
+		"BackendState": "Running",
+		"CurrentTailnet": {"Name": "example.com"},
+		"Self": {
+			"HostName": "sc-myproject",
+			"TailscaleIPs": ["100.80.12.34"],
+			"PrimaryRoutes": ["10.248.0.0/24"]
+		}
+	}`), time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tailscale.State != "Running" {
+		t.Fatalf("State = %q", result.Tailscale.State)
+	}
+	if result.Tailscale.Tailnet != "example.com" {
+		t.Fatalf("Tailnet = %q", result.Tailscale.Tailnet)
+	}
+	if len(result.Tailscale.TailscaleIPs) != 1 || result.Tailscale.TailscaleIPs[0] != "100.80.12.34" {
+		t.Fatalf("TailscaleIPs = %#v", result.Tailscale.TailscaleIPs)
+	}
+}
+
+func TestPlanDown(t *testing.T) {
+	plan, err := PlanDown(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), DownRequest{Reference: "alice/myproject"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(plan.Command, " ") != "tailscale down" {
+		t.Fatalf("Command = %#v", plan.Command)
 	}
 }
 
