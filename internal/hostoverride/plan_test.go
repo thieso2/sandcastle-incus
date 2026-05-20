@@ -55,6 +55,35 @@ func TestPlanAddRejectsIPAddress(t *testing.T) {
 	}
 }
 
+func TestPlanRemove(t *testing.T) {
+	plan, err := PlanRemove(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreForTest{}, RemoveRequest{
+		Reference: "alice/myproject/codex",
+		Hostname:  "example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Hostname != "example.com" {
+		t.Fatalf("Hostname = %q", plan.Hostname)
+	}
+	if plan.HostsEntry.Line != "10.248.0.20 example.com" {
+		t.Fatalf("HostsEntry = %#v", plan.HostsEntry)
+	}
+}
+
+func TestPlanList(t *testing.T) {
+	result, err := PlanList(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreForTest{}, ListRequest{Reference: "alice/myproject"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Overrides) != 1 {
+		t.Fatalf("len(Overrides) = %d", len(result.Overrides))
+	}
+	if result.Overrides[0].Hostname != "example.com" {
+		t.Fatalf("Hostname = %q", result.Overrides[0].Hostname)
+	}
+}
+
 type sandboxStoreForTest struct{}
 
 func (s sandboxStoreForTest) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
@@ -64,7 +93,16 @@ func (s sandboxStoreForTest) FindSandbox(ctx context.Context, summary project.Su
 		Name:      name,
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
+		ExtraSANs: []string{"example.com"},
 	}, nil
+}
+
+func (s sandboxStoreForTest) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
+	sandbox, err := s.FindSandbox(ctx, summary, "codex")
+	if err != nil {
+		return nil, err
+	}
+	return []meta.Sandbox{sandbox}, nil
 }
 
 func projectStoreForTest(t *testing.T) project.MemoryStore {

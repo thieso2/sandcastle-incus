@@ -524,6 +524,71 @@ func TestHostOverrideAddAppliesSandboxAndHosts(t *testing.T) {
 	}
 }
 
+func TestHostOverrideListJSON(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		hostSandbox: fakeHostSandboxStore{},
+	}, "--output", "json", "host", "override", "list", "alice/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload hostoverride.ListResult
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Overrides) != 1 || payload.Overrides[0].Hostname != "example.com" {
+		t.Fatalf("Overrides = %#v", payload.Overrides)
+	}
+}
+
+func TestHostOverrideRemoveAppliesSandboxAndHosts(t *testing.T) {
+	configMap, err := meta.ProjectConfig(meta.Project{
+		Owner:           "alice",
+		Project:         "myproject",
+		Domain:          "myproject.project-tld",
+		PrivateCIDR:     "10.248.0.0/24",
+		DefaultTemplate: "ai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &fakeHostOverrideManager{}
+	files := &fakeHostFiles{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-alice-myproject",
+			Config: configMap,
+		}}},
+		hostSandbox:   fakeHostSandboxStore{},
+		hostOverrides: manager,
+		hostFiles:     files,
+	}, "host", "override", "rm", "alice/myproject/codex", "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.removed {
+		t.Fatal("expected host override remove call")
+	}
+	if !files.removed {
+		t.Fatal("expected hosts file remove call")
+	}
+}
+
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
 	if err != nil {
@@ -687,12 +752,22 @@ func (f fakeHostSandboxStore) FindSandbox(ctx context.Context, summary project.S
 		Name:      name,
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
+		ExtraSANs: []string{"example.com"},
 	}, nil
 }
 
+func (f fakeHostSandboxStore) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
+	sandbox, err := f.FindSandbox(ctx, summary, "codex")
+	if err != nil {
+		return nil, err
+	}
+	return []meta.Sandbox{sandbox}, nil
+}
+
 type fakeHostOverrideManager struct {
-	called bool
-	plan   hostoverride.AddPlan
+	called  bool
+	removed bool
+	plan    hostoverride.AddPlan
 }
 
 func (f *fakeHostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan) error {
@@ -701,13 +776,24 @@ func (f *fakeHostOverrideManager) Add(ctx context.Context, plan hostoverride.Add
 	return nil
 }
 
+func (f *fakeHostOverrideManager) Remove(ctx context.Context, plan hostoverride.RemovePlan) error {
+	f.removed = true
+	return nil
+}
+
 type fakeHostFiles struct {
-	called bool
-	plan   hostoverride.AddPlan
+	called  bool
+	removed bool
+	plan    hostoverride.AddPlan
 }
 
 func (f *fakeHostFiles) AddHostsEntry(ctx context.Context, plan hostoverride.AddPlan) error {
 	f.called = true
 	f.plan = plan
+	return nil
+}
+
+func (f *fakeHostFiles) RemoveHostsEntry(ctx context.Context, plan hostoverride.RemovePlan) error {
+	f.removed = true
 	return nil
 }

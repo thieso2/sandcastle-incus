@@ -157,6 +157,9 @@ development sandboxes.
   Sandcastle-marked block and is wired after the sandbox ingress update.
   Production defaults to `/etc/hosts`; tests and automation can override with
   `SANDCASTLE_HOSTS_FILE`.
+- Added host override list/remove support. List reads sandbox `extraSANs`
+  metadata, while remove deletes the hostname from sandbox metadata, reissues
+  sandbox TLS/Caddy without that SAN, and removes the managed hosts-file block.
 
 ## Next Slice
 
@@ -165,8 +168,7 @@ development sandboxes.
 - Add real-Incus e2e coverage for `sandcastle add` default enter behavior and
   `--detach` once disposable images can support interactive exec safely.
 - Add gated full-network Tailscale e2e when an auth key is available.
-- Implement host override list/remove and remove managed hosts entries plus
-  extra SANs.
+- Add local trust install/uninstall planning and platform-specific executors.
 - Add sandbox lifecycle e2e assertions for private Caddy config and issued
   sandbox certificate files once disposable image prerequisites are available.
 - Add restricted-user e2e path for certificate/token grant verification after
@@ -210,6 +212,9 @@ development sandboxes.
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle host override add alice/myproject/codex example.com 2>&1 || true` with expected local Incus connection failure on macOS.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_HOSTS_FILE=/tmp/sandcastle-hosts-test ./bin/sandcastle host override add alice/myproject/codex example.com 2>&1 || true` with expected local Incus connection failure on macOS before hosts mutation.
+- Passed: `go test ./...`
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json host override list alice/myproject 2>&1 || true` with expected local Incus connection failure on macOS.
+- Passed: `go build -o bin/sandcastle ./cmd/sandcastle && SANDCASTLE_HOSTS_FILE=/tmp/sandcastle-hosts-test ./bin/sandcastle host override rm alice/myproject/codex example.com 2>&1 || true` with expected local Incus connection failure on macOS before hosts mutation.
 - Passed: `go test ./...`
 - Passed: `go build -o bin/sandcastle ./cmd/sandcastle && ./bin/sandcastle --output json admin user grant alice alice/myproject --dry-run`
 - Passed: `go test ./...`

@@ -17,6 +17,15 @@ type AddRequest struct {
 	Hostname  string
 }
 
+type RemoveRequest struct {
+	Reference string
+	Hostname  string
+}
+
+type ListRequest struct {
+	Reference string
+}
+
 type AddPlan struct {
 	Reference         string          `json:"reference"`
 	Project           project.Summary `json:"project"`
@@ -33,6 +42,31 @@ type AddPlan struct {
 	RequiresHostsEdit bool            `json:"requiresHostsEdit"`
 }
 
+type RemovePlan struct {
+	Reference         string          `json:"reference"`
+	Project           project.Summary `json:"project"`
+	Sandbox           meta.Sandbox    `json:"sandbox"`
+	InstanceName      string          `json:"instanceName"`
+	StoragePool       string          `json:"storagePool"`
+	CAVolume          string          `json:"caVolume"`
+	Hostname          string          `json:"hostname"`
+	HostsEntry        HostsEntry      `json:"hostsEntry"`
+	RequiresReissue   bool            `json:"requiresReissue"`
+	RequiresHostsEdit bool            `json:"requiresHostsEdit"`
+}
+
+type ListResult struct {
+	Project   project.Summary `json:"project"`
+	Overrides []Override      `json:"overrides"`
+}
+
+type Override struct {
+	Reference string       `json:"reference"`
+	Sandbox   meta.Sandbox `json:"sandbox"`
+	Hostname  string       `json:"hostname"`
+	IPAddress string       `json:"ipAddress"`
+}
+
 type HostsEntry struct {
 	BeginLine string `json:"beginLine"`
 	Line      string `json:"line"`
@@ -41,10 +75,12 @@ type HostsEntry struct {
 
 type SandboxStore interface {
 	FindSandbox(ctx context.Context, project project.Summary, name string) (meta.Sandbox, error)
+	ListSandboxes(ctx context.Context, project project.Summary) ([]meta.Sandbox, error)
 }
 
 type Manager interface {
 	Add(context.Context, AddPlan) error
+	Remove(context.Context, RemovePlan) error
 }
 
 func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, sandboxStore SandboxStore, request AddRequest) (AddPlan, error) {
@@ -88,6 +124,76 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		RequiresReissue:   true,
 		RequiresHostsEdit: true,
 	}, nil
+}
+
+func PlanRemove(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, sandboxStore SandboxStore, request RemoveRequest) (RemovePlan, error) {
+	if err := admin.Validate(); err != nil {
+		return RemovePlan{}, err
+	}
+	projectRef, sandboxName, err := parseSandboxRef(request.Reference)
+	if err != nil {
+		return RemovePlan{}, err
+	}
+	hostname, err := normalizeExactHostname(request.Hostname)
+	if err != nil {
+		return RemovePlan{}, err
+	}
+	summary, err := findProject(ctx, projectStore, projectRef)
+	if err != nil {
+		return RemovePlan{}, err
+	}
+	if sandboxStore == nil {
+		return RemovePlan{}, fmt.Errorf("sandbox metadata store is required")
+	}
+	sandbox, err := sandboxStore.FindSandbox(ctx, summary, sandboxName)
+	if err != nil {
+		return RemovePlan{}, err
+	}
+	return RemovePlan{
+		Reference:         request.Reference,
+		Project:           summary,
+		Sandbox:           sandbox,
+		InstanceName:      "sc-" + sandboxName,
+		StoragePool:       admin.StoragePool,
+		CAVolume:          project.CAVolumeName,
+		Hostname:          hostname,
+		HostsEntry:        RenderHostsEntry(request.Reference, hostname, sandbox.PrivateIP),
+		RequiresReissue:   true,
+		RequiresHostsEdit: true,
+	}, nil
+}
+
+func PlanList(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, sandboxStore SandboxStore, request ListRequest) (ListResult, error) {
+	if err := admin.Validate(); err != nil {
+		return ListResult{}, err
+	}
+	projectRef, err := naming.ParseProjectRef(request.Reference)
+	if err != nil {
+		return ListResult{}, err
+	}
+	summary, err := findProject(ctx, projectStore, projectRef)
+	if err != nil {
+		return ListResult{}, err
+	}
+	if sandboxStore == nil {
+		return ListResult{}, fmt.Errorf("sandbox metadata store is required")
+	}
+	sandboxes, err := sandboxStore.ListSandboxes(ctx, summary)
+	if err != nil {
+		return ListResult{}, err
+	}
+	result := ListResult{Project: summary}
+	for _, sandbox := range sandboxes {
+		for _, hostname := range sandbox.ExtraSANs {
+			result.Overrides = append(result.Overrides, Override{
+				Reference: summary.Owner + "/" + summary.Name + "/" + sandbox.Name,
+				Sandbox:   sandbox,
+				Hostname:  hostname,
+				IPAddress: sandbox.PrivateIP,
+			})
+		}
+	}
+	return result, nil
 }
 
 func RenderHostsEntry(reference string, hostname string, ipAddress string) HostsEntry {

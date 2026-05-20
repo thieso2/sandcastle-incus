@@ -145,3 +145,51 @@ func TestHostOverrideManagerAddUpdatesMetadataAndWritesFiles(t *testing.T) {
 		t.Fatal("expected certificate write")
 	}
 }
+
+func TestHostOverrideManagerRemoveUpdatesMetadataAndWritesFiles(t *testing.T) {
+	configMap, err := meta.SandboxConfig(meta.Sandbox{
+		Owner:     "alice",
+		Project:   "myproject",
+		Name:      "codex",
+		AppPort:   3000,
+		PrivateIP: "10.248.0.20",
+		ExtraSANs: []string{"example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, err := certs.GenerateCA("test CA", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource := &fakeHostOverrideResource{
+		instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}},
+		caFiles: map[string]string{
+			project.ProjectCACertPath: string(ca.CertificatePEM),
+			project.ProjectCAKeyPath:  string(ca.PrivateKeyPEM),
+		},
+	}
+	manager := HostOverrideManager{Server: fakeHostOverrideServer{resource: resource}}
+	err = manager.Remove(context.Background(), hostoverride.RemovePlan{
+		Reference:    "alice/myproject/codex",
+		Project:      project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject", Domain: "myproject.project-tld"},
+		Sandbox:      meta.Sandbox{Name: "codex", AppPort: 3000, PrivateIP: "10.248.0.20", ExtraSANs: []string{"example.com"}},
+		InstanceName: "sc-codex",
+		StoragePool:  "default",
+		CAVolume:     project.CAVolumeName,
+		Hostname:     "example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := meta.ParseSandboxConfig(map[string]string(resource.updated.Config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.ExtraSANs) != 0 {
+		t.Fatalf("ExtraSANs = %#v", updated.ExtraSANs)
+	}
+	if strings.Contains(resource.createdFiles["/etc/caddy/Caddyfile"], "example.com") {
+		t.Fatalf("Caddyfile = %q", resource.createdFiles["/etc/caddy/Caddyfile"])
+	}
+}

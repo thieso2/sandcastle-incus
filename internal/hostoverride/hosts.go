@@ -11,6 +11,7 @@ const DefaultHostsPath = "/etc/hosts"
 
 type HostsManager interface {
 	AddHostsEntry(context.Context, AddPlan) error
+	RemoveHostsEntry(context.Context, RemovePlan) error
 }
 
 type FileHostsManager struct {
@@ -30,6 +31,18 @@ func (m FileHostsManager) AddHostsEntry(ctx context.Context, plan AddPlan) error
 		return fmt.Errorf("read hosts file %s: %w", m.Path, err)
 	}
 	updated := ApplyHostsEntry(string(content), plan.HostsEntry)
+	if err := os.WriteFile(m.Path, []byte(updated), 0o644); err != nil {
+		return fmt.Errorf("write hosts file %s: %w", m.Path, err)
+	}
+	return nil
+}
+
+func (m FileHostsManager) RemoveHostsEntry(ctx context.Context, plan RemovePlan) error {
+	content, err := os.ReadFile(m.Path)
+	if err != nil {
+		return fmt.Errorf("read hosts file %s: %w", m.Path, err)
+	}
+	updated := RemoveHostsEntry(string(content), plan.HostsEntry)
 	if err := os.WriteFile(m.Path, []byte(updated), 0o644); err != nil {
 		return fmt.Errorf("write hosts file %s: %w", m.Path, err)
 	}
@@ -63,6 +76,25 @@ func ApplyHostsEntry(content string, entry HostsEntry) string {
 		updated += entry.BeginLine + "\n" + entry.Line + "\n" + entry.EndLine
 	}
 	return updated + "\n"
+}
+
+func RemoveHostsEntry(content string, entry HostsEntry) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	output := make([]string, 0, len(lines))
+	skip := false
+	for _, line := range lines {
+		switch {
+		case line == entry.BeginLine:
+			skip = true
+		case line == entry.EndLine && skip:
+			skip = false
+		case skip:
+			continue
+		default:
+			output = append(output, line)
+		}
+	}
+	return strings.Join(trimTrailingEmptyLines(output), "\n") + "\n"
 }
 
 func trimTrailingEmptyLines(lines []string) []string {
