@@ -1381,6 +1381,9 @@ development sandboxes.
 - Passed: `go test ./internal/naming ./internal/sandbox ./internal/hostoverride ./internal/route ./internal/routebroker -count=1`
 - Passed: `go test ./...`
 - Passed: `git diff --check`
+- Re-ran the safe e2e runner tiers at the current head after route-broker and
+  sandbox-name validation hardening.
+- Passed: `scripts/e2e.sh unit && scripts/e2e.sh gated && scripts/e2e.sh local`
 
 ## Open Scope
 
