@@ -169,7 +169,7 @@ remote: sc-alice</code></pre>
 
   <div class="step">
     <h3>Admin environment variables</h3>
-    <p>Set these before running any <code>sandcastle admin</code> command. These override the config file.</p>
+    <p>Set these before running any <code>sandcastle-admin</code> command. These override the config file.</p>
     <pre><code><span class="comment"># Incus remote name (default: local)</span>
 <span class="env">export SANDCASTLE_REMOTE</span>=big
 
@@ -188,19 +188,19 @@ remote: sc-alice</code></pre>
 
   <div class="step">
     <h3>Incus certificate selection and admin_remote</h3>
-    <p><code>sandcastle admin</code> commands always use the global Incus config (<code>~/.config/incus/</code>)
-    which holds admin certificates. All other <code>sandcastle</code> commands use the per-remote
+    <p><code>sandcastle-admin</code> (<code>sc-adm</code>) always uses the global Incus config (<code>~/.config/incus/</code>)
+    which holds admin certificates. <code>sandcastle</code> (<code>sc</code>) user commands use the per-remote
     Sandcastle config directory (<code>~/.config/sandcastle/&lt;remote&gt;/incus/</code>) which holds
     the restricted user certificate.</p>
     <p>The <strong>admin remote</strong> is the Incus remote name as it appears in <code>~/.config/incus/config.yml</code>
     (e.g. <code>big</code>). It may differ from the Sandcastle user remote (e.g. <code>sc-alice</code>).
     Configure it once with:</p>
-    <pre><code><span class="cmd">sandcastle config set</span> <span class="arg">admin_remote big</span>
+    <pre><code><span class="cmd">sc-adm config set</span> <span class="arg">admin_remote big</span>
 <span class="comment"># or</span>
 <span class="env">export SANDCASTLE_ADMIN_REMOTE</span>=big</code></pre>
-    <p>When <code>admin_remote</code> is set, <code>sc admin</code> uses it instead of <code>remote</code>.
-    When unset, <code>sc admin</code> falls back to <code>remote</code> and the global Incus config must
-    know that remote name.</p>
+    <p>When <code>admin_remote</code> is set, <code>sc-adm</code> uses it instead of <code>remote</code>.
+    When unset, <code>sc-adm</code> auto-detects the admin remote by comparing server TLS certificates
+    between the global and per-remote Incus configs.</p>
   </div>
 
   <div class="step">
@@ -208,7 +208,7 @@ remote: sc-alice</code></pre>
     <p>Set <code>VERBOSE=1</code> to see the Incus config directory and remote being used, plus
     per-operation detail from executors.</p>
     <pre><code><span class="env">export VERBOSE</span>=1
-<span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.example.com</span>
+<span class="cmd">sandcastle-admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.example.com</span>
 <span class="comment"># [verbose] incus config: ~/.config/incus (default)</span>
 <span class="comment"># [verbose] incus remote: big</span></code></pre>
   </div>
@@ -220,42 +220,42 @@ remote: sc-alice</code></pre>
 
   <div class="step">
     <h3>List projects</h3>
-    <pre><code><span class="cmd">sandcastle admin project list</span>
-<span class="cmd">sandcastle admin project ls</span>          <span class="comment"># alias</span>
-<span class="cmd">sandcastle admin project list</span> <span class="flag">--json</span>  <span class="comment"># JSON output</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin project list</span>
+<span class="cmd">sandcastle-admin project ls</span>          <span class="comment"># alias</span>
+<span class="cmd">sandcastle-admin project list</span> <span class="flag">--json</span>  <span class="comment"># JSON output</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Create a project</h3>
     <p>Provisions an Incus project with isolated Incus feature namespaces, private bridge network, storage volumes, Tailscale sidecar, CoreDNS sidecar, and project-local Sandcastle image aliases.</p>
-    <pre><code><span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span></code></pre>
     <div class="note"><strong>Note:</strong> The <code>--domain</code> flag is required. It sets the private DNS zone for all sandboxes in the project (e.g. <code>mysandbox.myproject.dev.example.com</code>).</div>
     <pre><code><span class="comment"># Inject an SSH public key into every sandbox at creation time</span>
-<span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--ssh-key</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
+<span class="cmd">sandcastle-admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--ssh-key</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
     <pre><code><span class="comment"># Preview what will be created without mutating anything</span>
-<span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--dry-run</span></code></pre>
+<span class="cmd">sandcastle-admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--dry-run</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Set or update project SSH key</h3>
     <p>Update the SSH public key stored on an existing project. The new key will be injected into all sandboxes created after this point.</p>
-    <pre><code><span class="cmd">sandcastle admin project set-ssh-key</span> <span class="arg">alice/myproject</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin project set-ssh-key</span> <span class="arg">alice/myproject</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Project status</h3>
-    <pre><code><span class="cmd">sandcastle admin project status</span> <span class="arg">alice/myproject</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin project status</span> <span class="arg">alice/myproject</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Delete a project (keep volumes)</h3>
     <p>Stops runtime resources (sidecars, network) but preserves home/workspace volumes.</p>
-    <pre><code><span class="cmd">sandcastle admin project delete</span> <span class="arg">alice/myproject</span> <span class="flag">--yes</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin project delete</span> <span class="arg">alice/myproject</span> <span class="flag">--yes</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Purge a project (destroy everything)</h3>
-    <pre><code><span class="cmd">sandcastle admin project delete</span> <span class="arg">alice/myproject</span> <span class="flag">--yes</span> <span class="flag">--purge</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin project delete</span> <span class="arg">alice/myproject</span> <span class="flag">--yes</span> <span class="flag">--purge</span></code></pre>
   </div>
 </section>
 
@@ -266,7 +266,7 @@ remote: sc-alice</code></pre>
   <div class="step">
     <h3>Create a restricted user certificate</h3>
     <p>Issues a client certificate for <code>alice</code> and registers it as an Incus restricted trust entry. Prints a bootstrap token.</p>
-    <pre><code><span class="cmd">sandcastle admin user create</span> <span class="arg">alice</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin user create</span> <span class="arg">alice</span></code></pre>
     <p>Example output:</p>
     <pre><code>User: alice
 Certificate: sc-alice
@@ -280,14 +280,14 @@ Bootstrap:
   <div class="step">
     <h3>Grant a user access to a project</h3>
     <p>Adds the Incus project to the user's certificate restriction list.</p>
-    <pre><code><span class="cmd">sandcastle admin user grant</span> <span class="arg">alice alice/myproject</span>
-<span class="cmd">sandcastle admin user grant</span> <span class="arg">alice alice/myproject alice/otherproject</span>  <span class="comment"># multiple</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin user grant</span> <span class="arg">alice alice/myproject</span>
+<span class="cmd">sandcastle-admin user grant</span> <span class="arg">alice alice/myproject alice/otherproject</span>  <span class="comment"># multiple</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Issue a new add-token for an existing user</h3>
     <p>Use this if the user lost their token or you need to re-register the remote.</p>
-    <pre><code><span class="cmd">sandcastle admin user token</span> <span class="arg">alice</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin user token</span> <span class="arg">alice</span></code></pre>
   </div>
 
   <div class="step">
@@ -478,18 +478,18 @@ Bootstrap:
   <div class="step">
     <h3>Create shared infrastructure</h3>
     <p>Provisions the shared Caddy reverse proxy and route broker inside a dedicated Incus project.</p>
-    <pre><code><span class="cmd">sandcastle admin infra create</span>
-<span class="cmd">sandcastle admin infra create</span> <span class="flag">--dry-run</span>   <span class="comment"># preview only</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin infra create</span>
+<span class="cmd">sandcastle-admin infra create</span> <span class="flag">--dry-run</span>   <span class="comment"># preview only</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Delete shared infrastructure</h3>
-    <pre><code><span class="cmd">sandcastle admin infra delete</span> <span class="flag">--yes</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin infra delete</span> <span class="flag">--yes</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Serve the route broker</h3>
-    <pre><code><span class="cmd">sandcastle admin route-broker serve</span> \
+    <pre><code><span class="cmd">sandcastle-admin route-broker serve</span> \
   <span class="flag">--listen</span> <span class="arg">:9443</span> \
   <span class="flag">--cert</span>   <span class="arg">/etc/caddy/certs/broker.crt</span> \
   <span class="flag">--key</span>    <span class="arg">/etc/caddy/certs/broker.key</span></code></pre>
@@ -532,7 +532,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Build an AI image manually (explicit versions)</h3>
-    <pre><code><span class="cmd">sandcastle admin image build</span> <span class="arg">ai</span> \
+    <pre><code><span class="cmd">sandcastle-admin image build</span> <span class="arg">ai</span> \
   <span class="flag">--codex-version</span>  <span class="arg">0.132.0</span> \
   <span class="flag">--claude-version</span> <span class="arg">2.1.145</span> \
   <span class="flag">--gemini-version</span> <span class="arg">0.42.0</span></code></pre>
@@ -540,18 +540,18 @@ Bootstrap:
 
   <div class="step">
     <h3>Build the base image manually</h3>
-    <pre><code><span class="cmd">sandcastle admin image build</span> <span class="arg">base</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin image build</span> <span class="arg">base</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Import an OCI image into Incus</h3>
-    <pre><code><span class="cmd">sandcastle admin image import</span> <span class="arg">base</span> <span class="arg">docker://ghcr.io/example/sandcastle-base:latest</span>
-<span class="cmd">sandcastle admin image import</span> <span class="arg">ai</span>   <span class="arg">docker://ghcr.io/example/sandcastle-ai:latest</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin image import</span> <span class="arg">base</span> <span class="arg">docker://ghcr.io/example/sandcastle-base:latest</span>
+<span class="cmd">sandcastle-admin image import</span> <span class="arg">ai</span>   <span class="arg">docker://ghcr.io/example/sandcastle-ai:latest</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Sync an already-imported image to the alias</h3>
-    <pre><code><span class="cmd">sandcastle admin image sync</span> <span class="arg">sandcastle/base:debian-13</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin image sync</span> <span class="arg">sandcastle/base:debian-13</span></code></pre>
   </div>
 </section>
 
@@ -582,19 +582,19 @@ Bootstrap:
         <tr><td>sandcastle route add &lt;host&gt; &lt;ref&gt;</td><td>Publish public HTTP route</td></tr>
         <tr><td>sandcastle route list</td><td>List published routes</td></tr>
         <tr><td>sandcastle route rm &lt;host&gt;</td><td>Remove a public route</td></tr>
-        <tr><td>sandcastle admin project create</td><td>Create a new project</td></tr>
-        <tr><td>sandcastle admin project set-ssh-key</td><td>Set or update project SSH public key</td></tr>
-        <tr><td>sandcastle admin project delete</td><td>Delete a project</td></tr>
-        <tr><td>sandcastle admin user create &lt;user&gt;</td><td>Create restricted user certificate</td></tr>
-        <tr><td>sandcastle admin user grant &lt;user&gt; &lt;proj&gt;...</td><td>Grant project access to user</td></tr>
-        <tr><td>sandcastle admin user token &lt;user&gt;</td><td>Re-issue add-token for user</td></tr>
-        <tr><td>sandcastle admin infra create</td><td>Create shared infrastructure</td></tr>
-        <tr><td>sandcastle admin infra delete</td><td>Delete shared infrastructure</td></tr>
+        <tr><td>sandcastle-admin project create</td><td>Create a new project</td></tr>
+        <tr><td>sandcastle-admin project set-ssh-key</td><td>Set or update project SSH public key</td></tr>
+        <tr><td>sandcastle-admin project delete</td><td>Delete a project</td></tr>
+        <tr><td>sandcastle-admin user create &lt;user&gt;</td><td>Create restricted user certificate</td></tr>
+        <tr><td>sandcastle-admin user grant &lt;user&gt; &lt;proj&gt;...</td><td>Grant project access to user</td></tr>
+        <tr><td>sandcastle-admin user token &lt;user&gt;</td><td>Re-issue add-token for user</td></tr>
+        <tr><td>sandcastle-admin infra create</td><td>Create shared infrastructure</td></tr>
+        <tr><td>sandcastle-admin infra delete</td><td>Delete shared infrastructure</td></tr>
         <tr><td>mise run image:ai:build-upload</td><td>Build AI image (auto latest versions) and upload</td></tr>
         <tr><td>mise run image:base:build-upload</td><td>Build base image and upload</td></tr>
-        <tr><td>sandcastle admin image build</td><td>Build sandbox OCI image</td></tr>
-        <tr><td>sandcastle admin image import</td><td>Import OCI image into Incus</td></tr>
-        <tr><td>sandcastle admin image sync</td><td>Sync imported image to alias</td></tr>
+        <tr><td>sandcastle-admin image build</td><td>Build sandbox OCI image</td></tr>
+        <tr><td>sandcastle-admin image import</td><td>Import OCI image into Incus</td></tr>
+        <tr><td>sandcastle-admin image sync</td><td>Sync imported image to alias</td></tr>
       </tbody>
     </table>
   </div>

@@ -77,32 +77,18 @@ type rootOptions struct {
 	output outputFormat
 }
 
-// Execute runs the Sandcastle CLI and returns a process exit code.
+// Execute runs the Sandcastle user CLI and returns a process exit code.
+// It uses the per-remote Sandcastle Incus config directory (restricted TLS certificate).
+// For admin operations use ExecuteAdmin (sandcastle-admin binary).
 func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
-	// Admin commands use the global Incus config (~/.config/incus/) with the admin remote.
-	// User-facing commands use the per-remote Sandcastle dir (restricted cert).
-	isAdmin := len(args) > 0 && args[0] == "admin"
 	verbose := os.Getenv("VERBOSE") == "1"
-	if isAdmin {
-		// Prefer explicit admin_remote; fall back to auto-detecting the global remote
-		// whose server TLS cert matches the per-remote user config.
-		adminRemote := adminConfig.AdminRemote
-		if adminRemote == "" {
-			adminRemote = detectAdminRemote(adminConfig.Remote, verbose)
-			if verbose && adminRemote != "" {
-				fmt.Fprintf(os.Stderr, "[verbose] admin remote auto-detected: %s\n", adminRemote)
-			}
-		}
-		if adminRemote != "" {
-			adminConfig.Remote = adminRemote
-		}
-		// INCUS_CONF intentionally not set → uses ~/.config/incus/ (admin certs)
-	} else {
-		if userPath := scconfig.ResolveConfigPath(adminConfig.Remote); userPath != "" {
-			os.Setenv("INCUS_CONF", userPath)
-		}
+
+	// Always use the per-remote Sandcastle config dir (restricted cert) for user commands.
+	if userPath := scconfig.ResolveConfigPath(adminConfig.Remote); userPath != "" {
+		os.Setenv("INCUS_CONF", userPath)
 	}
+
 	if verbose {
 		incusConf := os.Getenv("INCUS_CONF")
 		if incusConf == "" {
@@ -238,7 +224,6 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newHostCommand(config, opts))
 	root.AddCommand(newTrustCommand(config, opts))
 	root.AddCommand(newRouteCommand(config, opts))
-	root.AddCommand(newAdminCommand(config, opts))
 	root.AddCommand(newRemoteCommand(config, opts))
 	root.AddCommand(newIncusCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))

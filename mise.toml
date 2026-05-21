@@ -14,7 +14,7 @@ description = "Build the Sandcastle base OCI image"
 env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
 run = [
   "make build",
-  "./bin/sandcastle admin image build base --tag ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest}",
+  "./bin/sandcastle-admin image build base --tag ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest}",
 ]
 
 [tasks."image:base:upload"]
@@ -41,7 +41,7 @@ env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
 run = [
   "mise run image:deps",
   "make build",
-  "./bin/sandcastle admin image build base --tag ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest}",
+  "./bin/sandcastle-admin image build base --tag ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest}",
   "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} \"$SANDCASTLE_REMOTE\"",
 ]
 
@@ -66,7 +66,7 @@ echo "tag     ${AI_TAG}"
 mise run image:deps
 make build
 
-./bin/sandcastle admin image build ai \
+./bin/sandcastle-admin image build ai \
   --tag "${AI_TAG}" \
   --codex-version  "${CODEX_VERSION}" \
   --claude-version "${CLAUDE_VERSION}" \

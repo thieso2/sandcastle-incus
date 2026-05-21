@@ -29,7 +29,7 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 
 	sandcastleBin := strings.TrimSpace(e2eConfig.SandcastleBin)
 	if sandcastleBin == "" {
-		sandcastleBin = buildSandcastleForE2E(t)
+		sandcastleBin = buildSandcastleAdminForE2E(t)
 	}
 
 	runID := e2eConfig.DisposableRunID()
@@ -86,18 +86,18 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Run: sc admin project create via the native CLI binary.
+	// Run: sc-adm project create via the native admin CLI binary.
 	runAdminCLI(t, e2eConfig, sandcastleBin, 2*time.Minute,
-		"admin", "project", "create", ref, "--domain", domain)
+		"project", "create", ref, "--domain", domain)
 
 	// Verify the Incus project was created.
 	if _, _, err := server.GetProject(createPlan.IncusProject); err != nil {
 		t.Fatalf("expected Incus project %s to exist after sc admin project create: %v", createPlan.IncusProject, err)
 	}
 
-	// Run: sc admin project delete --yes --purge.
+	// Run: sc-adm project delete --yes --purge.
 	runAdminCLI(t, e2eConfig, sandcastleBin, 2*time.Minute,
-		"admin", "project", "delete", ref, "--yes", "--purge")
+		"project", "delete", ref, "--yes", "--purge")
 
 	// Verify the Incus project is gone.
 	if _, _, err := server.GetProject(createPlan.IncusProject); !api.StatusErrorCheck(err, http.StatusNotFound) {

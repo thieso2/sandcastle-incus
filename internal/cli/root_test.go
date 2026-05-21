@@ -49,6 +49,27 @@ func executeForTestWithConfig(t *testing.T, config commandConfig, args ...string
 	return stdout.String(), err
 }
 
+func executeAdminForTest(t *testing.T, name string, args ...string) (string, error) {
+	return executeAdminForTestWithConfig(t, commandConfig{name: name}, args...)
+}
+
+func executeAdminForTestWithConfig(t *testing.T, config commandConfig, args ...string) (string, error) {
+	t.Helper()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	config.stdout = &stdout
+	config.stderr = &stderr
+	cmd := NewAdminRootCommand(config)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	if stderr.Len() > 0 {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+	return stdout.String(), err
+}
+
 func TestVersionText(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "version")
 	if err != nil {
@@ -1370,7 +1391,7 @@ func TestRouteManagerFromEnvRequiresBrokerURL(t *testing.T) {
 }
 
 func TestAdminVersion(t *testing.T) {
-	stdout, err := executeForTest(t, "sandcastle", "admin", "version")
+	stdout, err := executeAdminForTest(t, "sandcastle-admin", "version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1390,13 +1411,13 @@ func TestAdminProjectListJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name: "sandcastle-admin",
 		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
 			Name:   "sc-alice-myproject",
 			Config: configMap,
 		}}},
-	}, "--output", "json", "admin", "project", "list")
+	}, "--output", "json", "project", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1413,10 +1434,10 @@ func TestAdminProjectListJSON(t *testing.T) {
 }
 
 func TestAdminProjectCreateDryRunJSON(t *testing.T) {
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "--output", "json", "admin", "project", "create", "alice/myproject", "--domain", "myproject.project-tld", "--dry-run")
+	}, "--output", "json", "project", "create", "alice/myproject", "--domain", "myproject.project-tld", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1433,7 +1454,7 @@ func TestAdminProjectCreateDryRunJSON(t *testing.T) {
 }
 
 func TestAdminProjectCreateRequiresExecutor(t *testing.T) {
-	_, err := executeForTest(t, "sandcastle", "admin", "project", "create", "alice/myproject", "--domain", "myproject.project-tld")
+	_, err := executeAdminForTest(t, "sandcastle-admin", "project", "create", "alice/myproject", "--domain", "myproject.project-tld")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1454,14 +1475,14 @@ func TestAdminProjectCreateRejectsDuplicateDomainForSameOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	creator := &fakeProjectCreator{}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
+	_, err = executeAdminForTestWithConfig(t, commandConfig{
+		name: "sandcastle-admin",
 		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
 			Name:   "sc-alice-myproject",
 			Config: configMap,
 		}}},
 		projectCreator: creator,
-	}, "admin", "project", "create", "alice/other", "--domain", "shared.project-tld")
+	}, "project", "create", "alice/other", "--domain", "shared.project-tld")
 	if err == nil {
 		t.Fatal("expected duplicate domain error")
 	}
@@ -1489,7 +1510,7 @@ func TestAdminTLDRefreshWritesSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	output := filepath.Join(dir, "tld_snapshot_generated.go")
 	specialUseOutput := filepath.Join(dir, "special_use_snapshot_generated.go")
-	stdout, err := executeForTest(t, "sandcastle", "admin", "tld", "refresh", "--source-url", server.URL+"/tlds", "--output-file", output, "--special-use-source-url", server.URL+"/special-use", "--special-use-output-file", specialUseOutput)
+	stdout, err := executeAdminForTest(t, "sandcastle-admin", "tld", "refresh", "--source-url", server.URL+"/tlds", "--output-file", output, "--special-use-source-url", server.URL+"/special-use", "--special-use-output-file", specialUseOutput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1528,7 +1549,7 @@ func TestAdminTLDRefreshDryRunJSON(t *testing.T) {
 	dir := t.TempDir()
 	output := filepath.Join(dir, "tld_snapshot_generated.go")
 	specialUseOutput := filepath.Join(dir, "special_use_snapshot_generated.go")
-	stdout, err := executeForTest(t, "sandcastle", "--output", "json", "admin", "tld", "refresh", "--source-url", server.URL+"/tlds", "--output-file", output, "--special-use-source-url", server.URL+"/special-use", "--special-use-output-file", specialUseOutput, "--dry-run")
+	stdout, err := executeAdminForTest(t, "sandcastle-admin", "--output", "json", "tld", "refresh", "--source-url", server.URL+"/tlds", "--output-file", output, "--special-use-source-url", server.URL+"/special-use", "--special-use-output-file", specialUseOutput, "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1548,7 +1569,7 @@ func TestAdminTLDRefreshDryRunJSON(t *testing.T) {
 }
 
 func TestAdminProjectDeleteRequiresConfirmation(t *testing.T) {
-	_, err := executeForTest(t, "sandcastle", "admin", "project", "delete", "alice/myproject")
+	_, err := executeAdminForTest(t, "sandcastle-admin", "project", "delete", "alice/myproject")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1558,10 +1579,10 @@ func TestAdminProjectDeleteRequiresConfirmation(t *testing.T) {
 }
 
 func TestAdminInfraCreateDryRunJSON(t *testing.T) {
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "--output", "json", "admin", "infra", "create", "--dry-run")
+	}, "--output", "json", "infra", "create", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1582,11 +1603,11 @@ func TestAdminInfraCreateDryRunJSON(t *testing.T) {
 
 func TestAdminInfraCreateCallsExecutor(t *testing.T) {
 	creator := &fakeInfraCreator{}
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:         "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
 		adminConfig:  scconfig.LoadAdminFromEnv(),
 		infraCreator: creator,
-	}, "admin", "infra", "create")
+	}, "infra", "create")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1599,10 +1620,10 @@ func TestAdminInfraCreateCallsExecutor(t *testing.T) {
 }
 
 func TestAdminInfraCreateRequiresExecutor(t *testing.T) {
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "admin", "infra", "create")
+	}, "infra", "create")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1612,10 +1633,10 @@ func TestAdminInfraCreateRequiresExecutor(t *testing.T) {
 }
 
 func TestAdminInfraDeleteRequiresConfirmation(t *testing.T) {
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "admin", "infra", "delete")
+	}, "infra", "delete")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1626,11 +1647,11 @@ func TestAdminInfraDeleteRequiresConfirmation(t *testing.T) {
 
 func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
 	deleter := &fakeInfraDeleter{}
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:         "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
 		adminConfig:  scconfig.LoadAdminFromEnv(),
 		infraDeleter: deleter,
-	}, "admin", "infra", "delete", "--yes")
+	}, "infra", "delete", "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1643,10 +1664,10 @@ func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
 }
 
 func TestAdminImageSyncDryRunJSON(t *testing.T) {
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "--output", "json", "admin", "image", "sync", "sandcastle/base:debian-13", "--dry-run")
+	}, "--output", "json", "image", "sync", "sandcastle/base:debian-13", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1663,10 +1684,10 @@ func TestAdminImageSyncDryRunJSON(t *testing.T) {
 }
 
 func TestAdminImageBuildDryRunJSON(t *testing.T) {
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "--output", "json", "admin", "image", "build", "base", "--tag", "sandcastle/base:debian-13", "--dry-run")
+	}, "--output", "json", "image", "build", "base", "--tag", "sandcastle/base:debian-13", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1680,7 +1701,7 @@ func TestAdminImageBuildDryRunJSON(t *testing.T) {
 }
 
 func TestAdminImageBuildRequiresPinnedAIVersions(t *testing.T) {
-	_, err := executeForTest(t, "sandcastle", "admin", "image", "build", "ai", "--dry-run")
+	_, err := executeAdminForTest(t, "sandcastle-admin", "image", "build", "ai", "--dry-run")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1691,11 +1712,11 @@ func TestAdminImageBuildRequiresPinnedAIVersions(t *testing.T) {
 
 func TestAdminImageBuildCallsExecutor(t *testing.T) {
 	builder := &fakeImageBuilder{}
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:         "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
 		adminConfig:  scconfig.LoadAdminFromEnv(),
 		imageBuilder: builder,
-	}, "admin", "image", "build", "base", "--tag", "sandcastle/base:debian-13")
+	}, "image", "build", "base", "--tag", "sandcastle/base:debian-13")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1708,10 +1729,10 @@ func TestAdminImageBuildCallsExecutor(t *testing.T) {
 }
 
 func TestAdminImageImportDryRunJSON(t *testing.T) {
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "--output", "json", "admin", "image", "import", "base", "oci:sandcastle/base:debian-13", "--dry-run")
+	}, "--output", "json", "image", "import", "base", "oci:sandcastle/base:debian-13", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1729,11 +1750,11 @@ func TestAdminImageImportDryRunJSON(t *testing.T) {
 
 func TestAdminImageImportCallsExecutor(t *testing.T) {
 	importer := &fakeImageImporter{}
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:          "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:          "sandcastle-admin",
 		adminConfig:   scconfig.LoadAdminFromEnv(),
 		imageImporter: importer,
-	}, "admin", "image", "import", "ai", "oci:sandcastle/ai:debian-13")
+	}, "image", "import", "ai", "oci:sandcastle/ai:debian-13")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1747,11 +1768,11 @@ func TestAdminImageImportCallsExecutor(t *testing.T) {
 
 func TestAdminImageSyncCallsExecutor(t *testing.T) {
 	manager := &fakeImageManager{result: images.SyncResult{Fingerprint: "abc123", Action: "created"}}
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:         "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
 		adminConfig:  scconfig.LoadAdminFromEnv(),
 		imageManager: manager,
-	}, "admin", "image", "sync", "sandcastle/ai:debian-13")
+	}, "image", "sync", "sandcastle/ai:debian-13")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1764,10 +1785,10 @@ func TestAdminImageSyncCallsExecutor(t *testing.T) {
 }
 
 func TestAdminUserGrantDryRunJSON(t *testing.T) {
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "--output", "json", "admin", "user", "grant", "alice", "alice/myproject", "--dry-run")
+	}, "--output", "json", "user", "grant", "alice", "alice/myproject", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1784,7 +1805,7 @@ func TestAdminUserGrantDryRunJSON(t *testing.T) {
 }
 
 func TestAdminUserCreateDryRunShowsRemoteName(t *testing.T) {
-	stdout, err := executeForTest(t, "sandcastle", "admin", "user", "create", "alice", "--dry-run")
+	stdout, err := executeAdminForTest(t, "sandcastle-admin", "user", "create", "alice", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1794,10 +1815,10 @@ func TestAdminUserCreateDryRunShowsRemoteName(t *testing.T) {
 }
 
 func TestAdminUserGrantRejectsCrossOwnerProject(t *testing.T) {
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "admin", "user", "grant", "alice", "bob/myproject", "--dry-run")
+	}, "user", "grant", "alice", "bob/myproject", "--dry-run")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1808,10 +1829,10 @@ func TestAdminUserGrantRejectsCrossOwnerProject(t *testing.T) {
 
 func TestAdminUserTokenShowsBootstrapCommands(t *testing.T) {
 	manager := &fakeTrustManager{token: "certificate-add-token"}
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:         "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
 		trustManager: manager,
-	}, "admin", "user", "token", "alice")
+	}, "user", "token", "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1832,10 +1853,10 @@ func TestAdminUserTokenShowsBootstrapCommands(t *testing.T) {
 
 func TestAdminUserTokenJSONIncludesRemoteName(t *testing.T) {
 	manager := &fakeTrustManager{token: "certificate-add-token"}
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:         "sandcastle",
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
 		trustManager: manager,
-	}, "--output", "json", "admin", "user", "token", "alice")
+	}, "--output", "json", "user", "token", "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1850,10 +1871,10 @@ func TestAdminUserTokenJSONIncludesRemoteName(t *testing.T) {
 
 func TestAdminRouteBrokerServeCallsRunner(t *testing.T) {
 	runner := &fakeRouteBrokerRunner{}
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
 		routeBroker: runner,
-	}, "admin", "route-broker", "serve", "--listen", "127.0.0.1:9443", "--cert", "/tmp/broker.crt", "--key", "/tmp/broker.key")
+	}, "route-broker", "serve", "--listen", "127.0.0.1:9443", "--cert", "/tmp/broker.crt", "--key", "/tmp/broker.key")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1869,7 +1890,7 @@ func TestAdminRouteBrokerServeCallsRunner(t *testing.T) {
 }
 
 func TestAdminRouteBrokerServeRequiresConfiguredRunner(t *testing.T) {
-	_, err := executeForTest(t, "sandcastle", "admin", "route-broker", "serve", "--cert", "/tmp/broker.crt", "--key", "/tmp/broker.key")
+	_, err := executeAdminForTest(t, "sandcastle-admin", "route-broker", "serve", "--cert", "/tmp/broker.crt", "--key", "/tmp/broker.key")
 	if err == nil {
 		t.Fatal("expected error")
 	}

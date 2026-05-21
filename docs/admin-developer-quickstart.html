@@ -300,10 +300,10 @@ SANDCASTLE_CLAUDE_VERSION=2.1.145 \
 SANDCASTLE_GEMINI_VERSION=0.42.0 \
   mise run image:ai:build-upload</code></pre>
       <p>Or import a pre-built image from a registry:</p>
-      <pre><code>./bin/sc admin image import ai SOURCE_REF</code></pre>
+      <pre><code>./bin/sc-adm image import ai SOURCE_REF</code></pre>
 
       <h3>4. Create the project</h3>
-      <pre><code>./bin/sc admin project create alice/myproject \
+      <pre><code>./bin/sc-adm project create alice/myproject \
   --domain myproject.project-tld</code></pre>
       <p>This creates the Incus project with isolated feature namespaces, project-local Sandcastle image aliases, project-local private bridge network, isolated home/workspace/CA volumes, CoreDNS sidecar, and Tailscale sidecar. Both sidecars start immediately, but <strong>Tailscale is not yet activated</strong> — the container is running but <code>tailscaled</code> has not been started.</p>
 
@@ -317,11 +317,11 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
       <p>The <code>sc-tailscale</code> sidecar advertises the project's entire private CIDR (e.g. <code>10.248.0.0/24</code>) as a subnet route. Once you approve the route in the Tailscale admin console, any Tailnet device can reach all project sandboxes directly by their private IP.</p>
 
       <h3>5. Create the developer certificate token</h3>
-      <pre><code>./bin/sc admin user create alice</code></pre>
+      <pre><code>./bin/sc-adm user create alice</code></pre>
       <p>Copy the printed join token into the handoff notes. The developer runs <code>sc remote add</code> with it. The admin must grant project access <em>after</em> the developer has added the remote.</p>
 
       <h3>6. Grant project access after the developer adds the remote</h3>
-      <pre><code>./bin/sc admin user grant alice alice/myproject</code></pre>
+      <pre><code>./bin/sc-adm user grant alice alice/myproject</code></pre>
       <p>The grant updates the developer's restricted Incus certificate so normal commands can operate only inside allowed projects.</p>
     </section>
 
@@ -397,7 +397,7 @@ sc add myproject/codex --detach</code></pre>
       <div class="grid">
         <div class="panel">
           <h3>Admin checks</h3>
-          <pre><code>./bin/sc admin project status alice/myproject
+          <pre><code>./bin/sc-adm project status alice/myproject
 incus project show REMOTE:sc-alice-myproject
 incus list REMOTE: --project sc-alice-myproject</code></pre>
         </div>
@@ -427,9 +427,9 @@ sc dns uninstall myproject
 sc tailscale down myproject</code></pre>
 
       <h3>Admin cleanup</h3>
-      <pre><code>./bin/sc admin project delete alice/myproject --yes
+      <pre><code>./bin/sc-adm project delete alice/myproject --yes
 # For disposable projects only:
-./bin/sc admin project delete alice/myproject --yes --purge</code></pre>
+./bin/sc-adm project delete alice/myproject --yes --purge</code></pre>
       <p><code>--purge</code> removes durable project state. Omit it when preserving home/workspace/CA volumes is required.</p>
     </section>
   </main>

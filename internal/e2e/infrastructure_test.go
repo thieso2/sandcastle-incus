@@ -232,6 +232,16 @@ func buildSandcastleForE2E(t *testing.T) string {
 	return path
 }
 
+func buildSandcastleAdminForE2E(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "sandcastle-admin")
+	command := exec.Command("go", "build", "-o", path, "github.com/thieso2/sandcastle-incus/cmd/sandcastle-admin")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandcastle-admin e2e binary: %v\n%s", err, strings.TrimSpace(string(output)))
+	}
+	return path
+}
+
 func buildSandcastleForRemote(t *testing.T, remote string) string {
 	t.Helper()
 	goarch := remoteGOARCH(t, remote)
