@@ -25,6 +25,7 @@ type SandboxResourceServer interface {
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
+	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
@@ -92,6 +93,9 @@ func (c SandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePl
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get sandbox %s: %w", plan.InstanceName, err)
 	}
+	if err := ensureSandboxStorageDirs(projectServer, plan); err != nil {
+		return err
+	}
 	c.log("create instance " + plan.InstanceName + " (image: " + plan.ImageAlias + ")")
 	op, err := projectServer.CreateInstance(sandboxRequest(plan))
 	if err != nil {
@@ -102,6 +106,30 @@ func (c SandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePl
 	}
 	c.log("ensure sandbox files for " + plan.InstanceName)
 	return ensureSandboxFiles(projectServer, plan)
+}
+
+func ensureSandboxStorageDirs(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+	for _, volumeDir := range []struct {
+		volume string
+		path   string
+	}{
+		{volume: project.HomeVolumeName, path: plan.HomeDir},
+		{volume: project.WorkspaceVolumeName, path: plan.WorkspaceDir},
+	} {
+		if volumeDir.path == "" || volumeDir.path == "." {
+			continue
+		}
+		err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", volumeDir.volume, volumeDir.path, incus.InstanceFileArgs{
+			Type: "directory",
+			UID:  int64(sandbox.DefaultLinuxUID),
+			GID:  int64(sandbox.DefaultLinuxGID),
+			Mode: 0o755,
+		})
+		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
+			return fmt.Errorf("create sandbox storage directory %s/%s: %w", volumeDir.volume, volumeDir.path, err)
+		}
+	}
+	return nil
 }
 
 func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) error {
@@ -364,6 +392,10 @@ func (s sdkSandboxResourceServer) UpdateInstanceState(name string, state api.Ins
 
 func (s sdkSandboxResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateInstanceFile(instanceName, path, args)
+}
+
+func (s sdkSandboxResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+	return createStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath, args)
 }
 
 func (s sdkSandboxResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {

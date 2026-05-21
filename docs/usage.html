@@ -149,6 +149,7 @@
     <li><a href="#routes">Publish public routes</a></li>
     <li><a href="#infra">Shared infrastructure</a></li>
     <li><a href="#images">Manage images</a></li>
+    <li><a href="#e2e">E2E scripts</a></li>
     <li><a href="#reference">Quick reference</a></li>
   </ol>
 </nav>
@@ -577,9 +578,21 @@ Bootstrap:
   </div>
 </section>
 
-<!-- ─── 10. Quick reference ───────────────────────────────────────────── -->
+<!-- ─── 10. E2E scripts ───────────────────────────────────────────────── -->
+<section id="e2e">
+  <h2>10. E2E scripts</h2>
+
+  <div class="step">
+    <h3>Run the disposable VM local mutation tier</h3>
+    <p>Creates a local Incus VM, installs Go, mise, and nested Incus, seeds nested image aliases from the host, starts root's systemd user service manager for <code>systemctl --user</code> coverage, copies the checkout, and runs the VM-only local DNS, trust, and hosts e2e tier inside the VM.</p>
+    <pre><code><span class="cmd">scripts/e2e-local-vm.sh</span>
+<span class="env">SANDCASTLE_E2E_VM_KEEP</span>=1 <span class="cmd">scripts/e2e-local-vm.sh</span>   <span class="comment"># keep VM for diagnosis</span></code></pre>
+  </div>
+</section>
+
+<!-- ─── 11. Quick reference ───────────────────────────────────────────── -->
 <section id="reference">
-  <h2>10. Quick reference</h2>
+  <h2>11. Quick reference</h2>
 
   <div class="step">
     <h3>All commands at a glance</h3>

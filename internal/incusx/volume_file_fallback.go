@@ -16,14 +16,30 @@ import (
 var incusStoragePoolRoot = "/var/lib/incus/storage-pools"
 
 func createStorageVolumeFile(inner incus.InstanceServer, projectName string, pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+	if handled, err := writeLocalDirStorageVolumeFileIfAvailable(projectName, pool, volumeType, volumeName, filePath, args); handled || err != nil {
+		return err
+	}
 	err := inner.CreateStorageVolumeFile(pool, volumeType, volumeName, filePath, args)
-	if err == nil || !api.StatusErrorCheck(err, http.StatusNotFound) {
+	if err == nil {
+		return nil
+	}
+	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return err
 	}
 	if fallbackErr := writeLocalDirStorageVolumeFile(projectName, pool, volumeType, volumeName, filePath, args); fallbackErr != nil {
 		return err
 	}
 	return nil
+}
+
+func writeLocalDirStorageVolumeFileIfAvailable(projectName string, pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) (bool, error) {
+	if os.Geteuid() != 0 {
+		return false, nil
+	}
+	if _, err := localDirStorageVolumePath(projectName, pool, volumeType, volumeName, filePath); err != nil {
+		return false, nil
+	}
+	return true, writeLocalDirStorageVolumeFile(projectName, pool, volumeType, volumeName, filePath, args)
 }
 
 func getStorageVolumeFile(inner incus.InstanceServer, projectName string, pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
@@ -44,12 +60,19 @@ func writeLocalDirStorageVolumeFile(projectName string, pool string, volumeType 
 		if mode == 0 {
 			mode = 0o755
 		}
-		return os.MkdirAll(target, mode)
+		if err := os.MkdirAll(target, mode); err != nil {
+			return err
+		}
+		_ = os.Chown(target, int(args.UID), int(args.GID))
+		return os.Chmod(target, mode)
 	}
 	if args.Content == nil {
 		return fmt.Errorf("storage volume file %s content is nil", filePath)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if _, err := args.Content.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
 	flag := os.O_CREATE | os.O_WRONLY

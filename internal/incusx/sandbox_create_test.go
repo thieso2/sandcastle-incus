@@ -26,13 +26,14 @@ func (s fakeSandboxServer) UseProject(name string) SandboxResourceServer {
 }
 
 type fakeSandboxResource struct {
-	instance     *api.Instance
-	created      *api.InstancesPost
-	started      bool
-	createdFiles map[string]string
-	caFiles      map[string]string
-	execCommands [][]string
-	execEnvs     []map[string]string
+	instance          *api.Instance
+	created           *api.InstancesPost
+	started           bool
+	createdFiles      map[string]string
+	createdVolumeDirs []string
+	caFiles           map[string]string
+	execCommands      [][]string
+	execEnvs          []map[string]string
 }
 
 func (r *fakeSandboxResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -67,6 +68,17 @@ func (r *fakeSandboxResource) CreateInstanceFile(instanceName string, path strin
 		return err
 	}
 	r.createdFiles[path] = string(content)
+	return nil
+}
+
+func (r *fakeSandboxResource) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+	if args.Type != "directory" {
+		return api.StatusErrorf(http.StatusBadRequest, "unexpected volume file type")
+	}
+	if r.created != nil {
+		return api.StatusErrorf(http.StatusBadRequest, "volume directory created after instance")
+	}
+	r.createdVolumeDirs = append(r.createdVolumeDirs, volumeName+"/"+filePath)
 	return nil
 }
 
@@ -105,6 +117,10 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	}
 	if resource.created.Devices["home"]["path"] != "/home/acme" {
 		t.Fatalf("home device = %#v", resource.created.Devices["home"])
+	}
+	wantVolumeDirs := []string{"sc-home/default/codex", "sc-workspace/default/codex"}
+	if strings.Join(resource.createdVolumeDirs, ",") != strings.Join(wantVolumeDirs, ",") {
+		t.Fatalf("created volume dirs = %#v, want %#v", resource.createdVolumeDirs, wantVolumeDirs)
 	}
 	if resource.created.Config["environment.SANDCASTLE_USER"] != "acme" {
 		t.Fatalf("instance config = %#v", resource.created.Config)

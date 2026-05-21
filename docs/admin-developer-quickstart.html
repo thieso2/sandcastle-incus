@@ -427,6 +427,11 @@ sc connect website/codex</code></pre>
         <li><code>sc-tailscale</code> and <code>sc-dns</code> sidecars are running.</li>
         <li>Tailscale route check becomes <code>ok</code> after authentication and route approval.</li>
       </ul>
+
+      <h3>Disposable VM local e2e</h3>
+      <p>Use the host-side VM harness for local DNS service, platform trust, and <code>/etc/hosts</code> mutation coverage. The harness starts a root systemd user service manager inside the VM so Linux <code>systemctl --user</code> paths are exercised.</p>
+      <pre><code>scripts/e2e-local-vm.sh
+SANDCASTLE_E2E_VM_KEEP=1 scripts/e2e-local-vm.sh</code></pre>
     </section>
 
     <section id="cleanup">

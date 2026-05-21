@@ -52,6 +52,16 @@ SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_RUN_ID=e2e-20260520-120000 scripts/e2e.sh cleanup
 ```
 
+To run the VM-only local mutation tier from the host, use the disposable VM
+harness. It creates a local Incus VM, installs the e2e toolchain, seeds nested
+Incus image aliases from the host, starts a root user service manager for
+`systemctl --user` coverage, copies this checkout, and runs the `local-vm` tier
+inside the VM:
+
+```bash
+scripts/e2e-local-vm.sh
+```
+
 The destructive tiers refuse to run unless their required environment variables
 are set. See the e2e testing plan for Incus, restricted HTTPS remote, image,
 Tailscale, route broker, public route, cleanup, and disposable VM requirements. Safe

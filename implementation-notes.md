@@ -186,3 +186,18 @@
   the route broker service and route ingress fixes. That tier still skips the
   broker mutation test unless `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` is set; the
   dedicated `route-broker` tier covers that socket-mounted path.
+- Added `scripts/e2e-local-vm.sh` as a reusable host-side harness for the
+  VM-only local mutation tier. It launches a disposable local Incus VM, installs
+  Go, mise, and nested Incus, copies the checkout, seeds nested image aliases
+  from host `sandcastle/base:latest` and `sandcastle/ai:latest`, starts root's
+  systemd user service manager for the local DNS service test, and runs
+  `scripts/e2e.sh local-vm` inside the VM. This replaces prior ad hoc VM setup
+  attempts and gives the remaining disk-constrained verification a repeatable
+  entry point.
+- Debian 13/Incus 6.0.4 also returned success for custom-volume file uploads on
+  local dir-backed tenant pools while leaving the CA files empty. When running
+  against local dir-backed volumes as root, the adapter now writes directly to
+  `/var/lib/incus/storage-pools/<pool>/custom/<project>_<vol>` instead of using
+  the broken upload path. The host-side VM harness passed end-to-end as
+  `e2e-local-vm-20260521-122306`, covering host overrides, local DNS service
+  install/reload/uninstall, local trust, and platform trust.
