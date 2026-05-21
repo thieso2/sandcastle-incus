@@ -28,12 +28,15 @@ func (s fakeSandboxServer) UseProject(name string) SandboxResourceServer {
 type fakeSandboxResource struct {
 	instance          *api.Instance
 	created           *api.InstancesPost
+	helperCreated     *api.InstancesPost
+	helperDeleted     bool
 	started           bool
 	createdFiles      map[string]string
 	createdVolumeDirs []string
 	caFiles           map[string]string
 	execCommands      [][]string
 	execEnvs          []map[string]string
+	volumeFileErr     error
 }
 
 func (r *fakeSandboxResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -44,6 +47,10 @@ func (r *fakeSandboxResource) GetInstance(name string) (*api.Instance, string, e
 }
 
 func (r *fakeSandboxResource) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
+	if strings.HasPrefix(instance.Name, "sc-storage-init-") {
+		r.helperCreated = &instance
+		return fakeOperation{}, nil
+	}
 	r.created = &instance
 	return fakeOperation{}, nil
 }
@@ -53,6 +60,14 @@ func (r *fakeSandboxResource) UpdateInstanceState(name string, state api.Instanc
 		r.started = true
 	}
 	return fakeOperation{}, nil
+}
+
+func (r *fakeSandboxResource) DeleteInstance(name string) (incus.Operation, error) {
+	if strings.HasPrefix(name, "sc-storage-init-") {
+		r.helperDeleted = true
+		return fakeOperation{}, nil
+	}
+	return nil, api.StatusErrorf(http.StatusNotFound, "not found")
 }
 
 func (r *fakeSandboxResource) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
@@ -72,6 +87,9 @@ func (r *fakeSandboxResource) CreateInstanceFile(instanceName string, path strin
 }
 
 func (r *fakeSandboxResource) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+	if r.volumeFileErr != nil {
+		return r.volumeFileErr
+	}
 	if args.Type != "directory" {
 		return api.StatusErrorf(http.StatusBadRequest, "unexpected volume file type")
 	}
@@ -157,6 +175,35 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	}
 }
 
+func TestSandboxCreatorFallsBackToHelperForStorageDirs(t *testing.T) {
+	plan := sandboxPlanForTest(t)
+	resource := fakeSandboxResourceWithCA(t)
+	resource.volumeFileErr = api.StatusErrorf(http.StatusNotFound, "not found")
+	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if resource.helperCreated == nil {
+		t.Fatal("expected storage helper instance creation")
+	}
+	if resource.helperCreated.Devices["home"]["source"] != "sc-home" || resource.helperCreated.Devices["workspace"]["source"] != "sc-workspace" {
+		t.Fatalf("helper devices = %#v", resource.helperCreated.Devices)
+	}
+	if !resource.helperDeleted {
+		t.Fatal("expected storage helper cleanup")
+	}
+	if resource.created == nil {
+		t.Fatal("expected sandbox instance creation")
+	}
+	commands := strings.Join(flattenCommands(resource.execCommands), "\n")
+	if !strings.Contains(commands, "install -d -o 1000 -g 1000 -m 0755 -- '/mnt/home/default/codex'") {
+		t.Fatalf("helper commands missing home dir: %s", commands)
+	}
+	if !strings.Contains(commands, "install -d -o 1000 -g 1000 -m 0755 -- '/mnt/workspace/default/codex'") {
+		t.Fatalf("helper commands missing workspace dir: %s", commands)
+	}
+}
+
 func TestSandboxCreatorEnablesNestingForContainerTools(t *testing.T) {
 	plan := sandboxPlanForTest(t)
 	plan.ContainerTools = true
@@ -174,6 +221,14 @@ func TestSandboxCreatorEnablesNestingForContainerTools(t *testing.T) {
 	if _, ok := resource.created.Config["security.privileged"]; ok {
 		t.Fatalf("security.privileged is set: %#v", resource.created.Config)
 	}
+}
+
+func flattenCommands(commands [][]string) []string {
+	flattened := make([]string, 0, len(commands))
+	for _, command := range commands {
+		flattened = append(flattened, strings.Join(command, " "))
+	}
+	return flattened
 }
 
 func TestSandboxCreatorStartsExistingStoppedInstance(t *testing.T) {

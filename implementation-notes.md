@@ -201,3 +201,14 @@
   the broken upload path. The host-side VM harness passed end-to-end as
   `e2e-local-vm-20260521-122306`, covering host overrides, local DNS service
   install/reload/uninstall, local trust, and platform trust.
+- The same custom-volume subdirectory fix initially regressed host e2e runs
+  executed as a non-root Incus admin user: the SDK returned 404 for volume-file
+  directory creation, but the process could not write `/var/lib/incus` directly.
+  Machine creation now falls back to a short-lived storage helper container in
+  the tenant project. The helper mounts the top-level `sc-home` and
+  `sc-workspace` custom volumes, creates the requested subdirectories with UID
+  and GID 1000, then is deleted before the real machine is created. This keeps
+  non-root local Incus, root VM, and newer remote Incus paths working. Verified
+  host tiers: `incus` passed as `e2e-20260521-123440-18835`; `route-broker`
+  passed as `e2e-20260521-123909-31423`; the host-side VM harness passed again
+  as `e2e-local-vm-20260521-124224`.

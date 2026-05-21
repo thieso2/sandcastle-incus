@@ -3,10 +3,12 @@ package incusx
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
 	"net/netip"
+	"path"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -24,6 +26,7 @@ type SandboxResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
+	DeleteInstance(name string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
@@ -109,10 +112,8 @@ func (c SandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePl
 }
 
 func ensureSandboxStorageDirs(server SandboxResourceServer, plan sandbox.CreatePlan) error {
-	for _, volumeDir := range []struct {
-		volume string
-		path   string
-	}{
+	var helperDirs []sandboxStorageDir
+	for _, volumeDir := range []sandboxStorageDir{
 		{volume: project.HomeVolumeName, path: plan.HomeDir},
 		{volume: project.WorkspaceVolumeName, path: plan.WorkspaceDir},
 	} {
@@ -125,11 +126,125 @@ func ensureSandboxStorageDirs(server SandboxResourceServer, plan sandbox.CreateP
 			GID:  int64(sandbox.DefaultLinuxGID),
 			Mode: 0o755,
 		})
+		if api.StatusErrorCheck(err, http.StatusNotFound) {
+			helperDirs = append(helperDirs, volumeDir)
+			continue
+		}
 		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
 			return fmt.Errorf("create sandbox storage directory %s/%s: %w", volumeDir.volume, volumeDir.path, err)
 		}
 	}
+	if len(helperDirs) > 0 {
+		return ensureSandboxStorageDirsWithHelper(server, plan, helperDirs)
+	}
 	return nil
+}
+
+type sandboxStorageDir struct {
+	volume string
+	path   string
+}
+
+func ensureSandboxStorageDirsWithHelper(server SandboxResourceServer, plan sandbox.CreatePlan, dirs []sandboxStorageDir) error {
+	name := sandboxStorageHelperName(plan.InstanceName)
+	_ = deleteSandboxStorageHelper(server, name)
+	helper := sandboxStorageHelperRequest(plan, name)
+	op, err := server.CreateInstance(helper)
+	if err != nil {
+		return fmt.Errorf("create sandbox storage helper %s: %w", name, err)
+	}
+	if err := op.Wait(); err != nil {
+		_ = deleteSandboxStorageHelper(server, name)
+		return fmt.Errorf("wait for sandbox storage helper %s: %w", name, err)
+	}
+	defer deleteSandboxStorageHelper(server, name)
+
+	var commands []string
+	for _, dir := range dirs {
+		target := "/mnt/" + storageHelperMountName(dir.volume) + "/" + path.Clean(dir.path)
+		commands = append(commands, "install -d -o 1000 -g 1000 -m 0755 -- "+shellQuote(target))
+	}
+	dataDone := make(chan bool)
+	op, err = server.ExecInstance(name, api.InstanceExecPost{
+		Command:   []string{"/bin/sh", "-c", strings.Join(commands, " && ")},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("create sandbox storage directories with helper %s: %w", name, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for sandbox storage helper %s directory creation: %w", name, err)
+	}
+	<-dataDone
+	return nil
+}
+
+func sandboxStorageHelperRequest(plan sandbox.CreatePlan, name string) api.InstancesPost {
+	return api.InstancesPost{
+		Name:  name,
+		Type:  "container",
+		Start: true,
+		Source: api.InstanceSource{
+			Type:  "image",
+			Alias: plan.ImageAlias,
+		},
+		InstancePut: api.InstancePut{
+			Devices: api.DevicesMap{
+				"root": {
+					"type": "disk",
+					"pool": plan.StoragePool,
+					"path": "/",
+				},
+				"home": {
+					"type":   "disk",
+					"pool":   plan.StoragePool,
+					"source": project.HomeVolumeName,
+					"path":   "/mnt/home",
+				},
+				"workspace": {
+					"type":   "disk",
+					"pool":   plan.StoragePool,
+					"source": project.WorkspaceVolumeName,
+					"path":   "/mnt/workspace",
+				},
+			},
+		},
+	}
+}
+
+func deleteSandboxStorageHelper(server SandboxResourceServer, name string) error {
+	stopOp, stopErr := server.UpdateInstanceState(name, api.InstanceStatePut{Action: "stop", Timeout: -1, Force: true}, "")
+	if stopErr == nil {
+		_ = stopOp.Wait()
+	}
+	op, err := server.DeleteInstance(name)
+	if api.StatusErrorCheck(err, http.StatusNotFound) {
+		return nil
+	}
+	return waitOperation(op, err, "delete sandbox storage helper "+name)
+}
+
+func sandboxStorageHelperName(instanceName string) string {
+	sum := sha256.Sum256([]byte(instanceName))
+	return fmt.Sprintf("sc-storage-init-%x", sum[:6])
+}
+
+func storageHelperMountName(volume string) string {
+	switch volume {
+	case project.HomeVolumeName:
+		return "home"
+	case project.WorkspaceVolumeName:
+		return "workspace"
+	default:
+		return volume
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) error {
@@ -388,6 +503,10 @@ func (s sdkSandboxResourceServer) CreateInstance(instance api.InstancesPost) (in
 
 func (s sdkSandboxResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
 	return s.inner.UpdateInstanceState(name, state, etag)
+}
+
+func (s sdkSandboxResourceServer) DeleteInstance(name string) (incus.Operation, error) {
+	return s.inner.DeleteInstance(name)
 }
 
 func (s sdkSandboxResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
