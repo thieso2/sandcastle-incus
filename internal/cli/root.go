@@ -72,6 +72,7 @@ type commandConfig struct {
 	routes               route.Manager
 	routeSandbox         route.MachineStore
 	routeBroker          routebroker.Runner
+	incusRunner          incusRunner
 }
 
 type rootOptions struct {

@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
 	"github.com/spf13/cobra"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 )
+
+type incusRunner func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
 
 func newIncusCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 	return &cobra.Command{
@@ -19,14 +23,22 @@ func newIncusCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 			if incusDir == "" {
 				return fmt.Errorf("no Sandcastle-managed Incus config found for remote %q; add one with: sc remote add", config.adminConfig.Remote)
 			}
-			incusCmd := exec.CommandContext(cmd.Context(), "incus", args...)
-			incusCmd.Env = append(os.Environ(), "INCUS_CONF="+incusDir)
-			incusCmd.Stdin = config.stdin
-			incusCmd.Stdout = config.stdout
-			incusCmd.Stderr = config.stderr
-			return incusCmd.Run()
+			runner := config.incusRunner
+			if runner == nil {
+				runner = runIncusCLI
+			}
+			return runner(cmd.Context(), args, append(os.Environ(), "INCUS_CONF="+incusDir), config.stdin, config.stdout, config.stderr)
 		},
 	}
+}
+
+func runIncusCLI(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+	incusCmd := exec.CommandContext(ctx, "incus", args...)
+	incusCmd.Env = env
+	incusCmd.Stdin = stdin
+	incusCmd.Stdout = stdout
+	incusCmd.Stderr = stderr
+	return incusCmd.Run()
 }
 
 // resolveIncusDir returns the per-remote Incus config dir if it exists, otherwise empty string.

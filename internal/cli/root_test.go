@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,6 +33,15 @@ import (
 
 func executeForTest(t *testing.T, name string, args ...string) (string, error) {
 	return executeForTestWithConfig(t, commandConfig{name: name}, args...)
+}
+
+func envContains(env []string, value string) bool {
+	for _, entry := range env {
+		if entry == value {
+			return true
+		}
+	}
+	return false
 }
 
 func withFixedListTimezone(t *testing.T) {
@@ -1309,6 +1319,56 @@ func TestDNSStatusJSON(t *testing.T) {
 	}
 	if payload.DNSAddress != "10.248.0.53" {
 		t.Fatalf("DNSAddress = %q", payload.DNSAddress)
+	}
+}
+
+func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var gotArgs []string
+	var gotEnv []string
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice"},
+		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+			gotArgs = append([]string{}, args...)
+			gotEnv = append([]string{}, env...)
+			_, _ = fmt.Fprint(stdout, "incus ok")
+			return nil
+		},
+	}, "incus", "project", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "incus ok" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if strings.Join(gotArgs, " ") != "project list" {
+		t.Fatalf("args = %#v", gotArgs)
+	}
+	if !envContains(gotEnv, "INCUS_CONF="+incusDir) {
+		t.Fatalf("env missing INCUS_CONF=%s", incusDir)
+	}
+}
+
+func TestIncusCommandRequiresManagedRemoteConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "missing"},
+		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+			t.Fatal("incus runner should not be called")
+			return nil
+		},
+	}, "incus", "ls")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "sc remote add") {
+		t.Fatalf("error = %q", err)
 	}
 }
 
