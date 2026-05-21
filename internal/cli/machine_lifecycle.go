@@ -14,7 +14,7 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 		Short: machineLifecycleShort(action),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if requireYes && !yes {
+			if requireYes && !yes && !isTerminalInput(config) {
 				return fmt.Errorf("refusing to delete machine without --yes")
 			}
 			plan, err := machine.PlanLifecycle(cmd.Context(), config.adminConfig, config.tenantStore, config.machineStore, machine.LifecycleRequest{
@@ -26,6 +26,15 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			}
 			if config.machineControl == nil {
 				return fmt.Errorf("machine lifecycle executor is not configured")
+			}
+			if requireYes && !yes {
+				confirmed, err := confirmMissingYes(config, "Delete machine "+plan.Reference+"?", "refusing to delete machine without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return fmt.Errorf("delete canceled")
+				}
 			}
 			if err := config.machineControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
 				return err

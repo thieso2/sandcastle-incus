@@ -458,6 +458,7 @@ sc project delete website --yes
 sc trust uninstall
 sc dns teardown
 sc tailscale down acme</code></pre>
+      <p><code>sc delete codex</code> asks for confirmation in an interactive terminal. Keep <code>--yes</code> in cleanup scripts and other non-interactive runs.</p>
 
       <h3>Admin cleanup</h3>
       <pre><code>./bin/sc-adm tenant revoke acme alice

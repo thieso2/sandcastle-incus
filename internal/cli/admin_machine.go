@@ -166,7 +166,7 @@ func newAdminMachineDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 		Short: "Delete a Sandcastle machine in any tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !yes {
+			if !yes && !isTerminalInput(config) {
 				return fmt.Errorf("refusing to delete machine without --yes")
 			}
 			cfg, userRef, adminRef, err := adminMachineConfig(config, args[0])
@@ -183,6 +183,15 @@ func newAdminMachineDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 			plan.Reference = adminRef
 			if cfg.machineControl == nil {
 				return fmt.Errorf("machine lifecycle executor is not configured")
+			}
+			if !yes {
+				confirmed, err := confirmMissingYes(cfg, "Delete machine "+plan.Reference+"?", "refusing to delete machine without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return fmt.Errorf("delete canceled")
+				}
 			}
 			if err := cfg.machineControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
 				return err

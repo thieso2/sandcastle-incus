@@ -1167,6 +1167,78 @@ func TestMachineDeleteRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func TestMachineDeletePromptsOnTerminal(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeMachineController{}
+	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:  "sandcastle",
+		stdin: strings.NewReader("yes\n"),
+		stdinIsTerminal: func(io.Reader) bool {
+			return true
+		},
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore: fakeMachineStatusStore{
+			machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex"}},
+		},
+		machineControl: controller,
+	}, "delete", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "Delete machine codex? [y/N]") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if !controller.called || controller.plan.Action != machine.ActionDelete {
+		t.Fatalf("controller.plan = %#v", controller.plan)
+	}
+}
+
+func TestMachineDeletePromptCanCancel(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeMachineController{}
+	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:  "sandcastle",
+		stdin: strings.NewReader("no\n"),
+		stdinIsTerminal: func(io.Reader) bool {
+			return true
+		},
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineControl: controller,
+	}, "delete", "codex")
+	if err == nil {
+		t.Fatal("expected cancel error")
+	}
+	if !strings.Contains(stderr, "Delete machine codex? [y/N]") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if !strings.Contains(err.Error(), "delete canceled") {
+		t.Fatalf("error = %q", err)
+	}
+	if controller.called {
+		t.Fatal("expected canceled delete to skip controller")
+	}
+}
+
 func TestMachineDeleteCallsExecutor(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",

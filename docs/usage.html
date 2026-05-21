@@ -411,6 +411,7 @@ Bootstrap:
 <span class="cmd">sandcastle stop</span>    <span class="arg">website/codex</span>
 <span class="cmd">sandcastle restart</span> <span class="arg">website/codex</span>
 <span class="cmd">sandcastle delete</span>  <span class="arg">website/codex</span> <span class="flag">--yes</span></code></pre>
+    <p><code>delete</code> prompts for confirmation when run interactively. Use <code>--yes</code> for scripts, pipes, and other non-interactive runs.</p>
   </div>
 
   <div class="step">
@@ -645,7 +646,7 @@ Bootstrap:
         <tr><td>sandcastle create &lt;ref&gt;</td><td>Create and connect to a machine</td></tr>
         <tr><td>sandcastle connect/c &lt;ref&gt;</td><td>Connect to a machine, creating it first when missing</td></tr>
         <tr><td>sandcastle start/stop/restart &lt;ref&gt;</td><td>Control machine power state</td></tr>
-        <tr><td>sandcastle delete &lt;ref&gt; --yes</td><td>Delete a machine container</td></tr>
+        <tr><td>sandcastle delete &lt;ref&gt; [--yes]</td><td>Delete a machine container, prompting interactively unless <code>--yes</code> is provided</td></tr>
         <tr><td>sandcastle incus ...</td><td>Run the Incus CLI with the active Sandcastle remote config</td></tr>
         <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
         <tr><td>sandcastle ssh-key set [--file &lt;path&gt;]</td><td>Publish the developer SSH key for tenant machines</td></tr>

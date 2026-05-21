@@ -43,6 +43,7 @@ type commandConfig struct {
 	stdin               io.Reader
 	stdout              io.Writer
 	stderr              io.Writer
+	stdinIsTerminal     func(io.Reader) bool
 	tenantStore         tenant.IncusTenantStore
 	adminConfig         scconfig.Admin
 	tenantCreator       tenant.Creator
