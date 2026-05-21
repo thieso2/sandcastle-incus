@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -288,6 +290,15 @@ func detectAdminRemote(userRemote string, verbose bool) string {
 		return detectAdminRemoteByAddr(userRemote, userDir, verbose)
 	}
 
+	// Load global config to know which remotes actually exist (cert files can be stale).
+	globalCfg, err := cliconfig.LoadConfig("")
+	if err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: cannot load global incus config: %v\n", err)
+		}
+		return ""
+	}
+
 	// Scan global incus servercerts/ for a matching certificate.
 	home, _ := os.UserHomeDir()
 	globalCertsDir := filepath.Join(home, ".config", "incus", "servercerts")
@@ -302,24 +313,32 @@ func detectAdminRemote(userRemote string, verbose bool) string {
 		if !strings.HasSuffix(entry.Name(), ".crt") {
 			continue
 		}
+		remoteName := strings.TrimSuffix(entry.Name(), ".crt")
+		// Skip stale cert files that have no corresponding remote in the config.
+		if _, ok := globalCfg.Remotes[remoteName]; !ok {
+			continue
+		}
 		globalCert, err := os.ReadFile(filepath.Join(globalCertsDir, entry.Name()))
 		if err != nil {
 			continue
 		}
 		if bytes.Equal(userCert, globalCert) {
-			return strings.TrimSuffix(entry.Name(), ".crt")
+			return remoteName
 		}
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: no global remote cert matches %s\n", userCertPath)
+		fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: no active global remote cert matches %s, trying IP address match\n", userCertPath)
 	}
-	return ""
+	// No active remote has a cert file that matches — fall back to DNS-based IP matching.
+	// (This happens when a remote was renamed: the old cert file is orphaned but the server is the same.)
+	return detectAdminRemoteByAddr(userRemote, userDir, verbose)
 }
 
-// detectAdminRemoteByAddr is the fallback detection path that compares remote addresses via cliconfig.
+// detectAdminRemoteByAddr matches the per-remote user config's server against global config
+// remotes using DNS resolution so hostname vs IP differences don't cause mismatches.
 func detectAdminRemoteByAddr(userRemote string, userDir string, verbose bool) string {
-	userCfg, err := cliconfig.LoadConfig(userDir)
+	userCfg, err := cliconfig.LoadConfig(filepath.Join(userDir, "config.yml"))
 	if err != nil {
 		if verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: cannot load user config from %s: %v\n", userDir, err)
@@ -333,20 +352,64 @@ func detectAdminRemoteByAddr(userRemote string, userDir string, verbose bool) st
 		}
 		return ""
 	}
+	userHost, userPort := addrHostPort(userRemoteInfo.Addr)
+	userIPs := resolveToIPs(userHost)
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: user remote %s addr=%s resolved=%v\n", userRemote, userRemoteInfo.Addr, userIPs)
+	}
+
 	globalCfg, err := cliconfig.LoadConfig("")
 	if err != nil {
 		return ""
 	}
 	for name, remote := range globalCfg.Remotes {
-		if remote.Addr == userRemoteInfo.Addr {
-			if verbose {
-				fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: addr match: %s == %s (%s)\n", name, userRemote, remote.Addr)
+		if strings.HasPrefix(remote.Addr, "unix:") || remote.Public {
+			continue
+		}
+		globalHost, globalPort := addrHostPort(remote.Addr)
+		if globalPort != userPort {
+			continue
+		}
+		globalIPs := resolveToIPs(globalHost)
+		for _, ip := range globalIPs {
+			for _, uip := range userIPs {
+				if ip == uip {
+					if verbose {
+						fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: IP match: %s (%s) == %s (%s)\n", name, ip, userRemote, uip)
+					}
+					return name
+				}
 			}
-			return name
 		}
 	}
 	if verbose {
-		fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: no addr match for %s (%s)\n", userRemote, userRemoteInfo.Addr)
+		fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: no IP match for %s (IPs: %v)\n", userRemote, userIPs)
 	}
 	return ""
+}
+
+// addrHostPort extracts the host and port from a remote address like https://host:8443.
+func addrHostPort(addr string) (host, port string) {
+	u, err := url.Parse(addr)
+	if err != nil {
+		return addr, ""
+	}
+	h, p, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		return u.Host, ""
+	}
+	return h, p
+}
+
+// resolveToIPs resolves a hostname to its IP addresses. If the input is already an IP
+// or resolution fails, it returns the input unchanged.
+func resolveToIPs(host string) []string {
+	if net.ParseIP(host) != nil {
+		return []string{host}
+	}
+	addrs, err := net.LookupHost(host)
+	if err != nil || len(addrs) == 0 {
+		return []string{host}
+	}
+	return addrs
 }
