@@ -143,3 +143,20 @@
   forced the VM into Incus `ERROR`; both disposable VMs were deleted to restore
   space. Current verified host gates after these fixes: `go test ./...`,
   `scripts/e2e.sh unit`, `scripts/e2e.sh gated`, and `scripts/e2e.sh local`.
+- Host Incus e2e needed the same image shape as the Debian base Dockerfile.
+  Using a quick Ubuntu cloud image seed let Caddy/CoreDNS install, but it already
+  had UID/GID 1000 allocated and caused tenant user bootstrap to silently miss
+  the expected Linux user in one detached create path. I replaced the host seed
+  with an Incus-native Debian 13 container image customized with the base runtime
+  packages and `sandcastle-bootstrap`, then pointed
+  `sandcastle/base:latest`/`sandcastle/ai:latest` at that Debian image.
+- Some base images expose `/etc/resolv.conf` as a symlink whose target does not
+  exist when Incus' file API tries to overwrite it. Machine creation now falls
+  back to an in-instance shell write for sandbox resolver configuration when
+  `CreateInstanceFile("/etc/resolv.conf")` returns 404.
+- With the Debian host seed, the destructive `incus` tier now passes the CLI
+  create/detach, default create/enter, enter, host override, image sync, local
+  trust, project purge, project listing, and sandbox lifecycle cases. Remaining
+  host `incus` failures from run `e2e-incus-20260521-1051`: infrastructure route
+  broker mTLS probe gets connection refused, and project DNS lookup from one
+  sandbox times out.

@@ -109,12 +109,7 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 		return err
 	}
 	if plan.Tenant.DNSAddress != "" {
-		if err := server.CreateInstanceFile(plan.InstanceName, "/etc/resolv.conf", incus.InstanceFileArgs{
-			Content:   strings.NewReader("nameserver " + plan.Tenant.DNSAddress + "\n"),
-			Type:      "file",
-			Mode:      0o644,
-			WriteMode: "overwrite",
-		}); err != nil {
+		if err := writeSandboxResolvConf(server, plan.InstanceName, plan.Tenant.DNSAddress); err != nil {
 			return fmt.Errorf("write sandbox resolv.conf: %w", err)
 		}
 	}
@@ -170,6 +165,35 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 		return err
 	}
 	return restartSandboxCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
+}
+
+func writeSandboxResolvConf(server SandboxResourceServer, instanceName string, dnsAddress string) error {
+	content := "nameserver " + dnsAddress + "\n"
+	err := server.CreateInstanceFile(instanceName, "/etc/resolv.conf", incus.InstanceFileArgs{
+		Content:   strings.NewReader(content),
+		Type:      "file",
+		Mode:      0o644,
+		WriteMode: "overwrite",
+	})
+	if err == nil || !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return err
+	}
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
+		Command:   []string{"/bin/sh", "-c", "rm -f /etc/resolv.conf && cat > /etc/resolv.conf && chmod 0644 /etc/resolv.conf"},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(content),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return err
+	}
+	if err := op.Wait(); err != nil {
+		return err
+	}
+	<-dataDone
+	return nil
 }
 
 func sandboxNetworkParams(plan sandbox.CreatePlan) (string, string, error) {
