@@ -1,411 +1,318 @@
 # Sandcastle v1 Specification
 
-This document captures the v1 product and architecture decisions for
-Sandcastle after the project model was revised away from the older
-tenant/YAML-first design.
+This document captures the v1 product and architecture model for Sandcastle.
+The canonical domain language is **Tenant**, **Project**, **Machine**, and
+**Public Route**. The older owner/project/sandbox model is intentionally not
+carried forward.
 
-Sandcastle gives developers Incus-backed development sandboxes that are easy to
-create from a CLI, reachable over the developer's Tailscale network, named by
-private project DNS, and optionally exposed through public HTTP routes.
+Sandcastle gives developers Incus-backed development machines that are easy to
+create from a CLI, reachable through short private DNS names, and optionally
+published through public HTTP routes.
 
 ## Goals
 
 - Provide a user-facing CLI named `sandcastle`, with `sc` as an alias.
-- Let a developer create, start, enter, stop, remove, and inspect containers in
-  projects they own.
-- Map each Sandcastle project to exactly one Incus project.
-- Use Incus restricted client certificates as the primary security boundary for
-  normal users.
-- Keep v1 single-owner: each project has exactly one owning user.
-- Store all authoritative Sandcastle state in Incus metadata.
-- Give each project a private routed network, CoreDNS server, Tailscale sidecar,
-  project CA, shared storage, and container sandboxes.
-- Make the default project template an AI-focused image for Codex, Claude,
-  Gemini, GitHub CLI, and related prompting workflows.
-- Support optional public HTTP/HTTPS routes through an infrastructure Caddy and
-  a narrow route broker.
+- Provide a canonical admin CLI named `sandcastle-admin`.
+- Let users manage machines with simple top-level commands: `list`, `create`,
+  `connect`, `start`, `stop`, `restart`, `status`, and `delete`.
+- Make **Tenant** the access, networking, DNS, storage, and Incus project
+  boundary.
+- Let users organize machines with lightweight **Projects** inside a tenant.
+- Create a real `default` project for every tenant.
+- Store authoritative Sandcastle state in Incus metadata.
+- Use Incus restricted client certificates as the primary security primitive.
+- Support optional public HTTP/HTTPS routes through shared infrastructure and a
+  narrow route broker.
 
 ## Non-Goals For v1
 
-- Shared projects or multiple project users.
-- VM sandboxes. The model should keep room for VMs later, but v1 implements
+- Backward compatibility with owner/project/sandbox metadata or commands.
+- Per-project access control. Access is tenant-wide in v1.
+- Per-project networking, DNS, certificate authority, or storage.
+- VM machines. The model keeps room for VMs later, but v1 implements
   containers first.
-- Tailscale DNS or Tailscale DNS API integration.
 - A broad Sandcastle control-plane server.
+- Tailscale DNS or Tailscale DNS API integration.
 - Public TCP/UDP exposure beyond HTTP/HTTPS hostname routes.
-- Project-wide DNS wildcards.
-- Fully isolated certificate authority custody between members of a shared
-  project. v1 has no shared projects.
-- Raw `incus` usage as a supported product interface for normal users.
+- Project-wide or tenant-wide private DNS wildcards.
+- Raw `incus` usage as a supported user interface.
 
 ## Core Model
 
-### User
+### Tenant
 
-A Sandcastle user owns one or more projects. In v1, a project has exactly one
-owner. The owner has a restricted Incus client certificate scoped to the Incus
-projects they own.
-
-### Project
-
-A Sandcastle project maps 1:1 to an Incus project.
+A tenant is an admin-created top-level namespace. Each tenant maps to exactly
+one Incus project.
 
 Example:
 
 ```text
-owner/project: alice/myproject
-Incus project: sc-alice-myproject
-project domain: myproject.project-tld
+tenant: acme
+Incus project: sc-acme
+private DNS suffix: acme
 ```
 
-The user-facing project name is unique per owner. The private project domain is
-also unique per owner. Two different owners may use the same private domain
-because each project is attached to the owner's chosen tailnet, and DNS is
-installed locally per developer machine.
+Tenant creation requires only the tenant name. CIDR allocation, images,
+infrastructure, storage, and defaults come from admin configuration.
 
-Project domain validation uses a deny-list, not an allow-list. Sandcastle ships
-with an embedded snapshot of public TLDs and special-use names, refreshed from
-authoritative IANA data by an admin command. Project domains are rejected when
-their final label is a current public TLD, an IANA special-use name, or an
-admin-denied local suffix. Admins may add local deny-list entries and explicit
-allowed suffixes for lab overrides.
+Each tenant contains:
 
-Each project contains:
+- one Incus project;
+- one private tenant network;
+- one DNS service;
+- one Tailscale attachment;
+- one tenant CA;
+- tenant-scoped home/workspace storage;
+- one or more Sandcastle projects;
+- zero or more machines.
 
-- one private Incus bridge network;
-- one unauthenticated Tailscale sidecar container;
-- one CoreDNS container;
-- one project CA volume;
-- one home volume;
-- one workspace volume;
-- zero or more user containers;
-- optional ingress attachment for containers with public routes.
+Every tenant starts with a `default` project. The default project is a normal
+project named `default`; it is not an implicit projectless bucket.
 
-Sandcastle-created user projects enable all Incus project feature namespaces:
-images, profiles, networks, network zones, storage buckets, and storage
-volumes. The admin image aliases configured for the base and AI templates are
-copied into the isolated project during creation so sidecars and sandboxes can
-launch without inheriting images from `default`.
+Tenant names are DNS-safe lowercase labels. The tenant name is also the private
+DNS suffix, so Sandcastle denies names that are public TLDs, IANA special-use
+names, or admin-denied local suffixes.
 
-### Sandbox
+### Project
 
-A sandbox is the abstract runtime resource. v1 supports container sandboxes
-only. VM support is a later extension.
+A project is a lightweight namespace inside a tenant. Projects do not map to
+Incus projects and have no v1 settings beyond their names.
 
-Sandbox names are unique within a project only. Infrastructure names such as
-`tailscale`, `dns`, and `ca` are reserved user-facing names.
+Project names are DNS-safe lowercase labels. Infrastructure words such as
+`default`, `dns`, `tailscale`, `ca`, `route`, `admin`, and `infra` are reserved.
+The `default` project is created only by tenant creation.
 
-## Incus Access Model
+Users with tenant access may create named projects. Users may delete named
+projects only when they contain no machines. The default project cannot be
+deleted.
 
-Sandcastle uses two Incus connection classes:
+### Machine
 
-- Admin connection: unrestricted Incus access for project creation, global
-  configuration, image sync, CIDR allocation, user certificate management, and
-  infrastructure setup.
-- User connection: restricted Incus certificate scoped to the projects owned by
-  that user.
+A machine is the runtime environment users manage. The v1 machine type is an
+Incus container. VM support is a later extension.
 
-The restricted Incus certificate is the security primitive. The supported user
-interface is still the Sandcastle CLI. If a user runs raw `incus` commands with
-the restricted certificate, project restrictions should keep damage contained,
-but Sandcastle may reconcile unsupported drift.
+Machine names are DNS-safe lowercase labels and are unique within a project.
+Inside the tenant's Incus project, the Incus instance name is:
 
-Admin operations create or update restricted user certificates and project
-access. v1 does not require a broad Sandcastle server for this.
+```text
+{project}-{machine}
+```
+
+Examples:
+
+```text
+default/codex -> default-codex
+website/codex -> website-codex
+```
+
+Machine creation defaults to an AI container template and app port `3000`.
+Users can select another machine template, such as `base`, per machine.
+Template is a machine property, not a project property.
+
+Machine creation starts the machine. In an interactive terminal it connects to
+the machine after successful setup unless detached.
+
+Every machine has a private machine proxy that serves the private hostname on
+HTTP/HTTPS and forwards to the machine's app port:
+
+```text
+https://codex.default.acme -> http://127.0.0.1:3000 inside default/codex
+```
+
+Changing a machine app port changes private proxy behavior, but does not
+silently change existing public routes.
+
+### User And Access
+
+A user is an identity that can receive access to one or more tenants. Users do
+not own namespaces; tenants do.
+
+Tenant access grants management rights over every project, machine, and public
+route in that tenant. Created-by metadata is audit-only and does not affect
+authorization.
+
+Admin user deletion removes tenant access and user credentials. It does not
+delete tenant resources.
+
+Raw Incus access is not a supported user interface. Users may technically have
+restricted Incus access to a tenant's Incus project, but Sandcastle commands
+manage only Sandcastle-managed resources by default.
 
 ## Source Of Truth
 
 All authoritative Sandcastle state is stored in Incus metadata. Local files are
-only caches or machine-local installation state.
+only machine-local configuration, DNS resolver state, trust installation state,
+or caches.
 
-Use scalar metadata keys for searchable/indexable facts and versioned JSON
-state blobs for structured data.
+Use scalar metadata keys for searchable facts and versioned JSON state blobs for
+structured data. New metadata uses tenant/project/machine vocabulary only. There
+are no `owner` or `sandbox` compatibility aliases.
 
-Project metadata example:
+Tenant Incus project metadata conceptually stores:
 
 ```text
-user.sandcastle.kind=project
+user.sandcastle.kind=tenant
 user.sandcastle.version=1
-user.sandcastle.owner=alice
-user.sandcastle.project=myproject
-user.sandcastle.domain=myproject.project-tld
+user.sandcastle.tenant=acme
 user.sandcastle.private_cidr=10.88.17.0/24
-user.sandcastle.default_template=ai
+user.sandcastle.projects=["default","website"]
 user.sandcastle.state={...}
 ```
 
-Sandbox metadata example:
+Machine instance metadata conceptually stores:
 
 ```text
-user.sandcastle.kind=sandbox
+user.sandcastle.kind=machine
 user.sandcastle.version=1
-user.sandcastle.name=codex
-user.sandcastle.owner=alice
-user.sandcastle.project=myproject
+user.sandcastle.tenant=acme
+user.sandcastle.project=website
+user.sandcastle.machine=codex
+user.sandcastle.type=container
 user.sandcastle.app_port=3000
-user.sandcastle.linux_user=alice
+user.sandcastle.created_by=alice
 user.sandcastle.state={...}
 ```
+
+Public routes are authoritative in global infrastructure metadata because public
+hostnames are globally unique.
 
 ## Networking
 
-Each project gets one private Incus managed bridge by default. The admin CLI
-allocates its CIDR from a configured pool and records the allocation in Incus
-metadata. Allocation is stable because it is persisted, not derived only from a
-hash of the project name.
-
-The bridge is named `sc-private` inside the Incus project.
+Networking is tenant-scoped. Each tenant gets one private Incus managed bridge
+inside the tenant Incus project. The admin CLI allocates the tenant CIDR from a
+configured pool and records the allocation in tenant metadata.
 
 Example:
 
 ```text
-private CIDR: 10.88.17.0/24
-tailscale:   10.88.17.2
-dns:         10.88.17.53
-codex:       10.88.17.21
-claude:      10.88.17.22
+tenant:     acme
+CIDR:       10.88.17.0/24
+gateway:    10.88.17.1
+tailscale:  10.88.17.2
+dns:        10.88.17.53
+machines:   10.88.17.20-10.88.17.199
+reserved:   10.88.17.200-10.88.17.254
 ```
 
-Containers get exactly one private IP by default. A container gets a second
-ingress IP only if it is targeted by a public route.
+Machines get one private IP by default. A machine gets ingress networking only
+when a public route targets it.
 
-Sandcastle assigns static private IPs from project metadata. Infrastructure
-addresses are reserved, and sandbox addresses are allocated sequentially from a
-container range.
-
-Default private address convention:
-
-```text
-gateway:    .1
-tailscale:  .2
-dns:        .53
-containers: .20-.199
-reserved:   .200-.254
-```
-
-Deleted sandbox IPs may be reused after deletion.
-
-The private project network is routed over Tailscale by the project Tailscale
-sidecar. This is the normal developer access path.
+The tenant network is routed over Tailscale by the tenant Tailscale attachment.
+This is the normal developer access path.
 
 ## Tailscale
 
-Each project has one Tailscale sidecar container. The admin creates and prepares
-the sidecar, but does not connect it to a tailnet.
+Each tenant has one Tailscale attachment. The admin creates and prepares tenant
+infrastructure, but does not choose the user's tailnet.
 
-The sidecar is created and started during project creation. Before
-authentication, its status is `running-logged-out`.
-
-The project owner connects it:
+The user connects the current tenant:
 
 ```bash
-sandcastle tailscale up myproject
+sandcastle tailscale up
 ```
 
-The CLI execs into the Tailscale sidecar and runs `tailscale up` with the
-project private CIDR advertised. The project owner chooses the tailnet by
-authenticating that Tailscale login. The project has exactly one active
-Tailscale attachment.
+The CLI execs into the tenant Tailscale service and runs `tailscale up` with the
+tenant private CIDR advertised. The user chooses the tailnet by authenticating
+that Tailscale login. A tenant has exactly one active Tailscale attachment.
 
-For unattended automation and e2e, Sandcastle can pass an auth key and an
-advertised tag to `tailscale up`. The default automation tag is
-`tag:sandcastle`, so tailnet policies can auto-approve the advertised project
-subnet route for Sandcastle sidecars.
+For unattended automation and e2e tests, Sandcastle can pass an auth key and an
+advertised tag. Do not store auth keys, reusable secrets, or stale login URLs in
+metadata.
 
-Example automation shape:
-
-```bash
-tailscale up \
-  --auth-key="$SANDCASTLE_E2E_TAILSCALE_AUTHKEY" \
-  --advertise-tags=tag:sandcastle \
-  --advertise-routes=10.88.17.0/24
-```
-
-Sandcastle records observed Tailscale status in project metadata:
-
-```json
-{
-  "tailscale": {
-    "state": "connected",
-    "tailnet": "example.com",
-    "hostname": "sc-myproject",
-    "advertisedRoutes": ["10.88.17.0/24"],
-    "tailscaleIPs": ["100.80.12.34"],
-    "lastCheckedAt": "2026-05-20T12:00:00Z"
-  }
-}
-```
-
-Do not store auth keys, reusable secrets, or stale login URLs in metadata.
-
-## DNS
+## Private DNS
 
 Sandcastle does not use Tailscale DNS in v1.
 
-Each project runs its own CoreDNS server on the private project network. The DNS
-server is reached through the Tailscale-advertised private CIDR. CoreDNS is not
-itself a Tailscale node.
-
-CoreDNS is created and started during project creation with a minimal zone, even
-before any user sandboxes exist.
-
-The project DNS server is authoritative for the project domain chosen by the
-user:
+Each tenant runs one DNS service on the tenant network. It is authoritative for
+the tenant DNS suffix, which is the tenant name:
 
 ```text
-myproject.project-tld
+acme
 ```
 
-Each sandbox gets exact and per-sandbox wildcard records:
+Machine hostnames use:
 
 ```text
-codex.myproject.project-tld        A 10.88.17.21
-*.codex.myproject.project-tld      A 10.88.17.21
-claude.myproject.project-tld       A 10.88.17.22
-*.claude.myproject.project-tld     A 10.88.17.22
+machine.project.tenant
 ```
 
-There is no project-wide wildcard by default.
+Each machine gets exact and per-machine wildcard private DNS records:
 
-The Sandcastle CLI renders and pushes CoreDNS zone/config files after changes.
-CoreDNS does not need live Incus API access.
+```text
+codex.default.acme          A 10.88.17.20
+*.codex.default.acme        A 10.88.17.20
+app.website.acme            A 10.88.17.21
+*.app.website.acme          A 10.88.17.21
+```
+
+Sandcastle does not create project-wide or tenant-wide wildcards:
+
+```text
+*.default.acme   # not created
+*.acme           # not created
+```
 
 ## Local DNS Installation
 
-Developer machines use a local Sandcastle DNS forwarder. The forwarder is one
-local service managing all installed project domains.
+Developer machines use a local Sandcastle DNS forwarder. Local DNS installation
+is per tenant DNS suffix, not per project.
 
-On macOS, the CLI should install resolver files that point to loopback and a
-stable local port rather than directly to a Tailscale-routed IP:
+On macOS, the CLI installs a resolver for the tenant suffix that points to
+loopback and a stable local port:
 
 ```text
-/etc/resolver/myproject.project-tld
+/etc/resolver/acme
 nameserver 127.0.0.1
 port 53541
 ```
 
-The local forwarder reads CLI-managed local state:
+The local forwarder reads CLI-managed local state and forwards tenant suffix
+queries to that tenant's DNS endpoint over the private network. It should not
+perform live Incus lookups for every DNS query.
 
-```yaml
-projects:
-  - owner: alice
-    project: myproject
-    domain: myproject.project-tld
-    dnsEndpoint:
-      ip: 10.88.17.53
-      port: 53
-    resolver:
-      listen: 127.0.0.1:53541
+## Tenant CA And TLS
+
+Each tenant has one tenant CA. Trust installation is tenant-scoped:
+
+```bash
+sandcastle trust install
 ```
 
-The forwarder should not perform live Incus lookups for every DNS query.
-Commands such as `sandcastle dns install`, `sandcastle dns refresh`, and
-`sandcastle dns uninstall` manage local state.
-
-## Project CA And TLS
-
-Each project has one project CA. The CA private key is stored in a dedicated
-project CA volume, not mounted into every sandbox.
-
-In v1, the project owner is trusted to access the project CA key through their
-restricted project access. This is acceptable because v1 has no shared projects.
-
-The CLI uses the project CA to issue leaf certificates for each sandbox Caddy.
-Sandbox certificates cover:
+Installing tenant trust means trusting that tenant's infrastructure to mint
+private certificates for hostnames under the tenant suffix, such as:
 
 ```text
-codex.myproject.project-tld
-*.codex.myproject.project-tld
+codex.default.acme
+*.codex.default.acme
 ```
 
-Short names such as `codex.myproject` may be included as best-effort SANs, but
-the canonical supported DNS names are the FQDNs under the project domain.
-
-Trust installation is explicit:
-
-```bash
-sandcastle trust install myproject
-```
-
-The CLI must warn that trusting a project CA means trusting that project to mint
-certificates trusted by the local machine.
-
-## Sandbox Caddy
-
-Every sandbox gets Caddy by default. Sandbox Caddy listens on ports 80 and 443
-on the private project IP and proxies to the sandbox app port on localhost.
-
-Default:
-
-```text
-appPort = 3000
-private HTTPS -> sandbox Caddy -> http://127.0.0.1:3000
-```
-
-Changing a sandbox app port updates private Caddy behavior:
-
-```bash
-sandcastle port set myproject/codex 5173
-```
-
-The CLI renders and pushes Caddy config and certificates. The sandbox starts
-Caddy from the last rendered config on boot.
-
-## Local Host Overrides
-
-The owner can mask a real hostname locally for testing:
-
-```bash
-sandcastle host override add myproject/codex example.com
-```
-
-This is a local developer-machine override, not project DNS and not public DNS.
-
-The command:
-
-- adds `example.com` as an extra SAN on the sandbox leaf certificate;
-- reissues/reloads sandbox Caddy config;
-- adds a managed `/etc/hosts` entry mapping `example.com` to the sandbox private
-  IP;
-- warns if the project CA is not trusted locally.
-
-v1 supports exact hostnames only. Wildcard host overrides are out of scope.
+The CLI must warn that trusting a tenant CA affects all private machine
+hostnames in that tenant.
 
 ## Storage
 
-Each project has durable home and workspace storage.
+Storage is tenant-scoped. Tenant home and workspace volumes are shared by all
+projects, with project-aware subdirectories by default.
 
-When creating a container, the user may choose separate subdirectories for home
-and workspace mounts:
+Default paths include both project and machine names:
 
-```bash
-sandcastle add myproject/codex --home-dir codex --workspace-dir .
-sandcastle add myproject/claude --home-dir claude --workspace-dir .
+```text
+home/default/codex
+workspace/default/codex
+home/website/app
+workspace/website/app
 ```
 
-The default subdirectory is `"."`, meaning no subdirectory: mount the volume
-root.
-
-Workspace subdirectories may be shared freely. Sharing the same home subdirectory
-with another running container requires explicit confirmation or a flag such as
-`--share-home`, because concurrent writes to one Linux home can corrupt tool
-state.
-
-The Linux user inside a sandbox defaults to the Sandcastle user who created it.
+Machine creation may allow explicit storage sharing. Sharing one home directory
+between running machines requires explicit confirmation or a dedicated flag,
+because concurrent writes to one Linux home can corrupt tool state.
 
 ## Images And Templates
 
 v1 requires Sandcastle-maintained base images.
 
 Images are published as OCI images and synced into Incus as managed aliases by
-admin setup:
-
-```bash
-sandcastle admin image sync sandcastle/base:debian-13
-sandcastle admin image sync sandcastle/ai:debian-13
-```
-
-The minimal base image contains:
+admin setup. The minimal base image contains:
 
 - Caddy;
 - OpenSSH server;
@@ -430,17 +337,10 @@ The AI image should not include credentials. Credentials live in mounted home
 state, for example `/home/alice/.codex`, `/home/alice/.claude`, and
 `/home/alice/.config/gh`.
 
-New projects default to template `ai`. Users can override per container:
+AI is not a separate resource type or command group in v1. AI machines are
+normal container machines that use the AI template.
 
-```bash
-sandcastle add myproject/codex
-sandcastle add myproject/minimal --template base
-```
-
-AI is not a separate resource type or command group in v1. AI sandboxes are
-normal containers that use the AI template/image.
-
-Container build/run capability is opt-in per sandbox. The AI image may include
+Container build/run capability is opt-in per machine. The AI image may include
 client tooling, but privileged Docker-in-Docker or equivalent nesting is not
 enabled by default.
 
@@ -449,122 +349,247 @@ enabled by default.
 Public routes expose HTTP/HTTPS hostnames through global infrastructure Caddy.
 They are HTTP/HTTPS only in v1.
 
-Public TLS terminates at infrastructure Caddy using Let's Encrypt. Infrastructure
-Caddy proxies HTTP to the target sandbox's ingress IP and route port.
+Public TLS terminates at infrastructure Caddy using Let's Encrypt.
+Infrastructure Caddy proxies HTTP to the target machine's ingress IP and route
+port.
+
+Public route hostnames are arbitrary public DNS names. They are not derived from
+private machine hostnames.
 
 Example:
 
 ```bash
-sandcastle route add app.example.com myproject/codex
+sandcastle route create app.example.com website/codex
 ```
 
-Default target port resolution:
+The route broker verifies:
+
+- the caller has tenant access;
+- the target machine exists and is Sandcastle-managed;
+- the requested public hostname is unclaimed;
+- public DNS for the requested hostname points at Sandcastle ingress;
+- target ingress networking exists.
+
+Default route port resolution:
 
 ```text
-route port -> current sandbox appPort -> project template appPort -> 3000
+route port -> current machine app port -> 3000
 ```
 
 The resolved route port is stored explicitly at creation time. Later changes to
-the sandbox app port do not silently change existing public routes.
+the machine app port do not silently change existing public routes.
 
 Routes are global infrastructure metadata because hostname uniqueness and Caddy
-configuration are global host concerns. The target project may store backlinks
-for display, but the authoritative route table lives in the infrastructure
-project.
+configuration are global host concerns. Tenant metadata may cache backlinks for
+display, but the authoritative route table lives in infrastructure metadata.
 
-Normal users can create public routes, but they must go through a narrow route
-broker rather than receiving broad access to the infrastructure project.
-When `SANDCASTLE_ROUTE_BROKER_URL` is configured, `sandcastle route add` and
-`sandcastle route list`, `sandcastle route add`, and `sandcastle route rm` call
-the broker over HTTPS mTLS using
-`SANDCASTLE_ROUTE_BROKER_CLIENT_CERT` and
-`SANDCASTLE_ROUTE_BROKER_CLIENT_KEY`.
+All user route operations go through the route broker:
+
+```bash
+sandcastle route list
+sandcastle route create app.example.com website/codex
+sandcastle route status app.example.com
+sandcastle route delete app.example.com
+```
 
 The route broker:
 
-- is reachable only over the private/Tailscale network in v1;
-- authenticates users with mTLS using their Incus client certificate;
-- maps the certificate fingerprint to Incus trust state;
-- verifies the caller owns the target project;
-- verifies the target sandbox exists and is Sandcastle-managed;
-- verifies the requested public hostname is unclaimed;
-- verifies public DNS points at the Sandcastle infrastructure IP/name;
-- attaches/ensures target ingress networking as needed;
+- authenticates users with their Sandcastle Incus client certificate;
+- maps the certificate fingerprint to tenant access;
+- authorizes list/status/create/delete against tenant access;
 - updates global route metadata;
-- regenerates/reloads infrastructure Caddy.
+- regenerates and reloads infrastructure Caddy.
 
-The route broker should be narrow in v1. It does not create projects, manage
-users, allocate CIDRs, or manage Tailscale.
+The route broker is intentionally narrow. It does not create tenants, manage
+users, allocate CIDRs, manage Tailscale, or provide broad infrastructure access.
 
-## CLI Shape
+## User CLI Shape
 
-The product command is `sandcastle`. Install `sc` as a symlink/alias to the same
-binary.
+The product command is `sandcastle`. Install `sc` as a symlink or alias to the
+same binary.
 
-The CLI is implemented in Go with Cobra from the start.
-
-Normal user resource addresses use `project/container`. The CLI resolves the
-owner from local user configuration such as `SANDCASTLE_OWNER`; admin-oriented
-`owner/project/...` references remain accepted where explicit ownership is
-needed.
+Machine is the implicit top-level resource:
 
 ```bash
-sandcastle add myproject/codex
-sandcastle inspect myproject/codex
-sandcastle enter myproject/codex
-sandcastle start myproject/codex
-sandcastle stop myproject/codex
-sandcastle rm myproject/codex
-sandcastle port set myproject/codex 5173
-sandcastle dns install myproject
-sandcastle tailscale up myproject
-sandcastle host override add myproject/codex example.com
-sandcastle route add app.example.com myproject/codex
+sandcastle list
+sandcastle create codex
+sandcastle connect codex
+sandcastle start codex
+sandcastle stop codex
+sandcastle restart codex
+sandcastle status codex
+sandcastle delete codex
 ```
 
-Admin commands use `owner/project` where needed:
+Project references:
 
 ```bash
-sandcastle admin project create alice/myproject --domain myproject.project-tld
-sandcastle admin user create alice
-sandcastle admin user grant alice alice/myproject
-sandcastle admin user token alice
+sandcastle create codex          # current project, or default
+sandcastle create website/codex  # explicit project
 ```
 
-`sandcastle add` creates and starts the container by default. In an interactive
-TTY, it enters the container after successful setup:
+Machine creation resolves project in this order:
+
+1. explicit project in the CLI reference;
+2. `SANDCASTLE_PROJECT`;
+3. local project configuration;
+4. `default`.
+
+Machine lookup commands may search across projects when no project is supplied
+and no current project is configured, but only act when the machine name is
+unique. Destructive lookup commands require confirmation when the project was
+inferred, unless the user supplies an explicit confirmation flag.
+
+User commands operate in exactly one current tenant. The current tenant comes
+from `SANDCASTLE_TENANT` or local configuration. If a user has multiple tenants
+and no current tenant is selected, user commands fail until the tenant is
+selected.
+
+Local config commands:
 
 ```bash
-sandcastle add myproject/codex
+sandcastle config set tenant acme
+sandcastle config set project website
+sandcastle config unset project
+sandcastle config show
 ```
 
-Use `--detach` or `--background` to create/start without entering:
+Environment variables override local configuration.
+
+Listing behavior:
 
 ```bash
-sandcastle add myproject/codex --detach
+sandcastle list                  # current project if configured, otherwise all projects
+sandcastle list default          # default project only
+sandcastle list --all-projects   # all projects
+sandcastle list -a               # short for --all-projects
+sandcastle list -u               # include unmanaged Incus instances when tenant-wide
+sandcastle list -a -u            # all projects plus unmanaged Incus instances
 ```
 
-`sandcastle enter` uses Incus exec by default. Management operations should use
-the Incus Go SDK. `enter` may delegate to `incus exec` as an implementation
-detail if that gives materially better PTY behavior.
+Machine list output always includes the project. Machine list shows only a
+compact public route indicator. Machine status may show public route details.
+Status output always reports unmanaged Incus instance counts.
+
+Project commands:
+
+```bash
+sandcastle project list
+sandcastle project create website
+sandcastle project status website
+sandcastle project delete website
+```
+
+Route commands:
+
+```bash
+sandcastle route list
+sandcastle route create app.example.com website/codex
+sandcastle route status app.example.com
+sandcastle route delete app.example.com
+```
+
+Route listing follows machine list project scoping rules. Route list output
+always includes target project and machine.
+
+Bare user `status` reports current tenant status:
+
+```bash
+sandcastle status
+```
 
 Command output defaults to human-readable text. JSON is opt-in:
 
 ```bash
-sandcastle ls --output json
-sandcastle status myproject --json
+sandcastle list --output json
+sandcastle status --json
 ```
+
+## Admin CLI Shape
+
+The canonical admin command is `sandcastle-admin`.
+
+Tenant commands:
+
+```bash
+sandcastle-admin tenant list
+sandcastle-admin tenant create acme
+sandcastle-admin tenant status acme
+sandcastle-admin tenant delete acme
+sandcastle-admin tenant delete acme --purge
+sandcastle-admin tenant grant acme alice
+sandcastle-admin tenant revoke acme alice
+sandcastle-admin tenant users acme
+```
+
+Tenant deletion refuses non-empty tenants unless explicitly purged. Purge
+removes routes, machines, tenant infrastructure, tenant storage, and the tenant
+Incus project.
+
+User commands:
+
+```bash
+sandcastle-admin user list
+sandcastle-admin user create alice
+sandcastle-admin user status alice
+sandcastle-admin user delete alice
+```
+
+Admin machine commands use the same verbs as the user CLI, scoped by an explicit
+tenant reference:
+
+```bash
+sandcastle-admin list acme
+sandcastle-admin list acme/website
+sandcastle-admin create acme/codex
+sandcastle-admin create acme/website/codex
+sandcastle-admin connect acme/website/codex
+sandcastle-admin status acme/website/codex
+sandcastle-admin delete acme/website/codex
+```
+
+For admin machine references, `tenant/machine` means the tenant's default
+project. Admin lookup references use the same unique-search behavior as user
+lookup references, scoped to the explicit tenant.
+
+Admin list behavior:
+
+```bash
+sandcastle-admin list acme       # all projects in tenant
+sandcastle-admin list acme -u    # all projects plus unmanaged instances
+sandcastle-admin list acme/site  # project only
+```
+
+Bare admin `status` reports global admin and infrastructure status:
+
+```bash
+sandcastle-admin status
+```
+
+## Unmanaged Incus Resources
+
+Normal Sandcastle operations ignore unmanaged Incus instances. List commands may
+show unmanaged Incus instances when explicitly requested with
+`--include-unmanaged` or `-u`.
+
+Unmanaged rows appear only when the effective list scope is tenant-wide. Project
+scoped list output does not show unmanaged instances, because unmanaged
+instances do not belong to a Sandcastle project.
+
+Status output always reports unmanaged instance counts.
+
+Tenant purge may remove unmanaged instances because it is explicitly destructive
+and removes the tenant Incus project.
 
 ## Implementation Notes
 
-- The existing older docs describe one Incus project per tenant and YAML specs
-  as desired state. That is superseded by this v1 spec.
-- The first implementation starts with the Go CLI, not scripts.
-- Management operations use the official Incus Go SDK wherever practical.
-- Project creation is admin-driven in v1 because it allocates CIDRs, creates
-  Incus projects, prepares infrastructure, and manages restricted trust.
-- User day-to-day operations use restricted Incus access and Incus metadata.
-- The local DNS forwarder and local host overrides are machine-local state, not
-  Incus source of truth.
-- Public route mutation is the one v1 user operation that crosses into global
-  infrastructure; it is mediated by the route broker.
+- This spec supersedes the older owner/project/sandbox model and does not
+  require backward-compatible aliases or metadata migration.
+- See `CONTEXT.md` for canonical domain language.
+- See `docs/adr/0001-tenant-as-incus-project-boundary.md` for the tenant Incus
+  project boundary decision.
+- Management operations should use the official Incus Go SDK wherever practical.
+- Local DNS, local trust, and CLI config are machine-local state, not Incus
+  source of truth.
+- Public route operations are the user workflow that crosses into global
+  infrastructure, and they are mediated by the route broker.
