@@ -42,6 +42,9 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	if err != nil {
 		return resolvedMachine{}, err
 	}
+	if resolved, ok, err := resolveMachineFQDN(ctx, machineStore, summary, reference); ok || err != nil {
+		return resolved, err
+	}
 	projectRef, machineName, err := naming.ParseUserMachineRef(reference, admin.Project)
 	if err != nil {
 		if unmanaged, unmanagedErr := resolveUnmanagedMachine(ctx, machineStore, summary, reference); unmanagedErr == nil {
@@ -76,6 +79,28 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	default:
 		return resolvedMachine{}, AmbiguousMachineError{Name: machineName, Projects: matches}
 	}
+}
+
+func resolveMachineFQDN(ctx context.Context, machineStore Store, summary tenant.Summary, reference string) (resolvedMachine, bool, error) {
+	if machineStore == nil || !strings.Contains(reference, ".") {
+		return resolvedMachine{}, false, nil
+	}
+	hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(reference)), ".")
+	if hostname == "" {
+		return resolvedMachine{}, false, nil
+	}
+	machines, err := listExistingMachines(ctx, machineStore, summary)
+	if err != nil {
+		return resolvedMachine{}, true, err
+	}
+	for _, machine := range machines {
+		if strings.ToLower(machine.Name+"."+machine.Project+"."+summary.DNSSuffix) != hostname {
+			continue
+		}
+		resolved, err := resolveKnownProjectMachine(summary, machine.Project, machine.Name)
+		return resolved, true, err
+	}
+	return resolvedMachine{}, false, nil
 }
 
 func resolveKnownProjectMachine(summary tenant.Summary, projectName string, machineName string) (resolvedMachine, error) {

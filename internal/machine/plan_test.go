@@ -131,6 +131,35 @@ func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 	}
 }
 
+func TestPlanConnectResolvesMachineFQDN(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := fakeMachineStore{machines: []meta.Machine{
+		{Project: "website", Name: "codex"},
+		{Project: "default", Name: "shell"},
+	}}
+	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex.website.acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project != "website" || plan.Name != "codex" || plan.InstanceName != "website-codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestPlanConnectResolvesMachineFQDNWithTrailingDot(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex"}}}
+	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex.website.acme."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project != "website" || plan.Name != "codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestPlanConnectConnectsUnmanagedReservedMachine(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
