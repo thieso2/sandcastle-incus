@@ -106,7 +106,7 @@ func TestPlanCreateRequiresShareHomeForRunningMachineUsingSameHome(t *testing.T)
 func TestPlanEnter(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	plan, err := PlanEnter(context.Background(), admin, tenantStoreForTest(t), EnterRequest{Reference: "website/codex"})
+	plan, err := PlanEnter(context.Background(), admin, tenantStoreForTest(t), nil, EnterRequest{Reference: "website/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,10 +115,36 @@ func TestPlanEnter(t *testing.T) {
 	}
 }
 
+func TestPlanEnterSearchesBareMachineWhenUnique(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex"}}}
+	plan, err := PlanEnter(context.Background(), admin, tenantStoreForTest(t), store, EnterRequest{Reference: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project != "website" || plan.InstanceName != "website-codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestPlanEnterRejectsAmbiguousBareMachine(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "default", Name: "codex"}, {Project: "website", Name: "codex"}}}
+	_, err := PlanEnter(context.Background(), admin, tenantStoreForTest(t), store, EnterRequest{Reference: "codex"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestPlanLifecycle(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	plan, err := PlanLifecycle(context.Background(), admin, tenantStoreForTest(t), LifecycleRequest{Reference: "codex", Action: ActionRestart})
+	plan, err := PlanLifecycle(context.Background(), admin, tenantStoreForTest(t), nil, LifecycleRequest{Reference: "codex", Action: ActionRestart})
 	if err != nil {
 		t.Fatal(err)
 	}

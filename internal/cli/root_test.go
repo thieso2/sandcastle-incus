@@ -199,6 +199,256 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 	}
 }
 
+func TestListUsesProjectFromEnv(t *testing.T) {
+	t.Setenv("SANDCASTLE_PROJECT", "website")
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+			Tenant: "acme", Project: "default", Name: "builder", PrivateIP: "10.248.0.20", AppPort: 3000,
+		}, {
+			Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.21", AppPort: 3000,
+		}}},
+	}, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "website") || !strings.Contains(stdout, "codex") {
+		t.Fatalf("stdout = %q, want website/codex", stdout)
+	}
+	if strings.Contains(stdout, "builder") {
+		t.Fatalf("stdout = %q, want env project filter to hide default/builder", stdout)
+	}
+}
+
+func TestListShowsUnmanagedCountWithoutFlag(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
+			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
+		}}},
+	}, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Unmanaged: 1") {
+		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	}
+	if strings.Contains(stdout, "manual") {
+		t.Fatalf("stdout = %q, unmanaged row should be hidden without -u", stdout)
+	}
+}
+
+func TestListIncludesUnmanagedWithFlagTenantWide(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
+			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
+		}}},
+	}, "list", "-u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "unmanaged:Running") || !strings.Contains(stdout, "Unmanaged: 1") {
+		t.Fatalf("stdout = %q, want unmanaged row and count", stdout)
+	}
+}
+
+func TestListProjectScopeHidesUnmanagedRowsButShowsCount(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
+			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
+		}}},
+	}, "list", "default", "-u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Unmanaged: 1") {
+		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	}
+	if strings.Contains(stdout, "manual") {
+		t.Fatalf("stdout = %q, unmanaged row should be hidden for project-scoped list", stdout)
+	}
+}
+
+func TestProjectListShowsCurrentTenantProjects(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "project", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "default") || !strings.Contains(stdout, "website") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestProjectCreateDryRunJSON(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "project", "create", "website", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload project.ProjectMutationPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Action != "create" || payload.Project.Name != "website" || len(payload.Projects) != 2 {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestProjectCreateCallsUpdater(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updater := &fakeProjectUpdater{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		projectUpdater: updater,
+	}, "project", "create", "website")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updater.called || updater.incusProject != "sc-acme" || len(updater.projects) != 2 {
+		t.Fatalf("updater = %#v", updater)
+	}
+}
+
+func TestProjectDeleteRejectsNonEmptyProject(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex"}}},
+	}, "project", "delete", "website", "--yes")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "still contains machine") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestProjectDeleteCallsUpdater(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updater := &fakeProjectUpdater{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore:   fakeSandboxInspectStore{},
+		projectUpdater: updater,
+	}, "project", "delete", "website", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updater.called || len(updater.projects) != 1 || updater.projects[0].Name != "default" {
+		t.Fatalf("updater = %#v", updater)
+	}
+}
+
 func TestStatusJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -336,6 +586,34 @@ func TestInspectText(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}
+	}
+}
+
+func TestStatusRejectsAmbiguousBareMachine(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{
+			{Tenant: "acme", Project: "default", Name: "codex"},
+			{Tenant: "acme", Project: "website", Name: "codex"},
+		}},
+	}, "status", "codex")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("error = %q", err)
 	}
 }
 
@@ -655,6 +933,62 @@ func TestEnterCommandAcceptsExplicitCommand(t *testing.T) {
 	}
 	if len(enterer.plan.Command) != 1 || enterer.plan.Command[0] != "pwd" {
 		t.Fatalf("Command = %#v", enterer.plan.Command)
+	}
+}
+
+func TestEnterCommandSearchesBareMachineWhenUnique(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore:   fakeSandboxInspectStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex"}}},
+		sandboxEnterer: enterer,
+	}, "connect", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enterer.plan.Project != "website" || enterer.plan.InstanceName != "website-codex" {
+		t.Fatalf("enterer.plan = %#v", enterer.plan)
+	}
+}
+
+func TestEnterCommandRejectsAmbiguousBareMachine(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{
+			{Tenant: "acme", Project: "default", Name: "codex"},
+			{Tenant: "acme", Project: "website", Name: "codex"},
+		}},
+		sandboxEnterer: &fakeSandboxEnterer{},
+	}, "connect", "codex")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("error = %q", err)
 	}
 }
 
@@ -1442,6 +1776,192 @@ func TestAdminProjectCreateRejectsKnownTLD(t *testing.T) {
 	}
 }
 
+func TestAdminMachineListJSON(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name: "sandcastle-admin",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+			Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", AppPort: 3000,
+		}, {
+			Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.21", AppPort: 3000,
+		}}},
+	}, "--output", "json", "list", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload listPayload
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Tenant.Tenant != "acme" || !payload.AllProjects || len(payload.Machines) != 2 {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestAdminMachineListProjectFilters(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name: "sandcastle-admin",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+			Tenant: "acme", Project: "default", Name: "builder", PrivateIP: "10.248.0.20", AppPort: 3000,
+		}, {
+			Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.21", AppPort: 3000,
+		}}},
+	}, "list", "acme/website")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "website") || !strings.Contains(stdout, "codex") {
+		t.Fatalf("stdout = %q, want website/codex", stdout)
+	}
+	if strings.Contains(stdout, "builder") {
+		t.Fatalf("stdout = %q, want project filter to hide default/builder", stdout)
+	}
+}
+
+func TestAdminMachineCreateDryRunJSON(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name: "sandcastle-admin",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "create", "acme/codex", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sandbox.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Tenant.Tenant != "acme" || payload.Project != "default" || payload.InstanceName != "default-codex" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.Reference != "acme/default/codex" {
+		t.Fatalf("Reference = %q", payload.Reference)
+	}
+}
+
+func TestAdminMachineCreateExplicitProjectDryRunJSON(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name: "sandcastle-admin",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "create", "acme/website/codex", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sandbox.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Project != "website" || payload.InstanceName != "website-codex" || payload.Reference != "acme/website/codex" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestAdminMachineConnectUsesTenantRef(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeAdminForTestWithConfig(t, commandConfig{
+		name: "sandcastle-admin",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxEnterer: enterer,
+	}, "connect", "acme/codex", "pwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enterer.called || enterer.plan.Reference != "acme/default/codex" || enterer.plan.InstanceName != "default-codex" {
+		t.Fatalf("enterer.plan = %#v", enterer.plan)
+	}
+}
+
+func TestAdminMachineDeleteRequiresConfirmation(t *testing.T) {
+	_, err := executeAdminForTest(t, "sandcastle-admin", "delete", "acme/codex")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestAdminMachineDeleteCallsExecutor(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeSandboxController{}
+	_, err = executeAdminForTestWithConfig(t, commandConfig{
+		name: "sandcastle-admin",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxControl: controller,
+	}, "delete", "acme/codex", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !controller.called || controller.plan.Reference != "acme/default/codex" || controller.plan.InstanceName != "default-codex" {
+		t.Fatalf("controller.plan = %#v", controller.plan)
+	}
+}
+
 func TestAdminTLDRefreshWritesSnapshot(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -1874,6 +2394,17 @@ func (f *fakeSandboxEnterer) ConnectMachine(ctx context.Context, plan sandbox.En
 	return nil
 }
 
+type fakeSandboxController struct {
+	called bool
+	plan   sandbox.LifecyclePlan
+}
+
+func (f *fakeSandboxController) ApplyLifecycle(ctx context.Context, plan sandbox.LifecyclePlan) error {
+	f.called = true
+	f.plan = plan
+	return nil
+}
+
 type fakeProjectCreator struct {
 	called bool
 	plan   project.CreatePlan
@@ -1882,6 +2413,19 @@ type fakeProjectCreator struct {
 func (f *fakeProjectCreator) CreateTenant(ctx context.Context, plan project.CreatePlan) error {
 	f.called = true
 	f.plan = plan
+	return nil
+}
+
+type fakeProjectUpdater struct {
+	called       bool
+	incusProject string
+	projects     []meta.Project
+}
+
+func (f *fakeProjectUpdater) SetTenantProjects(ctx context.Context, incusProjectName string, projects []meta.Project) error {
+	f.called = true
+	f.incusProject = incusProjectName
+	f.projects = append([]meta.Project{}, projects...)
 	return nil
 }
 
@@ -2038,11 +2582,16 @@ func (f fakeHostSandboxStore) ListMachines(ctx context.Context, summary project.
 }
 
 type fakeSandboxInspectStore struct {
-	machines []meta.Machine
+	machines  []meta.Machine
+	unmanaged []sandbox.UnmanagedMachine
 }
 
 func (f fakeSandboxInspectStore) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
 	return f.machines, nil
+}
+
+func (f fakeSandboxInspectStore) ListUnmanagedMachines(ctx context.Context, summary project.Summary) ([]sandbox.UnmanagedMachine, error) {
+	return f.unmanaged, nil
 }
 
 type fakeHostOverrideManager struct {

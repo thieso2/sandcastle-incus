@@ -19,7 +19,7 @@ func newRemoteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 }
 
 func newRemoteAddCommand(config commandConfig, _ *rootOptions) *cobra.Command {
-	var owner string
+	var tenant string
 	cmd := &cobra.Command{
 		Use:   "add <name> <join-token>",
 		Short: "Add a Sandcastle remote using an Incus join token",
@@ -32,9 +32,9 @@ already contains the server address — no separate address argument is needed.
 Incus certs are stored in ~/.config/sandcastle/<name>/incus/ and the remote
 is saved as the default in ~/.config/sandcastle/config.yml.
 
-Use --owner to also set your default owner name in one step:
+Use --tenant to also set your default tenant name in one step:
 
-  sc remote add sc-alice JOIN_TOKEN --owner alice`,
+  sc remote add sc-acme JOIN_TOKEN --tenant acme`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, joinToken := args[0], args[1]
@@ -73,8 +73,8 @@ Use --owner to also set your default owner name in one step:
 				cfg.Remote = name
 				fmt.Fprintf(config.stdout, "Default remote set to %q\n", name)
 			}
-			if owner != "" {
-				cfg.Tenant = owner
+			if tenant != "" {
+				cfg.Tenant = tenant
 			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save sandcastle config: %w", err)
@@ -86,6 +86,6 @@ Use --owner to also set your default owner name in one step:
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&owner, "tenant", "", "Set the default tenant name in ~/.config/sandcastle/config.yml")
+	cmd.Flags().StringVar(&tenant, "tenant", "", "Set the default tenant name in ~/.config/sandcastle/config.yml")
 	return cmd
 }

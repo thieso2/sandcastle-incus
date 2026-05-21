@@ -32,11 +32,9 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	name := safeProjectName("project-" + runID)
-	_ = name
+	tenant := safeProjectName("tenant-" + runID)
 	sandboxName := safeProjectName("box-" + runID)
-	ref := owner
+	ref := tenant
 	sandboxRef := sandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-sandbox"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-sandbox"
@@ -103,7 +101,8 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	}
 
 	sandboxCreator := incusx.NewSandboxCreator(e2eConfig.Remote)
-	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
+	sandboxStore := incusx.NewHostOverrideManager(e2eConfig.Remote)
+	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{
 		Reference: sandboxRef,
 	})
 	if err != nil {
@@ -115,7 +114,7 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
 	assertInstanceExists(t, projectServer, createSandboxPlan.InstanceName)
-	hostname := sandboxName + "." + createProjectPlan.DNSSuffix
+	hostname := sandboxName + ".default." + createProjectPlan.DNSSuffix
 	assertSandboxIngressFiles(t, projectServer, createSandboxPlan.InstanceName, hostname, createSandboxPlan.AppPort)
 	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-app-3000")
 	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-app-3000")
@@ -136,7 +135,7 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 
 	controller := incusx.NewSandboxController(e2eConfig.Remote)
 	for _, action := range []sandbox.Action{sandbox.ActionStop, sandbox.ActionStart, sandbox.ActionRestart, sandbox.ActionRemove} {
-		plan, err := sandbox.PlanLifecycle(ctx, adminConfig, store, sandbox.LifecycleRequest{
+		plan, err := sandbox.PlanLifecycle(ctx, adminConfig, store, sandboxStore, sandbox.LifecycleRequest{
 			Reference: sandboxRef,
 			Action:    action,
 		})

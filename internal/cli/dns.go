@@ -15,7 +15,7 @@ import (
 func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "dns",
-		Short: "Manage project DNS",
+		Short: "Manage tenant DNS",
 	}
 	command.AddCommand(newDNSApplyCommand(config, opts))
 	command.AddCommand(newDNSStatusCommand(config, opts))
@@ -29,8 +29,8 @@ func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func newDNSApplyCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "apply project",
-		Short: "Render and apply project CoreDNS records",
+		Use:   "apply tenant",
+		Short: "Render and apply tenant CoreDNS records",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], "")
@@ -51,8 +51,8 @@ func newDNSApplyCommand(config commandConfig, opts *rootOptions) *cobra.Command 
 
 func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status project",
-		Short: "Render project DNS status without applying it",
+		Use:   "status tenant",
+		Short: "Render tenant DNS status without applying it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], "")
@@ -71,8 +71,8 @@ func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command
 func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "install project",
-		Short: "Install local resolver state for a project",
+		Use:   "install tenant",
+		Short: "Install local resolver state for a tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})
@@ -99,8 +99,8 @@ func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "refresh project",
-		Short: "Refresh local resolver state for a project",
+		Use:   "refresh tenant",
+		Short: "Refresh local resolver state for a tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})
@@ -127,8 +127,8 @@ func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 func newDNSUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "uninstall project",
-		Short: "Remove local resolver state for a project",
+		Use:   "uninstall tenant",
+		Short: "Remove local resolver state for a tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := localdns.PlanUninstall(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})

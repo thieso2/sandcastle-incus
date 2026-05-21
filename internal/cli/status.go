@@ -26,6 +26,9 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if err == nil {
 					return writeOutput(config.stdout, opts.output, formatSandboxInspect(result), result)
 				}
+				if machine.IsAmbiguousMachineError(err) || strings.Contains(args[0], "/") {
+					return err
+				}
 			}
 			reference := config.adminConfig.Tenant
 			if len(args) == 1 {

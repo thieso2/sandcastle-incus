@@ -62,12 +62,32 @@
   flag shows non-Sandcastle Incus instances for tenant-wide lists, while the
   unmanaged count is always printed even when unmanaged rows are hidden.
 - The admin tenant lifecycle group is now `sandcastle-admin tenant ...` instead
-  of `project ...`. I have not yet finished the top-level admin machine shape
-  (`sandcastle-admin list/create/connect/delete tenant/...`); that remains a
-  real gap against the final spec.
+  of `project ...`. The admin machine lifecycle is now top-level:
+  `sandcastle-admin list tenant[/project]`,
+  `sandcastle-admin create/connect/status/delete tenant[/project]/machine`.
+  These commands translate admin refs into the same tenant-scoped machine
+  planners used by the user CLI so the admin and user paths do not diverge.
+- Bare machine resolution for existing-machine operations now searches across
+  the current tenant only when no current project is configured. If exactly one
+  project contains the machine name, `connect`/`status`/`delete` use it; if
+  multiple projects match, the CLI returns an ambiguity error and requires an
+  explicit `project/machine`. When `SANDCASTLE_PROJECT` is set, bare names stay
+  scoped to that project.
+- User project management now lives under `sandcastle project
+  list/create/delete`. Projects remain lightweight tenant metadata only. Delete
+  requires `--yes`, rejects `default`, and checks the tenant's machine metadata
+  to ensure the project is empty. There is no `createdBy` value yet for
+  user-created projects because the current local config identifies the tenant
+  but not the human principal.
+- I cleaned up several command help strings and e2e fixture references that
+  still said owner/project/sandbox. The e2e tests that create machines now use
+  the v1 instance and DNS shape (`default-{machine}` or `{project}-{machine}`,
+  `{machine}.default.{tenant}` / `{machine}.{project}.{tenant}`).
 - E2E fixtures and diagnostics now use tenant references and tenant local-DNS
-  state. Safe e2e tiers pass (`scripts/e2e.sh unit`, `gated`, `local`). The
-  destructive `incus` tier was attempted with `SANDCASTLE_E2E=1` and currently
-  cannot complete in this environment because Incus `local` cannot connect on
-  this non-Linux host; image-dependent tests also skip without
-  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` and `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
+  state. Safe e2e tiers pass after the latest CLI-shape work:
+  `go test ./...`, `scripts/e2e.sh unit`, `scripts/e2e.sh gated`, and
+  `scripts/e2e.sh local`. The destructive `incus` tier was attempted with
+  `SANDCASTLE_E2E=1` and still cannot complete in this environment because
+  Incus `local` cannot connect on this non-Linux host; image-dependent tests
+  also skip without `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` and
+  `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.

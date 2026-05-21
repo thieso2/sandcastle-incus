@@ -45,7 +45,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					if config.sandboxEnterer == nil {
 						return fmt.Errorf("machine connect executor is not configured")
 					}
-					enterPlan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, sandbox.EnterRequest{Reference: args[0]})
+					enterPlan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, config.sandboxStore, sandbox.EnterRequest{Reference: args[0]})
 					if err != nil {
 						return err
 					}

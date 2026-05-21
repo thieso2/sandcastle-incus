@@ -67,6 +67,7 @@ func ExecuteAdmin(name string, args []string) int {
 		projectCreator:       incusx.NewProjectCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		projectDeleter:       incusx.NewProjectDeleter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		projectSSHKeyUpdater: incusx.NewProjectSSHKeyManager(adminConfig.Remote),
+		projectUpdater:       incusx.NewProjectSSHKeyManager(adminConfig.Remote),
 		infraCreator:         incusx.NewInfrastructureCreator(adminConfig.Remote),
 		infraDeleter:         incusx.NewInfrastructureDeleter(adminConfig.Remote),
 		imageManager:         incusx.NewImageManager(adminConfig.Remote),
@@ -74,6 +75,11 @@ func ExecuteAdmin(name string, args []string) int {
 		imageImporter:        images.LocalImporter{},
 		topologyStore:        incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:         incusx.NewTrustManager(adminConfig.Remote),
+		sandboxCreator:       incusx.NewSandboxCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		sandboxStore:         incusx.NewHostOverrideManager(adminConfig.Remote),
+		sandboxEnterer:       incusx.NewSandboxEnterer(adminConfig.Remote),
+		sandboxControl:       incusx.NewSandboxController(adminConfig.Remote),
+		sandboxPort:          incusx.NewSandboxPortSetter(adminConfig.Remote),
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
 			Projects:      incusx.NewProjectStore(adminConfig.Remote),
@@ -137,6 +143,11 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "write JSON output")
 
 	root.AddCommand(newVersionCommand(config, opts))
+	root.AddCommand(newAdminMachineListCommand(config, opts))
+	root.AddCommand(newAdminMachineCreateCommand(config, opts))
+	root.AddCommand(newAdminMachineConnectCommand(config, opts))
+	root.AddCommand(newAdminMachineStatusCommand(config, opts))
+	root.AddCommand(newAdminMachineDeleteCommand(config, opts))
 	root.AddCommand(newAdminProjectCommand(config, opts))
 	root.AddCommand(newAdminUserCommand(config, opts))
 	root.AddCommand(newAdminInfraCommand(config, opts))

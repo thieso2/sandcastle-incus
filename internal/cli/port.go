@@ -11,7 +11,7 @@ import (
 func newPortCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	port := &cobra.Command{
 		Use:   "port",
-		Short: "Manage sandbox app ports",
+		Short: "Manage machine app ports",
 	}
 	port.AddCommand(newPortSetCommand(config, opts))
 	return port
@@ -19,8 +19,8 @@ func newPortCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func newPortSetCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "set project/name port",
-		Short: "Set a sandbox app port",
+		Use:   "set [project/]machine port",
+		Short: "Set a machine app port",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appPort, err := strconv.Atoi(args[1])
@@ -35,7 +35,7 @@ func newPortSetCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			if config.sandboxPort == nil {
-				return fmt.Errorf("sandbox port executor is not configured")
+				return fmt.Errorf("machine port executor is not configured")
 			}
 			if err := config.sandboxPort.SetAppPort(cmd.Context(), plan); err != nil {
 				return err

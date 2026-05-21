@@ -17,7 +17,7 @@ func newSandboxLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			if requireYes && !yes {
 				return fmt.Errorf("refusing to delete machine without --yes")
 			}
-			plan, err := sandbox.PlanLifecycle(cmd.Context(), config.adminConfig, config.projectStore, sandbox.LifecycleRequest{
+			plan, err := sandbox.PlanLifecycle(cmd.Context(), config.adminConfig, config.projectStore, config.sandboxStore, sandbox.LifecycleRequest{
 				Reference: args[0],
 				Action:    action,
 			})

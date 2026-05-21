@@ -48,6 +48,7 @@ type commandConfig struct {
 	projectCreator       project.Creator
 	projectDeleter       project.Deleter
 	projectSSHKeyUpdater project.SSHKeyUpdater
+	projectUpdater       project.ProjectUpdater
 	infraCreator         infra.Creator
 	infraDeleter         infra.Deleter
 	imageManager         images.Manager
@@ -112,6 +113,7 @@ func Execute(name string, args []string) int {
 		projectCreator:       incusx.NewProjectCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		projectDeleter:       incusx.NewProjectDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		projectSSHKeyUpdater: incusx.NewProjectSSHKeyManager(adminConfig.Remote),
+		projectUpdater:       incusx.NewProjectSSHKeyManager(adminConfig.Remote),
 		infraCreator:         incusx.NewInfrastructureCreator(adminConfig.Remote),
 		infraDeleter:         incusx.NewInfrastructureDeleter(adminConfig.Remote),
 		imageManager:         incusx.NewImageManager(adminConfig.Remote),
@@ -218,6 +220,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "restart", sandbox.ActionRestart, false))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "delete", sandbox.ActionRemove, true))
 	root.AddCommand(newPortCommand(config, opts))
+	root.AddCommand(newProjectCommand(config, opts))
 	root.AddCommand(newDNSCommand(config, opts))
 	root.AddCommand(newTailscaleCommand(config, opts))
 	root.AddCommand(newHostCommand(config, opts))

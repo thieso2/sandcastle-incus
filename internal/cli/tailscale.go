@@ -12,7 +12,7 @@ import (
 func newTailscaleCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "tailscale",
-		Short: "Manage project Tailscale attachment",
+		Short: "Manage tenant Tailscale attachment",
 	}
 	command.AddCommand(newTailscaleUpCommand(config, opts))
 	command.AddCommand(newTailscaleStatusCommand(config, opts))
@@ -25,8 +25,8 @@ func newTailscaleUpCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 	var authKey string
 	var advertiseTags []string
 	command := &cobra.Command{
-		Use:   "up project",
-		Short: "Attach a project Tailscale sidecar",
+		Use:   "up tenant",
+		Short: "Attach a tenant Tailscale sidecar",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := tailscale.PlanUp(cmd.Context(), config.adminConfig, config.projectStore, tailscale.UpRequest{
@@ -60,8 +60,8 @@ func newTailscaleUpCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 
 func newTailscaleStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status project",
-		Short: "Check project Tailscale sidecar status",
+		Use:   "status tenant",
+		Short: "Check tenant Tailscale sidecar status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := tailscale.PlanStatus(cmd.Context(), config.adminConfig, config.projectStore, tailscale.StatusRequest{Reference: args[0]})
@@ -87,8 +87,8 @@ func newTailscaleStatusCommand(config commandConfig, opts *rootOptions) *cobra.C
 func newTailscaleDownCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "down project",
-		Short: "Detach a project Tailscale sidecar",
+		Use:   "down tenant",
+		Short: "Detach a tenant Tailscale sidecar",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := tailscale.PlanDown(cmd.Context(), config.adminConfig, config.projectStore, tailscale.DownRequest{Reference: args[0]})

@@ -31,14 +31,12 @@ func TestProjectDNSE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	name := safeProjectName("dns-" + runID)
-	_ = name
+	tenant := safeProjectName("tenant-" + runID)
 	firstSandboxName := safeProjectName("codex-" + runID)
 	secondSandboxName := safeProjectName("claude-" + runID)
-	ref := owner
-	firstSandboxRef := ref + "/" + firstSandboxName
-	secondSandboxRef := ref + "/" + secondSandboxName
+	ref := tenant
+	firstSandboxRef := firstSandboxName
+	secondSandboxRef := secondSandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-dns"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-dns"
 	adminConfig := config.Admin{
@@ -131,16 +129,16 @@ func TestProjectDNSE2E(t *testing.T) {
 	}
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
-	firstExact := firstSandboxName + "." + createProjectPlan.DNSSuffix
+	firstExact := firstSandboxName + ".default." + createProjectPlan.DNSSuffix
 	firstWildcard := "app." + firstExact
-	secondExact := secondSandboxName + "." + createProjectPlan.DNSSuffix
-	absent := "app." + createProjectPlan.DNSSuffix
+	secondExact := secondSandboxName + ".default." + createProjectPlan.DNSSuffix
+	absent := "app.default." + createProjectPlan.DNSSuffix
 	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstExact, createFirstSandboxPlan.PrivateIP)
 	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstWildcard, createFirstSandboxPlan.PrivateIP)
 	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, secondExact, createSecondSandboxPlan.PrivateIP)
 	assertCoreDNSNoAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, absent)
 
-	removeSecondPlan, err := sandbox.PlanLifecycle(ctx, adminConfig, store, sandbox.LifecycleRequest{
+	removeSecondPlan, err := sandbox.PlanLifecycle(ctx, adminConfig, store, sandboxStore, sandbox.LifecycleRequest{
 		Reference: secondSandboxRef,
 		Action:    sandbox.ActionRemove,
 	})

@@ -6,7 +6,6 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	"github.com/thieso2/sandcastle-incus/internal/naming"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -27,34 +26,22 @@ func Inspect(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if err := admin.Validate(); err != nil {
 		return InspectResult{}, err
 	}
-	tenantRef, err := currentTenantRef(admin)
+	resolved, err := resolveExistingMachine(ctx, admin, projectStore, sandboxStore, request.Reference)
 	if err != nil {
 		return InspectResult{}, err
 	}
-	projectRef, machineName, err := naming.ParseUserMachineRef(request.Reference, admin.Project)
-	if err != nil {
-		return InspectResult{}, err
-	}
-	summary, err := findTenant(ctx, projectStore, tenantRef)
-	if err != nil {
-		return InspectResult{}, err
-	}
-	machines, err := listExistingMachines(ctx, sandboxStore, summary)
+	machines, err := listExistingMachines(ctx, sandboxStore, resolved.Summary)
 	if err != nil {
 		return InspectResult{}, err
 	}
 	for _, machine := range machines {
-		if machine.Project == projectRef.Project && machine.Name == machineName {
-			instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: projectRef.Project, Machine: machineName})
-			if err != nil {
-				return InspectResult{}, err
-			}
+		if machine.Project == resolved.Project && machine.Name == resolved.Name {
 			return InspectResult{
 				Reference:    request.Reference,
-				Tenant:       summary,
-				Project:      projectRef.Project,
-				Name:         machineName,
-				InstanceName: instanceName,
+				Tenant:       resolved.Summary,
+				Project:      resolved.Project,
+				Name:         resolved.Name,
+				InstanceName: resolved.InstanceName,
 				Machine:      machine,
 			}, nil
 		}

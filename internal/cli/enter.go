@@ -13,7 +13,7 @@ func newEnterCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Connect to a Sandcastle machine",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, sandbox.EnterRequest{
+			plan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, config.sandboxStore, sandbox.EnterRequest{
 				Reference: args[0],
 				Command:   args[1:],
 			})

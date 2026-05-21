@@ -32,11 +32,9 @@ func TestHostOverrideE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	name := safeProjectName("project-" + runID)
-	_ = name
+	tenant := safeProjectName("tenant-" + runID)
 	sandboxName := safeProjectName("box-" + runID)
-	ref := owner
+	ref := tenant
 	sandboxRef := sandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-host"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-host"
@@ -107,7 +105,7 @@ func TestHostOverrideE2E(t *testing.T) {
 	}
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
 	overrideHost := "app-" + safeToken(runID) + ".override.test"
-	hostname := sandboxName + "." + createProjectPlan.DNSSuffix
+	hostname := sandboxName + ".default." + createProjectPlan.DNSSuffix
 	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-host-override")
 	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-host-override")
 
@@ -177,7 +175,7 @@ func TestHostOverrideHostsFileE2E(t *testing.T) {
 	}
 
 	runID := e2eConfig.DisposableRunID()
-	reference := "owner-" + safeToken(runID) + "/project-" + safeToken(runID) + "/box-" + safeToken(runID)
+	reference := "tenant-" + safeToken(runID) + "/default/box-" + safeToken(runID)
 	hostname := "host-" + safeToken(runID) + ".override.test"
 	entry := hostoverride.RenderHostsEntry(reference, hostname, "127.0.0.1")
 	manager := hostoverride.NewFileHostsManager("")

@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
-	"github.com/thieso2/sandcastle-incus/internal/naming"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -37,26 +36,11 @@ type Enterer interface {
 	ConnectMachine(context.Context, EnterPlan, EnterSession) error
 }
 
-func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request EnterRequest) (EnterPlan, error) {
+func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProjectStore, machineStore Store, request EnterRequest) (EnterPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return EnterPlan{}, err
 	}
-	tenantRef, err := currentTenantRef(admin)
-	if err != nil {
-		return EnterPlan{}, err
-	}
-	projectRef, machineName, err := naming.ParseUserMachineRef(request.Reference, admin.Project)
-	if err != nil {
-		return EnterPlan{}, err
-	}
-	summary, err := findTenant(ctx, store, tenantRef)
-	if err != nil {
-		return EnterPlan{}, err
-	}
-	if !tenantHasProject(summary, projectRef.Project) {
-		return EnterPlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectRef.Project, summary.Tenant)
-	}
-	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: projectRef.Project, Machine: machineName})
+	resolved, err := resolveExistingMachine(ctx, admin, store, machineStore, request.Reference)
 	if err != nil {
 		return EnterPlan{}, err
 	}
@@ -71,12 +55,12 @@ func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProje
 	}
 	return EnterPlan{
 		Reference:    request.Reference,
-		Tenant:       summary,
-		Project:      projectRef.Project,
-		Name:         machineName,
-		InstanceName: instanceName,
+		Tenant:       resolved.Summary,
+		Project:      resolved.Project,
+		Name:         resolved.Name,
+		InstanceName: resolved.InstanceName,
 		Command:      command,
-		LinuxUser:    summary.Tenant,
+		LinuxUser:    resolved.Summary.Tenant,
 		WorkingDir:   "/workspace",
 		Interactive:  interactive,
 	}, nil

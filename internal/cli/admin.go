@@ -169,7 +169,7 @@ func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 			return writeOutput(config.stdout, opts.output, formatDeletePlan(plan), plan)
 		},
 	}
-	command.Flags().BoolVar(&yes, "yes", false, "confirm project deletion")
+	command.Flags().BoolVar(&yes, "yes", false, "confirm tenant deletion")
 	command.Flags().BoolVar(&purge, "purge", false, "delete durable tenant volumes and the Incus project")
 	return command
 }
@@ -415,7 +415,7 @@ func formatImageSyncResult(result images.SyncResult) string {
 func newAdminTLDCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	tldCommand := &cobra.Command{
 		Use:   "tld",
-		Short: "Manage project domain deny-list snapshots",
+		Short: "Manage tenant suffix deny-list snapshots",
 	}
 	tldCommand.AddCommand(newAdminTLDRefreshCommand(config, opts))
 	return tldCommand
@@ -518,8 +518,8 @@ func newAdminUserCreateCommand(config commandConfig, opts *rootOptions) *cobra.C
 func newAdminUserGrantCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "grant user owner/project [owner/project...]",
-		Short: "Plan restricted certificate project grants",
+		Use:   "grant user tenant [tenant...]",
+		Short: "Plan restricted certificate tenant grants",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := usertrust.PlanGrant(config.adminConfig, usertrust.GrantRequest{

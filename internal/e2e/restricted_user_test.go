@@ -252,7 +252,7 @@ func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
 
 	controller := incusx.SandboxController{Server: e2eSandboxLifecycleServer{inner: restricted}}
 	for _, action := range []sandbox.Action{sandbox.ActionStop, sandbox.ActionStart, sandbox.ActionRemove} {
-		plan, err := sandbox.PlanLifecycle(ctx, adminConfig, restrictedStore, sandbox.LifecycleRequest{
+		plan, err := sandbox.PlanLifecycle(ctx, adminConfig, restrictedStore, restrictedSandboxes, sandbox.LifecycleRequest{
 			Reference: sandboxRef,
 			Action:    action,
 		})

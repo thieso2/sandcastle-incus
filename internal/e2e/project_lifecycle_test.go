@@ -23,9 +23,8 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	name := safeProjectName("project-" + runID)
-	ref := owner
+	tenant := safeProjectName("tenant-" + runID)
+	ref := tenant
 	adminConfig := config.Admin{
 		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
@@ -83,7 +82,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsProject(afterCreate, owner, name) {
+	if !containsProject(afterCreate, tenant) {
 		t.Fatalf("created project %s was not listed in %#v", ref, afterCreate)
 	}
 
@@ -139,11 +138,7 @@ func safeProjectName(value string) string {
 	return strings.Trim(value, "-")
 }
 
-func containsProject(projects []project.Summary, owner string, name string) bool {
-	tenant := name
-	if tenant == "" {
-		tenant = owner
-	}
+func containsProject(projects []project.Summary, tenant string) bool {
 	for _, summary := range projects {
 		if summary.Tenant == tenant {
 			return true

@@ -26,10 +26,8 @@ func TestLocalTrustInstallUninstallE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	name := safeProjectName("trust-" + runID)
-	_ = name
-	ref := owner
+	tenant := safeProjectName("tenant-" + runID)
+	ref := tenant
 	adminConfig := config.Admin{
 		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
@@ -131,11 +129,10 @@ func TestLocalTrustPlatformInstallUninstallE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	name := safeProjectName("trust-platform-" + runID)
-	_ = name
-	ref := owner
+	tenant := safeProjectName("tenant-" + runID)
+	ref := tenant
 	adminConfig := config.Admin{
+		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,

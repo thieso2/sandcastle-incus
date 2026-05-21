@@ -1,0 +1,78 @@
+package tenant
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
+)
+
+func TestPlanCreateProjectAddsNamespace(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	plan, err := PlanCreateProject(context.Background(), admin, tenantStoreForUpdateTest(t, "default"), ProjectMutationRequest{Name: "website"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Action != "create" || plan.Project.Name != "website" || len(plan.Projects) != 2 {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestPlanCreateProjectRejectsDefault(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	_, err := PlanCreateProject(context.Background(), admin, tenantStoreForUpdateTest(t, "default"), ProjectMutationRequest{Name: "default"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestPlanDeleteProjectRejectsNonEmpty(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	_, err := PlanDeleteProject(context.Background(), admin, tenantStoreForUpdateTest(t, "default", "website"), ProjectMutationRequest{
+		Name:     "website",
+		Machines: []meta.Machine{{Project: "website", Name: "codex"}},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "still contains machine") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestPlanDeleteProjectRemovesNamespace(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	plan, err := PlanDeleteProject(context.Background(), admin, tenantStoreForUpdateTest(t, "default", "website"), ProjectMutationRequest{Name: "website"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Action != "delete" || len(plan.Projects) != 1 || plan.Projects[0].Name != "default" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func tenantStoreForUpdateTest(t *testing.T, names ...string) MemoryStore {
+	t.Helper()
+	projects := make([]meta.Project, 0, len(names))
+	for _, name := range names {
+		projects = append(projects, meta.Project{Name: name})
+	}
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		PrivateCIDR: "10.248.0.0/24",
+		Projects:    projects,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return MemoryStore{Projects: []IncusProject{{Name: "sc-acme", Config: config}}}
+}

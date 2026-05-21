@@ -28,11 +28,9 @@ func TestCLIEnterCommandE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	name := safeProjectName("project-" + runID)
-	_ = name
+	tenant := safeProjectName("tenant-" + runID)
 	sandboxName := safeProjectName("enter-" + runID)
-	ref := owner
+	ref := tenant
 	sandboxRef := sandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-enter"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-enter"
@@ -106,6 +104,7 @@ func TestCLIEnterCommandE2E(t *testing.T) {
 	}
 
 	t.Setenv("SANDCASTLE_REMOTE", e2eConfig.Remote)
+	t.Setenv("SANDCASTLE_TENANT", ref)
 	t.Setenv("SANDCASTLE_STORAGE_POOL", e2eConfig.StoragePool)
 	t.Setenv("SANDCASTLE_CIDR_POOL", e2eConfig.CIDRPool)
 	t.Setenv("SANDCASTLE_PROJECT_PREFIX", config.DefaultProjectPrefix)

@@ -2,8 +2,10 @@ package tenant
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
@@ -11,8 +13,25 @@ type SSHKeyUpdater interface {
 	SetTenantSSHKey(ctx context.Context, incusProjectName string, sshKey string) error
 }
 
+type ProjectUpdater interface {
+	SetTenantProjects(ctx context.Context, incusProjectName string, projects []meta.Project) error
+}
+
 type ResolvedRef struct {
 	IncusProject string
+}
+
+type ProjectMutationRequest struct {
+	Name     string
+	Machines []meta.Machine
+}
+
+type ProjectMutationPlan struct {
+	Action       string         `json:"action"`
+	Tenant       Summary        `json:"tenant"`
+	Project      meta.Project   `json:"project"`
+	Projects     []meta.Project `json:"projects"`
+	IncusProject string         `json:"incusProject"`
 }
 
 func ParseRef(admin config.Admin, reference string) (ResolvedRef, error) {
@@ -25,4 +44,96 @@ func ParseRef(admin config.Admin, reference string) (ResolvedRef, error) {
 		return ResolvedRef{}, err
 	}
 	return ResolvedRef{IncusProject: incusName}, nil
+}
+
+func PlanCreateProject(ctx context.Context, admin config.Admin, store IncusProjectStore, request ProjectMutationRequest) (ProjectMutationPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	if err := naming.ValidateNewProjectName(request.Name); err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	summary, err := findCurrentTenant(ctx, admin, store)
+	if err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	if summaryHasProject(summary, request.Name) {
+		return ProjectMutationPlan{}, fmt.Errorf("Sandcastle project %s already exists in tenant %s", request.Name, summary.Tenant)
+	}
+	created := meta.Project{Name: request.Name}
+	projects := append([]meta.Project{}, summary.Projects...)
+	projects = append(projects, created)
+	return ProjectMutationPlan{
+		Action:       "create",
+		Tenant:       summary,
+		Project:      created,
+		Projects:     projects,
+		IncusProject: summary.IncusName,
+	}, nil
+}
+
+func PlanDeleteProject(ctx context.Context, admin config.Admin, store IncusProjectStore, request ProjectMutationRequest) (ProjectMutationPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	if err := naming.ValidateProjectName(request.Name); err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	if request.Name == naming.DefaultProjectName {
+		return ProjectMutationPlan{}, fmt.Errorf("default project cannot be deleted")
+	}
+	summary, err := findCurrentTenant(ctx, admin, store)
+	if err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	if !summaryHasProject(summary, request.Name) {
+		return ProjectMutationPlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", request.Name, summary.Tenant)
+	}
+	for _, machine := range request.Machines {
+		if machine.Project == request.Name {
+			return ProjectMutationPlan{}, fmt.Errorf("Sandcastle project %s still contains machine %s", request.Name, machine.Name)
+		}
+	}
+	projects := make([]meta.Project, 0, len(summary.Projects)-1)
+	var deleted meta.Project
+	for _, candidate := range summary.Projects {
+		if candidate.Name == request.Name {
+			deleted = candidate
+			continue
+		}
+		projects = append(projects, candidate)
+	}
+	return ProjectMutationPlan{
+		Action:       "delete",
+		Tenant:       summary,
+		Project:      deleted,
+		Projects:     projects,
+		IncusProject: summary.IncusName,
+	}, nil
+}
+
+func findCurrentTenant(ctx context.Context, admin config.Admin, store IncusProjectStore) (Summary, error) {
+	ref, err := naming.ParseTenantRef(admin.Tenant)
+	if err != nil {
+		return Summary{}, err
+	}
+	tenants, err := List(ctx, store)
+	if err != nil {
+		return Summary{}, err
+	}
+	for _, summary := range tenants {
+		if summary.Tenant == ref.Tenant {
+			return summary, nil
+		}
+	}
+	return Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.Tenant)
+}
+
+func summaryHasProject(summary Summary, name string) bool {
+	for _, project := range summary.Projects {
+		if project.Name == name {
+			return true
+		}
+	}
+	return false
 }
