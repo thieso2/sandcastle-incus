@@ -44,6 +44,9 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
 					return err
 				}
+				if err := refreshMachineKnownHosts(cmd.Context(), config, plan); err != nil {
+					return err
+				}
 				if !detach {
 					if config.machineConnector == nil {
 						return fmt.Errorf("machine connect executor is not configured")

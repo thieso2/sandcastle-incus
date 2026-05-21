@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -33,19 +34,37 @@ func (r *fakeMachineConnectResource) ExecInstance(instanceName string, exec api.
 	return fakeOperation{}, nil
 }
 
-func TestMachineConnectorExecsInteractiveShell(t *testing.T) {
-	resource := &fakeMachineConnectResource{}
-	connector := MachineConnector{Server: fakeMachineConnectServer{resource: resource}}
+type fakeSSHRunner struct {
+	args []string
+}
+
+func (r *fakeSSHRunner) Run(ctx context.Context, session machine.ConnectSession, args ...string) error {
+	r.args = append([]string{}, args...)
+	return nil
+}
+
+func TestMachineConnectorSSHsToManagedMachine(t *testing.T) {
+	runner := &fakeSSHRunner{}
+	var logs []string
+	connector := MachineConnector{
+		Runner: runner,
+		Log: func(msg string) {
+			logs = append(logs, msg)
+		},
+	}
 	err := connector.ConnectMachine(context.Background(), machine.ConnectPlan{
 		Tenant:       tenant.Summary{IncusName: "sc-acme"},
 		Project:      "default",
 		InstanceName: "default-codex",
+		SSHHost:      "10.248.0.20",
+		HostKeyAlias: "codex.default.acme",
 		Command:      []string{"/bin/bash", "-l"},
 		LinuxUser:    "alice",
 		UserID:       machine.DefaultLinuxUID,
 		GroupID:      machine.DefaultLinuxGID,
 		WorkingDir:   "/workspace",
 		Interactive:  true,
+		Managed:      true,
 	}, machine.ConnectSession{
 		Stdin:  io.Reader(nil),
 		Stdout: io.Discard,
@@ -54,23 +73,22 @@ func TestMachineConnectorExecsInteractiveShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resource.instanceName != "default-codex" {
-		t.Fatalf("instanceName = %q", resource.instanceName)
+	joined := strings.Join(runner.args, " ")
+	for _, want := range []string{
+		"-A",
+		"CheckHostIP=no",
+		"StrictHostKeyChecking=accept-new",
+		"HostKeyAlias=codex.default.acme",
+		"-t",
+		"alice@10.248.0.20",
+		"cd /workspace && exec /bin/bash -l",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("ssh args %q missing %q", joined, want)
+		}
 	}
-	if !resource.exec.Interactive {
-		t.Fatal("expected interactive exec")
-	}
-	if resource.exec.RecordOutput {
-		t.Fatal("interactive exec should not record output")
-	}
-	if resource.exec.Cwd != "/workspace" {
-		t.Fatalf("Cwd = %q", resource.exec.Cwd)
-	}
-	if resource.exec.User != machine.DefaultLinuxUID || resource.exec.Group != machine.DefaultLinuxGID {
-		t.Fatalf("user/group = %d/%d", resource.exec.User, resource.exec.Group)
-	}
-	if resource.exec.Environment["HOME"] != "/home/alice" || resource.exec.Environment["USER"] != "alice" {
-		t.Fatalf("environment = %#v", resource.exec.Environment)
+	if len(logs) != 1 || !strings.Contains(logs[0], "ssh -A") || !strings.Contains(logs[0], "alice@10.248.0.20") || !strings.Contains(logs[0], `"cd /workspace && exec /bin/bash -l"`) {
+		t.Fatalf("logs = %#v", logs)
 	}
 }
 
@@ -101,17 +119,20 @@ func TestMachineConnectorExecsUnmanagedMachineAsRoot(t *testing.T) {
 	}
 }
 
-func TestMachineConnectorExecsCommandNonInteractively(t *testing.T) {
-	resource := &fakeMachineConnectResource{}
-	connector := MachineConnector{Server: fakeMachineConnectServer{resource: resource}}
+func TestMachineConnectorSSHsCommandNonInteractively(t *testing.T) {
+	runner := &fakeSSHRunner{}
+	connector := MachineConnector{Runner: runner}
 	err := connector.ConnectMachine(context.Background(), machine.ConnectPlan{
 		Tenant:       tenant.Summary{IncusName: "sc-acme"},
 		Project:      "default",
 		InstanceName: "default-codex",
+		SSHHost:      "10.248.0.20",
+		HostKeyAlias: "codex.default.acme",
 		Command:      []string{"pwd"},
 		LinuxUser:    "alice",
 		WorkingDir:   "/workspace",
 		Interactive:  false,
+		Managed:      true,
 	}, machine.ConnectSession{
 		Stdin:  io.Reader(nil),
 		Stdout: io.Discard,
@@ -120,10 +141,11 @@ func TestMachineConnectorExecsCommandNonInteractively(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resource.exec.Interactive {
-		t.Fatal("expected non-interactive exec")
+	joined := strings.Join(runner.args, " ")
+	if strings.Contains(joined, " -t ") {
+		t.Fatalf("non-interactive ssh should not force tty: %q", joined)
 	}
-	if resource.exec.RecordOutput {
-		t.Fatal("exec should not record output (incompatible with WaitForWS in Incus 7.0)")
+	if !strings.Contains(joined, "alice@10.248.0.20") || !strings.Contains(joined, "cd /workspace && exec pwd") {
+		t.Fatalf("ssh args = %q", joined)
 	}
 }

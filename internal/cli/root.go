@@ -61,6 +61,7 @@ type commandConfig struct {
 	machineConnector    machine.Connector
 	machineControl      machine.Controller
 	machinePort         machine.PortSetter
+	knownHosts          machineKnownHostsManager
 	dnsApplier          dns.Applier
 	localDNS            localdns.Manager
 	localDNSService     localdns.ServiceManager
@@ -124,9 +125,10 @@ func Execute(name string, args []string) int {
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		machineStore:        incusx.NewHostOverrideManager(adminConfig.Remote),
-		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote),
+		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
+		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr),
 		dnsApplier:          incusx.NewDNSManager(adminConfig.Remote),
 		localDNS:            localdns.FileManager{},
 		localDNSService:     localdns.FileServiceManager{},

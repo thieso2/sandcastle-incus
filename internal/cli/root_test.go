@@ -946,6 +946,7 @@ func TestCreateDetachSkipsConnect(t *testing.T) {
 	creator := &fakeMachineCreator{}
 	connector := &fakeMachineConnector{}
 	applier := &fakeDNSApplier{}
+	knownHosts := &fakeKnownHostsManager{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
 		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
@@ -954,6 +955,7 @@ func TestCreateDetachSkipsConnect(t *testing.T) {
 		}}},
 		machineCreator:   creator,
 		machineConnector: connector,
+		knownHosts:       knownHosts,
 		dnsApplier:       applier,
 	}, "create", "codex", "--detach")
 	if err != nil {
@@ -967,6 +969,9 @@ func TestCreateDetachSkipsConnect(t *testing.T) {
 	}
 	if !applier.called || applier.tenant.Tenant != "acme" {
 		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
+	}
+	if !knownHosts.called || knownHosts.plan.Hostname != "codex.default.acme" || knownHosts.plan.PrivateIP != "10.248.0.20" {
+		t.Fatalf("expected known_hosts refresh, got %#v", knownHosts.plan)
 	}
 }
 
@@ -3090,6 +3095,7 @@ func TestConnectAliasCreatesMissingMachineBeforeConnecting(t *testing.T) {
 	creator := &fakeMachineCreator{}
 	connector := &fakeMachineConnector{}
 	applier := &fakeDNSApplier{}
+	knownHosts := &fakeKnownHostsManager{}
 	stdout, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
 		name: "sandcastle",
 		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
@@ -3099,6 +3105,7 @@ func TestConnectAliasCreatesMissingMachineBeforeConnecting(t *testing.T) {
 		machineStore:     fakeMachineStatusStore{},
 		machineCreator:   creator,
 		machineConnector: connector,
+		knownHosts:       knownHosts,
 		dnsApplier:       applier,
 	}, "c", "codex")
 	if err != nil {
@@ -3115,6 +3122,9 @@ func TestConnectAliasCreatesMissingMachineBeforeConnecting(t *testing.T) {
 	}
 	if !applier.called || applier.tenant.Tenant != "acme" {
 		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
+	}
+	if !knownHosts.called || knownHosts.plan.InstanceName != "default-codex" {
+		t.Fatalf("expected known_hosts refresh, got %#v", knownHosts.plan)
 	}
 	if !connector.called || connector.plan.InstanceName != "default-codex" || !connector.plan.Interactive {
 		t.Fatalf("connector.plan = %#v", connector.plan)
@@ -3133,6 +3143,17 @@ type fakeMachineCreator struct {
 }
 
 func (f *fakeMachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePlan) error {
+	f.plan = plan
+	return nil
+}
+
+type fakeKnownHostsManager struct {
+	called bool
+	plan   machine.CreatePlan
+}
+
+func (f *fakeKnownHostsManager) RefreshMachine(ctx context.Context, plan machine.CreatePlan) error {
+	f.called = true
 	f.plan = plan
 	return nil
 }

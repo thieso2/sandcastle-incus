@@ -94,9 +94,10 @@ func ExecuteAdmin(name string, args []string) int {
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineStore:        incusx.NewHostOverrideManager(adminConfig.Remote),
-		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote),
+		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
+		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr),
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
 			Tenants:       routeBrokerTenants,

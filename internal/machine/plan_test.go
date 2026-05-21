@@ -121,13 +121,16 @@ func TestPlanConnect(t *testing.T) {
 func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex"}}}
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42"}}}
 	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Project != "website" || plan.InstanceName != "website-codex" {
 		t.Fatalf("plan = %#v", plan)
+	}
+	if plan.SSHHost != "10.248.0.42" || plan.HostKeyAlias != "codex.website.acme" {
+		t.Fatalf("ssh target = %q alias %q", plan.SSHHost, plan.HostKeyAlias)
 	}
 }
 

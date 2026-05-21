@@ -20,6 +20,10 @@ type ConnectPlan struct {
 	Project      string         `json:"project"`
 	Name         string         `json:"name"`
 	InstanceName string         `json:"instanceName"`
+	Hostname     string         `json:"hostname,omitempty"`
+	PrivateIP    string         `json:"privateIP,omitempty"`
+	SSHHost      string         `json:"sshHost,omitempty"`
+	HostKeyAlias string         `json:"hostKeyAlias,omitempty"`
 	Command      []string       `json:"command"`
 	LinuxUser    string         `json:"linuxUser"`
 	UserID       int            `json:"userId"`
@@ -66,12 +70,26 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 		userID = 0
 		groupID = 0
 	}
+	hostname := ""
+	sshHost := resolved.PrivateIP
+	hostKeyAlias := ""
+	if resolved.Managed {
+		hostname = resolved.Name + "." + resolved.Project + "." + resolved.Summary.DNSSuffix
+		hostKeyAlias = hostname
+		if sshHost == "" {
+			sshHost = hostname
+		}
+	}
 	return ConnectPlan{
 		Reference:    request.Reference,
 		Tenant:       resolved.Summary,
 		Project:      resolved.Project,
 		Name:         resolved.Name,
 		InstanceName: resolved.InstanceName,
+		Hostname:     hostname,
+		PrivateIP:    resolved.PrivateIP,
+		SSHHost:      sshHost,
+		HostKeyAlias: hostKeyAlias,
 		Command:      command,
 		LinuxUser:    linuxUser,
 		UserID:       userID,

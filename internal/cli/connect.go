@@ -69,6 +69,9 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 	if err := refreshTenantDNS(cmd.Context(), config, createPlan.Tenant); err != nil {
 		return err
 	}
+	if err := refreshMachineKnownHosts(cmd.Context(), config, createPlan); err != nil {
+		return err
+	}
 	if config.machineConnector == nil {
 		return fmt.Errorf("machine connect executor is not configured")
 	}
@@ -98,6 +101,10 @@ func connectPlanFromCreatePlan(plan machine.CreatePlan, command []string) (machi
 		Project:      plan.Project,
 		Name:         plan.Name,
 		InstanceName: plan.InstanceName,
+		Hostname:     plan.Hostname,
+		PrivateIP:    plan.PrivateIP,
+		SSHHost:      plan.PrivateIP,
+		HostKeyAlias: plan.Hostname,
 		Command:      command,
 		LinuxUser:    plan.LinuxUser,
 		UserID:       machine.DefaultLinuxUID,

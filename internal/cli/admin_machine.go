@@ -73,6 +73,9 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 				if err := refreshTenantDNS(cmd.Context(), cfg, plan.Tenant); err != nil {
 					return err
 				}
+				if err := refreshMachineKnownHosts(cmd.Context(), cfg, plan); err != nil {
+					return err
+				}
 				if !detach {
 					if cfg.machineConnector == nil {
 						return fmt.Errorf("machine connect executor is not configured")

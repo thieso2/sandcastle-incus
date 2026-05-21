@@ -3,7 +3,10 @@ package incusx
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -24,13 +27,148 @@ type MachineConnector struct {
 	Remote     string
 	ConfigPath string
 	Server     MachineConnectServer
+	Runner     SSHRunner
+	Log        func(string)
 }
 
 func NewMachineConnector(remote string) MachineConnector {
 	return MachineConnector{Remote: remote}
 }
 
+func (e MachineConnector) WithVerbose(enabled bool, w io.Writer) MachineConnector {
+	if enabled {
+		e.Log = func(msg string) { fmt.Fprintln(w, "[machine-connect] "+msg) }
+	}
+	return e
+}
+
+func (e MachineConnector) log(msg string) {
+	if e.Log != nil {
+		e.Log(msg)
+	}
+}
+
+type SSHRunner interface {
+	Run(ctx context.Context, session machine.ConnectSession, args ...string) error
+}
+
+type LocalSSHRunner struct{}
+
 func (e MachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
+	if plan.Managed {
+		return e.connectManagedMachine(ctx, plan, session)
+	}
+	return e.connectUnmanagedMachine(ctx, plan, session)
+}
+
+func (e MachineConnector) connectManagedMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
+	if strings.TrimSpace(plan.SSHHost) == "" {
+		return fmt.Errorf("machine %s has no SSH host", plan.InstanceName)
+	}
+	runner := e.Runner
+	if runner == nil {
+		runner = LocalSSHRunner{}
+	}
+	args := sshArgs(plan)
+	e.log("run " + shellCommandLine("ssh", args))
+	if err := runner.Run(ctx, session, args...); err != nil {
+		return fmt.Errorf("ssh to machine %s: %w", plan.InstanceName, err)
+	}
+	return nil
+}
+
+func sshArgs(plan machine.ConnectPlan) []string {
+	args := []string{
+		"-A",
+		"-o", "CheckHostIP=no",
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
+	if plan.HostKeyAlias != "" {
+		args = append(args, "-o", "HostKeyAlias="+plan.HostKeyAlias)
+	}
+	if plan.Interactive {
+		args = append(args, "-t")
+	}
+	args = append(args, plan.LinuxUser+"@"+plan.SSHHost)
+	if len(plan.Command) > 0 {
+		args = append(args, remoteCommand(plan))
+	}
+	return args
+}
+
+func remoteCommand(plan machine.ConnectPlan) string {
+	command := strings.TrimSpace(strings.Join(shellRemoteQuoteArgs(plan.Command), " "))
+	if command == "" {
+		command = "exec /bin/bash -l"
+	} else {
+		command = "exec " + command
+	}
+	if strings.TrimSpace(plan.WorkingDir) == "" {
+		return command
+	}
+	return "cd " + shellRemoteQuote(plan.WorkingDir) + " && " + command
+}
+
+func shellRemoteQuoteArgs(args []string) []string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, shellRemoteQuote(arg))
+	}
+	return quoted
+}
+
+func shellRemoteQuote(value string) string {
+	if value != "" && strings.IndexFunc(value, func(r rune) bool {
+		return !(r >= 'A' && r <= 'Z' ||
+			r >= 'a' && r <= 'z' ||
+			r >= '0' && r <= '9' ||
+			strings.ContainsRune("-_./:=@%", r))
+	}) == -1 {
+		return value
+	}
+	return shellQuote(value)
+}
+
+func shellCommandLine(name string, args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, shellDisplayQuote(name))
+	for _, arg := range args {
+		parts = append(parts, shellDisplayQuote(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellDisplayQuote(value string) string {
+	if value == "" {
+		return `""`
+	}
+	if strings.IndexFunc(value, func(r rune) bool {
+		return !(r >= 'A' && r <= 'Z' ||
+			r >= 'a' && r <= 'z' ||
+			r >= '0' && r <= '9' ||
+			strings.ContainsRune("-_./:=@", r))
+	}) == -1 {
+		return value
+	}
+	replacer := strings.NewReplacer(
+		`\`, `\\`,
+		`"`, `\"`,
+		`$`, `\$`,
+		"`", "\\`",
+		"\n", `\n`,
+	)
+	return `"` + replacer.Replace(value) + `"`
+}
+
+func (r LocalSSHRunner) Run(ctx context.Context, session machine.ConnectSession, args ...string) error {
+	command := exec.CommandContext(ctx, "ssh", args...)
+	command.Stdin = session.Stdin
+	command.Stdout = session.Stdout
+	command.Stderr = session.Stderr
+	return command.Run()
+}
+
+func (e MachineConnector) connectUnmanagedMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	server := e.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(e.ConfigPath)
@@ -60,7 +198,7 @@ func (e MachineConnector) ConnectMachine(ctx context.Context, plan machine.Conne
 	if plan.LinuxUser == "root" {
 		home = "/root"
 	}
-	exec := api.InstanceExecPost{
+	execPost := api.InstanceExecPost{
 		Command:     plan.Command,
 		Cwd:         plan.WorkingDir,
 		User:        uint32(userID),
@@ -72,13 +210,13 @@ func (e MachineConnector) ConnectMachine(ctx context.Context, plan machine.Conne
 			"USER": plan.LinuxUser,
 		},
 	}
-	exec.RecordOutput = false
-	if exec.Interactive {
+	execPost.RecordOutput = false
+	if execPost.Interactive {
 		if file, ok := session.Stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
 			width, height, err := term.GetSize(int(file.Fd()))
 			if err == nil {
-				exec.Width = width
-				exec.Height = height
+				execPost.Width = width
+				execPost.Height = height
 			}
 			oldState, err := term.MakeRaw(int(file.Fd()))
 			if err == nil {
@@ -87,7 +225,7 @@ func (e MachineConnector) ConnectMachine(ctx context.Context, plan machine.Conne
 		}
 	}
 	dataDone := make(chan bool)
-	op, err := projectServer.ExecInstance(plan.InstanceName, exec, &incus.InstanceExecArgs{
+	op, err := projectServer.ExecInstance(plan.InstanceName, execPost, &incus.InstanceExecArgs{
 		Stdin:    session.Stdin,
 		Stdout:   session.Stdout,
 		Stderr:   session.Stderr,
