@@ -1346,7 +1346,7 @@ func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
 	if stdout != "incus ok" {
 		t.Fatalf("stdout = %q", stdout)
 	}
-	if strings.Join(gotArgs, " ") != "project list --project sc-acme" {
+	if strings.Join(gotArgs, " ") != "project list" {
 		t.Fatalf("args = %#v", gotArgs)
 	}
 	if !envContains(gotEnv, "INCUS_CONF="+incusDir) {
@@ -1357,30 +1357,7 @@ func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
 	}
 }
 
-func TestIncusCommandKeepsExplicitProject(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
-	if err := os.MkdirAll(incusDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	var gotArgs []string
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
-		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", ProjectPrefix: "sc"},
-		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
-			gotArgs = append([]string{}, args...)
-			return nil
-		},
-	}, "incus", "ls", "--project", "other")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(gotArgs, " ") != "ls --project other" {
-		t.Fatalf("args = %#v", gotArgs)
-	}
-}
-
-func TestIncusCommandInsertsProjectBeforeDoubleDash(t *testing.T) {
+func TestIncusCommandLeavesDoubleDashArgsUntouched(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
 	if err := os.MkdirAll(incusDir, 0o700); err != nil {
@@ -1398,7 +1375,7 @@ func TestIncusCommandInsertsProjectBeforeDoubleDash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(gotArgs, " ") != "exec default-codex --project sc-acme -- bash -lc hostname" {
+	if strings.Join(gotArgs, " ") != "exec default-codex -- bash -lc hostname" {
 		t.Fatalf("args = %#v", gotArgs)
 	}
 }
@@ -1422,7 +1399,7 @@ func TestIncusCommandVerboseShowsEnvAndCommand(t *testing.T) {
 	}
 	for _, want := range []string{
 		"[verbose] sc incus env: INCUS_CONF=" + incusDir + " INCUS_PROJECT=sc-acme",
-		"[verbose] sc incus command: incus ls --project sc-acme",
+		"[verbose] sc incus command: incus ls",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr = %q, want %q", stderr, want)

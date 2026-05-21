@@ -30,7 +30,7 @@ func newIncusCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 			if runner == nil {
 				runner = runIncusCLI
 			}
-			args, projectName, err := incusArgsWithTenantProject(config.adminConfig, args)
+			projectName, err := incusTenantProject(config.adminConfig)
 			if err != nil {
 				return err
 			}
@@ -70,17 +70,14 @@ func resolveIncusDir(remote string) string {
 	return ""
 }
 
-func incusArgsWithTenantProject(admin scconfig.Admin, args []string) ([]string, string, error) {
-	if incusArgsHaveProject(args) || incusArgsHaveExplicitRemote(args) {
-		return args, "", nil
-	}
+func incusTenantProject(admin scconfig.Admin) (string, error) {
 	tenant := strings.TrimSpace(admin.Tenant)
 	if tenant == "" {
-		return args, "", nil
+		return "", nil
 	}
 	ref, err := naming.ParseTenantRef(tenant)
 	if err != nil {
-		return nil, "", err
+		return "", err
 	}
 	prefix := admin.ProjectPrefix
 	if strings.TrimSpace(prefix) == "" {
@@ -88,21 +85,9 @@ func incusArgsWithTenantProject(admin scconfig.Admin, args []string) ([]string, 
 	}
 	projectName, err := naming.TenantIncusProjectNameWithPrefix(prefix, ref)
 	if err != nil {
-		return nil, "", err
+		return "", err
 	}
-	return insertIncusProjectArg(args, projectName), projectName, nil
-}
-
-func insertIncusProjectArg(args []string, projectName string) []string {
-	output := make([]string, 0, len(args)+2)
-	for index, arg := range args {
-		if arg == "--" {
-			output = append(output, "--project", projectName)
-			return append(output, args[index:]...)
-		}
-		output = append(output, arg)
-	}
-	return append(output, "--project", projectName)
+	return projectName, nil
 }
 
 func shellCommandLine(args []string) string {
@@ -115,34 +100,4 @@ func shellCommandLine(args []string) string {
 		quoted = append(quoted, arg)
 	}
 	return strings.Join(quoted, " ")
-}
-
-func incusArgsHaveProject(args []string) bool {
-	for index, arg := range args {
-		if arg == "--project" {
-			return true
-		}
-		if strings.HasPrefix(arg, "--project=") {
-			return true
-		}
-		if strings.HasPrefix(arg, "--") {
-			continue
-		}
-		if arg == "-p" && index+1 < len(args) {
-			return true
-		}
-	}
-	return false
-}
-
-func incusArgsHaveExplicitRemote(args []string) bool {
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-		if strings.Contains(arg, ":") {
-			return true
-		}
-	}
-	return false
 }
