@@ -23,6 +23,9 @@ func TestPlanCreateDefaultsToDefaultProject(t *testing.T) {
 	if plan.InstanceName != "default-codex" {
 		t.Fatalf("InstanceName = %q", plan.InstanceName)
 	}
+	if plan.Hostname != "codex.default.acme" {
+		t.Fatalf("Hostname = %q", plan.Hostname)
+	}
 	if plan.CaddyFile.Content == "" || !strings.Contains(plan.CaddyFile.Content, "codex.default.acme") {
 		t.Fatalf("CaddyFile = %#v", plan.CaddyFile)
 	}

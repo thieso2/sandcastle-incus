@@ -52,6 +52,7 @@ type TokenResult struct {
 type Manager interface {
 	Grant(context.Context, UserPlan) error
 	Revoke(context.Context, UserPlan) error
+	Delete(context.Context, UserPlan) error
 	ListTenantUsers(context.Context, TenantUsersPlan) (TenantUsersResult, error)
 	CreateToken(context.Context, UserPlan) (TokenResult, error)
 }
@@ -126,6 +127,10 @@ func PlanTenantUsers(admin config.Admin, tenant string) (TenantUsersPlan, error)
 }
 
 func PlanToken(user string) (UserPlan, error) {
+	return PlanCreateUser(user)
+}
+
+func PlanDeleteUser(user string) (UserPlan, error) {
 	return PlanCreateUser(user)
 }
 

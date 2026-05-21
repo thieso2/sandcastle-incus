@@ -221,6 +221,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "delete", sandbox.ActionRemove, true))
 	root.AddCommand(newPortCommand(config, opts))
 	root.AddCommand(newProjectCommand(config, opts))
+	root.AddCommand(newSSHKeyCommand(config, opts))
 	root.AddCommand(newDNSCommand(config, opts))
 	root.AddCommand(newTailscaleCommand(config, opts))
 	root.AddCommand(newHostCommand(config, opts))

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,6 +35,15 @@ func executeForTest(t *testing.T, name string, args ...string) (string, error) {
 
 func executeForTestWithConfig(t *testing.T, config commandConfig, args ...string) (string, error) {
 	t.Helper()
+	stdout, stderr, err := executeForTestWithConfigAndStderr(t, config, args...)
+	if stderr != "" {
+		t.Fatalf("unexpected stderr: %s", stderr)
+	}
+	return stdout, err
+}
+
+func executeForTestWithConfigAndStderr(t *testing.T, config commandConfig, args ...string) (string, string, error) {
+	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	config.stdout = &stdout
@@ -46,10 +56,7 @@ func executeForTestWithConfig(t *testing.T, config commandConfig, args ...string
 	cmd.SetErr(&stderr)
 	cmd.SetArgs(args)
 	err := cmd.Execute()
-	if stderr.Len() > 0 {
-		t.Fatalf("unexpected stderr: %s", stderr.String())
-	}
-	return stdout.String(), err
+	return stdout.String(), stderr.String(), err
 }
 
 func executeAdminForTest(t *testing.T, name string, args ...string) (string, error) {
@@ -196,6 +203,38 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Unmanaged: 0") {
 		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	}
+}
+
+func TestListAliasShowsManagedMachines(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+			Tenant:    "acme",
+			Project:   "default",
+			Name:      "codex",
+			PrivateIP: "10.248.0.20",
+			AppPort:   3000,
+			Running:   true,
+		}}},
+	}, "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "default") || !strings.Contains(stdout, "codex") {
+		t.Fatalf("stdout = %q, want machine project and name", stdout)
 	}
 }
 
@@ -504,6 +543,64 @@ func TestProjectDeleteCallsUpdater(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !updater.called || len(updater.projects) != 1 || updater.projects[0].Name != "default" {
+		t.Fatalf("updater = %#v", updater)
+	}
+}
+
+func TestSSHKeySetDryRunUsesCurrentTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "ssh-key", "set", "ssh-ed25519 test", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sshKeySetPayload
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Tenant != "acme" || payload.IncusProject != "sc-acme" || payload.Key != "ssh-ed25519 test" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestSSHKeySetCallsUpdaterWithFile(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyFile := filepath.Join(t.TempDir(), "id_ed25519.pub")
+	if err := os.WriteFile(keyFile, []byte("ssh-ed25519 test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	updater := &fakeSSHKeyUpdater{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		projectSSHKeyUpdater: updater,
+	}, "ssh-key", "set", "--file", keyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updater.called || updater.incusProject != "sc-acme" || updater.key != "ssh-ed25519 test" {
 		t.Fatalf("updater = %#v", updater)
 	}
 }
@@ -966,6 +1063,32 @@ func TestEnterCommandUsesEnterer(t *testing.T) {
 	}
 }
 
+func TestEnterAliasUsesEnterer(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxEnterer: enterer,
+	}, "c", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enterer.called || enterer.plan.InstanceName != "default-codex" {
+		t.Fatalf("enterer = %#v", enterer)
+	}
+}
+
 func TestEnterCommandAcceptsExplicitCommand(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -992,6 +1115,78 @@ func TestEnterCommandAcceptsExplicitCommand(t *testing.T) {
 	}
 	if len(enterer.plan.Command) != 1 || enterer.plan.Command[0] != "pwd" {
 		t.Fatalf("Command = %#v", enterer.plan.Command)
+	}
+}
+
+func TestEnterCreatesMissingBareMachine(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeSandboxCreator{}
+	enterer := &fakeSandboxEnterer{}
+	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore:   fakeSandboxInspectStore{},
+		sandboxCreator: creator,
+		sandboxEnterer: enterer,
+	}, "connect", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "creating it before connecting") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if !creator.called || creator.plan.InstanceName != "default-codex" {
+		t.Fatalf("creator = %#v", creator)
+	}
+	if !enterer.called || enterer.plan.InstanceName != "default-codex" || !enterer.plan.Interactive {
+		t.Fatalf("enterer = %#v", enterer)
+	}
+}
+
+func TestEnterCreatesWhenConnectReportsNotFound(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeSandboxCreator{}
+	enterer := &fakeSandboxEnterer{err: fmt.Errorf("enter sandbox default-codex: not found")}
+	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxCreator: creator,
+		sandboxEnterer: enterer,
+	}, "connect", "default/codex", "pwd")
+	if err == nil {
+		t.Fatal("expected second connect error from fake enterer")
+	}
+	if !strings.Contains(stderr, "creating it before connecting") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if !creator.called || creator.plan.InstanceName != "default-codex" {
+		t.Fatalf("creator = %#v", creator)
+	}
+	if enterer.calls != 2 {
+		t.Fatalf("enterer calls = %d, want 2", enterer.calls)
+	}
+	if len(enterer.plan.Command) != 1 || enterer.plan.Command[0] != "pwd" || enterer.plan.Interactive {
+		t.Fatalf("enterer plan = %#v", enterer.plan)
 	}
 }
 
@@ -1255,6 +1450,34 @@ func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
 	}
 }
 
+func TestTailscaleUpDryRunUsesConfiguredTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "tailscale", "up", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload tailscale.UpPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Reference != "acme" || payload.InstanceName != "sc-acme" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestTailscaleUpDryRunUsesDefaultAdvertiseTag(t *testing.T) {
 	t.Setenv("SANDCASTLE_E2E_TAILSCALE_TAG", "")
 	configMap, err := meta.TenantConfig(meta.Tenant{
@@ -1379,6 +1602,35 @@ func TestTailscaleStatusRunsExecutor(t *testing.T) {
 	}
 }
 
+func TestTailscaleStatusUsesConfiguredTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeTailscaleRunner{status: tailscale.StatusResult{
+		Reference: "acme",
+		Tailscale: meta.Tailscale{State: "Running"},
+	}}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		tailscale: runner,
+	}, "tailscale", "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.statusPlan.Reference != "acme" || runner.statusPlan.InstanceName != "sc-acme" {
+		t.Fatalf("statusPlan = %#v", runner.statusPlan)
+	}
+}
+
 func TestTailscaleDownDryRunJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -1404,6 +1656,34 @@ func TestTailscaleDownDryRunJSON(t *testing.T) {
 	}
 	if strings.Join(payload.Command, " ") != "tailscale down" {
 		t.Fatalf("Command = %#v", payload.Command)
+	}
+}
+
+func TestTailscaleDownDryRunUsesConfiguredTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "tailscale", "down", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload tailscale.DownPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Reference != "acme" || payload.InstanceName != "sc-acme" {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
 
@@ -2446,6 +2726,42 @@ func TestAdminUserCreateDryRunShowsRemoteName(t *testing.T) {
 	}
 }
 
+func TestAdminUserCreateCanPreGrantTenantInToken(t *testing.T) {
+	manager := &fakeTrustManager{token: "certificate-add-token"}
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		trustManager: manager,
+	}, "user", "create", "alice", "--tenant", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.tokenCalled {
+		t.Fatal("expected token manager to be called")
+	}
+	if len(manager.plan.Projects) != 1 || manager.plan.Projects[0] != "sc-acme" {
+		t.Fatalf("Projects = %#v", manager.plan.Projects)
+	}
+}
+
+func TestAdminUserDeleteCallsTrustManager(t *testing.T) {
+	manager := &fakeTrustManager{}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		trustManager: manager,
+	}, "user", "delete", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.deleteCalled || manager.plan.User != "alice" || manager.plan.CertificateName != "sandcastle-alice" {
+		t.Fatalf("manager = %#v", manager)
+	}
+	if !strings.Contains(stdout, "Deleted restricted user certificate: sandcastle-alice") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
 func TestAdminUserGrantRejectsInvalidTenantRef(t *testing.T) {
 	_, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:        "sandcastle-admin",
@@ -2473,13 +2789,32 @@ func TestAdminUserTokenShowsBootstrapCommands(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Remote: sandcastle-alice",
-		"incus remote add sandcastle-alice certificate-add-token",
-		"export SANDCASTLE_REMOTE=sandcastle-alice",
-		"export SANDCASTLE_TENANT=alice",
+		"sc remote add sandcastle-alice certificate-add-token --tenant alice",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestAdminUserTokenCanPreGrantTenant(t *testing.T) {
+	manager := &fakeTrustManager{token: "certificate-add-token"}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		trustManager: manager,
+	}, "user", "token", "alice", "--tenant", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.tokenCalled {
+		t.Fatal("expected token manager to be called")
+	}
+	if len(manager.plan.Projects) != 1 || manager.plan.Projects[0] != "sc-acme" {
+		t.Fatalf("Projects = %#v", manager.plan.Projects)
+	}
+	if !strings.Contains(stdout, "sc remote add sandcastle-alice certificate-add-token --tenant acme") {
+		t.Fatalf("stdout = %q", stdout)
 	}
 }
 
@@ -2539,23 +2874,28 @@ func TestRejectsUnknownOutputFormat(t *testing.T) {
 }
 
 type fakeSandboxCreator struct {
-	plan sandbox.CreatePlan
+	called bool
+	plan   sandbox.CreatePlan
 }
 
 func (f *fakeSandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePlan) error {
+	f.called = true
 	f.plan = plan
 	return nil
 }
 
 type fakeSandboxEnterer struct {
 	called bool
+	calls  int
 	plan   sandbox.EnterPlan
+	err    error
 }
 
 func (f *fakeSandboxEnterer) ConnectMachine(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
 	f.called = true
+	f.calls++
 	f.plan = plan
-	return nil
+	return f.err
 }
 
 type fakeSandboxController struct {
@@ -2590,6 +2930,19 @@ func (f *fakeProjectUpdater) SetTenantProjects(ctx context.Context, incusProject
 	f.called = true
 	f.incusProject = incusProjectName
 	f.projects = append([]meta.Project{}, projects...)
+	return nil
+}
+
+type fakeSSHKeyUpdater struct {
+	called       bool
+	incusProject string
+	key          string
+}
+
+func (f *fakeSSHKeyUpdater) SetTenantSSHKey(ctx context.Context, incusProjectName string, sshKey string) error {
+	f.called = true
+	f.incusProject = incusProjectName
+	f.key = sshKey
 	return nil
 }
 
@@ -2655,6 +3008,8 @@ type fakeTailscaleRunner struct {
 	statusCalled bool
 	downCalled   bool
 	plan         tailscale.UpPlan
+	statusPlan   tailscale.StatusPlan
+	downPlan     tailscale.DownPlan
 	status       tailscale.StatusResult
 }
 
@@ -2716,11 +3071,13 @@ func (f *fakeTailscaleRunner) RunUp(ctx context.Context, plan tailscale.UpPlan, 
 
 func (f *fakeTailscaleRunner) RunStatus(ctx context.Context, plan tailscale.StatusPlan, session tailscale.RunSession) (tailscale.StatusResult, error) {
 	f.statusCalled = true
+	f.statusPlan = plan
 	return f.status, nil
 }
 
 func (f *fakeTailscaleRunner) RunDown(ctx context.Context, plan tailscale.DownPlan, session tailscale.RunSession) error {
 	f.downCalled = true
+	f.downPlan = plan
 	return nil
 }
 
@@ -2818,6 +3175,7 @@ type fakeTrustManager struct {
 	tokenCalled  bool
 	grantCalled  bool
 	revokeCalled bool
+	deleteCalled bool
 	usersCalled  bool
 	plan         usertrust.UserPlan
 	usersPlan    usertrust.TenantUsersPlan
@@ -2833,6 +3191,12 @@ func (f *fakeTrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) e
 
 func (f *fakeTrustManager) Revoke(ctx context.Context, plan usertrust.UserPlan) error {
 	f.revokeCalled = true
+	f.plan = plan
+	return nil
+}
+
+func (f *fakeTrustManager) Delete(ctx context.Context, plan usertrust.UserPlan) error {
+	f.deleteCalled = true
 	f.plan = plan
 	return nil
 }

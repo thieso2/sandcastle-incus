@@ -237,7 +237,7 @@
     <div class="wrap hero">
       <p class="tag">Quickstart</p>
       <h1>Sandcastle admin and developer onboarding</h1>
-      <p class="lede">A short operating guide for creating an Incus-backed Sandcastle project, granting a developer restricted access, and getting that developer productive on their own machine.</p>
+      <p class="lede">A short operating guide for creating an Incus-backed Sandcastle tenant, granting a developer restricted access, and getting that developer productive in a lightweight project on their own machine.</p>
     </div>
     <nav class="wrap" aria-label="Quickstart sections">
       <a href="#assumptions">Assumptions</a>
@@ -266,11 +266,11 @@
           <ul>
             <li>Has the Incus client installed.</li>
             <li>Can reach the admin-provided Incus remote over HTTPS.</li>
-            <li>Has Tailscale available for project private network access.</li>
+            <li>Has Tailscale available for tenant private network access.</li>
           </ul>
         </div>
       </div>
-      <p class="callout warn">Use real values for placeholders such as <code>REMOTE</code>, <code>alice</code>, <code>myproject</code>, and <code>myproject.project-tld</code>. Run destructive commands only against disposable or intended resources.</p>
+      <p class="callout warn">Use real values for placeholders such as <code>REMOTE</code>, <code>acme</code>, <code>alice</code>, <code>website</code>, and <code>codex.website.acme</code>. Run destructive commands only against disposable or intended resources.</p>
     </section>
 
     <section id="admin">
@@ -279,11 +279,15 @@
 
       <h3>1. Build the CLI</h3>
       <pre><code>make build
-./bin/sc version</code></pre>
+./bin/sc version
 
-      <h3>2. Select the admin remote and project defaults</h3>
+# Optional Linux amd64 binaries for handoff:
+mise run build:linux-amd64</code></pre>
+
+      <h3>2. Select the admin remote and tenant defaults</h3>
       <pre><code>export SANDCASTLE_REMOTE=REMOTE
 export SANDCASTLE_STORAGE_POOL=default
+export SANDCASTLE_CIDR_POOL=10.248.0.0/16
 export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
 export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
 
@@ -311,29 +315,21 @@ export SANDCASTLE_ADMIN_BIN=$PWD/bin/sc-adm
 
       <h3>4. Create the tenant</h3>
       <pre><code>./bin/sc-adm tenant create acme</code></pre>
-      <p>This creates the Incus project with isolated feature namespaces, project-local Sandcastle image aliases, project-local private bridge network, isolated home/workspace/CA volumes, CoreDNS sidecar, and Tailscale sidecar. Both sidecars start immediately, but <strong>Tailscale is not yet activated</strong> — the container is running but <code>tailscaled</code> has not been started.</p>
-
-      <h3>4a. Activate Tailscale (optional)</h3>
-      <p>Skip this if you don't need Tailnet access to the project's private network.</p>
-      <pre><code># Interactive (opens browser auth)
-./bin/sc tailscale up
-
-# Unattended with an auth key
-./bin/sc tailscale up --auth-key tskey-auth-...</code></pre>
-      <p>The <code>sc-tailscale</code> sidecar advertises the tenant's entire private CIDR (e.g. <code>10.248.0.0/24</code>) as a subnet route. Once you approve the route in the Tailscale admin console, any Tailnet device can reach all tenant machines directly by their private IP.</p>
+      <p>This creates the tenant Incus project with an initial <code>default</code> lightweight project, tenant-local Sandcastle image aliases, tenant-private bridge network, isolated home/workspace/CA volumes, CoreDNS sidecar, and Tailscale sidecar. Both sidecars start immediately, but <strong>Tailscale is not yet activated</strong> — the container is running but <code>tailscaled</code> has not been started.</p>
 
       <h3>5. Create the developer certificate token</h3>
-      <pre><code>./bin/sc-adm user create alice</code></pre>
-      <p>Copy the printed join token into the handoff notes. The developer runs <code>sc remote add</code> with it. The admin must grant tenant access <em>after</em> the developer has added the remote.</p>
+      <p>Generate the token on the admin host while <code>SANDCASTLE_REMOTE</code> points at the Incus server the developer can reach. The join token contains the server address, so the developer does not pass a separate host when adding the remote.</p>
+      <pre><code>incus remote list
+incus info REMOTE:
+./bin/sc-adm user create alice --tenant acme</code></pre>
+      <p>The <code>--tenant acme</code> flag embeds the tenant grant in the certificate token. When the developer accepts the token, their restricted certificate is created with access to <code>acme</code> immediately. If the token expires or is lost before use, issue a replacement with <code>./bin/sc-adm user token alice --tenant acme</code>.</p>
 
-      <h3>6. Grant tenant access after the developer adds the remote</h3>
-      <pre><code>./bin/sc-adm tenant grant acme alice
-./bin/sc-adm tenant users acme</code></pre>
-      <p>The grant updates the developer's restricted Incus certificate so normal commands can operate only inside allowed tenants.</p>
+      <p class="callout warn">Stop here for handoff. The developer can do the rest asynchronously after receiving the install instructions and pre-granted join token.</p>
     </section>
 
     <section id="handoff">
       <h2>Admin handoff checklist</h2>
+      <p>Send this once after creating the pre-granted token. The developer does not need a second admin callback before running tenant commands.</p>
       <table>
         <thead>
           <tr>
@@ -344,60 +340,89 @@ export SANDCASTLE_ADMIN_BIN=$PWD/bin/sc-adm
         <tbody>
           <tr>
             <td>Remote add command</td>
-            <td><code>sc remote add sandcastle-alice JOIN_TOKEN --owner alice</code></td>
+            <td><code>sc remote add sandcastle-alice JOIN_TOKEN --tenant acme</code></td>
           </tr>
           <tr>
-            <td>Tenant and project reference</td>
-            <td><code>acme</code>, with optional project machine refs such as <code>website/codex</code>.</td>
+            <td>Incus host</td>
+            <td>The join token already contains the admin-selected Incus server address. Confirm the developer can reach that host before generating or sharing the token.</td>
           </tr>
           <tr>
-            <td>Project domain</td>
-            <td><code>myproject.project-tld</code></td>
+            <td>Access grant</td>
+            <td>The token was generated with <code>--tenant acme</code>, so accepting it creates a restricted certificate that can already access the tenant.</td>
+          </tr>
+          <tr>
+            <td>Tenant and project names</td>
+            <td>Tenant <code>acme</code>; Alice can create lightweight projects such as <code>website</code> herself, then use machine refs such as <code>website/codex</code>.</td>
+          </tr>
+          <tr>
+            <td>Private DNS names</td>
+            <td>Tenant suffix <code>acme</code>; machine hostnames use <code>machine.project.tenant</code>, for example <code>codex.website.acme</code>.</td>
           </tr>
           <tr>
             <td>Expected trust warning</td>
-            <td>Trusting the project CA lets that project mint certificates trusted by the developer machine.</td>
+            <td>Trusting the tenant CA lets that tenant mint certificates trusted by the developer machine.</td>
           </tr>
         </tbody>
       </table>
+
+      <h3>Verify later</h3>
+      <p>After the developer accepts the token, the admin can list tenant users to confirm that Alice's certificate is present and scoped to <code>acme</code>.</p>
+      <pre><code>./bin/sc-adm tenant users acme</code></pre>
     </section>
 
     <section id="developer">
       <h2>Developer machine setup</h2>
       <p>Run these commands on the developer's own workstation.</p>
 
-      <h3>1. Install or build the CLI</h3>
+      <h3>1. Install the CLI locally</h3>
+      <p>From a source checkout, install <code>sandcastle</code> and its <code>sc</code> alias onto the developer's <code>PATH</code>.</p>
       <pre><code>make build
-# Optional:
-make install</code></pre>
+make install
+sc version</code></pre>
+      <p>If the admin provides prebuilt binaries instead of a source checkout, install the user CLI and alias directly:</p>
+      <pre><code># For Linux amd64, use bin/linux-amd64/sandcastle from:
+#   mise run build:linux-amd64
+sudo install -m 0755 sandcastle /usr/local/bin/sandcastle
+sudo ln -sf sandcastle /usr/local/bin/sc
+sc version</code></pre>
 
       <h3>2. Add the restricted remote</h3>
-      <pre><code>sc remote add sandcastle-alice JOIN_TOKEN_FROM_ADMIN --owner alice</code></pre>
-      <p>This creates <code>~/.config/sandcastle/sandcastle-alice/incus/</code> with the Incus TLS certs and writes <code>~/.config/sandcastle/config.yml</code> with the remote and owner set. No env var exports needed — all subsequent <code>sc</code> commands pick up the config automatically.</p>
+      <pre><code>sc remote add sandcastle-alice JOIN_TOKEN_FROM_ADMIN --tenant acme</code></pre>
+      <p>This accepts the join token, creates <code>~/.config/sandcastle/sandcastle-alice/incus/</code> with the restricted Incus TLS certs, and writes <code>~/.config/sandcastle/config.yml</code> with the remote and tenant set. No env var exports needed — all subsequent <code>sc</code> commands pick up the config automatically.</p>
 
       <h3>3. Check project visibility</h3>
       <pre><code>sc list
 sc project list
-sc project status website
 sc status</code></pre>
 
-      <h3>4. Attach the project to the developer's Tailscale network</h3>
-      <pre><code>sc tailscale up myproject</code></pre>
-      <p>The command runs <code>tailscale up</code> inside the project Tailscale sidecar and advertises the project private CIDR. For unattended environments, use an auth key supplied through the supported CLI flag or environment flow.</p>
+      <h3>4. Publish the developer SSH key</h3>
+      <pre><code>sc ssh-key set --file ~/.ssh/id_ed25519.pub</code></pre>
+      <p>The developer owns this key. Sandcastle stores it in tenant metadata and injects it into machines created or re-ensured after this point.</p>
 
-      <h3>5. Install local DNS forwarding</h3>
-      <pre><code>sc dns install myproject
-sc dns refresh myproject</code></pre>
-      <p>The local DNS forwarder routes project-domain lookups from the developer machine to the project DNS sidecar over the Tailscale-routed private CIDR.</p>
+      <h3>5. Create or select a lightweight project</h3>
+      <pre><code>sc project create website
+sc config set project website
+sc project status website</code></pre>
+      <p>Lightweight projects are Sandcastle namespaces stored in tenant metadata, not separate Incus projects. A restricted developer can create and delete them after the token handoff. Setting the default project lets commands such as <code>sc create codex</code> work without a project prefix.</p>
 
-      <h3>6. Trust the project CA for private HTTPS</h3>
-      <pre><code>sc trust install myproject</code></pre>
-      <p class="callout warn">This is explicit local-machine trust. Only install trust for projects the developer owns and understands.</p>
+      <h3>6. Attach the tenant to the developer's Tailscale network</h3>
+      <pre><code>sc tailscale up</code></pre>
+      <p>The command runs <code>tailscale up</code> inside the current tenant's Tailscale sidecar and advertises the tenant private CIDR. For unattended environments, pass an auth key with <code>--auth-key tskey-auth-...</code>. To target a non-default tenant, pass it explicitly, for example <code>sc tailscale up acme</code>.</p>
 
-      <h3>7. Create and connect to a machine</h3>
-      <pre><code>sc create website/codex
+      <h3>7. Install local DNS forwarding</h3>
+      <pre><code>sc dns service install
+sc dns install acme
+sc dns refresh acme</code></pre>
+      <p>The local DNS forwarder routes tenant-domain lookups from the developer machine to the tenant DNS sidecar over the Tailscale-routed private CIDR.</p>
+
+      <h3>8. Trust the tenant CA for private HTTPS</h3>
+      <pre><code>sc trust install acme</code></pre>
+      <p class="callout warn">This is explicit local-machine trust. Only install trust for tenants the developer owns and understands.</p>
+
+      <h3>9. Create and connect to a machine</h3>
+      <pre><code>sc create codex
 # Automation-friendly:
-sc create website/codex --detach</code></pre>
+sc create codex --detach</code></pre>
       <p>By default, Sandcastle uses the AI machine template. Use <code>--template base</code> for a smaller machine.</p>
     </section>
 
@@ -415,15 +440,15 @@ incus list REMOTE: --project sc-acme</code></pre>
           <h3>Developer checks</h3>
           <pre><code>sc status
 sc project status website
-sc status website/codex
-sc connect website/codex</code></pre>
+sc status codex
+sc connect codex</code></pre>
         </div>
       </div>
       <h3>Expected healthy shape</h3>
       <ul>
-        <li>Project metadata check is <code>ok</code>.</li>
+        <li>Tenant metadata check is <code>ok</code>.</li>
         <li>Private CIDR and domain checks are <code>ok</code>.</li>
-        <li>Project network and volumes are present.</li>
+        <li>Tenant network and volumes are present.</li>
         <li><code>sc-tailscale</code> and <code>sc-dns</code> sidecars are running.</li>
         <li>Tailscale route check becomes <code>ok</code> after authentication and route approval.</li>
       </ul>
@@ -437,13 +462,16 @@ SANDCASTLE_E2E_VM_KEEP=1 scripts/e2e-local-vm.sh</code></pre>
     <section id="cleanup">
       <h2>Cleanup and recovery</h2>
       <h3>Developer cleanup</h3>
-      <pre><code>sc delete website/codex --yes
-sc trust uninstall
-sc dns uninstall
-sc tailscale down</code></pre>
+      <pre><code>sc delete codex --yes
+sc project delete website --yes
+sc trust uninstall acme
+sc dns uninstall acme
+sc dns service uninstall
+sc tailscale down acme</code></pre>
 
       <h3>Admin cleanup</h3>
       <pre><code>./bin/sc-adm tenant revoke acme alice
+./bin/sc-adm user delete alice
 ./bin/sc-adm tenant delete acme --yes
 # For disposable tenants only:
 ./bin/sc-adm tenant delete acme --yes --purge</code></pre>

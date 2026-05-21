@@ -248,7 +248,13 @@ func shellQuote(value string) string {
 }
 
 func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+	if err := setSandboxHostname(server, plan); err != nil {
+		return err
+	}
 	if err := bootstrapSandboxUser(server, plan); err != nil {
+		return err
+	}
+	if err := ensureSandboxPrompt(server, plan); err != nil {
 		return err
 	}
 	if plan.Tenant.DNSAddress != "" {
@@ -308,6 +314,36 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 		return err
 	}
 	return restartSandboxCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
+}
+
+func setSandboxHostname(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+	if strings.TrimSpace(plan.Hostname) == "" {
+		return nil
+	}
+	if err := server.CreateInstanceFile(plan.InstanceName, "/etc/hostname", incus.InstanceFileArgs{
+		Content:   strings.NewReader(plan.Hostname + "\n"),
+		Type:      "file",
+		Mode:      0o644,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("write sandbox hostname file: %w", err)
+	}
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
+		Command:   []string{"hostname", plan.Hostname},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("set sandbox hostname in %s: %w", plan.InstanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for sandbox hostname in %s: %w", plan.InstanceName, err)
+	}
+	<-dataDone
+	return nil
 }
 
 func writeSandboxResolvConf(server SandboxResourceServer, instanceName string, dnsAddress string) error {
@@ -374,6 +410,60 @@ func bootstrapSandboxUser(server SandboxResourceServer, plan sandbox.CreatePlan)
 	}
 	if err := op.Wait(); err != nil {
 		return fmt.Errorf("wait for sandbox user bootstrap in %s: %w", plan.InstanceName, err)
+	}
+	<-dataDone
+	return nil
+}
+
+func ensureSandboxPrompt(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+	script := `set -eu
+user="${SANDCASTLE_USER:?}"
+home="/home/${user}"
+bashrc="${home}/.bashrc"
+profile="${home}/.bash_profile"
+install -d -o "${user}" -g "${user}" "${home}"
+touch "${bashrc}" "${profile}"
+chown "${user}:${user}" "${bashrc}" "${profile}"
+
+prompt_marker="# sandcastle prompt: full hostname"
+if ! grep -qF "${prompt_marker}" "${bashrc}"; then
+  cat >>"${bashrc}" <<'EOF_PROMPT'
+
+# sandcastle prompt: full hostname
+if [[ $- == *i* ]]; then
+  PS1='\u@\H:\w\$ '
+fi
+EOF_PROMPT
+fi
+
+profile_marker="# sandcastle bash profile: source bashrc"
+if ! grep -qF "${profile_marker}" "${profile}"; then
+  cat >>"${profile}" <<'EOF_PROFILE'
+
+# sandcastle bash profile: source bashrc
+if [[ -f ~/.bashrc ]]; then
+  . ~/.bashrc
+fi
+EOF_PROFILE
+fi
+chown "${user}:${user}" "${bashrc}" "${profile}"
+`
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
+		Command: []string{"/bin/sh", "-c", script},
+		Environment: map[string]string{
+			"SANDCASTLE_USER": plan.LinuxUser,
+		},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("ensure sandbox prompt for %s in %s: %w", plan.LinuxUser, plan.InstanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for sandbox prompt in %s: %w", plan.InstanceName, err)
 	}
 	<-dataDone
 	return nil

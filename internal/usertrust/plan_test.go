@@ -25,6 +25,16 @@ func TestPlanCreateUser(t *testing.T) {
 	}
 }
 
+func TestPlanDeleteUser(t *testing.T) {
+	plan, err := PlanDeleteUser("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.User != "alice" || plan.CertificateName != "sandcastle-alice" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestPlanGrant(t *testing.T) {
 	plan, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{
 		User:     "alice",

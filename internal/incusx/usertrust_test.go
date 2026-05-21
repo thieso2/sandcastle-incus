@@ -13,12 +13,17 @@ import (
 type fakeTrustServer struct {
 	certificates []api.Certificate
 	updated      *api.CertificatePut
+	deleted      []string
 	tokenOp      incus.Operation
 }
 
 func (s *fakeTrustServer) GetCertificates() ([]api.Certificate, error) { return s.certificates, nil }
 func (s *fakeTrustServer) UpdateCertificate(fingerprint string, certificate api.CertificatePut, etag string) error {
 	s.updated = &certificate
+	return nil
+}
+func (s *fakeTrustServer) DeleteCertificate(fingerprint string) error {
+	s.deleted = append(s.deleted, fingerprint)
 	return nil
 }
 func (s *fakeTrustServer) CreateCertificateToken(certificate api.CertificatesPost) (incus.Operation, error) {
@@ -133,6 +138,53 @@ func TestTrustManagerRevoke(t *testing.T) {
 	}
 	if len(server.updated.Projects) != 1 || server.updated.Projects[0] != "sc-other" {
 		t.Fatalf("Projects = %#v", server.updated.Projects)
+	}
+}
+
+func TestTrustManagerDelete(t *testing.T) {
+	server := &fakeTrustServer{certificates: []api.Certificate{{
+		Fingerprint: "abc123456789",
+		CertificatePut: api.CertificatePut{
+			Name:       "sandcastle-alice",
+			Type:       api.CertificateTypeClient,
+			Restricted: true,
+			Projects:   []string{"sc-acme"},
+		},
+	}}}
+	manager := TrustManager{Server: server}
+	err := manager.Delete(context.Background(), usertrust.UserPlan{
+		User:            "alice",
+		CertificateName: "sandcastle-alice",
+		Restricted:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(server.deleted) != 1 || server.deleted[0] != "abc123456789" {
+		t.Fatalf("deleted = %#v", server.deleted)
+	}
+}
+
+func TestTrustManagerDeleteRejectsUnrestrictedCertificate(t *testing.T) {
+	server := &fakeTrustServer{certificates: []api.Certificate{{
+		Fingerprint: "abc123456789",
+		CertificatePut: api.CertificatePut{
+			Name:       "sandcastle-alice",
+			Type:       api.CertificateTypeClient,
+			Restricted: false,
+		},
+	}}}
+	manager := TrustManager{Server: server}
+	err := manager.Delete(context.Background(), usertrust.UserPlan{
+		User:            "alice",
+		CertificateName: "sandcastle-alice",
+		Restricted:      true,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if len(server.deleted) != 0 {
+		t.Fatalf("deleted = %#v", server.deleted)
 	}
 }
 

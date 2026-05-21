@@ -30,9 +30,10 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var allProjects bool
 	var includeUnmanaged bool
 	command := &cobra.Command{
-		Use:   "list [project]",
-		Short: "List Sandcastle machines",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "list [project]",
+		Aliases: []string{"ls"},
+		Short:   "List Sandcastle machines",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := listMachines(cmd.Context(), config, listMachinesRequest{
 				Project:          optionalArg(args),

@@ -25,6 +25,34 @@ fi
 install -d -o "${user_name}" -g "${user_name}" "/home/${user_name}"
 install -d -o "${user_name}" -g "${user_name}" /workspace
 
+bashrc="/home/${user_name}/.bashrc"
+bash_profile="/home/${user_name}/.bash_profile"
+touch "${bashrc}" "${bash_profile}"
+chown "${user_name}:${user_name}" "${bashrc}" "${bash_profile}"
+
+prompt_marker="# sandcastle prompt: full hostname"
+if ! grep -qF "${prompt_marker}" "${bashrc}"; then
+  cat >>"${bashrc}" <<'EOF_PROMPT'
+
+# sandcastle prompt: full hostname
+if [[ $- == *i* ]]; then
+  PS1='\u@\H:\w\$ '
+fi
+EOF_PROMPT
+fi
+
+profile_marker="# sandcastle bash profile: source bashrc"
+if ! grep -qF "${profile_marker}" "${bash_profile}"; then
+  cat >>"${bash_profile}" <<'EOF_PROFILE'
+
+# sandcastle bash profile: source bashrc
+if [[ -f ~/.bashrc ]]; then
+  . ~/.bashrc
+fi
+EOF_PROFILE
+fi
+chown "${user_name}:${user_name}" "${bashrc}" "${bash_profile}"
+
 # Inject SSH public key for both root and the sandbox user
 if [[ -n "${ssh_public_key}" ]]; then
   for home_dir in /root "/home/${user_name}"; do

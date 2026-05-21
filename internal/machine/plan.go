@@ -52,6 +52,7 @@ type CreatePlan struct {
 	Project          string            `json:"project"`
 	Name             string            `json:"name"`
 	InstanceName     string            `json:"instanceName"`
+	Hostname         string            `json:"hostname"`
 	PrivateIP        string            `json:"privateIP"`
 	AppPort          int               `json:"appPort"`
 	LinuxUser        string            `json:"linuxUser"`
@@ -190,6 +191,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		Project:        projectRef.Project,
 		Name:           machineName,
 		InstanceName:   instanceName,
+		Hostname:       hostname,
 		PrivateIP:      privateIP,
 		AppPort:        appPort,
 		LinuxUser:      linuxUser,
