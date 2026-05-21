@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
@@ -31,6 +32,15 @@ import (
 
 func executeForTest(t *testing.T, name string, args ...string) (string, error) {
 	return executeForTestWithConfig(t, commandConfig{name: name}, args...)
+}
+
+func withFixedListTimezone(t *testing.T) {
+	t.Helper()
+	original := time.Local
+	time.Local = time.FixedZone("CEST", 2*60*60)
+	t.Cleanup(func() {
+		time.Local = original
+	})
 }
 
 func executeForTestWithConfig(t *testing.T, config commandConfig, args ...string) (string, error) {
@@ -172,6 +182,7 @@ func TestListJSONStartsEmpty(t *testing.T) {
 }
 
 func TestListTextShowsManagedMachines(t *testing.T) {
+	withFixedListTimezone(t)
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -199,7 +210,7 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"PROJECT", "MACHINE", "FQDN", "IP", "CREATED", "STATE", "default", "codex", "codex.default.acme", "2026-05-21T10:30:00Z"} {
+	for _, want := range []string{"PROJECT", "MACHINE", "FQDN", "IP", "CREATED", "STATE", "default", "codex", "codex.default.acme", "2026-05-21 12:30:00"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}
@@ -213,6 +224,7 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 }
 
 func TestListAliasShowsManagedMachines(t *testing.T) {
+	withFixedListTimezone(t)
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -240,7 +252,7 @@ func TestListAliasShowsManagedMachines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"default", "codex", "codex.default.acme", "2026-05-21T10:30:00Z"} {
+	for _, want := range []string{"default", "codex", "codex.default.acme", "2026-05-21 12:30:00"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}

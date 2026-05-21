@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
@@ -186,7 +187,7 @@ func formatMachineList(result listPayload) string {
 			machine.Name,
 			machineFQDN(result.Tenant, machine),
 			machine.PrivateIP,
-			createdAtOrDash(machine.CreatedAt),
+			formatListCreatedAt(machine.CreatedAt),
 			state,
 		)
 	}
@@ -206,7 +207,7 @@ func formatMachineList(result listPayload) string {
 			unmanaged.Name,
 			"-",
 			"-",
-			createdAtOrDash(unmanaged.CreatedAt),
+			formatListCreatedAt(unmanaged.CreatedAt),
 			"unmanaged:"+state,
 		)
 	}
@@ -226,10 +227,14 @@ func machineFQDN(tenant project.Summary, machine meta.Machine) string {
 	return machine.Name + "." + machine.Project + "." + suffix
 }
 
-func createdAtOrDash(createdAt string) string {
+func formatListCreatedAt(createdAt string) string {
 	createdAt = strings.TrimSpace(createdAt)
 	if createdAt == "" {
 		return "-"
 	}
-	return createdAt
+	parsed, err := time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return createdAt
+	}
+	return parsed.Local().Format("2006-01-02 15:04:05")
 }
