@@ -288,7 +288,7 @@ export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
 export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
 
       <h3>3. Prepare images</h3>
-      <p>Projects use the base image for sidecars and the AI image as the default sandbox template.</p>
+      <p>Tenants use the base image for sidecars and the AI image as the default machine template.</p>
       <pre><code># Build base image and upload (zstd-compressed, fast)
 mise run image:base:build-upload
 
@@ -313,7 +313,7 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
 
 # Unattended with an auth key
 ./bin/sc tailscale up --auth-key tskey-auth-...</code></pre>
-      <p>The <code>sc-tailscale</code> sidecar advertises the project's entire private CIDR (e.g. <code>10.248.0.0/24</code>) as a subnet route. Once you approve the route in the Tailscale admin console, any Tailnet device can reach all project sandboxes directly by their private IP.</p>
+      <p>The <code>sc-tailscale</code> sidecar advertises the tenant's entire private CIDR (e.g. <code>10.248.0.0/24</code>) as a subnet route. Once you approve the route in the Tailscale admin console, any Tailnet device can reach all tenant machines directly by their private IP.</p>
 
       <h3>5. Create the developer certificate token</h3>
       <pre><code>./bin/sc-adm user create alice</code></pre>
@@ -387,11 +387,11 @@ sc dns refresh myproject</code></pre>
       <pre><code>sc trust install myproject</code></pre>
       <p class="callout warn">This is explicit local-machine trust. Only install trust for projects the developer owns and understands.</p>
 
-      <h3>7. Create and enter a sandbox</h3>
+      <h3>7. Create and connect to a machine</h3>
       <pre><code>sc create website/codex
 # Automation-friendly:
 sc create website/codex --detach</code></pre>
-      <p>By default, Sandcastle uses the project default template, currently <code>ai</code>. Use <code>--template base</code> for a smaller sandbox.</p>
+      <p>By default, Sandcastle uses the AI machine template. Use <code>--template base</code> for a smaller machine.</p>
     </section>
 
     <section id="verify">

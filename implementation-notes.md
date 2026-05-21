@@ -97,6 +97,11 @@
   still said owner/project/sandbox. The e2e tests that create machines now use
   the v1 instance and DNS shape (`default-{machine}` or `{project}-{machine}`,
   `{machine}.default.{tenant}` / `{machine}.{project}.{tenant}`).
+- Updated the user-facing usage docs, quickstart snippets, README overview, and
+  `.env.default` examples away from `SANDCASTLE_OWNER`, `add`/`enter`/`rm`/
+  `inspect`/`ls`, and sandbox wording toward tenant/project/machine command
+  shape. Some deeper planning and e2e design docs still use historical
+  milestone language and need a separate documentation pass.
 - E2E fixtures and diagnostics now use tenant references and tenant local-DNS
   state. Safe e2e tiers pass after the latest CLI-shape work:
   `go test ./...`, `scripts/e2e.sh unit`, `scripts/e2e.sh gated`, and

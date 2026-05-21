@@ -134,16 +134,16 @@
 
 <header class="page-header">
   <h1>Sandcastle Usage Guide</h1>
-  <p>CLI reference and recipes for managing projects, sandboxes, users, and routes.</p>
+  <p>CLI reference and recipes for managing tenants, projects, machines, users, and routes.</p>
 </header>
 
 <nav>
   <h2>Contents</h2>
   <ol>
     <li><a href="#env">Environment setup</a></li>
-    <li><a href="#projects">Create &amp; manage projects</a></li>
+    <li><a href="#projects">Create &amp; manage tenants</a></li>
     <li><a href="#users">Create users &amp; credentials</a></li>
-    <li><a href="#sandboxes">Create &amp; manage containers</a></li>
+    <li><a href="#sandboxes">Create &amp; manage machines</a></li>
     <li><a href="#trust">Install local CA trust</a></li>
     <li><a href="#tailscale">Attach Tailscale</a></li>
     <li><a href="#routes">Publish public routes</a></li>
@@ -161,9 +161,10 @@
     <h3>Config file (recommended)</h3>
     <p>Store your defaults in <code>~/.config/sandcastle/config.yml</code> so you don't need to set env vars on every call.</p>
     <pre><code><span class="comment"># ~/.config/sandcastle/config.yml</span>
-owner: alice
+tenant: acme
+project: website
 remote: sc-alice</code></pre>
-    <p>Once set, <code>sc add myproject/codex</code> works without any extra flags or exports.</p>
+    <p>Once set, <code>sc create codex</code> works without any extra flags or exports.</p>
     <p>Environment variables take precedence over the config file if both are set.</p>
   </div>
 
@@ -293,12 +294,12 @@ Bootstrap:
   <div class="step">
     <h3>User bootstrap (on the user's machine)</h3>
     <p>Run these commands after receiving the bootstrap output from admin.</p>
-    <pre><code><span class="comment"># One command sets up the remote and writes owner + remote to config</span>
-<span class="cmd">sc remote add</span> <span class="arg">sc-alice</span> <span class="arg">&lt;join-token-from-admin&gt;</span> <span class="flag">--owner</span> <span class="arg">alice</span>
+    <pre><code><span class="comment"># One command sets up the remote and writes tenant + remote to config</span>
+<span class="cmd">sc remote add</span> <span class="arg">sc-acme</span> <span class="arg">&lt;join-token-from-admin&gt;</span> <span class="flag">--tenant</span> <span class="arg">acme</span>
 
 <span class="comment"># Verify — no env vars needed</span>
-<span class="cmd">sc ls</span></code></pre>
-    <div class="note"><strong>One-time setup.</strong> <code>sc remote add</code> creates <code>~/.config/sandcastle/sc-alice/incus/</code> with Incus TLS certs and saves owner + remote to <code>~/.config/sandcastle/config.yml</code>. All subsequent <code>sc</code> commands pick up the config automatically.</div>
+<span class="cmd">sc list</span></code></pre>
+    <div class="note"><strong>One-time setup.</strong> <code>sc remote add</code> creates <code>~/.config/sandcastle/sc-acme/incus/</code> with Incus TLS certs and saves tenant + remote to <code>~/.config/sandcastle/config.yml</code>. All subsequent <code>sc</code> commands pick up the config automatically.</div>
   </div>
 
   <div class="step">
@@ -310,9 +311,9 @@ Bootstrap:
   </div>
 </section>
 
-<!-- ─── 4. Sandboxes / containers ─────────────────────────────────────── -->
+<!-- ─── 4. Machines / containers ──────────────────────────────────────── -->
 <section id="sandboxes">
-  <h2>4. Create &amp; manage containers</h2>
+  <h2>4. Create &amp; manage machines</h2>
 
   <div class="step">
     <h3>Manage lightweight projects <span class="badge badge-user">user</span></h3>
@@ -324,77 +325,77 @@ Bootstrap:
   </div>
 
   <div class="step">
-    <h3>Create and enter a sandbox <span class="badge badge-user">user</span></h3>
-    <p>Creates an Incus container from the configured base image and drops you into a shell.</p>
-    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/mysandbox</span></code></pre>
+    <h3>Create and connect to a machine <span class="badge badge-user">user</span></h3>
+    <p>Creates an Incus container machine from the selected template and connects to a shell.</p>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Create in background <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/mysandbox</span> <span class="flag">--detach</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span> <span class="flag">--detach</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Choose a template <span class="badge badge-user">user</span></h3>
     <p>Use <code>ai</code> for an AI-tool-equipped image, <code>base</code> for the minimal image.</p>
-    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/ai-box</span> <span class="flag">--template</span> <span class="arg">ai</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/ai-box</span> <span class="flag">--template</span> <span class="arg">ai</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Enable nested container tools (Docker/Incus inside sandbox) <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/builder</span> <span class="flag">--container-tools</span></code></pre>
+    <h3>Enable nested container tools (Docker/Incus inside machine) <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/builder</span> <span class="flag">--container-tools</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Set a shared home subdirectory <span class="badge badge-user">user</span></h3>
-    <p>Multiple sandboxes can share the same home-volume subdirectory (requires <code>--share-home</code> when a conflicting sandbox already exists).</p>
-    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/box1</span> <span class="flag">--home-dir</span> <span class="arg">shared</span>
-<span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/box2</span> <span class="flag">--home-dir</span> <span class="arg">shared</span> <span class="flag">--share-home</span></code></pre>
+    <p>Multiple machines can share the same home-volume subdirectory (requires <code>--share-home</code> when a conflicting machine already exists).</p>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/box1</span> <span class="flag">--home-dir</span> <span class="arg">shared</span>
+<span class="cmd">sandcastle create</span> <span class="arg">website/box2</span> <span class="flag">--home-dir</span> <span class="arg">shared</span> <span class="flag">--share-home</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Expose an app port <span class="badge badge-user">user</span></h3>
-    <p>Configures Caddy inside the sandbox to reverse-proxy port <code>3000</code> at the sandbox's private URL.</p>
-    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/webapp</span> <span class="flag">--app-port</span> <span class="arg">3000</span></code></pre>
+    <p>Configures Caddy inside the machine to reverse-proxy port <code>3000</code> at the machine's private URL.</p>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/webapp</span> <span class="flag">--app-port</span> <span class="arg">3000</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Change app port on an existing sandbox <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle port set</span> <span class="arg">alice/myproject/webapp</span> <span class="arg">8080</span></code></pre>
+    <h3>Change app port on an existing machine <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle port set</span> <span class="arg">website/webapp</span> <span class="arg">8080</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Preview the creation plan without creating <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/mysandbox</span> <span class="flag">--dry-run</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span> <span class="flag">--dry-run</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Enter a running sandbox <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle enter</span> <span class="arg">alice/myproject/mysandbox</span>
+    <h3>Connect to a running machine <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle connect</span> <span class="arg">website/codex</span>
 
 <span class="comment"># Run a specific command</span>
-<span class="cmd">sandcastle enter</span> <span class="arg">alice/myproject/mysandbox</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
+<span class="cmd">sandcastle connect</span> <span class="arg">website/codex</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Lifecycle commands <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle start</span>   <span class="arg">alice/myproject/mysandbox</span>
-<span class="cmd">sandcastle stop</span>    <span class="arg">alice/myproject/mysandbox</span>
-<span class="cmd">sandcastle restart</span> <span class="arg">alice/myproject/mysandbox</span>
-<span class="cmd">sandcastle rm</span>      <span class="arg">alice/myproject/mysandbox</span> <span class="flag">--yes</span></code></pre>
+    <pre><code><span class="cmd">sandcastle start</span>   <span class="arg">website/codex</span>
+<span class="cmd">sandcastle stop</span>    <span class="arg">website/codex</span>
+<span class="cmd">sandcastle restart</span> <span class="arg">website/codex</span>
+<span class="cmd">sandcastle delete</span>  <span class="arg">website/codex</span> <span class="flag">--yes</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Inspect a sandbox <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle inspect</span> <span class="arg">alice/myproject/mysandbox</span>
-<span class="cmd">sandcastle inspect</span> <span class="arg">alice/myproject/mysandbox</span> <span class="flag">--json</span></code></pre>
+    <h3>Show machine status <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle status</span> <span class="arg">website/codex</span>
+<span class="cmd">sandcastle status</span> <span class="arg">website/codex</span> <span class="flag">--json</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>List all sandboxes <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle ls</span>
-<span class="cmd">sandcastle list</span>      <span class="comment"># alias</span>
-<span class="cmd">sandcastle ls</span> <span class="flag">--json</span></code></pre>
+    <h3>List machines <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle list</span>
+<span class="cmd">sandcastle list</span> <span class="flag">--all-projects</span>
+<span class="cmd">sandcastle list</span> <span class="flag">--json</span></code></pre>
   </div>
 </section>
 
@@ -403,20 +404,20 @@ Bootstrap:
   <h2>5. Install local CA trust</h2>
 
   <div class="step">
-    <h3>Trust the project CA on your machine <span class="badge badge-admin">admin</span></h3>
-    <p>Makes the project's self-signed CA trusted by your OS/browser so sandbox HTTPS URLs work without warnings.</p>
-    <pre><code><span class="cmd">sandcastle trust install</span> <span class="arg">alice/myproject</span></code></pre>
+    <h3>Trust the tenant CA on your machine <span class="badge badge-admin">admin</span></h3>
+    <p>Makes the tenant's self-signed CA trusted by your OS/browser so machine HTTPS URLs work without warnings.</p>
+    <pre><code><span class="cmd">sandcastle trust install</span> <span class="arg">acme</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Remove the CA from local trust <span class="badge badge-admin">admin</span></h3>
-    <pre><code><span class="cmd">sandcastle trust uninstall</span> <span class="arg">alice/myproject</span></code></pre>
+    <pre><code><span class="cmd">sandcastle trust uninstall</span> <span class="arg">acme</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Preview trust changes</h3>
-    <pre><code><span class="cmd">sandcastle trust install</span>   <span class="arg">alice/myproject</span> <span class="flag">--dry-run</span>
-<span class="cmd">sandcastle trust uninstall</span> <span class="arg">alice/myproject</span> <span class="flag">--dry-run</span></code></pre>
+    <pre><code><span class="cmd">sandcastle trust install</span>   <span class="arg">acme</span> <span class="flag">--dry-run</span>
+<span class="cmd">sandcastle trust uninstall</span> <span class="arg">acme</span> <span class="flag">--dry-run</span></code></pre>
   </div>
 </section>
 
@@ -426,9 +427,9 @@ Bootstrap:
 
   <div class="step">
     <h3>How it works</h3>
-    <p>Every project gets an <code>sc-tailscale</code> sidecar container created automatically during <code>project create</code>. It sits on the project's private bridge at <code>.2</code> (e.g. <code>10.248.0.2</code>) and has a <code>/dev/net/tun</code> device.</p>
+    <p>Every tenant gets an <code>sc-tailscale</code> sidecar container created automatically during <code>tenant create</code>. It sits on the tenant's private bridge at <code>.2</code> (e.g. <code>10.248.0.2</code>) and has a <code>/dev/net/tun</code> device.</p>
     <p>The container is started but <strong>Tailscale is not activated yet</strong> — <code>tailscaled</code> and <code>tailscale up</code> are only run when you explicitly call <code>tailscale up</code>.</p>
-    <p>Once activated, the sidecar acts as a <strong>subnet router</strong>: it advertises the entire project private CIDR (e.g. <code>10.248.0.0/24</code>) to your Tailnet. Any device on your Tailnet can then reach all sandboxes in the project directly by their private IP, without needing Tailscale installed in each sandbox.</p>
+    <p>Once activated, the sidecar acts as a <strong>subnet router</strong>: it advertises the entire tenant private CIDR (e.g. <code>10.248.0.0/24</code>) to your Tailnet. Any device on your Tailnet can then reach all machines in the tenant directly by their private IP, without needing Tailscale installed in each machine.</p>
     <div class="note"><strong>Tailscale admin console step:</strong> After running <code>tailscale up</code>, approve the advertised route in your Tailscale admin console under the machine's routing settings.</div>
   </div>
 
@@ -606,7 +607,7 @@ Bootstrap:
         <tr><td>sandcastle-admin infra delete</td><td>Delete shared infrastructure</td></tr>
         <tr><td>mise run image:ai:build-upload</td><td>Build AI image (auto latest versions) and upload</td></tr>
         <tr><td>mise run image:base:build-upload</td><td>Build base image and upload</td></tr>
-        <tr><td>sandcastle-admin image build</td><td>Build sandbox OCI image</td></tr>
+        <tr><td>sandcastle-admin image build</td><td>Build machine OCI image</td></tr>
         <tr><td>sandcastle-admin image import</td><td>Import OCI image into Incus</td></tr>
         <tr><td>sandcastle-admin image sync</td><td>Sync imported image to alias</td></tr>
       </tbody>
@@ -614,13 +615,14 @@ Bootstrap:
   </div>
 
   <div class="step">
-    <h3>Reference: owner/project/name</h3>
+    <h3>Reference: tenant/project/machine</h3>
     <p>Sandcastle uses slash-separated references throughout the CLI.</p>
     <table>
       <thead><tr><th>Format</th><th>Meaning</th><th>Example</th></tr></thead>
       <tbody>
-        <tr><td>owner/project</td><td>Project reference</td><td>alice/myproject</td></tr>
-        <tr><td>owner/project/sandbox</td><td>Sandbox reference</td><td>alice/myproject/mysandbox</td></tr>
+        <tr><td>machine</td><td>Machine in the current project</td><td>codex</td></tr>
+        <tr><td>project/machine</td><td>Machine in a project in the current tenant</td><td>website/codex</td></tr>
+        <tr><td>tenant/project/machine</td><td>Admin machine reference</td><td>acme/website/codex</td></tr>
       </tbody>
     </table>
   </div>
