@@ -59,13 +59,11 @@ func SaveSandcastleConfig(path string, cfg SandcastleConfig) error {
 }
 
 // LoadAdmin merges ~/.config/sandcastle/config.yml with SANDCASTLE_* env vars (env wins).
-// It also resolves ConfigPath: if ~/.config/sandcastle/<remote>/incus/ exists, that dir is used
-// so sc and sc incus both point at the same per-remote Incus config.
+// ConfigPath is intentionally not set here — admin commands use the global ~/.config/incus/
+// which holds admin certificates. User-facing commands call ResolveConfigPath separately.
 func LoadAdmin() Admin {
 	cfg, _ := LoadSandcastleConfig(DefaultConfigPath())
-	admin := loadAdminFromFileAndEnv(cfg)
-	admin.ConfigPath = resolveConfigPath(admin.Remote)
-	return admin
+	return loadAdminFromFileAndEnv(cfg)
 }
 
 // loadAdminFromFileAndEnv applies env var overrides on top of a file config.
@@ -89,8 +87,9 @@ func loadAdminFromFileAndEnv(cfg SandcastleConfig) Admin {
 	}
 }
 
-// resolveConfigPath returns the per-remote incus dir if it exists, otherwise empty string.
-func resolveConfigPath(remote string) string {
+// ResolveConfigPath returns the per-remote Sandcastle incus dir if it exists, otherwise empty string.
+// This directory contains the restricted user TLS certificate for the remote.
+func ResolveConfigPath(remote string) string {
 	if remote == "" {
 		return ""
 	}

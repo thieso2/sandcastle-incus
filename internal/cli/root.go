@@ -75,8 +75,20 @@ type rootOptions struct {
 // Execute runs the Sandcastle CLI and returns a process exit code.
 func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
-	if adminConfig.ConfigPath != "" {
-		os.Setenv("INCUS_CONF", adminConfig.ConfigPath)
+	// Admin commands use the global Incus config (~/.config/incus/) which holds admin
+	// certificates. All other commands use the per-remote Sandcastle dir (restricted cert).
+	isAdmin := len(args) > 0 && args[0] == "admin"
+	if !isAdmin {
+		if userPath := scconfig.ResolveConfigPath(adminConfig.Remote); userPath != "" {
+			os.Setenv("INCUS_CONF", userPath)
+		}
+	}
+	if os.Getenv("VERBOSE") == "1" {
+		incusConf := os.Getenv("INCUS_CONF")
+		if incusConf == "" {
+			incusConf = "~/.config/incus (default)"
+		}
+		fmt.Fprintf(os.Stderr, "[verbose] incus config: %s\n[verbose] incus remote: %s\n", incusConf, adminConfig.Remote)
 	}
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject

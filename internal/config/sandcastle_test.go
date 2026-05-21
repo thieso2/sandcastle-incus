@@ -77,7 +77,7 @@ func TestLoadAdminFromFileAndEnvDefaultRemoteWhenBothEmpty(t *testing.T) {
 }
 
 func TestResolveConfigPathReturnsEmptyWhenDirMissing(t *testing.T) {
-	if resolveConfigPath("nonexistent-remote") != "" {
+	if ResolveConfigPath("nonexistent-remote") != "" {
 		t.Fatal("expected empty config path for missing remote")
 	}
 }

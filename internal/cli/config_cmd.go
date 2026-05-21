@@ -30,10 +30,13 @@ func newConfigShowCommand(config commandConfig) *cobra.Command {
 			fmt.Fprintf(config.stdout, "config file:  %s\n", cfgPath)
 			fmt.Fprintf(config.stdout, "  file.owner:  %q\n", fileCfg.Owner)
 			fmt.Fprintf(config.stdout, "  file.remote: %q\n", fileCfg.Remote)
+			userPath := scconfig.ResolveConfigPath(config.adminConfig.Remote)
+			adminPath := "~/.config/incus (global default)"
 			fmt.Fprintf(config.stdout, "\nresolved:\n")
-			fmt.Fprintf(config.stdout, "  owner:      %q\n", config.adminConfig.Owner)
-			fmt.Fprintf(config.stdout, "  remote:     %q\n", config.adminConfig.Remote)
-			fmt.Fprintf(config.stdout, "  configPath: %q\n", config.adminConfig.ConfigPath)
+			fmt.Fprintf(config.stdout, "  owner:            %q\n", config.adminConfig.Owner)
+			fmt.Fprintf(config.stdout, "  remote:           %q\n", config.adminConfig.Remote)
+			fmt.Fprintf(config.stdout, "  user incus config: %q\n", userPath)
+			fmt.Fprintf(config.stdout, "  admin incus config: %s\n", adminPath)
 			return nil
 		},
 	}

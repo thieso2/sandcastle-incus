@@ -187,9 +187,21 @@ remote: sc-alice</code></pre>
   </div>
 
   <div class="step">
+    <h3>Incus certificate selection</h3>
+    <p><code>sandcastle admin</code> commands always use the global Incus config (<code>~/.config/incus/</code>)
+    which holds admin certificates. All other <code>sandcastle</code> commands use the per-remote
+    Sandcastle config directory (<code>~/.config/sandcastle/&lt;remote&gt;/incus/</code>) which holds
+    the restricted user certificate.</p>
+  </div>
+
+  <div class="step">
     <h3>Enable verbose output</h3>
+    <p>Set <code>VERBOSE=1</code> to see the Incus config directory and remote being used, plus
+    per-operation detail from executors.</p>
     <pre><code><span class="env">export VERBOSE</span>=1
-<span class="cmd">sandcastle</span> <span class="arg">add alice/myproject</span></code></pre>
+<span class="cmd">sandcastle admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.example.com</span>
+<span class="comment"># [verbose] incus config: ~/.config/incus (default)</span>
+<span class="comment"># [verbose] incus remote: big</span></code></pre>
   </div>
 </section>
 

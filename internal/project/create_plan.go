@@ -3,7 +3,6 @@ package project
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"net/netip"
 	"time"
 
@@ -31,13 +30,14 @@ func TailscaleInstanceName(incusProjectName string) string {
 	return incusProjectName
 }
 
-// PrivateNetworkName returns a project-unique bridge network name derived from the Incus project
-// name via FNV-32a hash. Bridge networks share the default namespace, so each project needs a
-// unique name to avoid cross-project conflicts.
+// PrivateNetworkName returns the bridge network name for a project. Bridge networks live in the
+// default Incus namespace and are subject to Linux's 15-char IFNAMSIZ-1 limit, so names longer
+// than 15 chars are truncated.
 func PrivateNetworkName(incusProjectName string) string {
-	h := fnv.New32a()
-	h.Write([]byte(incusProjectName))
-	return fmt.Sprintf("sc-%08x", h.Sum32())
+	if len(incusProjectName) <= 15 {
+		return incusProjectName
+	}
+	return incusProjectName[:15]
 }
 
 type CreateRequest struct {
