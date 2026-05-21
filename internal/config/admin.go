@@ -24,6 +24,7 @@ const (
 type Admin struct {
 	Owner                  string
 	Remote                 string
+	AdminRemote            string // Incus remote for admin commands; uses global ~/.config/incus/ config
 	ConfigPath             string // path to per-remote Incus config dir; empty = use default ~/.config/incus
 	StoragePool            string
 	CIDRPool               string

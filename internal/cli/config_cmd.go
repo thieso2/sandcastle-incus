@@ -31,12 +31,12 @@ func newConfigShowCommand(config commandConfig) *cobra.Command {
 			fmt.Fprintf(config.stdout, "  file.owner:  %q\n", fileCfg.Owner)
 			fmt.Fprintf(config.stdout, "  file.remote: %q\n", fileCfg.Remote)
 			userPath := scconfig.ResolveConfigPath(config.adminConfig.Remote)
-			adminPath := "~/.config/incus (global default)"
 			fmt.Fprintf(config.stdout, "\nresolved:\n")
-			fmt.Fprintf(config.stdout, "  owner:            %q\n", config.adminConfig.Owner)
-			fmt.Fprintf(config.stdout, "  remote:           %q\n", config.adminConfig.Remote)
-			fmt.Fprintf(config.stdout, "  user incus config: %q\n", userPath)
-			fmt.Fprintf(config.stdout, "  admin incus config: %s\n", adminPath)
+			fmt.Fprintf(config.stdout, "  owner:        %q\n", config.adminConfig.Owner)
+			fmt.Fprintf(config.stdout, "  remote:       %q\n", config.adminConfig.Remote)
+			fmt.Fprintf(config.stdout, "  admin_remote: %q  (used by sc admin; SANDCASTLE_ADMIN_REMOTE overrides)\n", config.adminConfig.AdminRemote)
+			fmt.Fprintf(config.stdout, "  user incus config:  %q\n", userPath)
+			fmt.Fprintf(config.stdout, "  admin incus config: ~/.config/incus/ (global default)\n")
 			return nil
 		},
 	}
@@ -47,8 +47,9 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 		Use:   "set <key> <value>",
 		Short: "Set a value in ~/.config/sandcastle/config.yml",
 		Long: `Set a configuration value. Supported keys:
-  owner   default owner name (e.g. alice)
-  remote  default Sandcastle remote name (e.g. sc-alice)`,
+  owner         default owner name (e.g. alice)
+  remote        default Sandcastle user remote name (e.g. sc-alice)
+  admin_remote  Incus remote for sc admin commands in global ~/.config/incus/ (e.g. big)`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, value := args[0], args[1]
@@ -62,8 +63,10 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 				cfg.Owner = value
 			case "remote":
 				cfg.Remote = value
+			case "admin_remote":
+				cfg.AdminRemote = value
 			default:
-				return fmt.Errorf("unknown config key %q; supported keys: owner, remote", key)
+				return fmt.Errorf("unknown config key %q; supported keys: owner, remote, admin_remote", key)
 			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save config: %w", err)

@@ -75,10 +75,16 @@ type rootOptions struct {
 // Execute runs the Sandcastle CLI and returns a process exit code.
 func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
-	// Admin commands use the global Incus config (~/.config/incus/) which holds admin
-	// certificates. All other commands use the per-remote Sandcastle dir (restricted cert).
+	// Admin commands use the global Incus config (~/.config/incus/) with the admin remote
+	// (SANDCASTLE_ADMIN_REMOTE / admin_remote config key). User-facing commands use the
+	// per-remote Sandcastle dir (restricted cert) with the user remote.
 	isAdmin := len(args) > 0 && args[0] == "admin"
-	if !isAdmin {
+	if isAdmin {
+		if adminConfig.AdminRemote != "" {
+			adminConfig.Remote = adminConfig.AdminRemote
+		}
+		// INCUS_CONF intentionally not set → uses ~/.config/incus/ (admin certs)
+	} else {
 		if userPath := scconfig.ResolveConfigPath(adminConfig.Remote); userPath != "" {
 			os.Setenv("INCUS_CONF", userPath)
 		}

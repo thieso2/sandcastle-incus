@@ -187,11 +187,20 @@ remote: sc-alice</code></pre>
   </div>
 
   <div class="step">
-    <h3>Incus certificate selection</h3>
+    <h3>Incus certificate selection and admin_remote</h3>
     <p><code>sandcastle admin</code> commands always use the global Incus config (<code>~/.config/incus/</code>)
     which holds admin certificates. All other <code>sandcastle</code> commands use the per-remote
     Sandcastle config directory (<code>~/.config/sandcastle/&lt;remote&gt;/incus/</code>) which holds
     the restricted user certificate.</p>
+    <p>The <strong>admin remote</strong> is the Incus remote name as it appears in <code>~/.config/incus/config.yml</code>
+    (e.g. <code>big</code>). It may differ from the Sandcastle user remote (e.g. <code>sc-alice</code>).
+    Configure it once with:</p>
+    <pre><code><span class="cmd">sandcastle config set</span> <span class="arg">admin_remote big</span>
+<span class="comment"># or</span>
+<span class="env">export SANDCASTLE_ADMIN_REMOTE</span>=big</code></pre>
+    <p>When <code>admin_remote</code> is set, <code>sc admin</code> uses it instead of <code>remote</code>.
+    When unset, <code>sc admin</code> falls back to <code>remote</code> and the global Incus config must
+    know that remote name.</p>
   </div>
 
   <div class="step">

@@ -10,8 +10,9 @@ import (
 
 // SandcastleConfig holds user-facing defaults stored in ~/.config/sandcastle/config.yml.
 type SandcastleConfig struct {
-	Owner  string `yaml:"owner,omitempty"`
-	Remote string `yaml:"remote,omitempty"`
+	Owner       string `yaml:"owner,omitempty"`
+	Remote      string `yaml:"remote,omitempty"`
+	AdminRemote string `yaml:"admin_remote,omitempty"`
 }
 
 // DefaultConfigDir returns ~/.config/sandcastle.
@@ -71,6 +72,7 @@ func loadAdminFromFileAndEnv(cfg SandcastleConfig) Admin {
 	return Admin{
 		Owner:                  firstNonEmpty(strings.TrimSpace(os.Getenv("SANDCASTLE_OWNER")), cfg.Owner),
 		Remote:                 firstNonEmpty(getenv("SANDCASTLE_REMOTE", ""), cfg.Remote, DefaultRemote),
+		AdminRemote:            firstNonEmpty(strings.TrimSpace(os.Getenv("SANDCASTLE_ADMIN_REMOTE")), cfg.AdminRemote),
 		StoragePool:            getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
 		CIDRPool:               getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
 		ProjectPrefix:          getenv("SANDCASTLE_PROJECT_PREFIX", DefaultProjectPrefix),

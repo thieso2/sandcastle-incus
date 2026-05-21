@@ -145,7 +145,11 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 func ensureProject(server ProjectCreateServer, plan project.CreatePlan) error {
 	existing, etag, err := server.GetProject(plan.IncusProject)
 	if err != nil {
-		if api.StatusErrorCheck(err, http.StatusNotFound) {
+		// 404 = project doesn't exist.
+		// 403 = Incus fine-grained auth: the calling cert hasn't been granted access
+		//       to this project yet (which also means it doesn't exist from our perspective).
+		// In both cases, attempt to create it.
+		if api.StatusErrorCheck(err, http.StatusNotFound) || api.StatusErrorCheck(err, http.StatusForbidden) {
 			cfg := mergeConfig(isolatedProjectFeatureConfig(), plan.ProjectMetadataConfig)
 			return server.CreateProject(api.ProjectsPost{
 				Name: plan.IncusProject,
