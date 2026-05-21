@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/spf13/cobra"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
@@ -75,13 +76,18 @@ type rootOptions struct {
 // Execute runs the Sandcastle CLI and returns a process exit code.
 func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
-	// Admin commands use the global Incus config (~/.config/incus/) with the admin remote
-	// (SANDCASTLE_ADMIN_REMOTE / admin_remote config key). User-facing commands use the
-	// per-remote Sandcastle dir (restricted cert) with the user remote.
+	// Admin commands use the global Incus config (~/.config/incus/) with the admin remote.
+	// User-facing commands use the per-remote Sandcastle dir (restricted cert).
 	isAdmin := len(args) > 0 && args[0] == "admin"
 	if isAdmin {
-		if adminConfig.AdminRemote != "" {
-			adminConfig.Remote = adminConfig.AdminRemote
+		// Prefer explicit admin_remote; fall back to auto-detecting the global remote
+		// whose server address matches the per-remote user config.
+		adminRemote := adminConfig.AdminRemote
+		if adminRemote == "" {
+			adminRemote = detectAdminRemote(adminConfig.Remote)
+		}
+		if adminRemote != "" {
+			adminConfig.Remote = adminRemote
 		}
 		// INCUS_CONF intentionally not set → uses ~/.config/incus/ (admin certs)
 	} else {
@@ -251,4 +257,32 @@ func (f outputFormat) String() string {
 
 func (f outputFormat) Type() string {
 	return "format"
+}
+
+// detectAdminRemote finds the global Incus remote (~/.config/incus/) whose server address
+// matches the user's per-remote Sandcastle incus config. This lets admin commands work
+// automatically without an explicit admin_remote setting.
+func detectAdminRemote(userRemote string) string {
+	userDir := scconfig.ResolveConfigPath(userRemote)
+	if userDir == "" {
+		return ""
+	}
+	userCfg, err := cliconfig.LoadConfig(userDir)
+	if err != nil {
+		return ""
+	}
+	userRemoteInfo, ok := userCfg.Remotes[userRemote]
+	if !ok {
+		return ""
+	}
+	globalCfg, err := cliconfig.LoadConfig("")
+	if err != nil {
+		return ""
+	}
+	for name, remote := range globalCfg.Remotes {
+		if remote.Addr == userRemoteInfo.Addr {
+			return name
+		}
+	}
+	return ""
 }
