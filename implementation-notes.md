@@ -110,8 +110,36 @@
 - E2E fixtures and diagnostics now use tenant references and tenant local-DNS
   state. Safe e2e tiers pass after the latest CLI-shape work:
   `go test ./...`, `scripts/e2e.sh unit`, `scripts/e2e.sh gated`, and
-  `scripts/e2e.sh local`. The destructive `incus` tier was attempted with
-  `SANDCASTLE_E2E=1` and still cannot complete in this environment because
-  Incus `local` cannot connect on this non-Linux host; image-dependent tests
-  also skip without `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` and
-  `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
+  `scripts/e2e.sh local`. Full destructive tiers still need more environment
+  setup than the host currently provides: image-dependent tests require
+  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` and `SANDCASTLE_E2E_AI_IMAGE_SOURCE`, the
+  restricted tier requires a non-local HTTPS Incus remote, and Tailscale/public
+  route tiers require external credentials or DNS inputs.
+- Disposable VM e2e on Debian 13/Incus 6.0.4 also exposed that SDK image copy
+  from the default project into a tenant project fails over a local Unix socket
+  with `The source server isn't listening on the network`. Tenant image
+  propagation now uses Incus relay mode for project image copies. This is less
+  efficient than pull mode for remote-to-remote copies, but it works for the
+  local-admin path and keeps behavior deterministic across Unix-socket and HTTPS
+  remotes.
+- The same Incus 6.0.4 VM does not support the storage volume file API used by
+  newer Incus clients for custom volumes (`CreateStorageVolumeFile`/
+  `GetStorageVolumeFile` return `not found`). For local dir-backed storage
+  volumes, the Incus adapter now falls back to reading/writing the project
+  volume path under `/var/lib/incus/storage-pools/<pool>/custom/<project>_<vol>`
+  after the SDK returns 404. HTTPS remotes and newer servers still use the SDK
+  path first.
+- Tenant private bridge names can no longer be simple 15-character truncations
+  of long Incus project names. Linux bridge names have a 15-character limit, but
+  truncation made e2e tenants like `sc-tenant-e2e-local...` collide on
+  `sc-tenant-e2e-l`, causing sidecar IP/subnet validation failures. Long names
+  now use a stable `sc-` plus 12-hex hash bridge name.
+- I created disposable Incus VMs twice and seeded nested Incus images to keep
+  exercising `scripts/e2e.sh local-vm`. Docker-based image building filled the
+  host's 9.6 GB root filesystem, so I switched to a lean Incus-native image seed
+  by copying `images:debian/13`, installing only sidecar runtime packages, and
+  publishing `sandcastle/base:latest`/`sandcastle/ai:latest`. Even with that,
+  nested tenant creation and image copies filled the host root filesystem and
+  forced the VM into Incus `ERROR`; both disposable VMs were deleted to restore
+  space. Current verified host gates after these fixes: `go test ./...`,
+  `scripts/e2e.sh unit`, `scripts/e2e.sh gated`, and `scripts/e2e.sh local`.

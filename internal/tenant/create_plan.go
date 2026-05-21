@@ -2,6 +2,8 @@ package tenant
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"net/netip"
 	"time"
 
@@ -29,14 +31,15 @@ func TailscaleInstanceName(incusProjectName string) string {
 	return incusProjectName
 }
 
-// PrivateNetworkName returns the bridge network name for a tenant. Bridge networks live in the
-// default Incus namespace and are subject to Linux's 15-char IFNAMSIZ-1 limit, so names longer
-// than 15 chars are truncated.
+// PrivateNetworkName returns the bridge network name for a tenant. Bridge networks are subject to
+// Linux's 15-char IFNAMSIZ-1 limit, so long project names use a stable hashed name instead of a
+// truncation that can collide across tenants.
 func PrivateNetworkName(incusProjectName string) string {
 	if len(incusProjectName) <= 15 {
 		return incusProjectName
 	}
-	return incusProjectName[:15]
+	sum := sha1.Sum([]byte(incusProjectName))
+	return "sc-" + hex.EncodeToString(sum[:])[:12]
 }
 
 type CreateRequest struct {

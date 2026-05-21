@@ -318,11 +318,12 @@ type sdkSandboxServer struct {
 }
 
 func (s sdkSandboxServer) UseProject(name string) SandboxResourceServer {
-	return sdkSandboxResourceServer{inner: s.inner.UseProject(name)}
+	return sdkSandboxResourceServer{inner: s.inner.UseProject(name), projectName: name}
 }
 
 type sdkSandboxResourceServer struct {
-	inner incus.InstanceServer
+	inner       incus.InstanceServer
+	projectName string
 }
 
 func (s sdkSandboxResourceServer) GetInstance(name string) (*api.Instance, string, error) {
@@ -342,7 +343,7 @@ func (s sdkSandboxResourceServer) CreateInstanceFile(instanceName string, path s
 }
 
 func (s sdkSandboxResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
-	return s.inner.GetStorageVolumeFile(pool, volumeType, volumeName, filePath)
+	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
 }
 
 func (s sdkSandboxResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {

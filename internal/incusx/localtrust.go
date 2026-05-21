@@ -80,13 +80,14 @@ type sdkLocalTrustServer struct {
 }
 
 func (s sdkLocalTrustServer) UseProject(name string) LocalTrustProjectServer {
-	return sdkLocalTrustProjectServer{inner: s.inner.UseProject(name)}
+	return sdkLocalTrustProjectServer{inner: s.inner.UseProject(name), projectName: name}
 }
 
 type sdkLocalTrustProjectServer struct {
-	inner incus.InstanceServer
+	inner       incus.InstanceServer
+	projectName string
 }
 
 func (s sdkLocalTrustProjectServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
-	return s.inner.GetStorageVolumeFile(pool, volumeType, volumeName, filePath)
+	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
 }

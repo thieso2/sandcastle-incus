@@ -217,7 +217,36 @@ func addPlanFromRemove(plan hostoverride.RemovePlan) hostoverride.AddPlan {
 }
 
 func (s sdkHostOverrideServer) UseProject(name string) HostOverrideResourceServer {
-	return s.inner.UseProject(name)
+	return sdkHostOverrideResourceServer{inner: s.inner.UseProject(name), projectName: name}
+}
+
+type sdkHostOverrideResourceServer struct {
+	inner       incus.InstanceServer
+	projectName string
+}
+
+func (s sdkHostOverrideResourceServer) GetInstances(instanceType api.InstanceType) ([]api.Instance, error) {
+	return s.inner.GetInstances(instanceType)
+}
+
+func (s sdkHostOverrideResourceServer) GetInstance(name string) (*api.Instance, string, error) {
+	return s.inner.GetInstance(name)
+}
+
+func (s sdkHostOverrideResourceServer) UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error) {
+	return s.inner.UpdateInstance(name, instance, ETag)
+}
+
+func (s sdkHostOverrideResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+	return s.inner.CreateInstanceFile(instanceName, path, args)
+}
+
+func (s sdkHostOverrideResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
+}
+
+func (s sdkHostOverrideResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	return s.inner.ExecInstance(instanceName, exec, args)
 }
 
 func updateMachineExtraSANs(server HostOverrideResourceServer, plan hostoverride.AddPlan) (meta.Machine, error) {

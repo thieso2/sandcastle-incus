@@ -611,7 +611,7 @@ func (s sdkProjectServer) UpdateProject(name string, project api.ProjectPut, eta
 }
 
 func (s sdkProjectServer) UseProject(name string) ProjectResourceServer {
-	return sdkResourceServer{inner: s.inner.UseProject(name)}
+	return sdkResourceServer{inner: s.inner.UseProject(name), projectName: name}
 }
 
 func (s sdkProjectServer) GetStoragePool(name string) (*api.StoragePool, string, error) {
@@ -623,7 +623,8 @@ func (s sdkProjectServer) CreateStoragePool(pool api.StoragePoolsPost) error {
 }
 
 type sdkResourceServer struct {
-	inner incus.InstanceServer
+	inner       incus.InstanceServer
+	projectName string
 }
 
 func (s sdkResourceServer) GetNetwork(name string) (*api.Network, string, error) {
@@ -643,7 +644,7 @@ func (s sdkResourceServer) CreateStoragePoolVolume(pool string, volume api.Stora
 }
 
 func (s sdkResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
-	return s.inner.CreateStorageVolumeFile(pool, volumeType, volumeName, filePath, args)
+	return createStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath, args)
 }
 
 func (s sdkResourceServer) GetProfile(name string) (*api.Profile, string, error) {
@@ -691,5 +692,5 @@ func (s sdkResourceServer) CreateImageAlias(alias api.ImageAliasesPost) error {
 }
 
 func (s sdkResourceServer) CopyImageFrom(source ProjectCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error) {
-	return s.inner.CopyImage(source.imageServer(), image, &incus.ImageCopyArgs{Aliases: aliases})
+	return s.inner.CopyImage(source.imageServer(), image, &incus.ImageCopyArgs{Aliases: aliases, Mode: "relay"})
 }
