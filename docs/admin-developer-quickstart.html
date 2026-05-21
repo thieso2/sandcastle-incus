@@ -410,10 +410,8 @@ sc project status website</code></pre>
       <p>The command runs <code>tailscale up</code> inside the current tenant's Tailscale sidecar and advertises the tenant private CIDR. For unattended environments, pass an auth key with <code>--auth-key tskey-auth-...</code>. To target a non-default tenant, pass it explicitly, for example <code>sc tailscale up acme</code>.</p>
 
       <h3>7. Install local DNS forwarding</h3>
-      <pre><code>sc dns service install
-sc dns install acme
-sc dns refresh acme</code></pre>
-      <p>The local DNS forwarder routes tenant-domain lookups from the developer machine to the tenant DNS sidecar over the Tailscale-routed private CIDR.</p>
+      <pre><code>sc dns setup</code></pre>
+      <p>The setup command applies tenant DNS records, starts the local DNS forwarder service, and installs the local resolver for the current tenant. On systems such as macOS, Sandcastle prompts for <code>sudo</code> only for resolver files under <code>/etc/resolver</code>. To target a non-default tenant, pass it explicitly, for example <code>sc dns setup acme</code>.</p>
 
       <h3>8. Trust the tenant CA for private HTTPS</h3>
       <pre><code>sc trust install acme</code></pre>
@@ -465,8 +463,7 @@ SANDCASTLE_E2E_VM_KEEP=1 scripts/e2e-local-vm.sh</code></pre>
       <pre><code>sc delete codex --yes
 sc project delete website --yes
 sc trust uninstall acme
-sc dns uninstall acme
-sc dns service uninstall
+sc dns teardown
 sc tailscale down acme</code></pre>
 
       <h3>Admin cleanup</h3>
