@@ -113,8 +113,9 @@ sandcastle-admin image build base|ai
 sandcastle-admin image import base|ai <source-ref>
 sandcastle-admin image sync <image-ref>
 sandcastle-admin tld refresh
-sandcastle-admin user create <user>
-sandcastle-admin user token <user>
+sandcastle-admin user create <user> [--tenant <tenant>...]
+sandcastle-admin user token <user> [--tenant <tenant>...]
+sandcastle-admin user delete <user>
 sandcastle-admin route-broker serve
 ```
 
@@ -179,6 +180,8 @@ sandcastle-admin route-broker serve
 - Exact and per-machine wildcard records are supported.
 - Tenant-wide wildcard records are intentionally not generated.
 - `sandcastle dns apply|status <tenant>` reconciles sidecar DNS.
+- `sandcastle dns setup|teardown [tenant]` applies tenant DNS and installs or
+  removes local DNS forwarding in one flow.
 - `sandcastle dns install|refresh|uninstall <tenant>` manages local resolver
   state for the local forwarder.
 - `sandcastle tailscale up|status|down [tenant]` manages the tenant Tailscale

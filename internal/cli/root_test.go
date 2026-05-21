@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,7 +33,25 @@ func executeForTest(t *testing.T, name string, args ...string) (string, error) {
 	return executeForTestWithConfig(t, commandConfig{name: name}, args...)
 }
 
+func envContains(env []string, value string) bool {
+	for _, entry := range env {
+		if entry == value {
+			return true
+		}
+	}
+	return false
+}
+
 func executeForTestWithConfig(t *testing.T, config commandConfig, args ...string) (string, error) {
+	t.Helper()
+	stdout, stderr, err := executeForTestWithConfigAndStderr(t, config, args...)
+	if stderr != "" {
+		t.Fatalf("unexpected stderr: %s", stderr)
+	}
+	return stdout, err
+}
+
+func executeForTestWithConfigAndStderr(t *testing.T, config commandConfig, args ...string) (string, string, error) {
 	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -46,10 +65,7 @@ func executeForTestWithConfig(t *testing.T, config commandConfig, args ...string
 	cmd.SetErr(&stderr)
 	cmd.SetArgs(args)
 	err := cmd.Execute()
-	if stderr.Len() > 0 {
-		t.Fatalf("unexpected stderr: %s", stderr.String())
-	}
-	return stdout.String(), err
+	return stdout.String(), stderr.String(), err
 }
 
 func executeAdminForTest(t *testing.T, name string, args ...string) (string, error) {
@@ -233,8 +249,8 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 	if !strings.Contains(stdout, "default") || !strings.Contains(stdout, "codex") {
 		t.Fatalf("stdout = %q, want machine project and name", stdout)
 	}
-	if !strings.Contains(stdout, "Unmanaged: 0") {
-		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	if strings.Contains(stdout, "Unmanaged:") {
+		t.Fatalf("stdout = %q, want no unmanaged footer", stdout)
 	}
 }
 
@@ -271,7 +287,7 @@ func TestListUsesProjectFromEnv(t *testing.T) {
 	}
 }
 
-func TestListShowsUnmanagedCountWithoutFlag(t *testing.T) {
+func TestListAliasShowsUnmanagedTenantWide(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -289,46 +305,29 @@ func TestListShowsUnmanagedCountWithoutFlag(t *testing.T) {
 		machineStore: fakeMachineStatusStore{unmanaged: []machine.UnmanagedMachine{{
 			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
 		}}},
-	}, "list")
+	}, "ls")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "Unmanaged: 1") {
-		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	if strings.Contains(stdout, "Unmanaged:") {
+		t.Fatalf("stdout = %q, want no unmanaged footer", stdout)
 	}
-	if strings.Contains(stdout, "manual") {
-		t.Fatalf("stdout = %q, unmanaged row should be hidden without -u", stdout)
+	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "unmanaged:Running") {
+		t.Fatalf("stdout = %q, want unmanaged row", stdout)
 	}
 }
 
-func TestListIncludesUnmanagedWithFlagTenantWide(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestListRejectsRemovedUnmanagedFlag(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "list", "-u")
+	if err == nil {
+		t.Fatal("expected removed -u flag to be rejected")
 	}
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		machineStore: fakeMachineStatusStore{unmanaged: []machine.UnmanagedMachine{{
-			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
-		}}},
-	}, "list", "-u")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "unmanaged:Running") || !strings.Contains(stdout, "Unmanaged: 1") {
-		t.Fatalf("stdout = %q, want unmanaged row and count", stdout)
+	if !strings.Contains(err.Error(), "unknown shorthand flag") {
+		t.Fatalf("error = %q", err)
 	}
 }
 
-func TestListProjectScopeHidesUnmanagedRowsButShowsCount(t *testing.T) {
+func TestListProjectScopeAlsoShowsUnmanagedRows(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -346,15 +345,15 @@ func TestListProjectScopeHidesUnmanagedRowsButShowsCount(t *testing.T) {
 		machineStore: fakeMachineStatusStore{unmanaged: []machine.UnmanagedMachine{{
 			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
 		}}},
-	}, "list", "default", "-u")
+	}, "list", "default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "Unmanaged: 1") {
-		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	if strings.Contains(stdout, "Unmanaged:") {
+		t.Fatalf("stdout = %q, want no unmanaged footer", stdout)
 	}
-	if strings.Contains(stdout, "manual") {
-		t.Fatalf("stdout = %q, unmanaged row should be hidden for project-scoped list", stdout)
+	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "unmanaged:Running") {
+		t.Fatalf("stdout = %q, want unmanaged row", stdout)
 	}
 }
 
@@ -543,6 +542,64 @@ func TestProjectDeleteCallsUpdater(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !updater.called || len(updater.projects) != 1 || updater.projects[0].Name != "default" {
+		t.Fatalf("updater = %#v", updater)
+	}
+}
+
+func TestSSHKeySetDryRunUsesCurrentTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "ssh-key", "set", "ssh-ed25519 test", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload sshKeySetPayload
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Tenant != "acme" || payload.IncusProject != "sc-acme" || payload.Key != "ssh-ed25519 test" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestSSHKeySetCallsUpdaterWithFile(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyFile := filepath.Join(t.TempDir(), "id_ed25519.pub")
+	if err := os.WriteFile(keyFile, []byte("ssh-ed25519 test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	updater := &fakeSSHKeyUpdater{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		tenantSSHKeyUpdater: updater,
+	}, "ssh-key", "set", "--file", keyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updater.called || updater.incusProject != "sc-acme" || updater.key != "ssh-ed25519 test" {
 		t.Fatalf("updater = %#v", updater)
 	}
 }
@@ -888,6 +945,7 @@ func TestCreateDetachSkipsConnect(t *testing.T) {
 	}
 	creator := &fakeMachineCreator{}
 	connector := &fakeMachineConnector{}
+	applier := &fakeDNSApplier{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
 		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
@@ -896,6 +954,7 @@ func TestCreateDetachSkipsConnect(t *testing.T) {
 		}}},
 		machineCreator:   creator,
 		machineConnector: connector,
+		dnsApplier:       applier,
 	}, "create", "codex", "--detach")
 	if err != nil {
 		t.Fatal(err)
@@ -905,6 +964,9 @@ func TestCreateDetachSkipsConnect(t *testing.T) {
 	}
 	if connector.called {
 		t.Fatal("expected create --detach to skip connect")
+	}
+	if !applier.called || applier.tenant.Tenant != "acme" {
+		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
 	}
 }
 
@@ -1110,6 +1172,7 @@ func TestMachineDeleteCallsExecutor(t *testing.T) {
 		t.Fatal(err)
 	}
 	controller := &fakeMachineController{}
+	applier := &fakeDNSApplier{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
 		adminConfig: scconfig.Admin{
@@ -1129,12 +1192,16 @@ func TestMachineDeleteCallsExecutor(t *testing.T) {
 			machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex"}},
 		},
 		machineControl: controller,
+		dnsApplier:     applier,
 	}, "delete", "codex", "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !controller.called || controller.plan.Action != machine.ActionDelete {
 		t.Fatalf("controller.plan = %#v", controller.plan)
+	}
+	if !applier.called || applier.tenant.Tenant != "acme" {
+		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
 	}
 }
 
@@ -1168,7 +1235,7 @@ func TestDNSStatusJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.DNSAddress != "10.248.0.53" {
+	if payload.DNSAddress != "10.248.0.3" {
 		t.Fatalf("DNSAddress = %q", payload.DNSAddress)
 	}
 }
@@ -1196,7 +1263,7 @@ func TestDNSInstallDryRunJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.DNSEndpoint != "10.248.0.53:53" {
+	if payload.DNSEndpoint != "10.248.0.3:53" {
 		t.Fatalf("DNSEndpoint = %q", payload.DNSEndpoint)
 	}
 }
@@ -1204,7 +1271,7 @@ func TestDNSInstallDryRunJSON(t *testing.T) {
 func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 	output := formatLocalDNSPlan("Install", localdns.Plan{
 		Reference:        "acme",
-		DNSEndpoint:      "10.248.0.53:53",
+		DNSEndpoint:      "10.248.0.3:53",
 		Listen:           "127.0.0.1:53541",
 		ResolverStrategy: localdns.StrategySystemdResolve,
 		ResolverCommands: []localdns.Command{
@@ -1248,7 +1315,7 @@ func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
 	if !manager.refreshed {
 		t.Fatal("expected local DNS refresh call")
 	}
-	if manager.plan.DNSEndpoint != "10.248.0.53:53" {
+	if manager.plan.DNSEndpoint != "10.248.0.3:53" {
 		t.Fatalf("DNSEndpoint = %q", manager.plan.DNSEndpoint)
 	}
 }
@@ -1295,6 +1362,171 @@ func TestDNSServiceReloadRunsExecutor(t *testing.T) {
 	}
 	if manager.plan.Action != "reload" {
 		t.Fatalf("Action = %q", manager.plan.Action)
+	}
+}
+
+func TestDNSSetupUsesCurrentTenantAndRunsSteps(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localManager := &fakeLocalDNSManager{}
+	serviceManager := &fakeLocalDNSServiceManager{}
+	applier := &fakeDNSApplier{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		dnsApplier:      applier,
+		localDNS:        localManager,
+		localDNSService: serviceManager,
+	}, "dns", "setup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applier.called {
+		t.Fatal("expected DNS apply call")
+	}
+	if !serviceManager.installed {
+		t.Fatal("expected local DNS service install")
+	}
+	if !localManager.installed || !localManager.refreshed {
+		t.Fatalf("local DNS installed=%v refreshed=%v, want both", localManager.installed, localManager.refreshed)
+	}
+	if localManager.installPlan.Reference != "acme" || localManager.refreshPlan.Reference != "acme" {
+		t.Fatalf("plans = %#v %#v, want acme", localManager.installPlan, localManager.refreshPlan)
+	}
+	for _, want := range []string{"DNS setup: acme", "DNS records: 2", "Resolver:"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+}
+
+func TestDNSTeardownUsesCurrentTenantAndRunsSteps(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localManager := &fakeLocalDNSManager{}
+	serviceManager := &fakeLocalDNSServiceManager{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		localDNS:        localManager,
+		localDNSService: serviceManager,
+	}, "dns", "teardown")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !localManager.uninstalled {
+		t.Fatal("expected local DNS uninstall")
+	}
+	if !serviceManager.uninstalled {
+		t.Fatal("expected local DNS service uninstall")
+	}
+	if localManager.uninstallPlan.Reference != "acme" {
+		t.Fatalf("uninstall plan = %#v, want acme", localManager.uninstallPlan)
+	}
+	for _, want := range []string{"DNS teardown: acme", "Resolver:"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+}
+
+func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var gotArgs []string
+	var gotEnv []string
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", IncusProjectPrefix: "sc"},
+		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+			gotArgs = append([]string{}, args...)
+			gotEnv = append([]string{}, env...)
+			_, _ = stdout.Write([]byte("incus ok"))
+			return nil
+		},
+	}, "incus", "project", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "incus ok" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if strings.Join(gotArgs, " ") != "project list" {
+		t.Fatalf("args = %#v", gotArgs)
+	}
+	if !envContains(gotEnv, "INCUS_CONF="+incusDir) {
+		t.Fatalf("env missing INCUS_CONF=%s", incusDir)
+	}
+	if !envContains(gotEnv, "INCUS_PROJECT=sc-acme") {
+		t.Fatalf("env missing INCUS_PROJECT=sc-acme")
+	}
+}
+
+func TestIncusCommandVerboseShowsEnvAndCommand(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VERBOSE", "1")
+	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", IncusProjectPrefix: "sc"},
+		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+			return nil
+		},
+	}, "incus", "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"[verbose] sc incus env: INCUS_CONF=" + incusDir + " INCUS_PROJECT=sc-acme",
+		"[verbose] sc incus command: incus ls",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
+		}
+	}
+}
+
+func TestIncusCommandRequiresManagedRemoteConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice"},
+	}, "incus", "ls")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "sc remote add") {
+		t.Fatalf("error = %q", err)
 	}
 }
 
@@ -2259,6 +2491,7 @@ func TestAdminMachineDeleteCallsExecutor(t *testing.T) {
 		t.Fatal(err)
 	}
 	controller := &fakeMachineController{}
+	applier := &fakeDNSApplier{}
 	_, err = executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
 		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
@@ -2266,12 +2499,16 @@ func TestAdminMachineDeleteCallsExecutor(t *testing.T) {
 			Config: configMap,
 		}}},
 		machineControl: controller,
+		dnsApplier:     applier,
 	}, "delete", "acme/codex", "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !controller.called || controller.plan.Reference != "acme/default/codex" || controller.plan.InstanceName != "default-codex" || controller.plan.Action != machine.ActionDelete {
 		t.Fatalf("controller.plan = %#v", controller.plan)
+	}
+	if !applier.called || applier.tenant.Tenant != "acme" {
+		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
 	}
 }
 
@@ -2683,6 +2920,29 @@ func TestAdminUserTokenShowsBootstrapCommands(t *testing.T) {
 	}
 }
 
+func TestAdminUserTokenSupportsPreGrantedTenant(t *testing.T) {
+	manager := &fakeTrustManager{token: "certificate-add-token"}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
+		trustManager: manager,
+	}, "user", "token", "alice", "--tenant", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.tokenCalled {
+		t.Fatal("expected token manager to be called")
+	}
+	if len(manager.plan.Projects) != 1 || manager.plan.Projects[0] != "sc-acme" {
+		t.Fatalf("Projects = %#v", manager.plan.Projects)
+	}
+	if !strings.Contains(stdout, "sc remote add sandcastle-alice certificate-add-token --tenant acme") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if strings.Contains(stdout, "sc config set tenant") {
+		t.Fatalf("stdout = %q, want no post-grant tenant hint", stdout)
+	}
+}
+
 func TestAdminUserTokenJSONIncludesRemoteName(t *testing.T) {
 	manager := &fakeTrustManager{token: "certificate-add-token"}
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
@@ -2698,6 +2958,26 @@ func TestAdminUserTokenJSONIncludesRemoteName(t *testing.T) {
 	}
 	if payload.RemoteName != "sandcastle-alice" {
 		t.Fatalf("RemoteName = %q", payload.RemoteName)
+	}
+}
+
+func TestAdminUserDeleteCallsTrustManager(t *testing.T) {
+	manager := &fakeTrustManager{}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
+		trustManager: manager,
+	}, "user", "delete", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.deleteCalled {
+		t.Fatal("expected delete manager to be called")
+	}
+	if manager.plan.CertificateName != "sandcastle-alice" {
+		t.Fatalf("plan = %#v", manager.plan)
+	}
+	if !strings.Contains(stdout, "Deleted restricted user certificate: sandcastle-alice") {
+		t.Fatalf("stdout = %q", stdout)
 	}
 }
 
@@ -2731,6 +3011,49 @@ func TestAdminRouteBrokerServeRequiresConfiguredRunner(t *testing.T) {
 	}
 }
 
+func TestConnectAliasCreatesMissingMachineBeforeConnecting(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
+	applier := &fakeDNSApplier{}
+	stdout, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:     fakeMachineStatusStore{},
+		machineCreator:   creator,
+		machineConnector: connector,
+		dnsApplier:       applier,
+	}, "c", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if !strings.Contains(stderr, "Machine codex not found; creating it before connecting.") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if creator.plan.InstanceName != "default-codex" {
+		t.Fatalf("created instance = %q", creator.plan.InstanceName)
+	}
+	if !applier.called || applier.tenant.Tenant != "acme" {
+		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
+	}
+	if !connector.called || connector.plan.InstanceName != "default-codex" || !connector.plan.Interactive {
+		t.Fatalf("connector.plan = %#v", connector.plan)
+	}
+}
+
 func TestRejectsUnknownOutputFormat(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "--output", "yaml", "version")
 	if err == nil {
@@ -2750,12 +3073,13 @@ func (f *fakeMachineCreator) CreateMachine(ctx context.Context, plan machine.Cre
 type fakeMachineConnector struct {
 	called bool
 	plan   machine.ConnectPlan
+	err    error
 }
 
 func (f *fakeMachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	f.called = true
 	f.plan = plan
-	return nil
+	return f.err
 }
 
 type fakeMachineController struct {
@@ -2790,6 +3114,19 @@ func (f *fakeProjectUpdater) SetTenantProjects(ctx context.Context, incusProject
 	f.called = true
 	f.incusProject = incusProjectName
 	f.projects = append([]meta.Project{}, projects...)
+	return nil
+}
+
+type fakeSSHKeyUpdater struct {
+	called       bool
+	incusProject string
+	key          string
+}
+
+func (f *fakeSSHKeyUpdater) SetTenantSSHKey(ctx context.Context, incusProjectName string, sshKey string) error {
+	f.called = true
+	f.incusProject = incusProjectName
+	f.key = sshKey
 	return nil
 }
 
@@ -2861,10 +3198,13 @@ type fakeTailscaleRunner struct {
 }
 
 type fakeLocalDNSManager struct {
-	installed   bool
-	refreshed   bool
-	uninstalled bool
-	plan        localdns.Plan
+	installed     bool
+	refreshed     bool
+	uninstalled   bool
+	plan          localdns.Plan
+	installPlan   localdns.Plan
+	refreshPlan   localdns.Plan
+	uninstallPlan localdns.Plan
 }
 
 type fakeLocalDNSServiceManager struct {
@@ -2874,21 +3214,29 @@ type fakeLocalDNSServiceManager struct {
 	plan        localdns.ServicePlan
 }
 
+type fakeDNSApplier struct {
+	called bool
+	tenant dns.Tenant
+}
+
 func (f *fakeLocalDNSManager) Install(ctx context.Context, plan localdns.Plan) (localdns.Result, error) {
 	f.installed = true
 	f.plan = plan
+	f.installPlan = plan
 	return localdns.Result{Reference: plan.Reference, Action: "install", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
 }
 
 func (f *fakeLocalDNSManager) Refresh(ctx context.Context, plan localdns.Plan) (localdns.Result, error) {
 	f.refreshed = true
 	f.plan = plan
+	f.refreshPlan = plan
 	return localdns.Result{Reference: plan.Reference, Action: "refresh", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
 }
 
 func (f *fakeLocalDNSManager) Uninstall(ctx context.Context, plan localdns.Plan) (localdns.Result, error) {
 	f.uninstalled = true
 	f.plan = plan
+	f.uninstallPlan = plan
 	return localdns.Result{Reference: plan.Reference, Action: "uninstall", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
 }
 
@@ -2908,6 +3256,12 @@ func (f *fakeLocalDNSServiceManager) UninstallService(ctx context.Context, plan 
 	f.uninstalled = true
 	f.plan = plan
 	return localdns.ServiceResult{Action: plan.Action, Strategy: plan.Strategy, ServicePath: plan.ServicePath}, nil
+}
+
+func (f *fakeDNSApplier) Apply(ctx context.Context, tenant dns.Tenant) (dns.ApplyResult, error) {
+	f.called = true
+	f.tenant = tenant
+	return dns.PlanApply(tenant, nil)
 }
 
 func (f *fakeTailscaleRunner) RunUp(ctx context.Context, plan tailscale.UpPlan, session tailscale.RunSession) error {
@@ -3022,6 +3376,7 @@ type fakeTrustManager struct {
 	tokenCalled  bool
 	grantCalled  bool
 	revokeCalled bool
+	deleteCalled bool
 	usersCalled  bool
 	plan         usertrust.UserPlan
 	usersPlan    usertrust.TenantUsersPlan
@@ -3037,6 +3392,12 @@ func (f *fakeTrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) e
 
 func (f *fakeTrustManager) Revoke(ctx context.Context, plan usertrust.UserPlan) error {
 	f.revokeCalled = true
+	f.plan = plan
+	return nil
+}
+
+func (f *fakeTrustManager) Delete(ctx context.Context, plan usertrust.UserPlan) error {
+	f.deleteCalled = true
 	f.plan = plan
 	return nil
 }

@@ -572,18 +572,20 @@ func newAdminUserCommand(config commandConfig, opts *rootOptions) *cobra.Command
 		Short: "Manage Sandcastle restricted users",
 	}
 	user.AddCommand(newAdminUserCreateCommand(config, opts))
+	user.AddCommand(newAdminUserDeleteCommand(config, opts))
 	user.AddCommand(newAdminUserTokenCommand(config, opts))
 	return user
 }
 
 func newAdminUserCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
+	var tenants []string
 	command := &cobra.Command{
 		Use:   "create user",
 		Short: "Create a restricted Sandcastle user certificate token",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := usertrust.PlanCreateUser(args[0])
+			plan, err := planUserToken(config, args[0], tenants)
 			if err != nil {
 				return err
 			}
@@ -595,23 +597,52 @@ func newAdminUserCreateCommand(config commandConfig, opts *rootOptions) *cobra.C
 				if err != nil {
 					return err
 				}
-				return writeOutput(config.stdout, opts.output, formatTokenResult(result), result)
+				return writeOutput(config.stdout, opts.output, formatTokenResult(config, result), result)
 			}
 			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the restricted user plan without mutating trust state")
+	command.Flags().StringSliceVar(&tenants, "tenant", nil, "tenant to pre-grant in the generated certificate token (repeatable)")
+	return command
+}
+
+func newAdminUserDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "delete user",
+		Short: "Delete a restricted Sandcastle user certificate",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := usertrust.PlanDeleteUser(args[0])
+			if err != nil {
+				return err
+			}
+			if !dryRun {
+				if config.trustManager == nil {
+					return fmt.Errorf("restricted user delete executor is not configured")
+				}
+				if err := config.trustManager.Delete(cmd.Context(), plan); err != nil {
+					return err
+				}
+				return writeOutput(config.stdout, opts.output, formatUserDelete(plan), plan)
+			}
+			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the delete plan without deleting a certificate")
 	return command
 }
 
 func newAdminUserTokenCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
+	var tenants []string
 	command := &cobra.Command{
 		Use:   "token user",
 		Short: "Create a restricted certificate add token",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := usertrust.PlanToken(args[0])
+			plan, err := planUserToken(config, args[0], tenants)
 			if err != nil {
 				return err
 			}
@@ -623,13 +654,24 @@ func newAdminUserTokenCommand(config commandConfig, opts *rootOptions) *cobra.Co
 				if err != nil {
 					return err
 				}
-				return writeOutput(config.stdout, opts.output, formatTokenResult(result), result)
+				return writeOutput(config.stdout, opts.output, formatTokenResult(config, result), result)
 			}
 			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the token plan without creating a trust token")
+	command.Flags().StringSliceVar(&tenants, "tenant", nil, "tenant to pre-grant in the generated certificate token (repeatable)")
 	return command
+}
+
+func planUserToken(config commandConfig, user string, tenants []string) (usertrust.UserPlan, error) {
+	if len(tenants) > 0 {
+		return usertrust.PlanGrant(config.adminConfig, usertrust.GrantRequest{
+			User:     user,
+			Projects: tenants,
+		})
+	}
+	return usertrust.PlanToken(user)
 }
 
 func formatUserPlan(plan usertrust.UserPlan) string {
@@ -640,20 +682,46 @@ func formatUserPlan(plan usertrust.UserPlan) string {
 	return fmt.Sprintf("User: %s\nCertificate: %s\nRemote: %s\nRestricted: %t\nProjects: %s", plan.User, plan.CertificateName, plan.RemoteName, plan.Restricted, projects)
 }
 
-func formatTokenResult(result usertrust.TokenResult) string {
+func formatUserDelete(plan usertrust.UserPlan) string {
+	return fmt.Sprintf("Deleted restricted user certificate: %s", plan.CertificateName)
+}
+
+func formatTokenResult(config commandConfig, result usertrust.TokenResult) string {
 	remoteName := result.RemoteName
 	if remoteName == "" {
 		remoteName = usertrust.RestrictedName(result.User)
 	}
-	return fmt.Sprintf(
-		"User: %s\nCertificate: %s\nRemote: %s\nToken: %s\nBootstrap:\n  sc remote add %s %s\nAfter tenant access is granted, set the default tenant with:\n  sc config set tenant <tenant>",
+	bootstrap := fmt.Sprintf("sc remote add %s %s", remoteName, result.Token)
+	tenant := bootstrapTenant(config, result)
+	if tenant != "" {
+		bootstrap += " --tenant " + tenant
+	}
+	output := fmt.Sprintf(
+		"User: %s\nCertificate: %s\nRemote: %s\nToken: %s\nBootstrap:\n  %s",
 		result.User,
 		result.CertificateName,
 		remoteName,
 		result.Token,
-		remoteName,
-		result.Token,
+		bootstrap,
 	)
+	if tenant == "" {
+		output += "\nAfter tenant access is granted, set the default tenant with:\n  sc config set tenant <tenant>"
+	}
+	return output
+}
+
+func bootstrapTenant(config commandConfig, result usertrust.TokenResult) string {
+	if len(result.Projects) == 0 {
+		return ""
+	}
+	prefix := config.adminConfig.IncusProjectPrefix
+	if prefix == "" {
+		prefix = "sc"
+	}
+	if tenant, ok := strings.CutPrefix(result.Projects[0], prefix+"-"); ok {
+		return tenant
+	}
+	return ""
 }
 
 func newAdminRouteBrokerCommand(config commandConfig) *cobra.Command {

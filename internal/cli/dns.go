@@ -2,7 +2,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -19,11 +22,136 @@ func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	command.AddCommand(newDNSApplyCommand(config, opts))
 	command.AddCommand(newDNSStatusCommand(config, opts))
+	command.AddCommand(newDNSSetupCommand(config, opts))
+	command.AddCommand(newDNSTeardownCommand(config, opts))
 	command.AddCommand(newDNSInstallCommand(config, opts))
 	command.AddCommand(newDNSRefreshCommand(config, opts))
 	command.AddCommand(newDNSUninstallCommand(config, opts))
 	command.AddCommand(newDNSForwarderCommand())
 	command.AddCommand(newDNSServiceCommand(config, opts))
+	return command
+}
+
+type dnsSetupResult struct {
+	Reference string                    `json:"reference"`
+	Apply     dns.ApplyResult           `json:"apply"`
+	Service   localdns.ServiceResult    `json:"service"`
+	Install   localdns.Result           `json:"install"`
+	Refresh   localdns.Result           `json:"refresh"`
+	Elevated  []dnsElevatedActionResult `json:"elevated,omitempty"`
+}
+
+type dnsTeardownResult struct {
+	Reference string                    `json:"reference"`
+	Uninstall localdns.Result           `json:"uninstall"`
+	Service   localdns.ServiceResult    `json:"service"`
+	Elevated  []dnsElevatedActionResult `json:"elevated,omitempty"`
+}
+
+type dnsElevatedActionResult struct {
+	Action string `json:"action"`
+}
+
+func newDNSSetupCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "setup [tenant]",
+		Short: "Apply tenant DNS and install local DNS forwarding",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reference := optionalArg(args)
+			installPlan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: reference})
+			if err != nil {
+				return err
+			}
+			summary, err := findTenantSummary(cmd.Context(), config.tenantStore, installPlan.Reference)
+			if err != nil {
+				return err
+			}
+			if config.dnsApplier == nil {
+				return fmt.Errorf("DNS apply executor is not configured")
+			}
+			applyResult, err := config.dnsApplier.Apply(cmd.Context(), dnsProject(summary))
+			if err != nil {
+				return err
+			}
+			if config.localDNSService == nil {
+				return fmt.Errorf("local DNS service executor is not configured")
+			}
+			servicePlan, err := localdns.PlanServiceInstall()
+			if err != nil {
+				return err
+			}
+			serviceResult, err := config.localDNSService.InstallService(cmd.Context(), servicePlan)
+			if err != nil {
+				return err
+			}
+			if config.localDNS == nil {
+				return fmt.Errorf("local DNS executor is not configured")
+			}
+			installResult, installElevated, err := runLocalDNSWithSudoFallback(cmd.Context(), config, "install", installPlan)
+			if err != nil {
+				return err
+			}
+			refreshPlan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: installPlan.Reference})
+			if err != nil {
+				return err
+			}
+			refreshResult, refreshElevated, err := runLocalDNSWithSudoFallback(cmd.Context(), config, "refresh", refreshPlan)
+			if err != nil {
+				return err
+			}
+			result := dnsSetupResult{
+				Reference: installPlan.Reference,
+				Apply:     applyResult,
+				Service:   serviceResult,
+				Install:   installResult,
+				Refresh:   refreshResult,
+				Elevated:  elevatedActions([]string{"install", "refresh"}, installElevated, refreshElevated),
+			}
+			return writeOutput(config.stdout, opts.output, formatDNSSetup(result), result)
+		},
+	}
+	return command
+}
+
+func newDNSTeardownCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "teardown [tenant]",
+		Short: "Remove local DNS forwarding for a tenant",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reference := optionalArg(args)
+			uninstallPlan, err := localdns.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: reference})
+			if err != nil {
+				return err
+			}
+			if config.localDNS == nil {
+				return fmt.Errorf("local DNS executor is not configured")
+			}
+			uninstallResult, uninstallElevated, err := runLocalDNSWithSudoFallback(cmd.Context(), config, "uninstall", uninstallPlan)
+			if err != nil {
+				return err
+			}
+			if config.localDNSService == nil {
+				return fmt.Errorf("local DNS service executor is not configured")
+			}
+			servicePlan, err := localdns.PlanServiceUninstall()
+			if err != nil {
+				return err
+			}
+			serviceResult, err := config.localDNSService.UninstallService(cmd.Context(), servicePlan)
+			if err != nil {
+				return err
+			}
+			result := dnsTeardownResult{
+				Reference: uninstallPlan.Reference,
+				Uninstall: uninstallResult,
+				Service:   serviceResult,
+				Elevated:  elevatedActions([]string{"uninstall"}, uninstallElevated),
+			}
+			return writeOutput(config.stdout, opts.output, formatDNSTeardown(result), result)
+		},
+	}
 	return command
 }
 
@@ -309,6 +437,30 @@ func formatLocalDNSServiceResult(result localdns.ServiceResult) string {
 	return fmt.Sprintf("%s local DNS service\nStrategy: %s\nService: %s", result.Action, result.Strategy, result.ServicePath)
 }
 
+func formatDNSSetup(result dnsSetupResult) string {
+	output := fmt.Sprintf("DNS setup: %s\nDNS records: %d\nService: %s\nResolver: %s\nState: %s", result.Reference, result.Apply.RecordCount, result.Service.ServicePath, result.Install.ResolverPath, result.Install.StatePath)
+	if len(result.Elevated) > 0 {
+		actions := make([]string, 0, len(result.Elevated))
+		for _, action := range result.Elevated {
+			actions = append(actions, action.Action)
+		}
+		output += "\nElevated: " + strings.Join(actions, ", ")
+	}
+	return output
+}
+
+func formatDNSTeardown(result dnsTeardownResult) string {
+	output := fmt.Sprintf("DNS teardown: %s\nService: %s\nResolver: %s\nState: %s", result.Reference, result.Service.ServicePath, result.Uninstall.ResolverPath, result.Uninstall.StatePath)
+	if len(result.Elevated) > 0 {
+		actions := make([]string, 0, len(result.Elevated))
+		for _, action := range result.Elevated {
+			actions = append(actions, action.Action)
+		}
+		output += "\nElevated: " + strings.Join(actions, ", ")
+	}
+	return output
+}
+
 func dnsProject(summary tenant.Summary) dns.Tenant {
 	return dns.Tenant{
 		IncusName:   summary.IncusName,
@@ -316,4 +468,106 @@ func dnsProject(summary tenant.Summary) dns.Tenant {
 		DNSSuffix:   summary.DNSSuffix,
 		PrivateCIDR: summary.PrivateCIDR,
 	}
+}
+
+func runLocalDNSWithSudoFallback(ctx context.Context, config commandConfig, action string, plan localdns.Plan) (localdns.Result, bool, error) {
+	result, err := runLocalDNSAction(ctx, config.localDNS, action, plan)
+	if err == nil {
+		return result, false, nil
+	}
+	if !isPermissionError(err) {
+		return localdns.Result{}, false, err
+	}
+	if err := runElevatedDNSSubcommand(ctx, config, action, plan.Reference); err != nil {
+		return localdns.Result{}, false, fmt.Errorf("%s local DNS requires privileges and sudo failed: %w", action, err)
+	}
+	return localdns.Result{
+		Reference:    plan.Reference,
+		Action:       action,
+		StatePath:    plan.StatePath,
+		ResolverPath: plan.ResolverPath,
+	}, true, nil
+}
+
+func runLocalDNSAction(ctx context.Context, manager localdns.Manager, action string, plan localdns.Plan) (localdns.Result, error) {
+	switch action {
+	case "install":
+		return manager.Install(ctx, plan)
+	case "refresh":
+		return manager.Refresh(ctx, plan)
+	case "uninstall":
+		return manager.Uninstall(ctx, plan)
+	default:
+		return localdns.Result{}, fmt.Errorf("unknown local DNS action %q", action)
+	}
+}
+
+func isPermissionError(err error) bool {
+	if errors.Is(err, os.ErrPermission) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "permission denied")
+}
+
+func runElevatedDNSSubcommand(ctx context.Context, config commandConfig, action string, reference string) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	args := []string{"env"}
+	for _, entry := range sudoPassthroughEnv(config) {
+		args = append(args, entry)
+	}
+	args = append(args, executable, "dns", action, reference)
+	command := exec.CommandContext(ctx, "sudo", args...)
+	if config.stdin != nil {
+		command.Stdin = config.stdin
+	}
+	if config.stderr != nil {
+		command.Stdout = config.stderr
+		command.Stderr = config.stderr
+	}
+	return command.Run()
+}
+
+func sudoPassthroughEnv(config commandConfig) []string {
+	env := []string{}
+	add := func(key string, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			env = append(env, key+"="+value)
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		add("HOME", home)
+	}
+	add("SANDCASTLE_REMOTE", config.adminConfig.Remote)
+	add("SANDCASTLE_TENANT", config.adminConfig.Tenant)
+	add("SANDCASTLE_PROJECT", config.adminConfig.Project)
+	add("SANDCASTLE_ADMIN_REMOTE", config.adminConfig.AdminRemote)
+	for _, key := range []string{
+		"INCUS_CONF",
+		"SANDCASTLE_LOCAL_DNS_STATE",
+		"SANDCASTLE_RESOLVER_DIR",
+		"SANDCASTLE_LOCAL_DNS_SERVICE_DIR",
+		"SANDCASTLE_BIN",
+	} {
+		add(key, os.Getenv(key))
+	}
+	return env
+}
+
+func elevatedActions(names []string, flags ...bool) []dnsElevatedActionResult {
+	results := []dnsElevatedActionResult{}
+	for index, elevated := range flags {
+		if !elevated {
+			continue
+		}
+		name := "local-dns"
+		if index < len(names) {
+			name = names[index]
+		}
+		results = append(results, dnsElevatedActionResult{Action: name})
+	}
+	return results
 }

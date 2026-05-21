@@ -356,7 +356,7 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 	if resourceServer.createdInstances[1].Name != tenant.DNSName {
 		t.Fatalf("second sidecar = %q", resourceServer.createdInstances[1].Name)
 	}
-	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.53" {
+	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.3" {
 		t.Fatalf("dns address = %q", got)
 	}
 	if got := resourceServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"]; got == "" {
@@ -373,15 +373,15 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 		if resourceServer.execInstances[i] != name {
 			t.Fatalf("exec[%d] instance = %q, want %q", i, resourceServer.execInstances[i], name)
 		}
-		if got := strings.Join(resourceServer.execCommands[i], " "); !strings.Contains(got, "/usr/sbin/ip addr add") {
-			t.Fatalf("exec[%d] command = %q, want /usr/sbin/ip addr add", i, got)
+		if got := strings.Join(resourceServer.execCommands[i], " "); !strings.Contains(got, "sandcastle-sidecar-network.service") || !strings.Contains(got, "/usr/sbin/ip addr replace") {
+			t.Fatalf("exec[%d] command = %q, want persistent sidecar network setup", i, got)
 		}
 	}
 	// Third exec restarts CoreDNS.
 	if resourceServer.execInstances[2] != tenant.DNSName {
 		t.Fatalf("exec[2] instance = %q, want %q", resourceServer.execInstances[2], tenant.DNSName)
 	}
-	if got := strings.Join(resourceServer.execCommands[2], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") {
+	if got := strings.Join(resourceServer.execCommands[2], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") || !strings.Contains(got, "coredns.service") {
 		t.Fatalf("exec[2] command = %q", got)
 	}
 }

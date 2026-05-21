@@ -48,15 +48,27 @@ func (e MachineConnector) ConnectMachine(ctx context.Context, plan machine.Conne
 		server = sdkMachineConnectServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(plan.Tenant.IncusName)
+	userID := plan.UserID
+	groupID := plan.GroupID
+	if userID == 0 && plan.LinuxUser != "root" {
+		userID = machine.DefaultLinuxUID
+	}
+	if groupID == 0 && plan.LinuxUser != "root" {
+		groupID = machine.DefaultLinuxGID
+	}
+	home := "/home/" + plan.LinuxUser
+	if plan.LinuxUser == "root" {
+		home = "/root"
+	}
 	exec := api.InstanceExecPost{
 		Command:     plan.Command,
 		Cwd:         plan.WorkingDir,
-		User:        machine.DefaultLinuxUID,
-		Group:       machine.DefaultLinuxGID,
+		User:        uint32(userID),
+		Group:       uint32(groupID),
 		Interactive: plan.Interactive,
 		WaitForWS:   true,
 		Environment: map[string]string{
-			"HOME": "/home/" + plan.LinuxUser,
+			"HOME": home,
 			"USER": plan.LinuxUser,
 		},
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
 
@@ -45,16 +46,16 @@ func PlanApply(summary Tenant, machines []meta.Machine) (ApplyResult, error) {
 	}, nil
 }
 
-func dnsAddress(cidr string) (string, error) {
-	prefix, err := netip.ParsePrefix(cidr)
+func dnsAddress(privateCIDR string) (string, error) {
+	prefix, err := netip.ParsePrefix(privateCIDR)
 	if err != nil {
 		return "", err
 	}
 	addr := prefix.Masked().Addr().As4()
-	addr[3] = 53
+	addr[3] = cidr.DNSHostOctet
 	candidate := netip.AddrFrom4(addr)
 	if !prefix.Contains(candidate) {
-		return "", fmt.Errorf("DNS address .53 is outside %s", cidr)
+		return "", fmt.Errorf("DNS address .%d is outside %s", cidr.DNSHostOctet, privateCIDR)
 	}
 	return candidate.String(), nil
 }

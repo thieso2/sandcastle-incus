@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
@@ -13,13 +15,12 @@ import (
 )
 
 type listPayload struct {
-	Tenant           tenant.Summary             `json:"tenant"`
-	Project          string                     `json:"project,omitempty"`
-	AllProjects      bool                       `json:"allProjects"`
-	IncludeUnmanaged bool                       `json:"includeUnmanaged"`
-	Machines         []meta.Machine             `json:"machines"`
-	Unmanaged        []machine.UnmanagedMachine `json:"unmanaged,omitempty"`
-	UnmanagedCount   int                        `json:"unmanagedCount"`
+	Tenant         tenant.Summary             `json:"tenant"`
+	Project        string                     `json:"project,omitempty"`
+	AllProjects    bool                       `json:"allProjects"`
+	Machines       []meta.Machine             `json:"machines"`
+	Unmanaged      []machine.UnmanagedMachine `json:"unmanaged,omitempty"`
+	UnmanagedCount int                        `json:"unmanagedCount"`
 }
 
 type tenantListPayload struct {
@@ -28,16 +29,15 @@ type tenantListPayload struct {
 
 func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var allProjects bool
-	var includeUnmanaged bool
 	command := &cobra.Command{
-		Use:   "list [project]",
-		Short: "List Sandcastle machines",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "list [project]",
+		Aliases: []string{"ls"},
+		Short:   "List Sandcastle machines",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := listMachines(cmd.Context(), config, listMachinesRequest{
-				Project:          optionalArg(args),
-				AllProjects:      allProjects,
-				IncludeUnmanaged: includeUnmanaged,
+				Project:     optionalArg(args),
+				AllProjects: allProjects,
 			})
 			if err != nil {
 				return err
@@ -46,7 +46,6 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVarP(&allProjects, "all-projects", "a", false, "list machines across all projects")
-	command.Flags().BoolVarP(&includeUnmanaged, "include-unmanaged", "u", false, "include unmanaged Incus instances when tenant-wide")
 	return command
 }
 
@@ -66,9 +65,8 @@ func formatTenantList(tenants []tenant.Summary) string {
 }
 
 type listMachinesRequest struct {
-	Project          string
-	AllProjects      bool
-	IncludeUnmanaged bool
+	Project     string
+	AllProjects bool
 }
 
 func optionalArg(args []string) string {
@@ -128,18 +126,13 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	if err != nil {
 		return listPayload{}, err
 	}
-	includedUnmanaged := []machine.UnmanagedMachine(nil)
-	if request.IncludeUnmanaged && projectFilter == "" {
-		includedUnmanaged = unmanaged
-	}
 	return listPayload{
-		Tenant:           tenant,
-		Project:          projectFilter,
-		AllProjects:      projectFilter == "",
-		IncludeUnmanaged: request.IncludeUnmanaged,
-		Machines:         filtered,
-		Unmanaged:        includedUnmanaged,
-		UnmanagedCount:   len(unmanaged),
+		Tenant:         tenant,
+		Project:        projectFilter,
+		AllProjects:    projectFilter == "",
+		Machines:       filtered,
+		Unmanaged:      unmanaged,
+		UnmanagedCount: len(unmanaged),
 	}, nil
 }
 
@@ -166,22 +159,25 @@ func summaryHasProject(summary tenant.Summary, name string) bool {
 
 func formatMachineList(result listPayload) string {
 	if len(result.Machines) == 0 && len(result.Unmanaged) == 0 {
-		return fmt.Sprintf("No Sandcastle machines found. Unmanaged: %d", result.UnmanagedCount)
+		return "No Sandcastle machines found."
 	}
 
 	var builder strings.Builder
+	table := tabwriter.NewWriter(&builder, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "PROJECT\tMACHINE\tFQDN\tIP\tCREATED\tSTATE")
 	for _, machine := range result.Machines {
 		state := "stopped"
 		if machine.Running {
 			state = "running"
 		}
 		fmt.Fprintf(
-			&builder,
-			"%s\t%s\t%s\t%d\t%s\n",
+			table,
+			"%s\t%s\t%s\t%s\t%s\t%s\n",
 			machine.Project,
 			machine.Name,
+			machineFQDN(result.Tenant, machine),
 			machine.PrivateIP,
-			machine.AppPort,
+			formatListCreatedAt(machine.CreatedAt),
 			state,
 		)
 	}
@@ -195,15 +191,47 @@ func formatMachineList(result listPayload) string {
 			}
 		}
 		fmt.Fprintf(
-			&builder,
-			"%s\t%s\t%s\t%d\t%s\n",
+			table,
+			"%s\t%s\t%s\t%s\t%s\t%s\n",
 			"-",
 			unmanaged.Name,
-			"",
-			0,
+			"-",
+			displayValue(unmanaged.PrivateIP),
+			formatListCreatedAt(unmanaged.CreatedAt),
 			"unmanaged:"+state,
 		)
 	}
-	fmt.Fprintf(&builder, "Unmanaged: %d", result.UnmanagedCount)
+	_ = table.Flush()
 	return strings.TrimRight(builder.String(), "\n")
+}
+
+func displayValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
+func machineFQDN(tenant tenant.Summary, machine meta.Machine) string {
+	suffix := strings.Trim(strings.TrimSpace(tenant.DNSSuffix), ".")
+	if suffix == "" {
+		suffix = strings.Trim(strings.TrimSpace(tenant.Tenant), ".")
+	}
+	if machine.Name == "" || machine.Project == "" || suffix == "" {
+		return "-"
+	}
+	return machine.Name + "." + machine.Project + "." + suffix
+}
+
+func formatListCreatedAt(createdAt string) string {
+	createdAt = strings.TrimSpace(createdAt)
+	if createdAt == "" {
+		return "-"
+	}
+	parsed, err := time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return createdAt
+	}
+	return parsed.Local().Format("2006-01-02 15:04:05")
 }

@@ -93,7 +93,7 @@ func TestDNSManagerApply(t *testing.T) {
 	if resource.execInstances[0] != "sc-dns" {
 		t.Fatalf("exec instance = %q", resource.execInstances[0])
 	}
-	if got := strings.Join(resource.execCommands[0], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") {
+	if got := strings.Join(resource.execCommands[0], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") || !strings.Contains(got, "coredns.service") {
 		t.Fatalf("exec command = %q", got)
 	}
 }

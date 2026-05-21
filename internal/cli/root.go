@@ -72,6 +72,7 @@ type commandConfig struct {
 	routes              route.Manager
 	routeMachine        route.MachineStore
 	routeBroker         routebroker.Runner
+	incusRunner         incusRunner
 }
 
 type rootOptions struct {
@@ -221,6 +222,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newMachineLifecycleCommand(config, opts, "delete", machine.ActionDelete, true))
 	root.AddCommand(newPortCommand(config, opts))
 	root.AddCommand(newProjectCommand(config, opts))
+	root.AddCommand(newSSHKeyCommand(config, opts))
 	root.AddCommand(newDNSCommand(config, opts))
 	root.AddCommand(newTailscaleCommand(config, opts))
 	root.AddCommand(newHostCommand(config, opts))

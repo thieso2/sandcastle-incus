@@ -42,6 +42,8 @@ func TestMachineConnectorExecsInteractiveShell(t *testing.T) {
 		InstanceName: "default-codex",
 		Command:      []string{"/bin/bash", "-l"},
 		LinuxUser:    "alice",
+		UserID:       machine.DefaultLinuxUID,
+		GroupID:      machine.DefaultLinuxGID,
 		WorkingDir:   "/workspace",
 		Interactive:  true,
 	}, machine.ConnectSession{
@@ -69,6 +71,33 @@ func TestMachineConnectorExecsInteractiveShell(t *testing.T) {
 	}
 	if resource.exec.Environment["HOME"] != "/home/alice" || resource.exec.Environment["USER"] != "alice" {
 		t.Fatalf("environment = %#v", resource.exec.Environment)
+	}
+}
+
+func TestMachineConnectorExecsUnmanagedMachineAsRoot(t *testing.T) {
+	resource := &fakeMachineConnectResource{}
+	connector := MachineConnector{Server: fakeMachineConnectServer{resource: resource}}
+	err := connector.ConnectMachine(context.Background(), machine.ConnectPlan{
+		Tenant:       tenant.Summary{IncusName: "sc-acme"},
+		InstanceName: "sc-dns",
+		Command:      []string{"/bin/bash", "-l"},
+		LinuxUser:    "root",
+		WorkingDir:   "/root",
+		Interactive:  true,
+		Managed:      false,
+	}, machine.ConnectSession{
+		Stdin:  io.Reader(nil),
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resource.exec.User != 0 || resource.exec.Group != 0 {
+		t.Fatalf("user/group = %d/%d", resource.exec.User, resource.exec.Group)
+	}
+	if resource.exec.Cwd != "/root" || resource.exec.Environment["HOME"] != "/root" || resource.exec.Environment["USER"] != "root" {
+		t.Fatalf("exec = %#v", resource.exec)
 	}
 }
 

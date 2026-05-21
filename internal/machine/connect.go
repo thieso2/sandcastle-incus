@@ -22,8 +22,11 @@ type ConnectPlan struct {
 	InstanceName string         `json:"instanceName"`
 	Command      []string       `json:"command"`
 	LinuxUser    string         `json:"linuxUser"`
+	UserID       int            `json:"userId"`
+	GroupID      int            `json:"groupId"`
 	WorkingDir   string         `json:"workingDir"`
 	Interactive  bool           `json:"interactive"`
+	Managed      bool           `json:"managed"`
 }
 
 type ConnectSession struct {
@@ -53,6 +56,16 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 	if len(command) == 0 || command[0] == "" {
 		return ConnectPlan{}, fmt.Errorf("connect command is required")
 	}
+	linuxUser := resolved.Summary.Tenant
+	workingDir := "/workspace"
+	userID := DefaultLinuxUID
+	groupID := DefaultLinuxGID
+	if !resolved.Managed {
+		linuxUser = "root"
+		workingDir = "/root"
+		userID = 0
+		groupID = 0
+	}
 	return ConnectPlan{
 		Reference:    request.Reference,
 		Tenant:       resolved.Summary,
@@ -60,8 +73,11 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 		Name:         resolved.Name,
 		InstanceName: resolved.InstanceName,
 		Command:      command,
-		LinuxUser:    resolved.Summary.Tenant,
-		WorkingDir:   "/workspace",
+		LinuxUser:    linuxUser,
+		UserID:       userID,
+		GroupID:      groupID,
+		WorkingDir:   workingDir,
 		Interactive:  interactive,
+		Managed:      resolved.Managed,
 	}, nil
 }

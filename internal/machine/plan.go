@@ -52,6 +52,7 @@ type CreatePlan struct {
 	Project          string            `json:"project"`
 	Name             string            `json:"name"`
 	InstanceName     string            `json:"instanceName"`
+	Hostname         string            `json:"hostname"`
 	PrivateIP        string            `json:"privateIP"`
 	AppPort          int               `json:"appPort"`
 	LinuxUser        string            `json:"linuxUser"`
@@ -91,7 +92,9 @@ type UnmanagedMachine struct {
 	Name         string `json:"name"`
 	InstanceName string `json:"instanceName"`
 	Type         string `json:"type,omitempty"`
+	PrivateIP    string `json:"privateIp,omitempty"`
 	Status       string `json:"status,omitempty"`
+	CreatedAt    string `json:"createdAt,omitempty"`
 	Running      bool   `json:"running"`
 }
 
@@ -190,6 +193,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 		Project:        projectRef.Project,
 		Name:           machineName,
 		InstanceName:   instanceName,
+		Hostname:       hostname,
 		PrivateIP:      privateIP,
 		AppPort:        appPort,
 		LinuxUser:      linuxUser,

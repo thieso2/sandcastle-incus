@@ -103,6 +103,25 @@ func TestHostOverrideManagerFindsMachine(t *testing.T) {
 	}
 }
 
+func TestHostOverrideManagerListsUnmanagedMachineIP(t *testing.T) {
+	manager := HostOverrideManager{Server: fakeHostOverrideServer{resource: &fakeHostOverrideResource{instances: []api.Instance{{
+		Name:       "sc-dns",
+		Type:       string(api.InstanceTypeContainer),
+		Status:     "Running",
+		StatusCode: api.Running,
+		ExpandedDevices: map[string]map[string]string{
+			"eth0": {"type": "nic", "ipv4.address": "10.248.0.3"},
+		},
+	}}}}}
+	machines, err := manager.ListUnmanagedMachines(context.Background(), tenant.Summary{Tenant: "acme", IncusName: "sc-acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(machines) != 1 || machines[0].PrivateIP != "10.248.0.3" {
+		t.Fatalf("machines = %#v", machines)
+	}
+}
+
 func TestHostOverrideManagerAddUpdatesMetadataAndWritesFiles(t *testing.T) {
 	configMap, err := meta.MachineConfig(meta.Machine{
 

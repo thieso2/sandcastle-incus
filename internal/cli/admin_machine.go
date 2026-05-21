@@ -10,7 +10,6 @@ import (
 )
 
 func newAdminMachineListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var includeUnmanaged bool
 	command := &cobra.Command{
 		Use:   "list tenant[/project]",
 		Short: "List Sandcastle machines in a tenant",
@@ -21,9 +20,8 @@ func newAdminMachineListCommand(config commandConfig, opts *rootOptions) *cobra.
 				return err
 			}
 			result, err := listMachines(cmd.Context(), cfg, listMachinesRequest{
-				Project:          projectName,
-				AllProjects:      projectName == "",
-				IncludeUnmanaged: includeUnmanaged,
+				Project:     projectName,
+				AllProjects: projectName == "",
 			})
 			if err != nil {
 				return err
@@ -31,7 +29,6 @@ func newAdminMachineListCommand(config commandConfig, opts *rootOptions) *cobra.
 			return writeOutput(cfg.stdout, opts.output, formatMachineList(result), result)
 		},
 	}
-	command.Flags().BoolVarP(&includeUnmanaged, "include-unmanaged", "u", false, "include unmanaged Incus instances when tenant-wide")
 	return command
 }
 
@@ -71,6 +68,9 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 					return fmt.Errorf("machine creation executor is not configured")
 				}
 				if err := cfg.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
+					return err
+				}
+				if err := refreshTenantDNS(cmd.Context(), cfg, plan.Tenant); err != nil {
 					return err
 				}
 				if !detach {
@@ -182,6 +182,9 @@ func newAdminMachineDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 				return fmt.Errorf("machine lifecycle executor is not configured")
 			}
 			if err := cfg.machineControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
+				return err
+			}
+			if err := refreshTenantDNS(cmd.Context(), cfg, plan.Tenant); err != nil {
 				return err
 			}
 			return writeOutput(cfg.stdout, opts.output, formatLifecyclePlan(plan), plan)

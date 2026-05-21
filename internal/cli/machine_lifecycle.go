@@ -30,6 +30,11 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			if err := config.machineControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
 				return err
 			}
+			if plan.Action == machine.ActionDelete {
+				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
+					return err
+				}
+			}
 			return writeOutput(config.stdout, opts.output, formatLifecyclePlan(plan), plan)
 		},
 	}

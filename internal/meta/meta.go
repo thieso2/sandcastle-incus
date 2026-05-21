@@ -84,6 +84,7 @@ type Machine struct {
 	ContainerTools bool     `json:"containerTools,omitempty"`
 	ExtraSANs      []string `json:"extraSANs,omitempty"`
 	CreatedBy      string   `json:"createdBy,omitempty"`
+	CreatedAt      string   `json:"createdAt,omitempty"`
 	Running        bool     `json:"running,omitempty"`
 }
 

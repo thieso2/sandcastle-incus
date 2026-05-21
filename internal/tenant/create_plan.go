@@ -117,11 +117,11 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	tailscaleAddress, err := roleAddress(tenantCIDR, 2)
+	tailscaleAddress, err := roleAddress(tenantCIDR, cidr.TailscaleHostOctet)
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	dnsAddress, err := roleAddress(tenantCIDR, 53)
+	dnsAddress, err := roleAddress(tenantCIDR, cidr.DNSHostOctet)
 	if err != nil {
 		return CreatePlan{}, err
 	}

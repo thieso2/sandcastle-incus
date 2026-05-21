@@ -5,6 +5,11 @@ go = "1.25.6"
 description = "Build the sandcastle CLI and sc alias"
 run = "make build"
 
+[tasks."build:linux-amd64"]
+description = "Cross-compile sandcastle and sandcastle-admin for Linux amd64"
+env = { GOOS = "linux", GOARCH = "amd64", CGO_ENABLED = "0", BIN_DIR = "bin/linux-amd64" }
+run = "make build"
+
 [tasks."image:deps"]
 description = "Check local tools required for image upload"
 run = "for tool in docker incus tar zstd; do command -v \"$tool\" >/dev/null || { echo \"$tool is required for image upload\" >&2; exit 127; }; done"

@@ -1,0 +1,88 @@
+package cli
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestNormalizedRemoteURLUsesCertificateDNSNameForIPRemote(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yml")
+	certPath := filepath.Join(dir, "servercerts", "sandcastle-alice.crt")
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`remotes:
+  sandcastle-alice:
+    addr: https://65.21.132.31:8443
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCertificate(t, certPath, []string{"big.thieso2.dev"})
+
+	got, ok, err := normalizedRemoteURL(configPath, "sandcastle-alice", certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected remote URL normalization")
+	}
+	if got != "https://big.thieso2.dev:8443" {
+		t.Fatalf("normalized URL = %q", got)
+	}
+}
+
+func TestNormalizedRemoteURLLeavesDNSRemoteUntouched(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yml")
+	certPath := filepath.Join(dir, "servercerts", "sandcastle-alice.crt")
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`remotes:
+  sandcastle-alice:
+    addr: https://big.thieso2.dev:8443
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCertificate(t, certPath, []string{"big.thieso2.dev"})
+
+	_, ok, err := normalizedRemoteURL(configPath, "sandcastle-alice", certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("did not expect remote URL normalization")
+	}
+}
+
+func writeTestCertificate(t *testing.T, path string, dnsNames []string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: dnsNames[0]},
+		DNSNames:     dnsNames,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

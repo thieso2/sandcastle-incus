@@ -15,6 +15,7 @@ import (
 type TrustServer interface {
 	GetCertificates() ([]api.Certificate, error)
 	UpdateCertificate(fingerprint string, certificate api.CertificatePut, ETag string) error
+	DeleteCertificate(fingerprint string) error
 	CreateCertificateToken(certificate api.CertificatesPost) (incus.Operation, error)
 }
 
@@ -79,6 +80,26 @@ func (m TrustManager) Revoke(ctx context.Context, plan usertrust.UserPlan) error
 			Description: plan.Description,
 		}, ""); err != nil {
 			return fmt.Errorf("update certificate %s: %w", cert.Fingerprint[:12], err)
+		}
+	}
+	return nil
+}
+
+func (m TrustManager) Delete(ctx context.Context, plan usertrust.UserPlan) error {
+	server, err := m.server()
+	if err != nil {
+		return err
+	}
+	certs, err := findCertificates(server, plan.CertificateName)
+	if err != nil {
+		return err
+	}
+	for _, cert := range certs {
+		if err := validateGrantCertificate(cert, plan.CertificateName); err != nil {
+			return err
+		}
+		if err := server.DeleteCertificate(cert.Fingerprint); err != nil {
+			return fmt.Errorf("delete certificate %s: %w", cert.Fingerprint[:12], err)
 		}
 	}
 	return nil

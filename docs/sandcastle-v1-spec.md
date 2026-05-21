@@ -189,7 +189,7 @@ tenant:     acme
 CIDR:       10.88.17.0/24
 gateway:    10.88.17.1
 tailscale:  10.88.17.2
-dns:        10.88.17.53
+dns:        10.88.17.3
 machines:   10.88.17.20-10.88.17.199
 reserved:   10.88.17.200-10.88.17.254
 ```
@@ -464,13 +464,13 @@ sandcastle list                  # current project if configured, otherwise all 
 sandcastle list default          # default project only
 sandcastle list --all-projects   # all projects
 sandcastle list -a               # short for --all-projects
-sandcastle list -u               # include unmanaged Incus instances when tenant-wide
-sandcastle list -a -u            # all projects plus unmanaged Incus instances
+sandcastle ls                    # alias for list
 ```
 
-Machine list output always includes the project. Machine list shows only a
-compact public route indicator. Machine status may show public route details.
-Status output always reports unmanaged Incus instance counts.
+Machine list output always includes the project, machine, FQDN, private IP,
+local creation time, and state. List output includes unmanaged Incus instances.
+Machine status may show public route details. Status output always reports
+unmanaged Incus instance counts.
 
 Project commands:
 
@@ -530,12 +530,14 @@ Incus project.
 User commands:
 
 ```bash
-sandcastle-admin user create alice
-sandcastle-admin user token alice
+sandcastle-admin user create alice --tenant acme
+sandcastle-admin user token alice --tenant acme
+sandcastle-admin user delete alice
 ```
 
-Tenant access is managed with the tenant-first grant, revoke, and users
-commands above.
+Tenant access can be embedded in user create/token flows for asynchronous
+onboarding. Existing accepted certificates are managed with the tenant-first
+grant, revoke, and users commands above.
 
 Admin machine commands use the same verbs as the user CLI, scoped by an explicit
 tenant reference:
@@ -558,7 +560,6 @@ Admin list behavior:
 
 ```bash
 sandcastle-admin list acme       # all projects in tenant
-sandcastle-admin list acme -u    # all projects plus unmanaged instances
 sandcastle-admin list acme/site  # project only
 ```
 
@@ -567,13 +568,8 @@ status command in v1.
 
 ## Unmanaged Incus Resources
 
-Normal Sandcastle operations ignore unmanaged Incus instances. List commands may
-show unmanaged Incus instances when explicitly requested with
-`--include-unmanaged` or `-u`.
-
-Unmanaged rows appear only when the effective list scope is tenant-wide. Project
-scoped list output does not show unmanaged instances, because unmanaged
-instances do not belong to a Sandcastle project.
+Normal Sandcastle operations ignore unmanaged Incus instances. List commands show
+unmanaged Incus instances by default.
 
 Status output always reports unmanaged instance counts.
 

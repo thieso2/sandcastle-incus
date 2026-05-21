@@ -356,7 +356,10 @@ func restartCoreDNS(server coreDNSRestarter) error {
 			"pkill -x coredns >/dev/null 2>&1 || true",
 			"systemctl stop systemd-resolved.service 2>/dev/null || true",
 			"systemctl mask systemd-resolved.service 2>/dev/null || true",
-			"systemd-run --unit=coredns --collect -- /usr/local/bin/coredns -conf /etc/coredns/Corefile",
+			"printf '%s\n' '[Unit]' 'Description=CoreDNS tenant resolver' 'After=network-online.target sandcastle-sidecar-network.service' 'Wants=network-online.target' '' '[Service]' 'ExecStart=/usr/local/bin/coredns -conf /etc/coredns/Corefile' 'Restart=on-failure' '' '[Install]' 'WantedBy=multi-user.target' > /etc/systemd/system/coredns.service",
+			"systemctl daemon-reload",
+			"systemctl enable --now coredns.service",
+			"systemctl restart coredns.service",
 			"sleep 0.2",
 			"pgrep -x coredns >/dev/null 2>&1",
 		}, " && ")},
@@ -392,9 +395,12 @@ func configureSidecarNetwork(server TenantResourceServer, sidecar tenant.Sidecar
 	var stderr strings.Builder
 	dataDone := make(chan bool)
 	cmds := []string{
-		"/usr/sbin/ip link set eth0 up",
-		"/usr/sbin/ip addr add " + ipWithPrefix + " dev eth0 2>/dev/null || true",
-		"/usr/sbin/ip route add default via " + gateway + " 2>/dev/null || true",
+		"install -d -m 0755 /usr/local/sbin /etc/systemd/system",
+		"printf '%s\n' '#!/bin/sh' 'set -eu' '/usr/sbin/ip link set eth0 up' '/usr/sbin/ip addr replace " + ipWithPrefix + " dev eth0' '/usr/sbin/ip route replace default via " + gateway + "' > /usr/local/sbin/sandcastle-sidecar-network",
+		"chmod 0755 /usr/local/sbin/sandcastle-sidecar-network",
+		"printf '%s\n' '[Unit]' 'Description=Sandcastle sidecar static network' 'After=network-pre.target' 'Before=network-online.target' '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/sbin/sandcastle-sidecar-network' 'RemainAfterExit=yes' '' '[Install]' 'WantedBy=multi-user.target' > /etc/systemd/system/sandcastle-sidecar-network.service",
+		"systemctl daemon-reload",
+		"systemctl enable --now sandcastle-sidecar-network.service",
 	}
 	if sidecar.Role == "dns" {
 		cmds = append(cmds,

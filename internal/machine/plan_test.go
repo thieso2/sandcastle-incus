@@ -23,6 +23,9 @@ func TestPlanCreateDefaultsToDefaultProject(t *testing.T) {
 	if plan.InstanceName != "default-codex" {
 		t.Fatalf("InstanceName = %q", plan.InstanceName)
 	}
+	if plan.Hostname != "codex.default.acme" {
+		t.Fatalf("Hostname = %q", plan.Hostname)
+	}
 	if plan.CaddyFile.Content == "" || !strings.Contains(plan.CaddyFile.Content, "codex.default.acme") {
 		t.Fatalf("CaddyFile = %#v", plan.CaddyFile)
 	}
@@ -128,6 +131,19 @@ func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 	}
 }
 
+func TestPlanConnectConnectsUnmanagedReservedMachine(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := fakeMachineStore{unmanaged: []UnmanagedMachine{{Name: "sc-dns", InstanceName: "sc-dns"}}}
+	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "sc-dns"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Managed || plan.InstanceName != "sc-dns" || plan.LinuxUser != "root" || plan.UserID != 0 || plan.GroupID != 0 || plan.WorkingDir != "/root" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestPlanConnectRejectsAmbiguousBareMachine(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
@@ -200,9 +216,14 @@ func tenantStoreForTest(t *testing.T) tenant.MemoryStore {
 }
 
 type fakeMachineStore struct {
-	machines []meta.Machine
+	machines  []meta.Machine
+	unmanaged []UnmanagedMachine
 }
 
 func (s fakeMachineStore) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
 	return s.machines, nil
+}
+
+func (s fakeMachineStore) ListUnmanagedMachines(ctx context.Context, summary tenant.Summary) ([]UnmanagedMachine, error) {
+	return s.unmanaged, nil
 }

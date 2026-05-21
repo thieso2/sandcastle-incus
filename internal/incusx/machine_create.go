@@ -248,7 +248,13 @@ func shellQuote(value string) string {
 }
 
 func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan) error {
+	if err := setMachineHostname(server, plan); err != nil {
+		return err
+	}
 	if err := bootstrapMachineUser(server, plan); err != nil {
+		return err
+	}
+	if err := ensureMachinePrompt(server, plan); err != nil {
 		return err
 	}
 	if plan.Tenant.DNSAddress != "" {
@@ -308,6 +314,36 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan) e
 		return err
 	}
 	return restartMachineCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
+}
+
+func setMachineHostname(server MachineResourceServer, plan machine.CreatePlan) error {
+	if strings.TrimSpace(plan.Hostname) == "" {
+		return nil
+	}
+	if err := server.CreateInstanceFile(plan.InstanceName, "/etc/hostname", incus.InstanceFileArgs{
+		Content:   strings.NewReader(plan.Hostname + "\n"),
+		Type:      "file",
+		Mode:      0o644,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("write machine hostname file: %w", err)
+	}
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
+		Command:   []string{"hostname", plan.Hostname},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("set machine hostname in %s: %w", plan.InstanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for machine hostname in %s: %w", plan.InstanceName, err)
+	}
+	<-dataDone
+	return nil
 }
 
 func writeMachineResolvConf(server MachineResourceServer, instanceName string, dnsAddress string) error {
@@ -374,6 +410,60 @@ func bootstrapMachineUser(server MachineResourceServer, plan machine.CreatePlan)
 	}
 	if err := op.Wait(); err != nil {
 		return fmt.Errorf("wait for machine user bootstrap in %s: %w", plan.InstanceName, err)
+	}
+	<-dataDone
+	return nil
+}
+
+func ensureMachinePrompt(server MachineResourceServer, plan machine.CreatePlan) error {
+	script := `set -eu
+user="${SANDCASTLE_USER:?}"
+home="/home/${user}"
+bashrc="${home}/.bashrc"
+profile="${home}/.bash_profile"
+install -d -o "${user}" -g "${user}" "${home}"
+touch "${bashrc}" "${profile}"
+chown "${user}:${user}" "${bashrc}" "${profile}"
+
+prompt_marker="# sandcastle prompt: full hostname"
+if ! grep -qF "${prompt_marker}" "${bashrc}"; then
+  cat >>"${bashrc}" <<'EOF_PROMPT'
+
+# sandcastle prompt: full hostname
+if [[ $- == *i* ]]; then
+  PS1='\u@\H:\w\$ '
+fi
+EOF_PROMPT
+fi
+
+profile_marker="# sandcastle bash profile: source bashrc"
+if ! grep -qF "${profile_marker}" "${profile}"; then
+  cat >>"${profile}" <<'EOF_PROFILE'
+
+# sandcastle bash profile: source bashrc
+if [[ -f ~/.bashrc ]]; then
+  . ~/.bashrc
+fi
+EOF_PROFILE
+fi
+chown "${user}:${user}" "${bashrc}" "${profile}"
+`
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
+		Command: []string{"/bin/sh", "-c", script},
+		Environment: map[string]string{
+			"SANDCASTLE_USER": plan.LinuxUser,
+		},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("ensure machine prompt for %s in %s: %w", plan.LinuxUser, plan.InstanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for machine prompt in %s: %w", plan.InstanceName, err)
 	}
 	<-dataDone
 	return nil

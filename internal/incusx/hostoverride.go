@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -71,6 +72,7 @@ func (m HostOverrideManager) ListMachines(ctx context.Context, summary tenant.Su
 		if err != nil {
 			return nil, fmt.Errorf("parse machine metadata for %s: %w", instance.Name, err)
 		}
+		machine.CreatedAt = formatInstanceCreatedAt(instance.CreatedAt)
 		machine.Running = instance.IsActive()
 		machines = append(machines, machine)
 	}
@@ -92,7 +94,9 @@ func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary 
 			Name:         instance.Name,
 			InstanceName: instance.Name,
 			Type:         string(instance.Type),
+			PrivateIP:    instancePrivateIP(instance),
 			Status:       instance.Status,
+			CreatedAt:    formatInstanceCreatedAt(instance.CreatedAt),
 			Running:      instance.IsActive(),
 		})
 	}
@@ -122,6 +126,27 @@ func (m HostOverrideManager) listTenantInstances(summary tenant.Summary) ([]api.
 		return nil, fmt.Errorf("list project instances: %w", err)
 	}
 	return instances, nil
+}
+
+func formatInstanceCreatedAt(createdAt time.Time) string {
+	if createdAt.IsZero() {
+		return ""
+	}
+	return createdAt.UTC().Format(time.RFC3339)
+}
+
+func instancePrivateIP(instance api.Instance) string {
+	for _, devices := range []map[string]map[string]string{instance.ExpandedDevices, instance.Devices} {
+		for _, device := range devices {
+			if device["type"] != "nic" {
+				continue
+			}
+			if ip := device["ipv4.address"]; ip != "" && ip != "none" && ip != "auto" {
+				return ip
+			}
+		}
+	}
+	return ""
 }
 
 func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan) error {
