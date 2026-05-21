@@ -18,6 +18,7 @@ func newProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	command.AddCommand(newProjectListCommand(config, opts))
 	command.AddCommand(newProjectCreateCommand(config, opts))
+	command.AddCommand(newProjectStatusCommand(config, opts))
 	command.AddCommand(newProjectDeleteCommand(config, opts))
 	return command
 }
@@ -61,6 +62,45 @@ func newProjectCreateCommand(config commandConfig, opts *rootOptions) *cobra.Com
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the project metadata update without mutating resources")
 	return command
+}
+
+type projectStatusPayload struct {
+	Tenant       project.Summary `json:"tenant"`
+	Project      meta.Project    `json:"project"`
+	MachineCount int             `json:"machineCount"`
+}
+
+func newProjectStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status name",
+		Short: "Show project status in the current tenant",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := naming.ValidateProjectName(args[0]); err != nil {
+				return err
+			}
+			tenant, machines, err := currentTenantMachines(cmd, config)
+			if err != nil {
+				return err
+			}
+			project, ok := findProject(tenant, args[0])
+			if !ok {
+				return fmt.Errorf("Sandcastle project %s not found in tenant %s", args[0], tenant.Tenant)
+			}
+			count := 0
+			for _, machine := range machines {
+				if machine.Project == project.Name {
+					count++
+				}
+			}
+			payload := projectStatusPayload{
+				Tenant:       tenant,
+				Project:      project,
+				MachineCount: count,
+			}
+			return writeOutput(config.stdout, opts.output, formatProjectNamespaceStatus(payload), payload)
+		},
+	}
 }
 
 func newProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -138,6 +178,19 @@ func formatProjectNamespaceList(tenant project.Summary) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
+func formatProjectNamespaceStatus(status projectStatusPayload) string {
+	return fmt.Sprintf("Project: %s\nTenant: %s\nMachines: %d", status.Project.Name, status.Tenant.Tenant, status.MachineCount)
+}
+
 func formatProjectMutationPlan(plan project.ProjectMutationPlan) string {
 	return fmt.Sprintf("%s project %s in tenant %s", plan.Action, plan.Project.Name, plan.Tenant.Tenant)
+}
+
+func findProject(summary project.Summary, name string) (meta.Project, bool) {
+	for _, project := range summary.Projects {
+		if project.Name == name {
+			return project, true
+		}
+	}
+	return meta.Project{}, false
 }

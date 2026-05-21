@@ -315,6 +315,15 @@ Bootstrap:
   <h2>4. Create &amp; manage containers</h2>
 
   <div class="step">
+    <h3>Manage lightweight projects <span class="badge badge-user">user</span></h3>
+    <p>Projects are namespaces inside the current tenant. They do not create separate Incus projects.</p>
+    <pre><code><span class="cmd">sandcastle project list</span>
+<span class="cmd">sandcastle project create</span> <span class="arg">website</span>
+<span class="cmd">sandcastle project status</span> <span class="arg">website</span>
+<span class="cmd">sandcastle project delete</span> <span class="arg">website</span> <span class="flag">--yes</span></code></pre>
+  </div>
+
+  <div class="step">
     <h3>Create and enter a sandbox <span class="badge badge-user">user</span></h3>
     <p>Creates an Incus container from the configured base image and drops you into a shell.</p>
     <pre><code><span class="cmd">sandcastle add</span> <span class="arg">alice/myproject/mysandbox</span></code></pre>
@@ -566,14 +575,14 @@ Bootstrap:
         <tr><th>Command</th><th>Description</th></tr>
       </thead>
       <tbody>
-        <tr><td>sandcastle ls</td><td>List all projects and sandboxes</td></tr>
-        <tr><td>sandcastle status</td><td>Show system status</td></tr>
-        <tr><td>sandcastle add &lt;ref&gt;</td><td>Create and enter a sandbox</td></tr>
-        <tr><td>sandcastle enter &lt;ref&gt;</td><td>Enter an existing sandbox</td></tr>
-        <tr><td>sandcastle inspect &lt;ref&gt;</td><td>Show sandbox details</td></tr>
-        <tr><td>sandcastle start/stop/restart &lt;ref&gt;</td><td>Control sandbox power state</td></tr>
-        <tr><td>sandcastle rm &lt;ref&gt; --yes</td><td>Delete a sandbox container</td></tr>
-        <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change sandbox app port</td></tr>
+        <tr><td>sandcastle list</td><td>List machines in the current tenant</td></tr>
+        <tr><td>sandcastle status [machine]</td><td>Show tenant or machine status</td></tr>
+        <tr><td>sandcastle create &lt;ref&gt;</td><td>Create and connect to a machine</td></tr>
+        <tr><td>sandcastle connect &lt;ref&gt;</td><td>Connect to an existing machine</td></tr>
+        <tr><td>sandcastle start/stop/restart &lt;ref&gt;</td><td>Control machine power state</td></tr>
+        <tr><td>sandcastle delete &lt;ref&gt; --yes</td><td>Delete a machine container</td></tr>
+        <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
+        <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change machine app port</td></tr>
         <tr><td>sandcastle trust install &lt;proj&gt;</td><td>Trust project CA locally</td></tr>
         <tr><td>sandcastle trust uninstall &lt;proj&gt;</td><td>Remove project CA trust</td></tr>
         <tr><td>sandcastle tailscale up &lt;proj&gt;</td><td>Attach Tailscale to project</td></tr>

@@ -343,6 +343,65 @@ func TestProjectListShowsCurrentTenantProjects(t *testing.T) {
 	}
 }
 
+func TestProjectStatusShowsMachineCount(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{
+			{Tenant: "acme", Project: "website", Name: "codex"},
+			{Tenant: "acme", Project: "default", Name: "shell"},
+		}},
+	}, "project", "status", "website")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Project: website") || !strings.Contains(stdout, "Machines: 1") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestProjectStatusJSON(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{
+			{Tenant: "acme", Project: "website", Name: "codex"},
+		}},
+	}, "--output", "json", "project", "status", "website")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload projectStatusPayload
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Tenant.Tenant != "acme" || payload.Project.Name != "website" || payload.MachineCount != 1 {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestProjectCreateDryRunJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",

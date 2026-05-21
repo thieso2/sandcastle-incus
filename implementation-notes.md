@@ -74,11 +74,13 @@
   explicit `project/machine`. When `SANDCASTLE_PROJECT` is set, bare names stay
   scoped to that project.
 - User project management now lives under `sandcastle project
-  list/create/delete`. Projects remain lightweight tenant metadata only. Delete
-  requires `--yes`, rejects `default`, and checks the tenant's machine metadata
-  to ensure the project is empty. There is no `createdBy` value yet for
-  user-created projects because the current local config identifies the tenant
-  but not the human principal.
+  list/create/status/delete`. Projects remain lightweight tenant metadata only.
+  Project status intentionally reports tenant, project, and machine count rather
+  than infrastructure checks, because v1 projects do not own Incus networks,
+  DNS, storage, or CA state. Delete requires `--yes`, rejects `default`, and
+  checks the tenant's machine metadata to ensure the project is empty. There is
+  no `createdBy` value yet for user-created projects because the current local
+  config identifies the tenant but not the human principal.
 - I cleaned up several command help strings and e2e fixture references that
   still said owner/project/sandbox. The e2e tests that create machines now use
   the v1 instance and DNS shape (`default-{machine}` or `{project}-{machine}`,

@@ -369,8 +369,10 @@ make install</code></pre>
       <p>This creates <code>~/.config/sandcastle/sandcastle-alice/incus/</code> with the Incus TLS certs and writes <code>~/.config/sandcastle/config.yml</code> with the remote and owner set. No env var exports needed — all subsequent <code>sc</code> commands pick up the config automatically.</p>
 
       <h3>3. Check project visibility</h3>
-      <pre><code>sc ls
-sc status myproject</code></pre>
+      <pre><code>sc list
+sc project list
+sc project status website
+sc status</code></pre>
 
       <h3>4. Attach the project to the developer's Tailscale network</h3>
       <pre><code>sc tailscale up myproject</code></pre>
@@ -386,9 +388,9 @@ sc dns refresh myproject</code></pre>
       <p class="callout warn">This is explicit local-machine trust. Only install trust for projects the developer owns and understands.</p>
 
       <h3>7. Create and enter a sandbox</h3>
-      <pre><code>sc add myproject/codex
+      <pre><code>sc create website/codex
 # Automation-friendly:
-sc add myproject/codex --detach</code></pre>
+sc create website/codex --detach</code></pre>
       <p>By default, Sandcastle uses the project default template, currently <code>ai</code>. Use <code>--template base</code> for a smaller sandbox.</p>
     </section>
 
@@ -403,9 +405,10 @@ incus list REMOTE: --project sc-alice-myproject</code></pre>
         </div>
         <div class="panel">
           <h3>Developer checks</h3>
-          <pre><code>sc status myproject
-sc inspect myproject/codex
-sc enter myproject/codex</code></pre>
+          <pre><code>sc status
+sc project status website
+sc status website/codex
+sc connect website/codex</code></pre>
         </div>
       </div>
       <h3>Expected healthy shape</h3>
