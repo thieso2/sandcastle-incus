@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -27,7 +28,7 @@ type Request struct {
 type Plan struct {
 	Reference    string `json:"reference"`
 	IncusProject string `json:"incusProject"`
-	Domain       string `json:"domain"`
+	DNSSuffix    string `json:"dnsSuffix"`
 	DNSEndpoint  string `json:"dnsEndpoint"`
 	Listen       string `json:"listen"`
 	StatePath    string `json:"statePath"`
@@ -67,7 +68,7 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 	if err := admin.Validate(); err != nil {
 		return Plan{}, err
 	}
-	ref, err := naming.ParseProjectRefWithDefaultOwner(request.Reference, admin.Owner)
+	ref, err := tenantRef(request.Reference, admin.Tenant)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -76,7 +77,7 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 		return Plan{}, err
 	}
 	for _, summary := range summaries {
-		if summary.Owner == ref.Owner && summary.Name == ref.Project {
+		if summary.Tenant == ref.Tenant {
 			endpoint, err := dnsEndpoint(summary.PrivateCIDR)
 			if err != nil {
 				return Plan{}, err
@@ -86,18 +87,29 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 			return Plan{
 				Reference:        ref.String(),
 				IncusProject:     summary.IncusName,
-				Domain:           summary.Domain,
+				DNSSuffix:        summary.DNSSuffix,
 				DNSEndpoint:      endpoint,
 				Listen:           listen,
 				StatePath:        statePath(),
-				ResolverPath:     ResolverPath(platform, summary.Domain),
+				ResolverPath:     ResolverPath(platform, summary.DNSSuffix),
 				Platform:         platform,
 				ResolverStrategy: ResolverStrategy(platform),
-				ResolverCommands: ResolverCommands(platform, summary.Domain, listen),
+				ResolverCommands: ResolverCommands(platform, summary.DNSSuffix, listen),
 			}, nil
 		}
 	}
-	return Plan{}, fmt.Errorf("project %q not found", ref.String())
+	return Plan{}, fmt.Errorf("tenant %q not found", ref.String())
+}
+
+func tenantRef(reference string, currentTenant string) (naming.TenantRef, error) {
+	value := strings.TrimSpace(reference)
+	if value == "" {
+		value = strings.TrimSpace(currentTenant)
+	}
+	if value == "" {
+		return naming.TenantRef{}, fmt.Errorf("tenant reference is required")
+	}
+	return naming.ParseTenantRef(value)
 }
 
 func dnsEndpoint(privateCIDR string) (string, error) {

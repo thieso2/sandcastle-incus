@@ -76,14 +76,16 @@ func (s *fakeDeleteResourceServer) DeleteStoragePoolVolume(pool string, volType 
 	s.deletedVolumes = append(s.deletedVolumes, name)
 	return nil
 }
-func (s *fakeDeleteResourceServer) GetImages() ([]api.Image, error)                    { return nil, nil }
-func (s *fakeDeleteResourceServer) DeleteImage(fp string) (incus.Operation, error)      { return fakeOperation{}, nil }
-func (s *fakeDeleteResourceServer) GetProfiles() ([]api.Profile, error)                { return nil, nil }
-func (s *fakeDeleteResourceServer) DeleteProfile(name string) error                     { return nil }
+func (s *fakeDeleteResourceServer) GetImages() ([]api.Image, error) { return nil, nil }
+func (s *fakeDeleteResourceServer) DeleteImage(fp string) (incus.Operation, error) {
+	return fakeOperation{}, nil
+}
+func (s *fakeDeleteResourceServer) GetProfiles() ([]api.Profile, error) { return nil, nil }
+func (s *fakeDeleteResourceServer) DeleteProfile(name string) error     { return nil }
 
 func TestProjectDeleterPurgesProjectResources(t *testing.T) {
 	plan, err := project.PlanDelete(config.LoadAdminFromEnv(), project.DeleteRequest{
-		Reference: "alice/myproject",
+		Reference: "acme",
 		Purge:     true,
 	})
 	if err != nil {
@@ -98,7 +100,7 @@ func TestProjectDeleterPurgesProjectResources(t *testing.T) {
 	server := &fakeDeleteServer{resourceServer: resourceServer}
 	deleter := ProjectDeleter{Server: server}
 
-	if err := deleter.DeleteProject(context.Background(), plan); err != nil {
+	if err := deleter.DeleteTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if len(resourceServer.stoppedInstances) != 1 || resourceServer.stoppedInstances[0] != plan.SidecarInstances[0] {
@@ -113,14 +115,14 @@ func TestProjectDeleterPurgesProjectResources(t *testing.T) {
 	if len(resourceServer.deletedVolumes) != 3 {
 		t.Fatalf("deleted volumes = %#v", resourceServer.deletedVolumes)
 	}
-	if server.deletedProject != "sc-alice-myproject" {
+	if server.deletedProject != "sc-acme" {
 		t.Fatalf("deleted project = %q", server.deletedProject)
 	}
 }
 
 func TestProjectDeleterPreservesDurableStateWithoutPurge(t *testing.T) {
 	plan, err := project.PlanDelete(config.LoadAdminFromEnv(), project.DeleteRequest{
-		Reference: "alice/myproject",
+		Reference: "acme",
 		Purge:     false,
 	})
 	if err != nil {
@@ -130,7 +132,7 @@ func TestProjectDeleterPreservesDurableStateWithoutPurge(t *testing.T) {
 	server := &fakeDeleteServer{resourceServer: resourceServer}
 	deleter := ProjectDeleter{Server: server}
 
-	if err := deleter.DeleteProject(context.Background(), plan); err != nil {
+	if err := deleter.DeleteTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if len(resourceServer.deletedVolumes) != 0 {

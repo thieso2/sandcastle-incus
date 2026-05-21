@@ -18,7 +18,7 @@ type Request struct {
 type Plan struct {
 	Reference       string `json:"reference"`
 	IncusProject    string `json:"incusProject"`
-	Domain          string `json:"domain"`
+	DNSSuffix       string `json:"dnsSuffix"`
 	StoragePool     string `json:"storagePool"`
 	CAVolume        string `json:"caVolume"`
 	CertificatePath string `json:"certificatePath"`
@@ -52,7 +52,7 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 	if err := admin.Validate(); err != nil {
 		return Plan{}, err
 	}
-	ref, err := naming.ParseProjectRefWithDefaultOwner(request.Reference, admin.Owner)
+	ref, err := tenantRef(request.Reference, admin.Tenant)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -61,25 +61,36 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 		return Plan{}, err
 	}
 	for _, summary := range summaries {
-		if summary.Owner == ref.Owner && summary.Name == ref.Project {
+		if summary.Tenant == ref.Tenant {
 			return Plan{
 				Reference:       ref.String(),
 				IncusProject:    summary.IncusName,
-				Domain:          summary.Domain,
+				DNSSuffix:       summary.DNSSuffix,
 				StoragePool:     summary.IncusName,
 				CAVolume:        project.CAVolumeName,
-				CertificatePath: project.ProjectCACertPath,
+				CertificatePath: project.TenantCACertPath,
 				TrustName:       trustName(ref),
 				Platform:        runtime.GOOS,
-				Warning:         "Trusting this project CA allows the project to mint certificates trusted by this machine.",
+				Warning:         "Trusting this tenant CA allows the tenant to mint certificates trusted by this machine.",
 			}, nil
 		}
 	}
-	return Plan{}, fmt.Errorf("project %q not found", ref.String())
+	return Plan{}, fmt.Errorf("tenant %q not found", ref.String())
 }
 
-func trustName(ref naming.ProjectRef) string {
-	return "Sandcastle " + ref.String() + " project CA"
+func tenantRef(reference string, currentTenant string) (naming.TenantRef, error) {
+	value := strings.TrimSpace(reference)
+	if value == "" {
+		value = strings.TrimSpace(currentTenant)
+	}
+	if value == "" {
+		return naming.TenantRef{}, fmt.Errorf("tenant reference is required")
+	}
+	return naming.ParseTenantRef(value)
+}
+
+func trustName(ref naming.TenantRef) string {
+	return "Sandcastle " + ref.String() + " tenant CA"
 }
 
 func CertFilename(plan Plan) string {

@@ -55,7 +55,7 @@ func (d ProjectDeleter) log(msg string) {
 	}
 }
 
-func (d ProjectDeleter) DeleteProject(ctx context.Context, plan project.DeletePlan) error {
+func (d ProjectDeleter) DeleteTenant(ctx context.Context, plan project.DeletePlan) error {
 	server := d.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(d.ConfigPath)

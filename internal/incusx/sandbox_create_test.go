@@ -91,22 +91,22 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	plan := sandboxPlanForTest(t)
 	resource := fakeSandboxResourceWithCA(t)
 	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
-	if err := creator.CreateSandbox(context.Background(), plan); err != nil {
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if resource.created == nil {
 		t.Fatal("expected instance creation")
 	}
-	if resource.created.Name != "sc-codex" {
+	if resource.created.Name != "default-codex" {
 		t.Fatalf("created name = %q", resource.created.Name)
 	}
 	if resource.created.Devices["eth0"]["ipv4.address"] != "10.248.0.20" {
 		t.Fatalf("devices = %#v", resource.created.Devices)
 	}
-	if resource.created.Devices["home"]["path"] != "/home/alice" {
+	if resource.created.Devices["home"]["path"] != "/home/acme" {
 		t.Fatalf("home device = %#v", resource.created.Devices["home"])
 	}
-	if resource.created.Config["environment.SANDCASTLE_USER"] != "alice" {
+	if resource.created.Config["environment.SANDCASTLE_USER"] != "acme" {
 		t.Fatalf("instance config = %#v", resource.created.Config)
 	}
 	if _, ok := resource.created.Config["security.nesting"]; ok {
@@ -118,10 +118,10 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
 		t.Fatal("expected Caddyfile write")
 	}
-	if resource.createdFiles[sandbox.SandboxCertPath] == "" {
+	if resource.createdFiles[sandbox.MachineCertPath] == "" {
 		t.Fatal("expected certificate write")
 	}
-	if resource.createdFiles[sandbox.SandboxCertKeyPath] == "" {
+	if resource.createdFiles[sandbox.MachineCertKeyPath] == "" {
 		t.Fatal("expected private key write")
 	}
 	if len(resource.execCommands) != 2 {
@@ -130,7 +130,7 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	if strings.Join(resource.execCommands[0], " ") != "/usr/local/bin/sandcastle-bootstrap" {
 		t.Fatalf("bootstrap command = %#v", resource.execCommands[0])
 	}
-	if resource.execEnvs[0]["SANDCASTLE_USER"] != "alice" {
+	if resource.execEnvs[0]["SANDCASTLE_USER"] != "acme" {
 		t.Fatalf("bootstrap env = %#v", resource.execEnvs[0])
 	}
 	if resource.execEnvs[0]["SANDCASTLE_UID"] != "1000" || resource.execEnvs[0]["SANDCASTLE_GID"] != "1000" {
@@ -146,7 +146,7 @@ func TestSandboxCreatorEnablesNestingForContainerTools(t *testing.T) {
 	plan.ContainerTools = true
 	resource := fakeSandboxResourceWithCA(t)
 	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
-	if err := creator.CreateSandbox(context.Background(), plan); err != nil {
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if resource.created == nil {
@@ -165,7 +165,7 @@ func TestSandboxCreatorStartsExistingStoppedInstance(t *testing.T) {
 	resource := fakeSandboxResourceWithCA(t)
 	resource.instance = &api.Instance{Name: plan.InstanceName, StatusCode: api.Stopped}
 	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
-	if err := creator.CreateSandbox(context.Background(), plan); err != nil {
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if !resource.started {
@@ -178,20 +178,20 @@ func TestSandboxCreatorStartsExistingStoppedInstance(t *testing.T) {
 
 func sandboxPlanForTest(t *testing.T) sandbox.CreatePlan {
 	t.Helper()
-	projectConfig, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	projectConfig, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := sandbox.PlanCreate(context.Background(), config.LoadAdminFromEnv(), project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-alice-myproject",
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	plan, err := sandbox.PlanCreate(context.Background(), admin, project.MemoryStore{Projects: []project.IncusProject{{
+		Name:   "sc-acme",
 		Config: projectConfig,
-	}}}, nil, sandbox.CreateRequest{Reference: "alice/myproject/codex"})
+	}}}, nil, sandbox.CreateRequest{Reference: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func fakeSandboxResourceWithCA(t *testing.T) *fakeSandboxResource {
 		t.Fatal(err)
 	}
 	return &fakeSandboxResource{caFiles: map[string]string{
-		project.ProjectCACertPath: string(ca.CertificatePEM),
-		project.ProjectCAKeyPath:  string(ca.PrivateKeyPEM),
+		project.TenantCACertPath: string(ca.CertificatePEM),
+		project.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
 	}}
 }

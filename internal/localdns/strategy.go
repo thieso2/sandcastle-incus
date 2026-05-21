@@ -56,11 +56,11 @@ func ResolverSyncCommands(strategy string, state State, listen string) []Command
 		return nil
 	}
 	domainSet := map[string]struct{}{}
-	for _, project := range state.Projects {
-		if _, ok := projectUpstreamEndpoint(project); !ok {
+	for _, tenant := range state.Tenants {
+		if _, ok := tenantUpstreamEndpoint(tenant); !ok {
 			continue
 		}
-		domain := strings.TrimSuffix(strings.ToLower(project.Domain), ".")
+		domain := strings.TrimSuffix(strings.ToLower(tenant.DNSSuffix), ".")
 		domainSet[domain] = struct{}{}
 	}
 	if len(domainSet) == 0 {

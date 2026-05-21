@@ -96,7 +96,7 @@ func diagnosticFiles(server TopologyResourceServer, request project.TopologyRequ
 	files := []project.DiagnosticFile{
 		readDiagnosticFile(server, project.DNSName, "/etc/coredns/Corefile"),
 	}
-	domain := strings.Trim(strings.TrimSpace(request.Domain), ".")
+	domain := strings.Trim(strings.TrimSpace(request.DNSSuffix), ".")
 	if domain != "" {
 		files = append(files, readDiagnosticFile(server, project.DNSName, path.Join("/etc/coredns/zones", "db."+domain)))
 	}
@@ -113,7 +113,7 @@ func sandboxInstances(server TopologyResourceServer) []api.Instance {
 	}
 	sandboxes := []api.Instance{}
 	for _, instance := range instances {
-		if instance.Config[meta.KeyKind] == meta.KindSandbox {
+		if instance.Config[meta.KeyKind] == meta.KindMachine {
 			sandboxes = append(sandboxes, instance)
 		}
 	}

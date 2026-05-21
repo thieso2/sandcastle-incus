@@ -9,7 +9,6 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	"github.com/thieso2/sandcastle-incus/internal/naming"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -19,14 +18,14 @@ type StatusRequest struct {
 
 type StatusPlan struct {
 	Reference    string          `json:"reference"`
-	Project      project.Summary `json:"project"`
+	Tenant       project.Summary `json:"tenant"`
 	InstanceName string          `json:"instanceName"`
 	Command      []string        `json:"command"`
 }
 
 type StatusResult struct {
 	Reference string          `json:"reference"`
-	Project   project.Summary `json:"project"`
+	Tenant    project.Summary `json:"tenant"`
 	Tailscale meta.Tailscale  `json:"tailscale"`
 }
 
@@ -36,7 +35,7 @@ type DownRequest struct {
 
 type DownPlan struct {
 	Reference    string          `json:"reference"`
-	Project      project.Summary `json:"project"`
+	Tenant       project.Summary `json:"tenant"`
 	InstanceName string          `json:"instanceName"`
 	Command      []string        `json:"command"`
 }
@@ -48,7 +47,7 @@ func PlanStatus(ctx context.Context, admin config.Admin, store project.IncusProj
 	}
 	return StatusPlan{
 		Reference:    reference,
-		Project:      summary,
+		Tenant:       summary,
 		InstanceName: project.TailscaleInstanceName(summary.IncusName),
 		Command:      []string{"tailscale", "status", "--json"},
 	}, nil
@@ -61,7 +60,7 @@ func PlanDown(ctx context.Context, admin config.Admin, store project.IncusProjec
 	}
 	return DownPlan{
 		Reference:    reference,
-		Project:      summary,
+		Tenant:       summary,
 		InstanceName: project.TailscaleInstanceName(summary.IncusName),
 		Command:      []string{"tailscale", "down"},
 	}, nil
@@ -87,7 +86,7 @@ func ParseStatus(reference string, summary project.Summary, data []byte, now tim
 	}
 	return StatusResult{
 		Reference: reference,
-		Project:   summary,
+		Tenant:    summary,
 		Tailscale: meta.Tailscale{
 			State:            state,
 			Tailnet:          tailnet,
@@ -112,11 +111,11 @@ func projectSummary(ctx context.Context, admin config.Admin, store project.Incus
 	if err := admin.Validate(); err != nil {
 		return project.Summary{}, "", err
 	}
-	ref, err := naming.ParseProjectRefWithDefaultOwner(reference, admin.Owner)
+	ref, err := tenantRef(reference, admin.Tenant)
 	if err != nil {
 		return project.Summary{}, "", err
 	}
-	summary, err := findProject(ctx, store, ref)
+	summary, err := findTenant(ctx, store, ref)
 	if err != nil {
 		return project.Summary{}, "", err
 	}

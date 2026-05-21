@@ -57,9 +57,9 @@ func (r *fakeDNSResource) ExecInstance(instanceName string, exec api.InstanceExe
 }
 
 func TestDNSManagerApply(t *testing.T) {
-	sandboxConfig, err := meta.SandboxConfig(meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+	machineConfig, err := meta.MachineConfig(meta.Machine{
+		Tenant:    "acme",
+		Project:   "default",
 		Name:      "codex",
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
@@ -68,15 +68,14 @@ func TestDNSManagerApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	resource := &fakeDNSResource{instances: []api.Instance{{
-		Name:        "sc-codex",
-		InstancePut: api.InstancePut{Config: api.ConfigMap(sandboxConfig)},
+		Name:        "default-codex",
+		InstancePut: api.InstancePut{Config: api.ConfigMap(machineConfig)},
 	}}}
 	manager := DNSManager{Server: fakeDNSServer{resource: resource}}
-	result, err := manager.Apply(context.Background(), dns.Project{
-		IncusName:   "sc-alice-myproject",
-		Owner:       "alice",
-		Name:        "myproject",
-		Domain:      "myproject.project-tld",
+	result, err := manager.Apply(context.Background(), dns.Tenant{
+		IncusName:   "sc-acme",
+		Tenant:      "acme",
+		DNSSuffix:   "acme",
 		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
@@ -85,7 +84,7 @@ func TestDNSManagerApply(t *testing.T) {
 	if result.RecordCount != 4 {
 		t.Fatalf("RecordCount = %d", result.RecordCount)
 	}
-	if resource.files["/etc/coredns/zones/db.myproject.project-tld"] == "" {
+	if resource.files["/etc/coredns/zones/db.acme"] == "" {
 		t.Fatal("expected zone file to be written")
 	}
 	if len(resource.execCommands) != 1 {

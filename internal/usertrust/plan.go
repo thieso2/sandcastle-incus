@@ -63,14 +63,11 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 	seenProjects := map[string]bool{}
 	projects := make([]string, 0, len(request.Projects))
 	for _, raw := range request.Projects {
-		ref, err := naming.ParseProjectRef(raw)
+		ref, err := naming.ParseTenantRef(raw)
 		if err != nil {
 			return UserPlan{}, err
 		}
-		if ref.Owner != base.User {
-			return UserPlan{}, fmt.Errorf("user %s cannot be granted project owned by %s", base.User, ref.Owner)
-		}
-		name, err := naming.IncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+		name, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
 		if err != nil {
 			return UserPlan{}, err
 		}
@@ -81,7 +78,7 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 		projects = append(projects, name)
 	}
 	if len(projects) == 0 {
-		return UserPlan{}, fmt.Errorf("at least one project is required")
+		return UserPlan{}, fmt.Errorf("at least one tenant is required")
 	}
 	base.Projects = projects
 	return base, nil
@@ -96,8 +93,7 @@ func RestrictedName(user string) string {
 }
 
 func validateUser(user string) error {
-	_, err := naming.ParseProjectRef(user + "/placeholder")
-	if err != nil {
+	if err := naming.ValidateTenantName(user); err != nil {
 		return fmt.Errorf("invalid user %q", user)
 	}
 	return nil

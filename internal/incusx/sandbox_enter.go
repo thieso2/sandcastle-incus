@@ -30,7 +30,7 @@ func NewSandboxEnterer(remote string) SandboxEnterer {
 	return SandboxEnterer{Remote: remote}
 }
 
-func (e SandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
+func (e SandboxEnterer) ConnectMachine(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
 	server := e.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(e.ConfigPath)
@@ -47,7 +47,7 @@ func (e SandboxEnterer) EnterSandbox(ctx context.Context, plan sandbox.EnterPlan
 		}
 		server = sdkSandboxEnterServer{inner: instanceServer}
 	}
-	projectServer := server.UseProject(plan.Project.IncusName)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
 	exec := api.InstanceExecPost{
 		Command:     plan.Command,
 		Cwd:         plan.WorkingDir,

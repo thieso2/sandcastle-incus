@@ -19,19 +19,17 @@ func (s fakeProjectServer) GetProjects() ([]api.Project, error) {
 }
 
 func TestProjectStoreUsesInjectedServer(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	store := ProjectStore{Server: fakeProjectServer{projects: []api.Project{{
-		Name: "sc-alice-myproject",
+		Name: "sc-acme",
 		ProjectPut: api.ProjectPut{
 			Config: api.ConfigMap(config),
 		},
@@ -44,11 +42,11 @@ func TestProjectStoreUsesInjectedServer(t *testing.T) {
 	if len(projects) != 1 {
 		t.Fatalf("len(projects) = %d, want 1", len(projects))
 	}
-	if projects[0].Name != "sc-alice-myproject" {
+	if projects[0].Name != "sc-acme" {
 		t.Fatalf("project name = %q", projects[0].Name)
 	}
-	if projects[0].Config[meta.KeyOwner] != "alice" {
-		t.Fatalf("project owner metadata = %q", projects[0].Config[meta.KeyOwner])
+	if projects[0].Config[meta.KeyTenant] != "acme" {
+		t.Fatalf("tenant metadata = %q", projects[0].Config[meta.KeyTenant])
 	}
 }
 

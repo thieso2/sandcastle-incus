@@ -53,7 +53,7 @@ func (c SandboxCreator) log(msg string) {
 	}
 }
 
-func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePlan) error {
+func (c SandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePlan) error {
 	server := c.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
@@ -71,8 +71,8 @@ func (c SandboxCreator) CreateSandbox(ctx context.Context, plan sandbox.CreatePl
 		}
 		server = sdkSandboxServer{inner: instanceServer}
 	}
-	c.log("use project " + plan.Project.IncusName)
-	projectServer := server.UseProject(plan.Project.IncusName)
+	c.log("use project " + plan.Tenant.IncusName)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
 	c.log("get instance " + plan.InstanceName)
 	instance, _, err := projectServer.GetInstance(plan.InstanceName)
 	if err == nil {
@@ -108,9 +108,9 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 	if err := bootstrapSandboxUser(server, plan); err != nil {
 		return err
 	}
-	if plan.Project.DNSAddress != "" {
+	if plan.Tenant.DNSAddress != "" {
 		if err := server.CreateInstanceFile(plan.InstanceName, "/etc/resolv.conf", incus.InstanceFileArgs{
-			Content:   strings.NewReader("nameserver " + plan.Project.DNSAddress + "\n"),
+			Content:   strings.NewReader("nameserver " + plan.Tenant.DNSAddress + "\n"),
 			Type:      "file",
 			Mode:      0o644,
 			WriteMode: "overwrite",
@@ -173,12 +173,12 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 }
 
 func sandboxNetworkParams(plan sandbox.CreatePlan) (string, string, error) {
-	if plan.PrivateIP == "" || plan.Project.PrivateCIDR == "" {
+	if plan.PrivateIP == "" || plan.Tenant.PrivateCIDR == "" {
 		return "", "", fmt.Errorf("sandbox plan missing private IP or CIDR")
 	}
-	prefix, err := netip.ParsePrefix(plan.Project.PrivateCIDR)
+	prefix, err := netip.ParsePrefix(plan.Tenant.PrivateCIDR)
 	if err != nil {
-		return "", "", fmt.Errorf("parse sandbox CIDR %s: %w", plan.Project.PrivateCIDR, err)
+		return "", "", fmt.Errorf("parse sandbox CIDR %s: %w", plan.Tenant.PrivateCIDR, err)
 	}
 	ipWithPrefix := plan.PrivateIP + fmt.Sprintf("/%d", prefix.Bits())
 	base := prefix.Masked().Addr().As4()
@@ -253,15 +253,15 @@ func restartSandboxCaddy(server sandboxCaddyRestarter, instanceName string, priv
 }
 
 func issueSandboxCertificateFilesFromProjectCA(server SandboxResourceServer, plan sandbox.CreatePlan) ([]sandbox.File, error) {
-	caCertPEM, err := readProjectCAFile(server, plan, project.ProjectCACertPath)
+	caCertPEM, err := readProjectCAFile(server, plan, project.TenantCACertPath)
 	if err != nil {
 		return nil, fmt.Errorf("read project CA certificate: %w", err)
 	}
-	caKeyPEM, err := readProjectCAFile(server, plan, project.ProjectCAKeyPath)
+	caKeyPEM, err := readProjectCAFile(server, plan, project.TenantCAKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read project CA private key: %w", err)
 	}
-	files, err := sandbox.IssueCertificateFiles(plan.Name, plan.Project.Domain, caCertPEM, caKeyPEM)
+	files, err := sandbox.IssueCertificateFiles(plan.Name, plan.Project, plan.Tenant.DNSSuffix, caCertPEM, caKeyPEM)
 	if err != nil {
 		return nil, err
 	}

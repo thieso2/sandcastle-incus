@@ -33,7 +33,7 @@ func newDNSApplyCommand(config commandConfig, opts *rootOptions) *cobra.Command 
 		Short: "Render and apply project CoreDNS records",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], config.adminConfig.Owner)
+			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], "")
 			if err != nil {
 				return err
 			}
@@ -55,7 +55,7 @@ func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command
 		Short: "Render project DNS status without applying it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], config.adminConfig.Owner)
+			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], "")
 			if err != nil {
 				return err
 			}
@@ -266,7 +266,7 @@ func newDNSServiceUninstallCommand(config commandConfig, opts *rootOptions) *cob
 }
 
 func findProjectSummary(ctx context.Context, store project.IncusProjectStore, reference string, defaultOwner string) (project.Summary, error) {
-	ref, err := naming.ParseProjectRefWithDefaultOwner(reference, defaultOwner)
+	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
 		return project.Summary{}, err
 	}
@@ -275,19 +275,19 @@ func findProjectSummary(ctx context.Context, store project.IncusProjectStore, re
 		return project.Summary{}, err
 	}
 	for _, summary := range projects {
-		if summary.Owner == ref.Owner && summary.Name == ref.Project {
+		if summary.Tenant == ref.Tenant {
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("Sandcastle project %s not found", ref.String())
+	return project.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
 }
 
 func formatDNSApply(result dns.ApplyResult) string {
-	return fmt.Sprintf("DNS records for %s/%s: %d", result.Project.Owner, result.Project.Name, result.RecordCount)
+	return fmt.Sprintf("DNS records for %s: %d", result.Tenant.Tenant, result.RecordCount)
 }
 
 func formatLocalDNSPlan(action string, plan localdns.Plan) string {
-	output := fmt.Sprintf("%s local DNS: %s\nDomain: %s\nForwarder: %s\nProject DNS: %s\nResolver: %s", action, plan.Reference, plan.Domain, plan.Listen, plan.DNSEndpoint, plan.ResolverStrategy)
+	output := fmt.Sprintf("%s local DNS: %s\nDNS suffix: %s\nForwarder: %s\nTenant DNS: %s\nResolver: %s", action, plan.Reference, plan.DNSSuffix, plan.Listen, plan.DNSEndpoint, plan.ResolverStrategy)
 	if len(plan.ResolverCommands) > 0 {
 		output += "\nResolver commands:"
 		for _, command := range plan.ResolverCommands {
@@ -309,12 +309,11 @@ func formatLocalDNSServiceResult(result localdns.ServiceResult) string {
 	return fmt.Sprintf("%s local DNS service\nStrategy: %s\nService: %s", result.Action, result.Strategy, result.ServicePath)
 }
 
-func dnsProject(summary project.Summary) dns.Project {
-	return dns.Project{
+func dnsProject(summary project.Summary) dns.Tenant {
+	return dns.Tenant{
 		IncusName:   summary.IncusName,
-		Owner:       summary.Owner,
-		Name:        summary.Name,
-		Domain:      summary.Domain,
+		Tenant:      summary.Tenant,
+		DNSSuffix:   summary.DNSSuffix,
 		PrivateCIDR: summary.PrivateCIDR,
 	}
 }

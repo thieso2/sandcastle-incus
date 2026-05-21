@@ -15,8 +15,8 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type RouteMetadataStore interface {
@@ -26,7 +26,7 @@ type RouteMetadataStore interface {
 type Server struct {
 	Admin         config.Admin
 	Projects      project.IncusProjectStore
-	Sandboxes     route.SandboxStore
+	Machines      route.MachineStore
 	Routes        route.Manager
 	RouteMetadata RouteMetadataStore
 	Resolver      route.DNSResolver
@@ -64,7 +64,7 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	plan, err := route.PlanAdd(r.Context(), s.Admin, s.Projects, s.Sandboxes, route.AddRequest{
+	plan, err := route.PlanAdd(r.Context(), s.Admin, s.Projects, s.Machines, route.AddRequest{
 		Hostname:        request.Hostname,
 		TargetReference: request.TargetReference,
 	})
@@ -194,10 +194,9 @@ func (s Server) handleList(w http.ResponseWriter, r *http.Request) {
 
 func filterRoutesForPrincipal(result route.ListResult, principal Principal, projectPrefix string) route.ListResult {
 	filtered := make([]route.Route, 0, len(result.Routes))
-	prefix := principal.Owner + "/"
 	for _, publicRoute := range result.Routes {
 		incusProject := targetIncusProject(publicRoute.TargetReference, projectPrefix)
-		if strings.HasPrefix(publicRoute.TargetReference, prefix) && incusProject != "" && principalCanAccessProject(principal, incusProject) {
+		if incusProject != "" && principalCanAccessProject(principal, incusProject) {
 			filtered = append(filtered, publicRoute)
 		}
 	}
@@ -209,10 +208,10 @@ func targetIncusProject(targetReference string, projectPrefix string) string {
 	if len(parts) != 3 {
 		return ""
 	}
-	if err := naming.ValidateSandboxName(parts[2]); err != nil {
+	if err := naming.ValidateMachineName(parts[2]); err != nil {
 		return ""
 	}
-	incusProject, err := naming.IncusProjectNameWithPrefix(projectPrefix, naming.ProjectRef{Owner: parts[0], Project: parts[1]})
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(projectPrefix, naming.TenantRef{Tenant: parts[0]})
 	if err != nil {
 		return ""
 	}

@@ -52,7 +52,7 @@ func (m TailscaleManager) RunUp(ctx context.Context, plan tailscale.UpPlan, sess
 		}
 		server = sdkTailscaleServer{inner: instanceServer}
 	}
-	projectServer := server.UseProject(plan.Project.IncusName)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
 	dataDone := make(chan bool)
 	op, err := projectServer.ExecInstance(plan.InstanceName, api.InstanceExecPost{
 		Command:   tailscale.ExecCommand(plan),
@@ -78,7 +78,7 @@ func (m TailscaleManager) RunStatus(ctx context.Context, plan tailscale.StatusPl
 	if err != nil {
 		return tailscale.StatusResult{}, err
 	}
-	projectServer := server.UseProject(plan.Project.IncusName)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
 	var stdout bytes.Buffer
 	dataDone := make(chan bool)
 	op, err := projectServer.ExecInstance(plan.InstanceName, api.InstanceExecPost{
@@ -97,11 +97,11 @@ func (m TailscaleManager) RunStatus(ctx context.Context, plan tailscale.StatusPl
 		return tailscale.StatusResult{}, fmt.Errorf("wait for tailscale status in %s: %w", plan.InstanceName, err)
 	}
 	<-dataDone
-	result, err := tailscale.ParseStatus(plan.Reference, plan.Project, stdout.Bytes(), time.Now().UTC())
+	result, err := tailscale.ParseStatus(plan.Reference, plan.Tenant, stdout.Bytes(), time.Now().UTC())
 	if err != nil {
 		return tailscale.StatusResult{}, err
 	}
-	if err := updateProjectTailscale(server, plan.Project.IncusName, result.Tailscale); err != nil {
+	if err := updateTenantTailscale(server, plan.Tenant.IncusName, result.Tailscale); err != nil {
 		return tailscale.StatusResult{}, err
 	}
 	return result, nil
@@ -112,7 +112,7 @@ func (m TailscaleManager) RunDown(ctx context.Context, plan tailscale.DownPlan, 
 	if err != nil {
 		return err
 	}
-	projectServer := server.UseProject(plan.Project.IncusName)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
 	dataDone := make(chan bool)
 	op, err := projectServer.ExecInstance(plan.InstanceName, api.InstanceExecPost{
 		Command:   plan.Command,
@@ -130,7 +130,7 @@ func (m TailscaleManager) RunDown(ctx context.Context, plan tailscale.DownPlan, 
 		return fmt.Errorf("wait for tailscale down in %s: %w", plan.InstanceName, err)
 	}
 	<-dataDone
-	return updateProjectTailscale(server, plan.Project.IncusName, meta.Tailscale{
+	return updateTenantTailscale(server, plan.Tenant.IncusName, meta.Tailscale{
 		State:         "stopped",
 		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
 	})
@@ -155,17 +155,17 @@ func (m TailscaleManager) server() (TailscaleServer, error) {
 	return sdkTailscaleServer{inner: instanceServer}, nil
 }
 
-func updateProjectTailscale(server TailscaleServer, name string, state meta.Tailscale) error {
+func updateTenantTailscale(server TailscaleServer, name string, state meta.Tailscale) error {
 	projectState, etag, err := server.GetProject(name)
 	if err != nil {
-		return fmt.Errorf("get project %s: %w", name, err)
+		return fmt.Errorf("get tenant %s: %w", name, err)
 	}
-	managed, err := meta.ParseProjectConfig(map[string]string(projectState.Config))
+	managed, err := meta.ParseTenantConfig(map[string]string(projectState.Config))
 	if err != nil {
-		return fmt.Errorf("parse project metadata for %s: %w", name, err)
+		return fmt.Errorf("parse tenant metadata for %s: %w", name, err)
 	}
 	managed.Tailscale = state
-	config, err := meta.ProjectConfig(managed)
+	config, err := meta.TenantConfig(managed)
 	if err != nil {
 		return err
 	}
@@ -177,7 +177,7 @@ func updateProjectTailscale(server TailscaleServer, name string, state meta.Tail
 		put.Config[key] = value
 	}
 	if err := server.UpdateProject(name, put, etag); err != nil {
-		return fmt.Errorf("update project %s tailscale metadata: %w", name, err)
+		return fmt.Errorf("update tenant %s tailscale metadata: %w", name, err)
 	}
 	return nil
 }

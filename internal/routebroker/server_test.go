@@ -13,8 +13,8 @@ import (
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeBrokerRoutes struct {
@@ -39,13 +39,13 @@ func (r *fakeBrokerRoutes) List(ctx context.Context, plan route.ListPlan) (route
 	return r.list, nil
 }
 
-type fakeBrokerSandboxStore struct{}
+type fakeBrokerMachineStore struct{}
 
-func (s fakeBrokerSandboxStore) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
-	return meta.Sandbox{
-		Owner:     summary.Owner,
-		Project:   summary.Name,
-		Name:      name,
+func (s fakeBrokerMachineStore) FindMachine(ctx context.Context, summary project.Summary, projectName string, machineName string) (meta.Machine, error) {
+	return meta.Machine{
+		Tenant:    summary.Tenant,
+		Project:   projectName,
+		Name:      machineName,
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",
 	}, nil
@@ -72,7 +72,7 @@ func TestServerAddsAuthorizedRoute(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
-	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
@@ -100,7 +100,7 @@ func TestServerRejectsRouteAddWhenDNSProofFails(t *testing.T) {
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	server.Resolver = fakeBrokerDNSResolver{hosts: []string{"203.0.113.11"}}
 	response := httptest.NewRecorder()
-	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
@@ -113,27 +113,27 @@ func TestServerRejectsRouteAddWhenDNSProofFails(t *testing.T) {
 	}
 }
 
-func TestServerRejectsUnownedRouteAdd(t *testing.T) {
+func TestServerAllowsRouteAddForAnyUserGrantedTenant(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
-	server.Trust = fakeTrustMapper{principal: Principal{Owner: "bob", Projects: []string{"sc-bob-myproject"}}}
+	server.Trust = fakeTrustMapper{principal: Principal{Owner: "bob", Projects: []string{"sc-acme"}}}
 	response := httptest.NewRecorder()
-	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
-	if response.Code != http.StatusForbidden {
+	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.added != nil {
-		t.Fatal("route should not be added")
+	if routes.added == nil {
+		t.Fatal("expected route add")
 	}
 }
 
-func TestServerRejectsRouteAddOutsideCertificateProjectScope(t *testing.T) {
+func TestServerRejectsRouteAddOutsideCertificateTenantScope(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
-	server.Trust = fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-alice-other"}}}
+	server.Trust = fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-other"}}}
 	response := httptest.NewRecorder()
-	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
@@ -147,7 +147,7 @@ func TestServerReturnsConflictForClaimedRouteAdd(t *testing.T) {
 	routes := &fakeBrokerRoutes{addErr: route.NewConflictError("public route hostname app.example.com is already claimed by bob/other/web")}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
-	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex"}`)
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
@@ -161,7 +161,7 @@ func TestServerRejectsRouteAddWithUnknownFields(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
-	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"alice/myproject/codex","admin":true}`)
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex","admin":true}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
@@ -178,7 +178,7 @@ func TestServerRejectsOversizedRouteAddRequest(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
-	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"`+strings.Repeat("x", maxAddRequestBytes)+`.example.com","targetReference":"alice/myproject/codex"}`)
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"`+strings.Repeat("x", maxAddRequestBytes)+`.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
@@ -195,9 +195,9 @@ func TestServerRemovesAuthorizedRoute(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{route: meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 	}})
 	response := httptest.NewRecorder()
 	request := brokerRequest(t, http.MethodDelete, "/routes/app.example.com", "")
@@ -210,15 +210,15 @@ func TestServerRemovesAuthorizedRoute(t *testing.T) {
 	}
 }
 
-func TestServerRejectsRouteRemoveOutsideCertificateProjectScope(t *testing.T) {
+func TestServerRejectsRouteRemoveOutsideCertificateTenantScope(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{route: meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 	}})
-	server.Trust = fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-alice-other"}}}
+	server.Trust = fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-other"}}}
 	response := httptest.NewRecorder()
 	request := brokerRequest(t, http.MethodDelete, "/routes/app.example.com", "")
 	server.ServeHTTP(response, request)
@@ -234,9 +234,9 @@ func TestServerDecodesRemoveRouteHostname(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	metadata := &recordingBrokerMetadata{route: meta.Route{
 		Hostname:      "app-test.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 	}}
 	server := brokerServerForTest(t, routes, metadata)
 	response := httptest.NewRecorder()
@@ -257,9 +257,9 @@ func TestServerNormalizesRemoveRouteHostnameBeforeLookup(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	metadata := &recordingBrokerMetadata{route: meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 	}}
 	server := brokerServerForTest(t, routes, metadata)
 	response := httptest.NewRecorder()
@@ -278,11 +278,11 @@ func TestServerNormalizesRemoveRouteHostnameBeforeLookup(t *testing.T) {
 
 func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
 	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{
-		{Hostname: "app.example.com", TargetReference: "alice/myproject/codex", RoutePort: 3000},
-		{Hostname: "other-alice.example.com", TargetReference: "alice/other/codex", RoutePort: 3000},
-		{Hostname: "missing-sandbox.example.com", TargetReference: "alice/myproject", RoutePort: 3000},
-		{Hostname: "invalid-sandbox.example.com", TargetReference: "alice/myproject/bad_name", RoutePort: 3000},
-		{Hostname: "other.example.com", TargetReference: "bob/myproject/codex", RoutePort: 3000},
+		{Hostname: "app.example.com", TargetReference: "acme/default/codex", RoutePort: 3000},
+		{Hostname: "other-project.example.com", TargetReference: "acme/other/codex", RoutePort: 3000},
+		{Hostname: "missing-machine.example.com", TargetReference: "acme/default", RoutePort: 3000},
+		{Hostname: "invalid-machine.example.com", TargetReference: "acme/default/bad_name", RoutePort: 3000},
+		{Hostname: "other.example.com", TargetReference: "other/default/codex", RoutePort: 3000},
 	}}}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
@@ -295,7 +295,7 @@ func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Routes) != 1 || result.Routes[0].Hostname != "app.example.com" {
+	if len(result.Routes) != 2 || result.Routes[0].Hostname != "app.example.com" || result.Routes[1].Hostname != "other-project.example.com" {
 		t.Fatalf("routes = %#v", result.Routes)
 	}
 }
@@ -317,11 +317,11 @@ func brokerServerForTest(t *testing.T, routes route.Manager, metadata RouteMetad
 	return Server{
 		Admin:         admin,
 		Projects:      projectStoreForBrokerTest(t),
-		Sandboxes:     fakeBrokerSandboxStore{},
+		Machines:      fakeBrokerMachineStore{},
 		Routes:        routes,
 		RouteMetadata: metadata,
 		Resolver:      fakeBrokerDNSResolver{hosts: []string{"203.0.113.10"}},
-		Trust:         fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-alice-myproject"}}},
+		Trust:         fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-acme"}}},
 	}
 }
 
@@ -335,17 +335,15 @@ func brokerRequest(t *testing.T, method string, path string, body string) *http.
 
 func projectStoreForBrokerTest(t *testing.T) project.MemoryStore {
 	t.Helper()
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "other"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-alice-myproject", Config: configMap}}}
+	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-acme", Config: configMap}}}
 }
 
 type recordingBrokerMetadata struct {

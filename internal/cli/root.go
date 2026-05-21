@@ -65,11 +65,11 @@ type commandConfig struct {
 	localDNSService      localdns.ServiceManager
 	tailscale            tailscale.Runner
 	hostOverrides        hostoverride.Manager
-	hostSandbox          hostoverride.SandboxStore
+	hostSandbox          hostoverride.MachineStore
 	hostFiles            hostoverride.HostsManager
 	localTrust           localtrust.Manager
 	routes               route.Manager
-	routeSandbox         route.SandboxStore
+	routeSandbox         route.MachineStore
 	routeBroker          routebroker.Runner
 }
 
@@ -137,7 +137,7 @@ func Execute(name string, args []string) int {
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
 			Projects:      incusx.NewProjectStore(adminConfig.Remote),
-			Sandboxes:     incusx.NewHostOverrideManager(adminConfig.Remote),
+			Machines:      incusx.NewHostOverrideManager(adminConfig.Remote),
 			Routes:        directRouteManager,
 			RouteMetadata: directRouteManager,
 			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),

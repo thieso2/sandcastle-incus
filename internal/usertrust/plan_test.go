@@ -28,12 +28,12 @@ func TestPlanCreateUser(t *testing.T) {
 func TestPlanGrant(t *testing.T) {
 	plan, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{
 		User:     "alice",
-		Projects: []string{"alice/myproject"},
+		Projects: []string{"acme"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Projects) != 1 || plan.Projects[0] != "sc-alice-myproject" {
+	if len(plan.Projects) != 1 || plan.Projects[0] != "sc-acme" {
 		t.Fatalf("Projects = %#v", plan.Projects)
 	}
 }
@@ -41,12 +41,12 @@ func TestPlanGrant(t *testing.T) {
 func TestPlanGrantDeduplicatesProjects(t *testing.T) {
 	plan, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{
 		User:     "alice",
-		Projects: []string{"alice/myproject", "alice/myproject"},
+		Projects: []string{"acme", "acme"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Projects) != 1 || plan.Projects[0] != "sc-alice-myproject" {
+	if len(plan.Projects) != 1 || plan.Projects[0] != "sc-acme" {
 		t.Fatalf("Projects = %#v", plan.Projects)
 	}
 }
@@ -58,10 +58,10 @@ func TestPlanGrantRequiresProject(t *testing.T) {
 	}
 }
 
-func TestPlanGrantRejectsProjectOwnedByAnotherUser(t *testing.T) {
+func TestPlanGrantRejectsInvalidTenant(t *testing.T) {
 	_, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{
 		User:     "alice",
-		Projects: []string{"bob/myproject"},
+		Projects: []string{"bob/project"},
 	})
 	if err == nil {
 		t.Fatal("expected error")

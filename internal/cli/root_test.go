@@ -136,12 +136,10 @@ func TestListJSONStartsEmpty(t *testing.T) {
 }
 
 func TestListTextShowsManagedProjects(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -165,12 +163,10 @@ func TestListTextShowsManagedProjects(t *testing.T) {
 }
 
 func TestStatusJSON(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -196,12 +192,10 @@ func TestStatusJSON(t *testing.T) {
 
 func TestStatusJSONSupportsProjectShorthandWithOwner(t *testing.T) {
 	t.Setenv("SANDCASTLE_OWNER", "alice")
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,12 +220,10 @@ func TestStatusJSONSupportsProjectShorthandWithOwner(t *testing.T) {
 }
 
 func TestInspectJSON(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -242,9 +234,9 @@ func TestInspectJSON(t *testing.T) {
 			Name:   "sc-alice-myproject",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{sandboxes: []meta.Sandbox{{
-			Owner:          "alice",
-			Project:        "myproject",
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+			Tenant:         "acme",
+			Projects:       []meta.Project{{Name: "default"}},
 			Name:           "codex",
 			AppPort:        5173,
 			PrivateIP:      "10.248.0.20",
@@ -274,12 +266,10 @@ func TestInspectJSON(t *testing.T) {
 }
 
 func TestInspectText(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -290,9 +280,9 @@ func TestInspectText(t *testing.T) {
 			Name:   "sc-alice-myproject",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{sandboxes: []meta.Sandbox{{
-			Owner:          "alice",
-			Project:        "myproject",
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+			Tenant:         "acme",
+			Projects:       []meta.Project{{Name: "default"}},
 			Name:           "codex",
 			AppPort:        5173,
 			PrivateIP:      "10.248.0.20",
@@ -314,12 +304,10 @@ func TestInspectText(t *testing.T) {
 }
 
 func TestAddDryRunJSON(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -354,12 +342,10 @@ func TestAddDryRunJSON(t *testing.T) {
 
 func TestAddDryRunSupportsProjectNameShorthandWithOwner(t *testing.T) {
 	t.Setenv("SANDCASTLE_OWNER", "alice")
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -387,12 +373,10 @@ func TestAddDryRunSupportsProjectNameShorthandWithOwner(t *testing.T) {
 }
 
 func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -423,12 +407,10 @@ func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
 }
 
 func TestAddDryRunSupportsContainerTools(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -460,12 +442,10 @@ func TestAddDryRunSupportsContainerTools(t *testing.T) {
 }
 
 func TestAddDryRunRejectsUnsafeStorageFlags(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -486,12 +466,10 @@ func TestAddDryRunRejectsUnsafeStorageFlags(t *testing.T) {
 }
 
 func TestAddDetachSkipsEnter(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -519,12 +497,10 @@ func TestAddDetachSkipsEnter(t *testing.T) {
 }
 
 func TestAddBackgroundSkipsEnter(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -552,12 +528,10 @@ func TestAddBackgroundSkipsEnter(t *testing.T) {
 }
 
 func TestAddEntersAfterCreateByDefault(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -588,12 +562,10 @@ func TestAddEntersAfterCreateByDefault(t *testing.T) {
 }
 
 func TestEnterCommandUsesEnterer(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -622,12 +594,10 @@ func TestEnterCommandUsesEnterer(t *testing.T) {
 }
 
 func TestEnterCommandAcceptsExplicitCommand(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -670,12 +640,10 @@ func TestPortSetRejectsInvalidPort(t *testing.T) {
 }
 
 func TestDNSStatusJSON(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -700,12 +668,10 @@ func TestDNSStatusJSON(t *testing.T) {
 }
 
 func TestDNSInstallDryRunJSON(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -732,7 +698,6 @@ func TestDNSInstallDryRunJSON(t *testing.T) {
 func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 	output := formatLocalDNSPlan("Install", localdns.Plan{
 		Reference:        "alice/myproject",
-		Domain:           "myproject.project-tld",
 		DNSEndpoint:      "10.248.0.53:53",
 		Listen:           "127.0.0.1:53541",
 		ResolverStrategy: localdns.StrategySystemdResolve,
@@ -754,12 +719,10 @@ func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 }
 
 func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -830,12 +793,10 @@ func TestDNSServiceReloadRunsExecutor(t *testing.T) {
 }
 
 func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -867,12 +828,10 @@ func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
 
 func TestTailscaleUpDryRunUsesDefaultAdvertiseTag(t *testing.T) {
 	t.Setenv("SANDCASTLE_E2E_TAILSCALE_TAG", "")
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -900,12 +859,10 @@ func TestTailscaleUpDryRunUsesDefaultAdvertiseTag(t *testing.T) {
 }
 
 func TestTailscaleUpDryRunRejectsInvalidAdvertiseTag(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -926,12 +883,10 @@ func TestTailscaleUpDryRunRejectsInvalidAdvertiseTag(t *testing.T) {
 }
 
 func TestTailscaleUpRunsExecutor(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -960,12 +915,10 @@ func TestTailscaleUpRunsExecutor(t *testing.T) {
 }
 
 func TestTailscaleStatusRunsExecutor(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -998,12 +951,10 @@ func TestTailscaleStatusRunsExecutor(t *testing.T) {
 }
 
 func TestTailscaleDownDryRunJSON(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1029,12 +980,10 @@ func TestTailscaleDownDryRunJSON(t *testing.T) {
 
 func TestHostOverrideAddDryRunJSON(t *testing.T) {
 	t.Setenv("SANDCASTLE_OWNER", "alice")
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1063,12 +1012,10 @@ func TestHostOverrideAddDryRunJSON(t *testing.T) {
 }
 
 func TestHostOverrideAddAppliesSandboxAndHosts(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1101,12 +1048,10 @@ func TestHostOverrideAddAppliesSandboxAndHosts(t *testing.T) {
 
 func TestHostOverrideListJSON(t *testing.T) {
 	t.Setenv("SANDCASTLE_OWNER", "alice")
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1132,12 +1077,10 @@ func TestHostOverrideListJSON(t *testing.T) {
 }
 
 func TestHostOverrideRemoveAppliesSandboxAndHosts(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1166,12 +1109,10 @@ func TestHostOverrideRemoveAppliesSandboxAndHosts(t *testing.T) {
 }
 
 func TestTrustInstallDryRunJSON(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1199,12 +1140,10 @@ func TestTrustInstallDryRunJSON(t *testing.T) {
 }
 
 func TestTrustInstallRunsExecutor(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1236,12 +1175,10 @@ func TestTrustInstallRunsExecutor(t *testing.T) {
 }
 
 func TestTrustUninstallRunsExecutor(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1265,12 +1202,10 @@ func TestTrustUninstallRunsExecutor(t *testing.T) {
 
 func TestRouteAddDryRunJSON(t *testing.T) {
 	t.Setenv("SANDCASTLE_OWNER", "alice")
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1301,12 +1236,10 @@ func TestRouteAddDryRunJSON(t *testing.T) {
 
 func TestRouteAddDryRunTextShowsDNSProofTarget(t *testing.T) {
 	t.Setenv("SANDCASTLE_OWNER", "alice")
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1332,12 +1265,10 @@ func TestRouteAddDryRunTextShowsDNSProofTarget(t *testing.T) {
 }
 
 func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1401,12 +1332,10 @@ func TestAdminVersion(t *testing.T) {
 }
 
 func TestAdminProjectListJSON(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1464,12 +1393,11 @@ func TestAdminProjectCreateRequiresExecutor(t *testing.T) {
 }
 
 func TestAdminProjectCreateRejectsDuplicateDomainForSameOwner(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "shared.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		Domain:      "shared.project-tld",
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2070,10 +1998,10 @@ func (f *fakeTailscaleRunner) RunDown(ctx context.Context, plan tailscale.DownPl
 
 type fakeHostSandboxStore struct{}
 
-func (f fakeHostSandboxStore) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
-	return meta.Sandbox{
-		Owner:     summary.Owner,
-		Project:   summary.Name,
+func (f fakeHostSandboxStore) FindMachine(ctx context.Context, summary project.Summary, name string) (meta.Machine, error) {
+	return meta.Machine{
+		Tenant:    summary.Tenant,
+		Project:   "default",
 		Name:      name,
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
@@ -2081,20 +2009,20 @@ func (f fakeHostSandboxStore) FindSandbox(ctx context.Context, summary project.S
 	}, nil
 }
 
-func (f fakeHostSandboxStore) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
-	sandbox, err := f.FindSandbox(ctx, summary, "codex")
+func (f fakeHostSandboxStore) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
+	sandbox, err := f.FindMachine(ctx, summary, "codex")
 	if err != nil {
 		return nil, err
 	}
-	return []meta.Sandbox{sandbox}, nil
+	return []meta.Machine{sandbox}, nil
 }
 
 type fakeSandboxInspectStore struct {
-	sandboxes []meta.Sandbox
+	machines []meta.Machine
 }
 
-func (f fakeSandboxInspectStore) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
-	return f.sandboxes, nil
+func (f fakeSandboxInspectStore) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
+	return f.machines, nil
 }
 
 type fakeHostOverrideManager struct {
@@ -2116,10 +2044,10 @@ func (f *fakeHostOverrideManager) Remove(ctx context.Context, plan hostoverride.
 
 type fakeRouteSandboxStore struct{}
 
-func (f fakeRouteSandboxStore) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
-	return meta.Sandbox{
-		Owner:     summary.Owner,
-		Project:   summary.Name,
+func (f fakeRouteSandboxStore) FindMachine(ctx context.Context, summary project.Summary, name string) (meta.Machine, error) {
+	return meta.Machine{
+		Tenant:    summary.Tenant,
+		Project:   "default",
 		Name:      name,
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",

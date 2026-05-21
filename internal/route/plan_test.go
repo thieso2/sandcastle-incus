@@ -9,22 +9,22 @@ import (
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-type fakeSandboxStore struct {
-	sandbox meta.Sandbox
+type fakeMachineStore struct {
+	machine meta.Machine
 }
 
-func (s fakeSandboxStore) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
-	return s.sandbox, nil
+func (s fakeMachineStore) FindMachine(ctx context.Context, summary project.Summary, projectName string, machineName string) (meta.Machine, error) {
+	return s.machine, nil
 }
 
 func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
-	plan, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTest(t), fakeSandboxStore{sandbox: meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+	plan, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTest(t), fakeMachineStore{machine: meta.Machine{
+		Tenant:    "acme",
+		Project:   "default",
 		Name:      "codex",
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",
-	}}, AddRequest{Hostname: "App.Example.COM", TargetReference: "alice/myproject/codex"})
+	}}, AddRequest{Hostname: "App.Example.COM", TargetReference: "acme/default/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 	if plan.TargetIP != "10.248.0.20" {
 		t.Fatalf("TargetIP = %q", plan.TargetIP)
 	}
-	if plan.TargetInstanceName != "sc-codex" {
+	if plan.TargetInstanceName != "default-codex" {
 		t.Fatalf("TargetInstanceName = %q", plan.TargetInstanceName)
 	}
 	if plan.IngressDevice != "sc-route-app-example-com" {
@@ -61,31 +61,33 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 	}
 }
 
-func TestPlanAddSupportsProjectNameShorthandWithOwner(t *testing.T) {
+func TestPlanAddSupportsCurrentTenantAndProject(t *testing.T) {
 	admin := routeAdminForTest()
-	admin.Owner = "alice"
-	plan, err := PlanAdd(context.Background(), admin, projectStoreForTest(t), fakeSandboxStore{sandbox: meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	plan, err := PlanAdd(context.Background(), admin, projectStoreForTest(t), fakeMachineStore{machine: meta.Machine{
+		Tenant:    "acme",
+		Project:   "website",
 		Name:      "codex",
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",
-	}}, AddRequest{Hostname: "app.example.com", TargetReference: "myproject/codex"})
+	}}, AddRequest{Hostname: "app.example.com", TargetReference: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.TargetReference != "alice/myproject/codex" {
+	if plan.TargetReference != "acme/website/codex" {
 		t.Fatalf("TargetReference = %q", plan.TargetReference)
 	}
 }
 
 func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
-	plan, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTemplate(t, "base"), fakeSandboxStore{sandbox: meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+	plan, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTemplate(t, "ai"), fakeMachineStore{machine: meta.Machine{
+		Tenant:    "acme",
+		Project:   "default",
 		Name:      "codex",
+		Template:  "base",
 		PrivateIP: "10.248.0.20",
-	}}, AddRequest{Hostname: "app.example.com", TargetReference: "alice/myproject/codex"})
+	}}, AddRequest{Hostname: "app.example.com", TargetReference: "acme/default/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,21 +97,22 @@ func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
 }
 
 func TestPlanAddRejectsUnknownTemplateAppPortFallback(t *testing.T) {
-	_, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTemplate(t, "unknown"), fakeSandboxStore{sandbox: meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+	_, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTemplate(t, "ai"), fakeMachineStore{machine: meta.Machine{
+		Tenant:    "acme",
+		Project:   "default",
 		Name:      "codex",
+		Template:  "unknown",
 		PrivateIP: "10.248.0.20",
-	}}, AddRequest{Hostname: "app.example.com", TargetReference: "alice/myproject/codex"})
+	}}, AddRequest{Hostname: "app.example.com", TargetReference: "acme/default/codex"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestPlanAddRejectsWildcardRoute(t *testing.T) {
-	_, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTest(t), fakeSandboxStore{}, AddRequest{
+	_, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTest(t), fakeMachineStore{}, AddRequest{
 		Hostname:        "*.example.com",
-		TargetReference: "alice/myproject/codex",
+		TargetReference: "acme/default/codex",
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -117,9 +120,9 @@ func TestPlanAddRejectsWildcardRoute(t *testing.T) {
 }
 
 func TestPlanAddRequiresInfrastructureHost(t *testing.T) {
-	_, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTest(t), fakeSandboxStore{}, AddRequest{
+	_, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTest(t), fakeMachineStore{}, AddRequest{
 		Hostname:        "app.example.com",
-		TargetReference: "alice/myproject/codex",
+		TargetReference: "acme/default/codex",
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -161,15 +164,13 @@ func routeAdminForTest() scconfig.Admin {
 
 func projectStoreForTemplate(t *testing.T, template string) project.MemoryStore {
 	t.Helper()
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: template,
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-alice-myproject", Config: configMap}}}
+	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-acme", Config: configMap}}}
 }

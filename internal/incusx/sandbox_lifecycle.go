@@ -47,7 +47,7 @@ func (c SandboxController) ApplyLifecycle(ctx context.Context, plan sandbox.Life
 		}
 		server = sdkSandboxLifecycleServer{inner: instanceServer}
 	}
-	projectServer := server.UseProject(plan.Project.IncusName)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
 	switch plan.Action {
 	case sandbox.ActionStart:
 		op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "start", Timeout: -1}, "")

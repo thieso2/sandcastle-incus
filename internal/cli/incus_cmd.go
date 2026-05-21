@@ -5,8 +5,8 @@ import (
 	"os"
 	"os/exec"
 
-	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/spf13/cobra"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 )
 
 func newIncusCommand(config commandConfig, _ *rootOptions) *cobra.Command {

@@ -52,19 +52,19 @@ func (s SandboxPortSetter) SetAppPort(ctx context.Context, plan sandbox.PortSetP
 		}
 		server = sdkSandboxPortServer{inner: instanceServer}
 	}
-	projectServer := server.UseProject(plan.Project.IncusName)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
 	instance, etag, err := projectServer.GetInstance(plan.InstanceName)
 	if err != nil {
 		return fmt.Errorf("get sandbox %s: %w", plan.InstanceName, err)
 	}
 	put := instance.Writable()
 	config := map[string]string(put.Config)
-	state, err := meta.ParseSandboxConfig(config)
+	state, err := meta.ParseMachineConfig(config)
 	if err != nil {
 		return fmt.Errorf("parse sandbox metadata for %s: %w", plan.InstanceName, err)
 	}
 	state.AppPort = plan.AppPort
-	updated, err := meta.SandboxConfig(state)
+	updated, err := meta.MachineConfig(state)
 	if err != nil {
 		return err
 	}

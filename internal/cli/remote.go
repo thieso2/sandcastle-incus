@@ -5,8 +5,8 @@ import (
 	"os"
 	"os/exec"
 
-	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/spf13/cobra"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 )
 
 func newRemoteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -74,18 +74,18 @@ Use --owner to also set your default owner name in one step:
 				fmt.Fprintf(config.stdout, "Default remote set to %q\n", name)
 			}
 			if owner != "" {
-				cfg.Owner = owner
+				cfg.Tenant = owner
 			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save sandcastle config: %w", err)
 			}
 			fmt.Fprintf(config.stdout, "Remote %q added. Incus config: %s\n", name, incusDir)
-			if cfg.Owner != "" {
-				fmt.Fprintf(config.stdout, "Default owner set to %q\n", cfg.Owner)
+			if cfg.Tenant != "" {
+				fmt.Fprintf(config.stdout, "Default tenant set to %q\n", cfg.Tenant)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&owner, "owner", "", "Set the default owner name in ~/.config/sandcastle/config.yml")
+	cmd.Flags().StringVar(&owner, "tenant", "", "Set the default tenant name in ~/.config/sandcastle/config.yml")
 	return cmd
 }

@@ -87,18 +87,16 @@ func TestForwarderSkipsInvalidStateEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := "projects:\n" +
-		"- owner: alice\n" +
-		"  project: broken\n" +
-		"  domain: sub.project-tld\n" +
+	content := "tenants:\n" +
+		"- tenant: broken\n" +
+		"  dnsSuffix: sub.project-tld\n" +
 		"  dnsEndpoint:\n" +
 		"    ip: 127.0.0.1\n" +
 		"    port: 0\n" +
 		"  resolver:\n" +
 		"    listen: 127.0.0.1:53541\n" +
-		"- owner: alice\n" +
-		"  project: parent\n" +
-		"  domain: project-tld\n" +
+		"- tenant: parent\n" +
+		"  dnsSuffix: project-tld\n" +
 		"  dnsEndpoint:\n" +
 		"    ip: " + host + "\n" +
 		"    port: " + port + "\n" +
@@ -236,15 +234,14 @@ type forwarderStateEntry struct {
 
 func writeForwarderStateEntries(t *testing.T, path string, entries []forwarderStateEntry) {
 	t.Helper()
-	content := "projects:\n"
+	content := "tenants:\n"
 	for index, entry := range entries {
 		host, port, err := net.SplitHostPort(entry.endpoint)
 		if err != nil {
 			t.Fatal(err)
 		}
-		content += "- owner: alice\n" +
-			"  project: project" + string(rune('a'+index)) + "\n" +
-			"  domain: " + entry.domain + "\n" +
+		content += "- tenant: tenant" + string(rune('a'+index)) + "\n" +
+			"  dnsSuffix: " + entry.domain + "\n" +
 			"  dnsEndpoint:\n" +
 			"    ip: " + host + "\n" +
 			"    port: " + port + "\n" +

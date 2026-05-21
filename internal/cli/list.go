@@ -43,10 +43,9 @@ func formatProjectList(projects []project.Summary) string {
 	for _, project := range projects {
 		fmt.Fprintf(
 			&builder,
-			"%s/%s\t%s\t%s\n",
-			project.Owner,
-			project.Name,
-			project.Domain,
+			"%s\t%s\t%s\n",
+			project.Tenant,
+			project.DNSSuffix,
 			project.Status,
 		)
 	}

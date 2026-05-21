@@ -60,7 +60,7 @@ func NewProjectCreator(remote string) ProjectCreator {
 
 func (c ProjectCreator) WithVerbose(enabled bool, w io.Writer) ProjectCreator {
 	if enabled {
-		c.Log = func(msg string) { fmt.Fprintln(w, "[project-create] "+msg) }
+		c.Log = func(msg string) { fmt.Fprintln(w, "[tenant-create] "+msg) }
 	}
 	return c
 }
@@ -71,7 +71,7 @@ func (c ProjectCreator) log(msg string) {
 	}
 }
 
-func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePlan) error {
+func (c ProjectCreator) CreateTenant(ctx context.Context, plan project.CreatePlan) error {
 	server := c.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
@@ -112,8 +112,8 @@ func (c ProjectCreator) CreateProject(ctx context.Context, plan project.CreatePl
 			return err
 		}
 	}
-	c.log("ensure project CA")
-	if err := ensureProjectCA(projectServer, plan); err != nil {
+	c.log("ensure tenant CA")
+	if err := ensureTenantCA(projectServer, plan); err != nil {
 		return err
 	}
 	for _, sidecar := range plan.Sidecars {
@@ -150,18 +150,18 @@ func ensureProject(server ProjectCreateServer, plan project.CreatePlan) error {
 		//       to this project yet (which also means it doesn't exist from our perspective).
 		// In both cases, attempt to create it.
 		if api.StatusErrorCheck(err, http.StatusNotFound) || api.StatusErrorCheck(err, http.StatusForbidden) {
-			cfg := mergeConfig(isolatedProjectFeatureConfig(), plan.ProjectMetadataConfig)
+			cfg := mergeConfig(isolatedProjectFeatureConfig(), plan.TenantMetadataConfig)
 			return server.CreateProject(api.ProjectsPost{
 				Name: plan.IncusProject,
 				ProjectPut: api.ProjectPut{
-					Description: "Sandcastle project " + plan.Reference,
+					Description: "Sandcastle tenant " + plan.Reference,
 					Config:      api.ConfigMap(cfg),
 				},
 			})
 		}
 		return fmt.Errorf("get Incus project %s: %w", plan.IncusProject, err)
 	}
-	config := mergeConfig(map[string]string(existing.Config), plan.ProjectMetadataConfig)
+	config := mergeConfig(map[string]string(existing.Config), plan.TenantMetadataConfig)
 	if err := server.UpdateProject(plan.IncusProject, api.ProjectPut{
 		Description: existing.Description,
 		Config:      api.ConfigMap(config),
@@ -267,25 +267,25 @@ func ensureStorageVolume(server ProjectResourceServer, pool string, volume api.S
 	return server.CreateStoragePoolVolume(pool, volume)
 }
 
-func ensureProjectCA(server ProjectResourceServer, plan project.CreatePlan) error {
-	if len(plan.ProjectCA.CertificatePEM) == 0 || len(plan.ProjectCA.PrivateKeyPEM) == 0 {
-		return fmt.Errorf("project CA material is missing")
+func ensureTenantCA(server ProjectResourceServer, plan project.CreatePlan) error {
+	if len(plan.TenantCA.CertificatePEM) == 0 || len(plan.TenantCA.PrivateKeyPEM) == 0 {
+		return fmt.Errorf("tenant CA material is missing")
 	}
-	if err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.ProjectCA.CertificatePath, incus.InstanceFileArgs{
-		Content:   strings.NewReader(string(plan.ProjectCA.CertificatePEM)),
+	if err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.TenantCA.CertificatePath, incus.InstanceFileArgs{
+		Content:   strings.NewReader(string(plan.TenantCA.CertificatePEM)),
 		Type:      "file",
 		Mode:      0o644,
 		WriteMode: "overwrite",
 	}); err != nil {
-		return fmt.Errorf("write project CA certificate: %w", err)
+		return fmt.Errorf("write tenant CA certificate: %w", err)
 	}
-	if err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.ProjectCA.PrivateKeyPath, incus.InstanceFileArgs{
-		Content:   strings.NewReader(string(plan.ProjectCA.PrivateKeyPEM)),
+	if err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.TenantCA.PrivateKeyPath, incus.InstanceFileArgs{
+		Content:   strings.NewReader(string(plan.TenantCA.PrivateKeyPEM)),
 		Type:      "file",
 		Mode:      0o600,
 		WriteMode: "overwrite",
 	}); err != nil {
-		return fmt.Errorf("write project CA private key: %w", err)
+		return fmt.Errorf("write tenant CA private key: %w", err)
 	}
 	return nil
 }
@@ -432,8 +432,7 @@ func ensureStoragePool(server ProjectCreateServer, plan project.CreatePlan) erro
 	}
 	poolConfig := api.ConfigMap{
 		meta.KeyKind:    "pool",
-		meta.KeyOwner:   ownerFromPlan(plan),
-		meta.KeyProject: projectFromPlan(plan),
+		meta.KeyTenant:  plan.Reference,
 		meta.KeyVersion: "1",
 	}
 	if source := adminPool.Config["source"]; source != "" {
@@ -443,7 +442,7 @@ func ensureStoragePool(server ProjectCreateServer, plan project.CreatePlan) erro
 		Name:   plan.StoragePool,
 		Driver: adminPool.Driver,
 		StoragePoolPut: api.StoragePoolPut{
-			Description: "Sandcastle per-project storage for " + plan.Reference,
+			Description: "Sandcastle per-tenant storage for " + plan.Reference,
 			Config:      poolConfig,
 		},
 	})
@@ -454,8 +453,7 @@ func ensureContainerProfile(server ProjectResourceServer, plan project.CreatePla
 		Description: "Sandcastle container defaults for " + plan.Reference,
 		Config: api.ConfigMap{
 			meta.KeyKind:    "profile",
-			meta.KeyOwner:   ownerFromPlan(plan),
-			meta.KeyProject: projectFromPlan(plan),
+			meta.KeyTenant:  plan.Reference,
 			meta.KeyVersion: "1",
 		},
 		Devices: api.DevicesMap{
@@ -495,8 +493,7 @@ func networkRequest(plan project.CreatePlan) api.NetworksPost {
 				"ipv4.nat":          "true",
 				"ipv6.address":      "none",
 				meta.KeyKind:        "network",
-				meta.KeyOwner:       ownerFromPlan(plan),
-				meta.KeyProject:     projectFromPlan(plan),
+				meta.KeyTenant:      plan.Reference,
 				meta.KeyPrivateCIDR: plan.PrivateCIDR,
 				meta.KeyVersion:     "1",
 			},
@@ -508,7 +505,7 @@ func volumeRequests(plan project.CreatePlan) []api.StorageVolumesPost {
 	return []api.StorageVolumesPost{
 		volumeRequest(plan, plan.HomeVolume, "Sandcastle home state for "+plan.Reference),
 		volumeRequest(plan, plan.WorkspaceVolume, "Sandcastle workspace state for "+plan.Reference),
-		volumeRequest(plan, plan.CAVolume, "Sandcastle project CA state for "+plan.Reference),
+		volumeRequest(plan, plan.CAVolume, "Sandcastle tenant CA state for "+plan.Reference),
 	}
 }
 
@@ -521,8 +518,7 @@ func volumeRequest(plan project.CreatePlan, name string, description string) api
 			Description: description,
 			Config: api.ConfigMap{
 				meta.KeyKind:    "volume",
-				meta.KeyOwner:   ownerFromPlan(plan),
-				meta.KeyProject: projectFromPlan(plan),
+				meta.KeyTenant:  plan.Reference,
 				meta.KeyVersion: "1",
 			},
 		},
@@ -584,25 +580,6 @@ func mergeConfig(existing map[string]string, managed map[string]string) map[stri
 		output[key] = value
 	}
 	return output
-}
-
-func ownerFromPlan(plan project.CreatePlan) string {
-	ref, _, _ := splitReference(plan.Reference)
-	return ref
-}
-
-func projectFromPlan(plan project.CreatePlan) string {
-	_, name, _ := splitReference(plan.Reference)
-	return name
-}
-
-func splitReference(value string) (string, string, bool) {
-	for i, r := range value {
-		if r == '/' {
-			return value[:i], value[i+1:], true
-		}
-	}
-	return "", "", false
 }
 
 type sdkProjectServer struct {

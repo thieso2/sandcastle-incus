@@ -12,7 +12,7 @@ import (
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/caddy"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
@@ -40,20 +40,20 @@ func NewHostOverrideManager(remote string) HostOverrideManager {
 	return HostOverrideManager{Remote: remote}
 }
 
-func (m HostOverrideManager) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
-	sandboxes, err := m.ListSandboxes(ctx, summary)
+func (m HostOverrideManager) FindMachine(ctx context.Context, summary project.Summary, projectName string, machineName string) (meta.Machine, error) {
+	machines, err := m.ListMachines(ctx, summary)
 	if err != nil {
-		return meta.Sandbox{}, err
+		return meta.Machine{}, err
 	}
-	for _, sandbox := range sandboxes {
-		if sandbox.Name == name {
-			return sandbox, nil
+	for _, machine := range machines {
+		if machine.Project == projectName && machine.Name == machineName {
+			return machine, nil
 		}
 	}
-	return meta.Sandbox{}, fmt.Errorf("Sandcastle sandbox %s/%s not found", summary.Owner+"/"+summary.Name, name)
+	return meta.Machine{}, fmt.Errorf("Sandcastle machine %s/%s/%s not found", summary.Tenant, projectName, machineName)
 }
 
-func (m HostOverrideManager) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
+func (m HostOverrideManager) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
 	server := m.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
@@ -75,19 +75,19 @@ func (m HostOverrideManager) ListSandboxes(ctx context.Context, summary project.
 	if err != nil {
 		return nil, fmt.Errorf("list project instances: %w", err)
 	}
-	sandboxes := []meta.Sandbox{}
+	machines := []meta.Machine{}
 	for _, instance := range instances {
-		if instance.Config[meta.KeyKind] != meta.KindSandbox {
+		if instance.Config[meta.KeyKind] != meta.KindMachine {
 			continue
 		}
-		sandbox, err := meta.ParseSandboxConfig(map[string]string(instance.Config))
+		machine, err := meta.ParseMachineConfig(map[string]string(instance.Config))
 		if err != nil {
-			return nil, fmt.Errorf("parse sandbox metadata for %s: %w", instance.Name, err)
+			return nil, fmt.Errorf("parse machine metadata for %s: %w", instance.Name, err)
 		}
-		sandbox.Running = instance.IsActive()
-		sandboxes = append(sandboxes, sandbox)
+		machine.Running = instance.IsActive()
+		machines = append(machines, machine)
 	}
-	return sandboxes, nil
+	return machines, nil
 }
 
 func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan) error {
@@ -107,12 +107,12 @@ func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan)
 		}
 		server = sdkHostOverrideServer{inner: instanceServer}
 	}
-	projectServer := server.UseProject(plan.Project.IncusName)
-	updatedSandbox, err := updateSandboxExtraSANs(projectServer, plan)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
+	updatedMachine, err := updateMachineExtraSANs(projectServer, plan)
 	if err != nil {
 		return err
 	}
-	return writeHostOverrideSandboxFiles(projectServer, plan, updatedSandbox)
+	return writeHostOverrideMachineFiles(projectServer, plan, updatedMachine)
 }
 
 func (m HostOverrideManager) Remove(ctx context.Context, plan hostoverride.RemovePlan) error {
@@ -132,33 +132,33 @@ func (m HostOverrideManager) Remove(ctx context.Context, plan hostoverride.Remov
 		}
 		server = sdkHostOverrideServer{inner: instanceServer}
 	}
-	projectServer := server.UseProject(plan.Project.IncusName)
-	updatedSandbox, err := removeSandboxExtraSAN(projectServer, plan)
+	projectServer := server.UseProject(plan.Tenant.IncusName)
+	updatedMachine, err := removeMachineExtraSAN(projectServer, plan)
 	if err != nil {
 		return err
 	}
-	return writeHostOverrideSandboxFiles(projectServer, addPlanFromRemove(plan), updatedSandbox)
+	return writeHostOverrideMachineFiles(projectServer, addPlanFromRemove(plan), updatedMachine)
 }
 
 type sdkHostOverrideServer struct {
 	inner incus.InstanceServer
 }
 
-func removeSandboxExtraSAN(server HostOverrideResourceServer, plan hostoverride.RemovePlan) (meta.Sandbox, error) {
+func removeMachineExtraSAN(server HostOverrideResourceServer, plan hostoverride.RemovePlan) (meta.Machine, error) {
 	instance, etag, err := server.GetInstance(plan.InstanceName)
 	if err != nil {
-		return meta.Sandbox{}, fmt.Errorf("get sandbox %s: %w", plan.InstanceName, err)
+		return meta.Machine{}, fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
 	}
 	put := instance.Writable()
 	config := map[string]string(put.Config)
-	state, err := meta.ParseSandboxConfig(config)
+	state, err := meta.ParseMachineConfig(config)
 	if err != nil {
-		return meta.Sandbox{}, fmt.Errorf("parse sandbox metadata for %s: %w", plan.InstanceName, err)
+		return meta.Machine{}, fmt.Errorf("parse machine metadata for %s: %w", plan.InstanceName, err)
 	}
 	state.ExtraSANs = removeValue(state.ExtraSANs, plan.Hostname)
-	updated, err := meta.SandboxConfig(state)
+	updated, err := meta.MachineConfig(state)
 	if err != nil {
-		return meta.Sandbox{}, err
+		return meta.Machine{}, err
 	}
 	for key, value := range updated {
 		config[key] = value
@@ -166,10 +166,10 @@ func removeSandboxExtraSAN(server HostOverrideResourceServer, plan hostoverride.
 	put.Config = api.ConfigMap(config)
 	op, err := server.UpdateInstance(plan.InstanceName, put, etag)
 	if err != nil {
-		return meta.Sandbox{}, fmt.Errorf("update sandbox %s host override metadata: %w", plan.InstanceName, err)
+		return meta.Machine{}, fmt.Errorf("update machine %s host override metadata: %w", plan.InstanceName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return meta.Sandbox{}, fmt.Errorf("wait for sandbox %s metadata update: %w", plan.InstanceName, err)
+		return meta.Machine{}, fmt.Errorf("wait for machine %s metadata update: %w", plan.InstanceName, err)
 	}
 	return state, nil
 }
@@ -177,8 +177,8 @@ func removeSandboxExtraSAN(server HostOverrideResourceServer, plan hostoverride.
 func addPlanFromRemove(plan hostoverride.RemovePlan) hostoverride.AddPlan {
 	return hostoverride.AddPlan{
 		Reference:    plan.Reference,
-		Project:      plan.Project,
-		Sandbox:      plan.Sandbox,
+		Tenant:       plan.Tenant,
+		Machine:      plan.Machine,
 		InstanceName: plan.InstanceName,
 		StoragePool:  plan.StoragePool,
 		CAVolume:     plan.CAVolume,
@@ -190,21 +190,21 @@ func (s sdkHostOverrideServer) UseProject(name string) HostOverrideResourceServe
 	return s.inner.UseProject(name)
 }
 
-func updateSandboxExtraSANs(server HostOverrideResourceServer, plan hostoverride.AddPlan) (meta.Sandbox, error) {
+func updateMachineExtraSANs(server HostOverrideResourceServer, plan hostoverride.AddPlan) (meta.Machine, error) {
 	instance, etag, err := server.GetInstance(plan.InstanceName)
 	if err != nil {
-		return meta.Sandbox{}, fmt.Errorf("get sandbox %s: %w", plan.InstanceName, err)
+		return meta.Machine{}, fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
 	}
 	put := instance.Writable()
 	config := map[string]string(put.Config)
-	state, err := meta.ParseSandboxConfig(config)
+	state, err := meta.ParseMachineConfig(config)
 	if err != nil {
-		return meta.Sandbox{}, fmt.Errorf("parse sandbox metadata for %s: %w", plan.InstanceName, err)
+		return meta.Machine{}, fmt.Errorf("parse machine metadata for %s: %w", plan.InstanceName, err)
 	}
 	state.ExtraSANs = appendUnique(state.ExtraSANs, plan.ExtraSANs...)
-	updated, err := meta.SandboxConfig(state)
+	updated, err := meta.MachineConfig(state)
 	if err != nil {
-		return meta.Sandbox{}, err
+		return meta.Machine{}, err
 	}
 	for key, value := range updated {
 		config[key] = value
@@ -212,15 +212,15 @@ func updateSandboxExtraSANs(server HostOverrideResourceServer, plan hostoverride
 	put.Config = api.ConfigMap(config)
 	op, err := server.UpdateInstance(plan.InstanceName, put, etag)
 	if err != nil {
-		return meta.Sandbox{}, fmt.Errorf("update sandbox %s host override metadata: %w", plan.InstanceName, err)
+		return meta.Machine{}, fmt.Errorf("update machine %s host override metadata: %w", plan.InstanceName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return meta.Sandbox{}, fmt.Errorf("wait for sandbox %s metadata update: %w", plan.InstanceName, err)
+		return meta.Machine{}, fmt.Errorf("wait for machine %s metadata update: %w", plan.InstanceName, err)
 	}
 	return state, nil
 }
 
-func writeHostOverrideSandboxFiles(server HostOverrideResourceServer, plan hostoverride.AddPlan, state meta.Sandbox) error {
+func writeHostOverrideMachineFiles(server HostOverrideResourceServer, plan hostoverride.AddPlan, state meta.Machine) error {
 	certificateFiles, err := issueHostOverrideCertificateFiles(server, plan, state.ExtraSANs)
 	if err != nil {
 		return err
@@ -228,18 +228,18 @@ func writeHostOverrideSandboxFiles(server HostOverrideResourceServer, plan hosto
 	for _, directory := range []string{"/etc/caddy", "/etc/caddy/certs"} {
 		err := server.CreateInstanceFile(plan.InstanceName, directory, incus.InstanceFileArgs{Type: "directory", Mode: 0o755})
 		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
-			return fmt.Errorf("create sandbox config directory %s: %w", directory, err)
+			return fmt.Errorf("create machine config directory %s: %w", directory, err)
 		}
 	}
-	hosts := append([]string{state.Name + "." + plan.Project.Domain}, state.ExtraSANs...)
-	caddyFile := caddy.RenderSandboxHosts(hosts, state.AppPort, sandbox.SandboxCertPath, sandbox.SandboxCertKeyPath)
+	hosts := append([]string{state.Name + "." + state.Project + "." + plan.Tenant.DNSSuffix}, state.ExtraSANs...)
+	caddyFile := caddy.RenderSandboxHosts(hosts, state.AppPort, machine.MachineCertPath, machine.MachineCertKeyPath)
 	if err := server.CreateInstanceFile(plan.InstanceName, caddyFile.Path, incus.InstanceFileArgs{
 		Content:   strings.NewReader(caddyFile.Content),
 		Type:      "file",
 		Mode:      caddyFile.Mode,
 		WriteMode: "overwrite",
 	}); err != nil {
-		return fmt.Errorf("write sandbox Caddyfile %s: %w", caddyFile.Path, err)
+		return fmt.Errorf("write machine Caddyfile %s: %w", caddyFile.Path, err)
 	}
 	for _, file := range certificateFiles {
 		if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
@@ -248,22 +248,22 @@ func writeHostOverrideSandboxFiles(server HostOverrideResourceServer, plan hosto
 			Mode:      file.Mode,
 			WriteMode: "overwrite",
 		}); err != nil {
-			return fmt.Errorf("write sandbox certificate file %s: %w", file.Path, err)
+			return fmt.Errorf("write machine certificate file %s: %w", file.Path, err)
 		}
 	}
 	return restartSandboxCaddy(server, plan.InstanceName, "", "")
 }
 
-func issueHostOverrideCertificateFiles(server HostOverrideResourceServer, plan hostoverride.AddPlan, extraSANs []string) ([]sandbox.File, error) {
-	caCertPEM, err := readHostOverrideCAFile(server, plan, project.ProjectCACertPath)
+func issueHostOverrideCertificateFiles(server HostOverrideResourceServer, plan hostoverride.AddPlan, extraSANs []string) ([]machine.File, error) {
+	caCertPEM, err := readHostOverrideCAFile(server, plan, project.TenantCACertPath)
 	if err != nil {
 		return nil, fmt.Errorf("read project CA certificate: %w", err)
 	}
-	caKeyPEM, err := readHostOverrideCAFile(server, plan, project.ProjectCAKeyPath)
+	caKeyPEM, err := readHostOverrideCAFile(server, plan, project.TenantCAKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read project CA private key: %w", err)
 	}
-	files, err := sandbox.IssueCertificateFilesWithExtraSANs(plan.Sandbox.Name, plan.Project.Domain, extraSANs, caCertPEM, caKeyPEM)
+	files, err := machine.IssueCertificateFilesWithExtraSANs(plan.Machine.Name, plan.Machine.Project, plan.Tenant.DNSSuffix, extraSANs, caCertPEM, caKeyPEM)
 	if err != nil {
 		return nil, err
 	}

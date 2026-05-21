@@ -61,7 +61,7 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 			if parseErr != nil {
 				return fmt.Errorf("parse existing route metadata for %s: %w", plan.Hostname, parseErr)
 			}
-			return route.NewConflictError("public route hostname %s is already claimed by %s/%s/%s", plan.Hostname, routeMetadata.TargetOwner, routeMetadata.TargetProject, routeMetadata.TargetSandbox)
+			return route.NewConflictError("public route hostname %s is already claimed by %s/%s/%s", plan.Hostname, routeMetadata.TargetTenant, routeMetadata.TargetProject, routeMetadata.TargetMachine)
 		}
 		return route.NewConflictError("public route hostname %s conflicts with existing infrastructure profile %s", plan.Hostname, name)
 	}
@@ -71,7 +71,7 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 	if _, err := route.VerifyDNSProof(ctx, m.Resolver, plan.DNSProof); err != nil {
 		return err
 	}
-	targetProjectServer := server.UseProject(plan.Project.IncusName)
+	targetProjectServer := server.UseProject(plan.Tenant.IncusName)
 	if err := ensureRouteIngressAttachment(targetProjectServer, plan); err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan) error {
 	instance, etag, err := server.GetInstance(plan.TargetInstanceName)
 	if err != nil {
-		return fmt.Errorf("get route target sandbox %s: %w", plan.TargetReference, err)
+		return fmt.Errorf("get route target machine %s: %w", plan.TargetReference, err)
 	}
 	put := instance.Writable()
 	devices := api.DevicesMap{}
@@ -112,9 +112,9 @@ func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan
 			meta.KeyKind:     "route-ingress",
 			meta.KeyHostname: plan.Hostname,
 			meta.KeyVersion:  "1",
-			meta.KeyOwner:    plan.Project.Owner,
-			meta.KeyProject:  plan.Project.Name,
-			meta.KeyName:     plan.Sandbox.Name,
+			meta.KeyTenant:   plan.Tenant.Tenant,
+			meta.KeyProject:  plan.Machine.Project,
+			meta.KeyMachine:  plan.Machine.Name,
 		}
 		put.Devices = devices
 		op, err := server.UpdateInstance(plan.TargetInstanceName, put, etag)
@@ -129,19 +129,21 @@ func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan
 }
 
 func removeRouteIngressAttachment(server RouteServer, plan route.RemovePlan, routeMetadata meta.Route) error {
-	projectRef := naming.ProjectRef{Owner: routeMetadata.TargetOwner, Project: routeMetadata.TargetProject}
-	incusProject, err := naming.IncusProjectNameWithPrefix(plan.ProjectPrefix, projectRef)
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(plan.ProjectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
 	if err != nil {
 		return err
 	}
 	projectServer := server.UseProject(incusProject)
-	instanceName := "sc-" + routeMetadata.TargetSandbox
+	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: routeMetadata.TargetTenant, Project: routeMetadata.TargetProject, Machine: routeMetadata.TargetMachine})
+	if err != nil {
+		return err
+	}
 	instance, etag, err := projectServer.GetInstance(instanceName)
 	if api.StatusErrorCheck(err, http.StatusNotFound) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("get route target sandbox %s/%s/%s: %w", routeMetadata.TargetOwner, routeMetadata.TargetProject, routeMetadata.TargetSandbox, err)
+		return fmt.Errorf("get route target machine %s/%s/%s: %w", routeMetadata.TargetTenant, routeMetadata.TargetProject, routeMetadata.TargetMachine, err)
 	}
 	put := instance.Writable()
 	deviceName := route.ProfileName(plan.Hostname)
@@ -220,7 +222,7 @@ func (m RouteManager) List(ctx context.Context, plan route.ListPlan) (route.List
 	for _, routeMetadata := range metadataRoutes {
 		routes = append(routes, route.Route{
 			Hostname:        routeMetadata.Hostname,
-			TargetReference: routeMetadata.TargetOwner + "/" + routeMetadata.TargetProject + "/" + routeMetadata.TargetSandbox,
+			TargetReference: routeMetadata.TargetTenant + "/" + routeMetadata.TargetProject + "/" + routeMetadata.TargetMachine,
 			RoutePort:       routeMetadata.RoutePort,
 		})
 	}
@@ -243,7 +245,7 @@ func (m RouteManager) FindRoute(ctx context.Context, hostname string) (meta.Rout
 }
 
 func addRouteBacklink(server RouteServer, plan route.AddPlan) error {
-	return updateProjectRoutes(server, plan.Project.IncusName, false, func(routes []meta.PublicRoute) []meta.PublicRoute {
+	return updateProjectRoutes(server, plan.Tenant.IncusName, false, func(routes []meta.PublicRoute) []meta.PublicRoute {
 		next := make([]meta.PublicRoute, 0, len(routes)+1)
 		for _, existing := range routes {
 			if existing.Hostname == plan.Hostname {
@@ -253,7 +255,8 @@ func addRouteBacklink(server RouteServer, plan route.AddPlan) error {
 		}
 		next = append(next, meta.PublicRoute{
 			Hostname:  plan.Hostname,
-			Sandbox:   plan.Sandbox.Name,
+			Project:   plan.Machine.Project,
+			Machine:   plan.Machine.Name,
 			RoutePort: plan.RoutePort,
 		})
 		sort.Slice(next, func(i, j int) bool {
@@ -264,8 +267,7 @@ func addRouteBacklink(server RouteServer, plan route.AddPlan) error {
 }
 
 func removeRouteBacklink(server RouteServer, plan route.RemovePlan, routeMetadata meta.Route) error {
-	projectRef := naming.ProjectRef{Owner: routeMetadata.TargetOwner, Project: routeMetadata.TargetProject}
-	incusProject, err := naming.IncusProjectNameWithPrefix(plan.ProjectPrefix, projectRef)
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(plan.ProjectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
 	if err != nil {
 		return err
 	}
@@ -289,12 +291,12 @@ func updateProjectRoutes(server RouteServer, projectName string, tolerateMissing
 	if err != nil {
 		return fmt.Errorf("get project route backlinks for %s: %w", projectName, err)
 	}
-	managed, err := meta.ParseProjectConfig(map[string]string(incusProject.Config))
+	managed, err := meta.ParseTenantConfig(map[string]string(incusProject.Config))
 	if err != nil {
 		return fmt.Errorf("parse project route backlinks for %s: %w", projectName, err)
 	}
 	managed.PublicRoutes = update(managed.PublicRoutes)
-	config, err := meta.ProjectConfig(managed)
+	config, err := meta.TenantConfig(managed)
 	if err != nil {
 		return err
 	}

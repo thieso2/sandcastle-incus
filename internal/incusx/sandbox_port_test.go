@@ -63,9 +63,9 @@ func (r *fakeSandboxPortResource) ExecInstance(instanceName string, exec api.Ins
 }
 
 func TestSandboxPortSetterUpdatesMetadata(t *testing.T) {
-	config, err := meta.SandboxConfig(meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+	config, err := meta.MachineConfig(meta.Machine{
+		Tenant:    "acme",
+		Project:   "default",
 		Name:      "codex",
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
@@ -74,19 +74,20 @@ func TestSandboxPortSetterUpdatesMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	resource := &fakeSandboxPortResource{instance: &api.Instance{
-		Name: "sc-codex",
+		Name: "default-codex",
 		InstancePut: api.InstancePut{
 			Config: api.ConfigMap(config),
 		},
 	}}
 	setter := SandboxPortSetter{Server: fakeSandboxPortServer{resource: resource}}
 	err = setter.SetAppPort(context.Background(), sandbox.PortSetPlan{
-		Reference:    "alice/myproject/codex",
-		Project:      project.Summary{IncusName: "sc-alice-myproject"},
+		Reference:    "acme/default/codex",
+		Tenant:       project.Summary{IncusName: "sc-acme"},
+		Project:      "default",
 		Name:         "codex",
-		InstanceName: "sc-codex",
+		InstanceName: "default-codex",
 		AppPort:      5173,
-		CaddyFile:    caddy.RenderSandbox("codex.myproject.project-tld", 5173, sandbox.SandboxCertPath, sandbox.SandboxCertKeyPath),
+		CaddyFile:    caddy.RenderSandbox("codex.default.acme", 5173, sandbox.MachineCertPath, sandbox.MachineCertKeyPath),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +98,7 @@ func TestSandboxPortSetterUpdatesMetadata(t *testing.T) {
 	if resource.updated.Config[meta.KeyAppPort] != "5173" {
 		t.Fatalf("app port scalar = %q", resource.updated.Config[meta.KeyAppPort])
 	}
-	parsed, err := meta.ParseSandboxConfig(map[string]string(resource.updated.Config))
+	parsed, err := meta.ParseMachineConfig(map[string]string(resource.updated.Config))
 	if err != nil {
 		t.Fatal(err)
 	}

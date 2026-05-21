@@ -27,8 +27,8 @@ type RemoveRequest struct {
 type AddPlan struct {
 	Hostname              string            `json:"hostname"`
 	TargetReference       string            `json:"targetReference"`
-	Project               project.Summary   `json:"project"`
-	Sandbox               meta.Sandbox      `json:"sandbox"`
+	Tenant                project.Summary   `json:"tenant"`
+	Machine               meta.Machine      `json:"machine"`
 	TargetInstanceName    string            `json:"targetInstanceName"`
 	InfrastructureProject string            `json:"infrastructureProject"`
 	RoutePort             int               `json:"routePort"`
@@ -70,8 +70,8 @@ type ListResult struct {
 	Routes []Route `json:"routes"`
 }
 
-type SandboxStore interface {
-	FindSandbox(ctx context.Context, project project.Summary, name string) (meta.Sandbox, error)
+type MachineStore interface {
+	FindMachine(ctx context.Context, tenant project.Summary, projectName string, machineName string) (meta.Machine, error)
 }
 
 type Manager interface {
@@ -80,7 +80,7 @@ type Manager interface {
 	List(context.Context, ListPlan) (ListResult, error)
 }
 
-func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, sandboxStore SandboxStore, request AddRequest) (AddPlan, error) {
+func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore MachineStore, request AddRequest) (AddPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return AddPlan{}, err
 	}
@@ -92,36 +92,40 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if err != nil {
 		return AddPlan{}, err
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.TargetReference, admin.Owner)
+	machineRef, err := parseMachineRef(request.TargetReference, admin.Tenant, admin.Project)
 	if err != nil {
 		return AddPlan{}, err
 	}
-	summary, err := findProject(ctx, projectStore, projectRef)
+	summary, err := findTenant(ctx, projectStore, machineRef.Tenant)
 	if err != nil {
 		return AddPlan{}, err
 	}
-	if sandboxStore == nil {
-		return AddPlan{}, fmt.Errorf("sandbox metadata store is required")
+	if machineStore == nil {
+		return AddPlan{}, fmt.Errorf("machine metadata store is required")
 	}
-	target, err := sandboxStore.FindSandbox(ctx, summary, sandboxName)
+	target, err := machineStore.FindMachine(ctx, summary, machineRef.Project, machineRef.Machine)
 	if err != nil {
 		return AddPlan{}, err
 	}
 	if target.PrivateIP == "" {
-		return AddPlan{}, fmt.Errorf("sandbox %s has no private IP", request.TargetReference)
+		return AddPlan{}, fmt.Errorf("machine %s has no private IP", request.TargetReference)
 	}
 	routePort := target.AppPort
 	if routePort == 0 {
-		routePort, err = sandbox.DefaultAppPortForTemplate(summary.DefaultTemplate)
+		template := target.Template
+		if template == "" {
+			template = summary.DefaultTemplate
+		}
+		routePort, err = sandbox.DefaultAppPortForTemplate(template)
 		if err != nil {
 			return AddPlan{}, err
 		}
 	}
 	routeMetadata := meta.Route{
 		Hostname:      hostname,
-		TargetOwner:   summary.Owner,
-		TargetProject: summary.Name,
-		TargetSandbox: target.Name,
+		TargetTenant:  summary.Tenant,
+		TargetProject: target.Project,
+		TargetMachine: target.Name,
 		TargetIP:      target.PrivateIP,
 		RoutePort:     routePort,
 	}
@@ -129,12 +133,17 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if err != nil {
 		return AddPlan{}, err
 	}
+	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: target.Project, Machine: target.Name})
+	if err != nil {
+		return AddPlan{}, err
+	}
+	canonicalReference := naming.MachineRef{Tenant: summary.Tenant, Project: target.Project, Machine: target.Name}.String()
 	return AddPlan{
 		Hostname:              hostname,
-		TargetReference:       summary.Owner + "/" + summary.Name + "/" + target.Name,
-		Project:               summary,
-		Sandbox:               target,
-		TargetInstanceName:    "sc-" + target.Name,
+		TargetReference:       canonicalReference,
+		Tenant:                summary,
+		Machine:               target,
+		TargetInstanceName:    instanceName,
 		InfrastructureProject: admin.InfrastructureProject,
 		RoutePort:             routePort,
 		TargetIP:              target.PrivateIP,
@@ -208,43 +217,30 @@ func normalizePublicHostname(value string) (string, error) {
 	return hostname, nil
 }
 
-func parseSandboxRef(value string, defaultOwner string) (naming.ProjectRef, string, error) {
-	parts := strings.Split(value, "/")
-	if len(parts) == 2 {
-		if strings.TrimSpace(defaultOwner) == "" {
-			return naming.ProjectRef{}, "", fmt.Errorf("route target must be owner/project/name or set SANDCASTLE_OWNER to use project/name")
-		}
-		projectRef, err := naming.ParseProjectRef(defaultOwner + "/" + parts[0])
+func parseMachineRef(value string, currentTenant string, currentProject string) (naming.MachineRef, error) {
+	if strings.TrimSpace(currentTenant) != "" {
+		projectRef, machineName, err := naming.ParseUserMachineRef(value, currentProject)
 		if err != nil {
-			return naming.ProjectRef{}, "", err
+			return naming.MachineRef{}, err
 		}
-		if err := naming.ValidateSandboxName(parts[1]); err != nil {
-			return naming.ProjectRef{}, "", err
-		}
-		return projectRef, parts[1], nil
+		return naming.MachineRef{Tenant: currentTenant, Project: projectRef.Project, Machine: machineName}, nil
 	}
-	if len(parts) != 3 {
-		return naming.ProjectRef{}, "", fmt.Errorf("route target must be owner/project/name")
+	parts := strings.Split(value, "/")
+	if len(parts) == 2 || len(parts) == 3 {
+		return naming.ParseAdminMachineRef(value)
 	}
-	projectRef, err := naming.ParseProjectRef(parts[0] + "/" + parts[1])
-	if err != nil {
-		return naming.ProjectRef{}, "", err
-	}
-	if err := naming.ValidateSandboxName(parts[2]); err != nil {
-		return naming.ProjectRef{}, "", err
-	}
-	return projectRef, parts[2], nil
+	return naming.MachineRef{}, fmt.Errorf("route target must be machine, project/machine, tenant/machine, or tenant/project/machine")
 }
 
-func findProject(ctx context.Context, store project.IncusProjectStore, ref naming.ProjectRef) (project.Summary, error) {
+func findTenant(ctx context.Context, store project.IncusProjectStore, tenantName string) (project.Summary, error) {
 	projects, err := project.List(ctx, store)
 	if err != nil {
 		return project.Summary{}, err
 	}
 	for _, summary := range projects {
-		if summary.Owner == ref.Owner && summary.Name == ref.Project {
+		if summary.Tenant == tenantName {
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("project %q not found", ref.String())
+	return project.Summary{}, fmt.Errorf("tenant %q not found", tenantName)
 }

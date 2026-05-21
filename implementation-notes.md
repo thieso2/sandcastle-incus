@@ -29,3 +29,24 @@
   instance names of `{project}-{machine}`, private hostnames of
   `{machine}.{project}.{tenant}`, and tenant storage defaults of
   `{project}/{machine}`.
+- Local DNS, local trust, Tailscale, and restricted-user grants now resolve
+  tenant references rather than owner/project references. Local DNS writes a new
+  `tenants:` state schema with `dnsSuffix` entries; there is intentionally no
+  migration or compatibility alias for the old `projects:` local state.
+- Restricted-user grants still produce Incus restricted certificate `Projects`
+  because that is the Incus API surface, but command input is now tenant refs
+  and maps to `sc-{tenant}`.
+- Public route planning and host overrides now target machines, not sandboxes.
+  Canonical references are `tenant/project/machine`; user-side calls may resolve
+  `machine` or `project/machine` through `SANDCASTLE_TENANT` and
+  `SANDCASTLE_PROJECT`. Route metadata writes `targetTenant`,
+  `targetProject`, and `targetMachine`.
+- Route broker authorization is now tenant-grant based. The mTLS principal still
+  has a human/user owner string for audit (`CreatedBy`), but route add/remove
+  authorization checks whether the certificate grants the target Incus tenant
+  project (`sc-{tenant}`), not whether the user name matches the tenant.
+- The Incus adapter layer has started moving from project/sandbox method
+  semantics to tenant/machine semantics. Some concrete type names in
+  `internal/incusx` are still old (`ProjectCreator`, `SandboxCreator`) because
+  the surrounding CLI has not been renamed yet, but their metadata behavior now
+  writes and reads tenant/machine state.

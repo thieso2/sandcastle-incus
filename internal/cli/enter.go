@@ -23,7 +23,7 @@ func newEnterCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if config.sandboxEnterer == nil {
 				return fmt.Errorf("sandbox enter executor is not configured")
 			}
-			if err := config.sandboxEnterer.EnterSandbox(cmd.Context(), plan, sandbox.EnterSession{
+			if err := config.sandboxEnterer.ConnectMachine(cmd.Context(), plan, sandbox.EnterSession{
 				Stdin:  config.stdin,
 				Stdout: config.stdout,
 				Stderr: config.stderr,

@@ -64,7 +64,7 @@ func TestSandboxControllerRemovesInstance(t *testing.T) {
 	if err := controller.ApplyLifecycle(context.Background(), sandboxLifecyclePlan(sandbox.ActionRemove)); err != nil {
 		t.Fatal(err)
 	}
-	if resource.deleted != "sc-codex" {
+	if resource.deleted != "default-codex" {
 		t.Fatalf("deleted = %q", resource.deleted)
 	}
 }
@@ -79,14 +79,11 @@ func TestSandboxControllerRemoveIgnoresMissingInstance(t *testing.T) {
 
 func sandboxLifecyclePlan(action sandbox.Action) sandbox.LifecyclePlan {
 	return sandbox.LifecyclePlan{
-		Reference:    "alice/myproject/codex",
+		Reference:    "acme/default/codex",
 		Name:         "codex",
-		InstanceName: "sc-codex",
+		InstanceName: "default-codex",
 		Action:       action,
-		Project: project.Summary{
-			IncusName: "sc-alice-myproject",
-			Owner:     "alice",
-			Name:      "myproject",
-		},
+		Tenant:       project.Summary{IncusName: "sc-acme", Tenant: "acme"},
+		Project:      "default",
 	}
 }

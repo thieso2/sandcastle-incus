@@ -60,7 +60,7 @@ func TestHTTPRunnerServesAuthorizedRouteOverMTLS(t *testing.T) {
 
 	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{{
 		Hostname:        "app.example.com",
-		TargetReference: "alice/myproject/codex",
+		TargetReference: "acme/default/codex",
 		RoutePort:       5173,
 	}}}}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -143,7 +143,7 @@ func addRouteWithRetry(t *testing.T, client Client) {
 	for time.Now().Before(deadline) {
 		err := client.Add(context.Background(), route.AddPlan{
 			Hostname:        "app.example.com",
-			TargetReference: "alice/myproject/codex",
+			TargetReference: "acme/default/codex",
 		})
 		if err == nil {
 			return

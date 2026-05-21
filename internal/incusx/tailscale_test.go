@@ -10,8 +10,8 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeTailscaleServer struct {
@@ -55,8 +55,8 @@ func TestTailscaleManagerRunsUpInSidecar(t *testing.T) {
 	resource := &fakeTailscaleResource{}
 	manager := TailscaleManager{Server: &fakeTailscaleServer{resource: resource}}
 	err := manager.RunUp(context.Background(), tailscale.UpPlan{
-		Project:         project.Summary{IncusName: "sc-alice-myproject"},
-		InstanceName:    "sc-alice-myproject",
+		Tenant:          project.Summary{IncusName: "sc-acme"},
+		InstanceName:    "sc-acme",
 		AdvertiseRoutes: []string{"10.248.0.0/24"},
 		AdvertiseTags:   []string{"tag:sandcastle"},
 		AuthKey:         "tskey-secret",
@@ -64,7 +64,7 @@ func TestTailscaleManagerRunsUpInSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resource.instanceName != "sc-alice-myproject" {
+	if resource.instanceName != "sc-acme" {
 		t.Fatalf("instanceName = %q", resource.instanceName)
 	}
 	command := strings.Join(resource.exec.Command, " ")
@@ -94,13 +94,13 @@ func TestTailscaleManagerRunsStatusAndUpdatesMetadata(t *testing.T) {
 	}`}
 	server := &fakeTailscaleServer{
 		resource: resource,
-		project:  &api.Project{Name: "sc-alice-myproject", ProjectPut: api.ProjectPut{Config: api.ConfigMap(configMap)}},
+		project:  &api.Project{Name: "sc-acme", ProjectPut: api.ProjectPut{Config: api.ConfigMap(configMap)}},
 	}
 	manager := TailscaleManager{Server: server}
 	result, err := manager.RunStatus(context.Background(), tailscale.StatusPlan{
-		Reference:    "alice/myproject",
-		Project:      project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject"},
-		InstanceName: "sc-alice-myproject",
+		Reference:    "acme",
+		Tenant:       project.Summary{IncusName: "sc-acme", Tenant: "acme"},
+		InstanceName: "sc-acme",
 		Command:      []string{"tailscale", "status", "--json"},
 	}, tailscale.RunSession{Stderr: io.Discard})
 	if err != nil {
@@ -110,9 +110,9 @@ func TestTailscaleManagerRunsStatusAndUpdatesMetadata(t *testing.T) {
 		t.Fatalf("State = %q", result.Tailscale.State)
 	}
 	if server.updated == nil {
-		t.Fatal("expected project metadata update")
+		t.Fatal("expected tenant metadata update")
 	}
-	parsed, err := meta.ParseProjectConfig(map[string]string(server.updated.Config))
+	parsed, err := meta.ParseTenantConfig(map[string]string(server.updated.Config))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestTailscaleManagerRunsStatusAndUpdatesMetadata(t *testing.T) {
 	}
 	for _, forbidden := range []string{"login.tailscale.com", "secret-token"} {
 		if strings.Contains(string(encoded), forbidden) {
-			t.Fatalf("project metadata leaked %q: %s", forbidden, encoded)
+			t.Fatalf("tenant metadata leaked %q: %s", forbidden, encoded)
 		}
 	}
 }
@@ -134,21 +134,21 @@ func TestTailscaleManagerRunsDownAndUpdatesMetadata(t *testing.T) {
 	configMap := projectConfigForTailscaleTest(t)
 	server := &fakeTailscaleServer{
 		resource: &fakeTailscaleResource{},
-		project:  &api.Project{Name: "sc-alice-myproject", ProjectPut: api.ProjectPut{Config: api.ConfigMap(configMap)}},
+		project:  &api.Project{Name: "sc-acme", ProjectPut: api.ProjectPut{Config: api.ConfigMap(configMap)}},
 	}
 	manager := TailscaleManager{Server: server}
 	err := manager.RunDown(context.Background(), tailscale.DownPlan{
-		Project:      project.Summary{IncusName: "sc-alice-myproject"},
-		InstanceName: "sc-alice-myproject",
+		Tenant:       project.Summary{IncusName: "sc-acme"},
+		InstanceName: "sc-acme",
 		Command:      []string{"tailscale", "down"},
 	}, tailscale.RunSession{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if server.updated == nil {
-		t.Fatal("expected project metadata update")
+		t.Fatal("expected tenant metadata update")
 	}
-	parsed, err := meta.ParseProjectConfig(map[string]string(server.updated.Config))
+	parsed, err := meta.ParseTenantConfig(map[string]string(server.updated.Config))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,12 +159,10 @@ func TestTailscaleManagerRunsDownAndUpdatesMetadata(t *testing.T) {
 
 func projectConfigForTailscaleTest(t *testing.T) map[string]string {
 	t.Helper()
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)

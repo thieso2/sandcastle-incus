@@ -13,28 +13,26 @@ import (
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func TestPlanInstallFindsManagedProject(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+func TestPlanInstallFindsManagedTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-alice-myproject",
+		Name:   "sc-acme",
 		Config: configMap,
-	}}}, Request{Reference: "alice/myproject"})
+	}}}, Request{Reference: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.IncusProject != "sc-alice-myproject" {
+	if plan.IncusProject != "sc-acme" {
 		t.Fatalf("IncusProject = %q", plan.IncusProject)
 	}
-	if plan.CAVolume != project.CAVolumeName || plan.CertificatePath != project.ProjectCACertPath {
+	if plan.CAVolume != project.CAVolumeName || plan.CertificatePath != project.TenantCACertPath {
 		t.Fatalf("CA location = %s:%s", plan.CAVolume, plan.CertificatePath)
 	}
 	if !strings.Contains(plan.Warning, "mint certificates") {
@@ -42,33 +40,31 @@ func TestPlanInstallFindsManagedProject(t *testing.T) {
 	}
 }
 
-func TestPlanInstallSupportsProjectShorthandWithOwner(t *testing.T) {
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+func TestPlanInstallSupportsCurrentTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	admin := scconfig.LoadAdminFromEnv()
-	admin.Owner = "alice"
+	admin.Tenant = "acme"
 	plan, err := PlanInstall(context.Background(), admin, project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-alice-myproject",
+		Name:   "sc-acme",
 		Config: configMap,
-	}}}, Request{Reference: "myproject"})
+	}}}, Request{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Reference != "alice/myproject" {
+	if plan.Reference != "acme" {
 		t.Fatalf("Reference = %q", plan.Reference)
 	}
 }
 
-func TestPlanInstallRejectsMissingProject(t *testing.T) {
-	_, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), project.MemoryStore{}, Request{Reference: "alice/missing"})
+func TestPlanInstallRejectsMissingTenant(t *testing.T) {
+	_, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), project.MemoryStore{}, Request{Reference: "missing"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -77,7 +73,7 @@ func TestPlanInstallRejectsMissingProject(t *testing.T) {
 func TestFileStoreInstallAndUninstall(t *testing.T) {
 	dir := t.TempDir()
 	store := FileStore{Dir: dir}
-	plan := Plan{Reference: "alice/myproject", TrustName: "Sandcastle alice/myproject project CA"}
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
 	result, err := store.InstallCA(context.Background(), plan, []byte("CERT"))
 	if err != nil {
 		t.Fatal(err)
@@ -106,8 +102,8 @@ func TestFileStoreInstallAndUninstall(t *testing.T) {
 
 func TestCommandStoreRejectsEmptyCA(t *testing.T) {
 	_, err := (CommandStore{GOOS: "linux", LinuxDir: t.TempDir()}).InstallCA(context.Background(), Plan{
-		Reference: "alice/myproject",
-		TrustName: "Sandcastle alice/myproject project CA",
+		Reference: "acme",
+		TrustName: "Sandcastle acme tenant CA",
 	}, nil)
 	if err == nil {
 		t.Fatal("expected error")
@@ -128,7 +124,7 @@ func TestCommandStoreInstallLinuxCreatesTrustDirectoryAndUpdates(t *testing.T) {
 			return []byte("ok"), nil
 		},
 	}
-	plan := Plan{Reference: "alice/myproject", TrustName: "Sandcastle alice/myproject project CA"}
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
 	result, err := store.InstallCA(context.Background(), plan, []byte("CERT"))
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +146,7 @@ func TestCommandStoreInstallLinuxCreatesTrustDirectoryAndUpdates(t *testing.T) {
 
 func TestCommandStoreUninstallLinuxRemovesTrustFileAndUpdates(t *testing.T) {
 	dir := t.TempDir()
-	plan := Plan{Reference: "alice/myproject", TrustName: "Sandcastle alice/myproject project CA"}
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
 	target := filepath.Join(dir, CertFilename(plan))
 	if err := os.WriteFile(target, []byte("CERT"), 0o644); err != nil {
 		t.Fatal(err)
@@ -180,7 +176,7 @@ func TestCommandStoreUninstallLinuxRemovesTrustFileAndUpdates(t *testing.T) {
 }
 
 func TestPlanDoesNotSerializePEM(t *testing.T) {
-	plan := Plan{Reference: "alice/myproject", TrustName: "Sandcastle alice/myproject project CA"}
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
 	payload, err := json.Marshal(plan)
 	if err != nil {
 		t.Fatal(err)

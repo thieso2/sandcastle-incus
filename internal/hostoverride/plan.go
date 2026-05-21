@@ -28,8 +28,8 @@ type ListRequest struct {
 
 type AddPlan struct {
 	Reference         string          `json:"reference"`
-	Project           project.Summary `json:"project"`
-	Sandbox           meta.Sandbox    `json:"sandbox"`
+	Tenant            project.Summary `json:"tenant"`
+	Machine           meta.Machine    `json:"machine"`
 	InstanceName      string          `json:"instanceName"`
 	StoragePool       string          `json:"storagePool"`
 	CAVolume          string          `json:"caVolume"`
@@ -44,8 +44,8 @@ type AddPlan struct {
 
 type RemovePlan struct {
 	Reference         string          `json:"reference"`
-	Project           project.Summary `json:"project"`
-	Sandbox           meta.Sandbox    `json:"sandbox"`
+	Tenant            project.Summary `json:"tenant"`
+	Machine           meta.Machine    `json:"machine"`
 	InstanceName      string          `json:"instanceName"`
 	StoragePool       string          `json:"storagePool"`
 	CAVolume          string          `json:"caVolume"`
@@ -56,13 +56,13 @@ type RemovePlan struct {
 }
 
 type ListResult struct {
-	Project   project.Summary `json:"project"`
+	Tenant    project.Summary `json:"tenant"`
 	Overrides []Override      `json:"overrides"`
 }
 
 type Override struct {
 	Reference string       `json:"reference"`
-	Sandbox   meta.Sandbox `json:"sandbox"`
+	Machine   meta.Machine `json:"machine"`
 	Hostname  string       `json:"hostname"`
 	IPAddress string       `json:"ipAddress"`
 }
@@ -73,9 +73,9 @@ type HostsEntry struct {
 	EndLine   string `json:"endLine"`
 }
 
-type SandboxStore interface {
-	FindSandbox(ctx context.Context, project project.Summary, name string) (meta.Sandbox, error)
-	ListSandboxes(ctx context.Context, project project.Summary) ([]meta.Sandbox, error)
+type MachineStore interface {
+	FindMachine(ctx context.Context, tenant project.Summary, projectName string, machineName string) (meta.Machine, error)
+	ListMachines(ctx context.Context, tenant project.Summary) ([]meta.Machine, error)
 }
 
 type Manager interface {
@@ -83,11 +83,11 @@ type Manager interface {
 	Remove(context.Context, RemovePlan) error
 }
 
-func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, sandboxStore SandboxStore, request AddRequest) (AddPlan, error) {
+func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore MachineStore, request AddRequest) (AddPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return AddPlan{}, err
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.Reference, admin.Owner)
+	machineRef, err := parseMachineRef(request.Reference, admin.Tenant, admin.Project)
 	if err != nil {
 		return AddPlan{}, err
 	}
@@ -95,46 +95,50 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if err != nil {
 		return AddPlan{}, err
 	}
-	summary, err := findProject(ctx, projectStore, projectRef)
+	summary, err := findTenant(ctx, projectStore, machineRef.Tenant)
 	if err != nil {
 		return AddPlan{}, err
 	}
-	if sandboxStore == nil {
-		return AddPlan{}, fmt.Errorf("sandbox metadata store is required")
+	if machineStore == nil {
+		return AddPlan{}, fmt.Errorf("machine metadata store is required")
 	}
-	sandbox, err := sandboxStore.FindSandbox(ctx, summary, sandboxName)
+	machine, err := machineStore.FindMachine(ctx, summary, machineRef.Project, machineRef.Machine)
 	if err != nil {
 		return AddPlan{}, err
 	}
-	if sandbox.PrivateIP == "" {
-		return AddPlan{}, fmt.Errorf("sandbox %s has no private IP", request.Reference)
+	if machine.PrivateIP == "" {
+		return AddPlan{}, fmt.Errorf("machine %s has no private IP", request.Reference)
 	}
-	if err := validateHostnameAvailable(ctx, sandboxStore, summary, sandboxName, hostname); err != nil {
+	if err := validateHostnameAvailable(ctx, machineStore, summary, machineRef.Project, machineRef.Machine, hostname); err != nil {
 		return AddPlan{}, err
 	}
-	canonicalReference := summary.Owner + "/" + summary.Name + "/" + sandboxName
+	canonicalReference := naming.MachineRef{Tenant: summary.Tenant, Project: machine.Project, Machine: machine.Name}.String()
+	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: machine.Project, Machine: machine.Name})
+	if err != nil {
+		return AddPlan{}, err
+	}
 	return AddPlan{
 		Reference:         canonicalReference,
-		Project:           summary,
-		Sandbox:           sandbox,
-		InstanceName:      "sc-" + sandboxName,
+		Tenant:            summary,
+		Machine:           machine,
+		InstanceName:      instanceName,
 		StoragePool:       summary.IncusName,
 		CAVolume:          project.CAVolumeName,
 		Hostname:          hostname,
-		IPAddress:         sandbox.PrivateIP,
+		IPAddress:         machine.PrivateIP,
 		ExtraSANs:         []string{hostname},
-		HostsEntry:        RenderHostsEntry(canonicalReference, hostname, sandbox.PrivateIP),
-		TrustWarning:      "Trust the project CA before relying on HTTPS for this host override.",
+		HostsEntry:        RenderHostsEntry(canonicalReference, hostname, machine.PrivateIP),
+		TrustWarning:      "Trust the tenant CA before relying on HTTPS for this host override.",
 		RequiresReissue:   true,
 		RequiresHostsEdit: true,
 	}, nil
 }
 
-func PlanRemove(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, sandboxStore SandboxStore, request RemoveRequest) (RemovePlan, error) {
+func PlanRemove(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore MachineStore, request RemoveRequest) (RemovePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return RemovePlan{}, err
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.Reference, admin.Owner)
+	machineRef, err := parseMachineRef(request.Reference, admin.Tenant, admin.Project)
 	if err != nil {
 		return RemovePlan{}, err
 	}
@@ -142,59 +146,63 @@ func PlanRemove(ctx context.Context, admin config.Admin, projectStore project.In
 	if err != nil {
 		return RemovePlan{}, err
 	}
-	summary, err := findProject(ctx, projectStore, projectRef)
+	summary, err := findTenant(ctx, projectStore, machineRef.Tenant)
 	if err != nil {
 		return RemovePlan{}, err
 	}
-	if sandboxStore == nil {
-		return RemovePlan{}, fmt.Errorf("sandbox metadata store is required")
+	if machineStore == nil {
+		return RemovePlan{}, fmt.Errorf("machine metadata store is required")
 	}
-	sandbox, err := sandboxStore.FindSandbox(ctx, summary, sandboxName)
+	machine, err := machineStore.FindMachine(ctx, summary, machineRef.Project, machineRef.Machine)
 	if err != nil {
 		return RemovePlan{}, err
 	}
-	canonicalReference := summary.Owner + "/" + summary.Name + "/" + sandboxName
+	canonicalReference := naming.MachineRef{Tenant: summary.Tenant, Project: machine.Project, Machine: machine.Name}.String()
+	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: machine.Project, Machine: machine.Name})
+	if err != nil {
+		return RemovePlan{}, err
+	}
 	return RemovePlan{
 		Reference:         canonicalReference,
-		Project:           summary,
-		Sandbox:           sandbox,
-		InstanceName:      "sc-" + sandboxName,
+		Tenant:            summary,
+		Machine:           machine,
+		InstanceName:      instanceName,
 		StoragePool:       summary.IncusName,
 		CAVolume:          project.CAVolumeName,
 		Hostname:          hostname,
-		HostsEntry:        RenderHostsEntry(canonicalReference, hostname, sandbox.PrivateIP),
+		HostsEntry:        RenderHostsEntry(canonicalReference, hostname, machine.PrivateIP),
 		RequiresReissue:   true,
 		RequiresHostsEdit: true,
 	}, nil
 }
 
-func PlanList(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, sandboxStore SandboxStore, request ListRequest) (ListResult, error) {
+func PlanList(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore MachineStore, request ListRequest) (ListResult, error) {
 	if err := admin.Validate(); err != nil {
 		return ListResult{}, err
 	}
-	projectRef, err := naming.ParseProjectRefWithDefaultOwner(request.Reference, admin.Owner)
+	tenantRef, err := tenantRef(request.Reference, admin.Tenant)
 	if err != nil {
 		return ListResult{}, err
 	}
-	summary, err := findProject(ctx, projectStore, projectRef)
+	summary, err := findTenant(ctx, projectStore, tenantRef.Tenant)
 	if err != nil {
 		return ListResult{}, err
 	}
-	if sandboxStore == nil {
-		return ListResult{}, fmt.Errorf("sandbox metadata store is required")
+	if machineStore == nil {
+		return ListResult{}, fmt.Errorf("machine metadata store is required")
 	}
-	sandboxes, err := sandboxStore.ListSandboxes(ctx, summary)
+	machines, err := machineStore.ListMachines(ctx, summary)
 	if err != nil {
 		return ListResult{}, err
 	}
-	result := ListResult{Project: summary}
-	for _, sandbox := range sandboxes {
-		for _, hostname := range sandbox.ExtraSANs {
+	result := ListResult{Tenant: summary}
+	for _, machine := range machines {
+		for _, hostname := range machine.ExtraSANs {
 			result.Overrides = append(result.Overrides, Override{
-				Reference: summary.Owner + "/" + summary.Name + "/" + sandbox.Name,
-				Sandbox:   sandbox,
+				Reference: naming.MachineRef{Tenant: summary.Tenant, Project: machine.Project, Machine: machine.Name}.String(),
+				Machine:   machine,
 				Hostname:  hostname,
-				IPAddress: sandbox.PrivateIP,
+				IPAddress: machine.PrivateIP,
 			})
 		}
 	}
@@ -210,18 +218,18 @@ func RenderHostsEntry(reference string, hostname string, ipAddress string) Hosts
 	}
 }
 
-func validateHostnameAvailable(ctx context.Context, sandboxStore SandboxStore, summary project.Summary, sandboxName string, hostname string) error {
-	sandboxes, err := sandboxStore.ListSandboxes(ctx, summary)
+func validateHostnameAvailable(ctx context.Context, machineStore MachineStore, summary project.Summary, projectName string, machineName string, hostname string) error {
+	machines, err := machineStore.ListMachines(ctx, summary)
 	if err != nil {
 		return err
 	}
-	for _, sandbox := range sandboxes {
-		if sandbox.Name == sandboxName {
+	for _, machine := range machines {
+		if machine.Project == projectName && machine.Name == machineName {
 			continue
 		}
-		for _, existing := range sandbox.ExtraSANs {
+		for _, existing := range machine.ExtraSANs {
 			if strings.EqualFold(existing, hostname) {
-				return fmt.Errorf("host override %s is already assigned to %s/%s/%s", hostname, summary.Owner, summary.Name, sandbox.Name)
+				return fmt.Errorf("host override %s is already assigned to %s/%s/%s", hostname, summary.Tenant, machine.Project, machine.Name)
 			}
 		}
 	}
@@ -257,43 +265,41 @@ func normalizeExactHostname(value string) (string, error) {
 	return hostname, nil
 }
 
-func parseSandboxRef(value string, defaultOwner string) (naming.ProjectRef, string, error) {
-	parts := strings.Split(value, "/")
-	if len(parts) == 2 {
-		if strings.TrimSpace(defaultOwner) == "" {
-			return naming.ProjectRef{}, "", fmt.Errorf("sandbox reference must be owner/project/name or set SANDCASTLE_OWNER to use project/name")
-		}
-		projectRef, err := naming.ParseProjectRef(defaultOwner + "/" + parts[0])
+func parseMachineRef(value string, currentTenant string, currentProject string) (naming.MachineRef, error) {
+	if strings.TrimSpace(currentTenant) != "" {
+		projectRef, machineName, err := naming.ParseUserMachineRef(value, currentProject)
 		if err != nil {
-			return naming.ProjectRef{}, "", err
+			return naming.MachineRef{}, err
 		}
-		if err := naming.ValidateSandboxName(parts[1]); err != nil {
-			return naming.ProjectRef{}, "", err
-		}
-		return projectRef, parts[1], nil
+		return naming.MachineRef{Tenant: currentTenant, Project: projectRef.Project, Machine: machineName}, nil
 	}
-	if len(parts) != 3 {
-		return naming.ProjectRef{}, "", fmt.Errorf("sandbox reference must be owner/project/name")
+	parts := strings.Split(value, "/")
+	if len(parts) == 2 || len(parts) == 3 {
+		return naming.ParseAdminMachineRef(value)
 	}
-	projectRef, err := naming.ParseProjectRef(parts[0] + "/" + parts[1])
-	if err != nil {
-		return naming.ProjectRef{}, "", err
-	}
-	if err := naming.ValidateSandboxName(parts[2]); err != nil {
-		return naming.ProjectRef{}, "", err
-	}
-	return projectRef, parts[2], nil
+	return naming.MachineRef{}, fmt.Errorf("machine reference must be machine, project/machine, tenant/machine, or tenant/project/machine")
 }
 
-func findProject(ctx context.Context, store project.IncusProjectStore, ref naming.ProjectRef) (project.Summary, error) {
-	projects, err := project.List(ctx, store)
+func tenantRef(reference string, currentTenant string) (naming.TenantRef, error) {
+	value := strings.TrimSpace(reference)
+	if value == "" {
+		value = strings.TrimSpace(currentTenant)
+	}
+	if value == "" {
+		return naming.TenantRef{}, fmt.Errorf("tenant reference is required")
+	}
+	return naming.ParseTenantRef(value)
+}
+
+func findTenant(ctx context.Context, store project.IncusProjectStore, tenantName string) (project.Summary, error) {
+	tenants, err := project.List(ctx, store)
 	if err != nil {
 		return project.Summary{}, err
 	}
-	for _, summary := range projects {
-		if summary.Owner == ref.Owner && summary.Name == ref.Project {
+	for _, summary := range tenants {
+		if summary.Tenant == tenantName {
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("Sandcastle project %s not found", ref.String())
+	return project.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", tenantName)
 }

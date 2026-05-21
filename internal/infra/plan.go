@@ -104,10 +104,10 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		return CreatePlan{}, fmt.Errorf("infrastructure project is required")
 	}
 	projectConfig := map[string]string{
-		meta.KeyKind:        "infrastructure",
-		meta.KeyVersion:     "1",
-		meta.KeyName:        project,
-		"features.images":   "false",
+		meta.KeyKind:         "infrastructure",
+		meta.KeyVersion:      "1",
+		meta.Prefix + "name": project,
+		"features.images":    "false",
 	}
 	brokerTLS, err := certs.GenerateSelfSignedServer("Sandcastle route broker", []string{RouteBrokerName, "localhost"}, time.Now().UTC())
 	if err != nil {
@@ -182,8 +182,8 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 		{
 			Instance: RouteBrokerName,
 			Path:     RouteBrokerUnitPath,
-			Content: "[Unit]\nDescription=Sandcastle route broker\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + RouteBrokerEnvPath + "\nExecStart=" + RouteBrokerBinaryPath + " admin route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
-			Mode:    0o644,
+			Content:  "[Unit]\nDescription=Sandcastle route broker\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + RouteBrokerEnvPath + "\nExecStart=" + RouteBrokerBinaryPath + " admin route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			Mode:     0o644,
 		},
 	}
 }
@@ -257,10 +257,10 @@ func instancePlan(admin config.Admin, name string, role string) InstancePlan {
 		Role:       role,
 		ImageAlias: admin.Images.Base,
 		Config: map[string]string{
-			meta.KeyKind:    "infrastructure",
-			meta.KeyVersion: "1",
-			meta.KeyName:    name,
-			meta.KeyRole:    role,
+			meta.KeyKind:         "infrastructure",
+			meta.KeyVersion:      "1",
+			meta.Prefix + "name": name,
+			meta.Prefix + "role": role,
 		},
 		Devices: devices,
 		Start:   true,

@@ -8,8 +8,8 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -92,7 +92,6 @@ func newAdminProjectStatusCommand(config commandConfig, opts *rootOptions) *cobr
 }
 
 func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var domain string
 	var dryRun bool
 	var sshKey string
 	command := &cobra.Command{
@@ -101,21 +100,17 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var occupiedCIDRs []string
-			var domainClaims []project.DomainClaim
 			if !dryRun {
 				existingProjects, err := listProjects(cmd.Context(), config.projectStore)
 				if err != nil {
 					return err
 				}
 				occupiedCIDRs = project.OccupiedCIDRs(existingProjects)
-				domainClaims = project.DomainClaims(existingProjects)
 			}
 			plan, err := project.PlanCreate(config.adminConfig, project.CreateRequest{
 				Reference:     args[0],
-				Domain:        domain,
 				SSHPublicKey:  sshKey,
 				OccupiedCIDRs: occupiedCIDRs,
-				DomainClaims:  domainClaims,
 			})
 			if err != nil {
 				return err
@@ -124,25 +119,23 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 				if config.projectCreator == nil {
 					return fmt.Errorf("project creation executor is not configured")
 				}
-				if err := config.projectCreator.CreateProject(cmd.Context(), plan); err != nil {
+				if err := config.projectCreator.CreateTenant(cmd.Context(), plan); err != nil {
 					return err
 				}
 			}
 			return writeOutput(config.stdout, opts.output, formatCreatePlan(plan), plan)
 		},
 	}
-	command.Flags().StringVar(&domain, "domain", "", "private project DNS domain")
 	command.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key to inject into all sandbox containers")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the Incus creation plan without mutating resources")
-	_ = command.MarkFlagRequired("domain")
 	return command
 }
 
 func formatCreatePlan(plan project.CreatePlan) string {
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "Project: %s\n", plan.Reference)
+	fmt.Fprintf(&builder, "Tenant: %s\n", plan.Reference)
 	fmt.Fprintf(&builder, "Incus project: %s\n", plan.IncusProject)
-	fmt.Fprintf(&builder, "Domain: %s\n", plan.Domain)
+	fmt.Fprintf(&builder, "DNS suffix: %s\n", plan.DNSSuffix)
 	fmt.Fprintf(&builder, "Private CIDR: %s\n", plan.PrivateCIDR)
 	fmt.Fprintf(&builder, "Network: %s\n", plan.PrivateNetwork)
 	fmt.Fprintf(&builder, "Volumes: %s, %s, %s\n", plan.HomeVolume, plan.WorkspaceVolume, plan.CAVolume)
@@ -171,7 +164,7 @@ func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 			if config.projectDeleter == nil {
 				return fmt.Errorf("project deletion executor is not configured")
 			}
-			if err := config.projectDeleter.DeleteProject(cmd.Context(), plan); err != nil {
+			if err := config.projectDeleter.DeleteTenant(cmd.Context(), plan); err != nil {
 				return err
 			}
 			return writeOutput(config.stdout, opts.output, formatDeletePlan(plan), plan)
@@ -195,7 +188,7 @@ func newAdminProjectSetSSHKeyCommand(config commandConfig) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return config.projectSSHKeyUpdater.SetProjectSSHKey(cmd.Context(), ref.IncusProject, args[1])
+			return config.projectSSHKeyUpdater.SetTenantSSHKey(cmd.Context(), ref.IncusProject, args[1])
 		},
 	}
 }

@@ -36,9 +36,10 @@ func (r *fakeSandboxEnterResource) ExecInstance(instanceName string, exec api.In
 func TestSandboxEntererExecsInteractiveShell(t *testing.T) {
 	resource := &fakeSandboxEnterResource{}
 	enterer := SandboxEnterer{Server: fakeSandboxEnterServer{resource: resource}}
-	err := enterer.EnterSandbox(context.Background(), sandbox.EnterPlan{
-		Project:      project.Summary{IncusName: "sc-alice-myproject"},
-		InstanceName: "sc-codex",
+	err := enterer.ConnectMachine(context.Background(), sandbox.EnterPlan{
+		Tenant:       project.Summary{IncusName: "sc-acme"},
+		Project:      "default",
+		InstanceName: "default-codex",
 		Command:      []string{"/bin/bash", "-l"},
 		LinuxUser:    "alice",
 		WorkingDir:   "/workspace",
@@ -51,7 +52,7 @@ func TestSandboxEntererExecsInteractiveShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resource.instanceName != "sc-codex" {
+	if resource.instanceName != "default-codex" {
 		t.Fatalf("instanceName = %q", resource.instanceName)
 	}
 	if !resource.exec.Interactive {
@@ -74,9 +75,10 @@ func TestSandboxEntererExecsInteractiveShell(t *testing.T) {
 func TestSandboxEntererExecsCommandNonInteractively(t *testing.T) {
 	resource := &fakeSandboxEnterResource{}
 	enterer := SandboxEnterer{Server: fakeSandboxEnterServer{resource: resource}}
-	err := enterer.EnterSandbox(context.Background(), sandbox.EnterPlan{
-		Project:      project.Summary{IncusName: "sc-alice-myproject"},
-		InstanceName: "sc-codex",
+	err := enterer.ConnectMachine(context.Background(), sandbox.EnterPlan{
+		Tenant:       project.Summary{IncusName: "sc-acme"},
+		Project:      "default",
+		InstanceName: "default-codex",
 		Command:      []string{"pwd"},
 		LinuxUser:    "alice",
 		WorkingDir:   "/workspace",

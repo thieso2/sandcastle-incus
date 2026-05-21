@@ -12,8 +12,8 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 // ExecuteAdmin runs the Sandcastle admin CLI and returns a process exit code.
@@ -77,7 +77,7 @@ func ExecuteAdmin(name string, args []string) int {
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
 			Projects:      incusx.NewProjectStore(adminConfig.Remote),
-			Sandboxes:     incusx.NewHostOverrideManager(adminConfig.Remote),
+			Machines:      incusx.NewHostOverrideManager(adminConfig.Remote),
 			Routes:        directRouteManager,
 			RouteMetadata: directRouteManager,
 			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),

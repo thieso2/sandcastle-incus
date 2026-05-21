@@ -34,7 +34,7 @@ func NewDNSManager(remote string) DNSManager {
 	return DNSManager{Remote: remote}
 }
 
-func (m DNSManager) Apply(ctx context.Context, summary dns.Project) (dns.ApplyResult, error) {
+func (m DNSManager) Apply(ctx context.Context, summary dns.Tenant) (dns.ApplyResult, error) {
 	server := m.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
@@ -52,11 +52,11 @@ func (m DNSManager) Apply(ctx context.Context, summary dns.Project) (dns.ApplyRe
 		server = sdkDNSServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(summary.IncusName)
-	sandboxes, err := listSandboxMetadata(projectServer)
+	machines, err := listMachineMetadata(projectServer)
 	if err != nil {
 		return dns.ApplyResult{}, err
 	}
-	result, err := dns.PlanApply(summary, sandboxes)
+	result, err := dns.PlanApply(summary, machines)
 	if err != nil {
 		return dns.ApplyResult{}, err
 	}
@@ -69,23 +69,24 @@ func (m DNSManager) Apply(ctx context.Context, summary dns.Project) (dns.ApplyRe
 	return result, nil
 }
 
-func listSandboxMetadata(server DNSResourceServer) ([]meta.Sandbox, error) {
+func listMachineMetadata(server DNSResourceServer) ([]meta.Machine, error) {
 	instances, err := server.GetInstances(api.InstanceTypeContainer)
 	if err != nil {
-		return nil, fmt.Errorf("list project instances: %w", err)
+		return nil, fmt.Errorf("list tenant instances: %w", err)
 	}
-	sandboxes := []meta.Sandbox{}
+	machines := []meta.Machine{}
 	for _, instance := range instances {
-		if instance.Config[meta.KeyKind] != meta.KindSandbox {
+		if instance.Config[meta.KeyKind] != meta.KindMachine {
 			continue
 		}
-		sandbox, err := meta.ParseSandboxConfig(map[string]string(instance.Config))
+		machine, err := meta.ParseMachineConfig(map[string]string(instance.Config))
 		if err != nil {
-			return nil, fmt.Errorf("parse sandbox metadata for %s: %w", instance.Name, err)
+			return nil, fmt.Errorf("parse machine metadata for %s: %w", instance.Name, err)
 		}
-		sandboxes = append(sandboxes, sandbox)
+		machine.Running = instance.IsActive()
+		machines = append(machines, machine)
 	}
-	return sandboxes, nil
+	return machines, nil
 }
 
 func writeDNSFiles(server DNSResourceServer, files []dns.File) error {

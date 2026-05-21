@@ -21,7 +21,7 @@ type UpRequest struct {
 
 type UpPlan struct {
 	Reference       string          `json:"reference"`
-	Project         project.Summary `json:"project"`
+	Tenant          project.Summary `json:"tenant"`
 	InstanceName    string          `json:"instanceName"`
 	AdvertiseRoutes []string        `json:"advertiseRoutes"`
 	AdvertiseTags   []string        `json:"advertiseTags,omitempty"`
@@ -46,11 +46,11 @@ func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectS
 	if err := admin.Validate(); err != nil {
 		return UpPlan{}, err
 	}
-	ref, err := naming.ParseProjectRefWithDefaultOwner(request.Reference, admin.Owner)
+	ref, err := tenantRef(request.Reference, admin.Tenant)
 	if err != nil {
 		return UpPlan{}, err
 	}
-	summary, err := findProject(ctx, store, ref)
+	summary, err := findTenant(ctx, store, ref)
 	if err != nil {
 		return UpPlan{}, err
 	}
@@ -60,7 +60,7 @@ func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectS
 	}
 	plan := UpPlan{
 		Reference:       ref.String(),
-		Project:         summary,
+		Tenant:          summary,
 		InstanceName:    project.TailscaleInstanceName(summary.IncusName),
 		AdvertiseRoutes: []string{summary.PrivateCIDR},
 		AdvertiseTags:   tags,
@@ -142,18 +142,29 @@ func validateAdvertiseTag(tag string) error {
 	return nil
 }
 
-func findProject(ctx context.Context, store project.IncusProjectStore, ref naming.ProjectRef) (project.Summary, error) {
-	projects, err := project.List(ctx, store)
+func tenantRef(reference string, currentTenant string) (naming.TenantRef, error) {
+	value := strings.TrimSpace(reference)
+	if value == "" {
+		value = strings.TrimSpace(currentTenant)
+	}
+	if value == "" {
+		return naming.TenantRef{}, fmt.Errorf("tenant reference is required")
+	}
+	return naming.ParseTenantRef(value)
+}
+
+func findTenant(ctx context.Context, store project.IncusProjectStore, ref naming.TenantRef) (project.Summary, error) {
+	tenants, err := project.List(ctx, store)
 	if err != nil {
 		return project.Summary{}, err
 	}
-	for _, summary := range projects {
-		if summary.Owner == ref.Owner && summary.Name == ref.Project {
+	for _, summary := range tenants {
+		if summary.Tenant == ref.Tenant {
 			if summary.PrivateCIDR == "" {
-				return project.Summary{}, fmt.Errorf("Sandcastle project %s has no private CIDR", ref.String())
+				return project.Summary{}, fmt.Errorf("Sandcastle tenant %s has no private CIDR", ref.String())
 			}
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("Sandcastle project %s not found", ref.String())
+	return project.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
 }

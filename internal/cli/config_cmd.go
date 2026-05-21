@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 
-	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/spf13/cobra"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 )
 
 func newConfigCommand(config commandConfig, _ *rootOptions) *cobra.Command {
@@ -28,11 +28,13 @@ func newConfigShowCommand(config commandConfig) *cobra.Command {
 				fmt.Fprintf(config.stderr, "warning: could not read %s: %v\n", cfgPath, err)
 			}
 			fmt.Fprintf(config.stdout, "config file:  %s\n", cfgPath)
-			fmt.Fprintf(config.stdout, "  file.owner:  %q\n", fileCfg.Owner)
-			fmt.Fprintf(config.stdout, "  file.remote: %q\n", fileCfg.Remote)
+			fmt.Fprintf(config.stdout, "  file.tenant:  %q\n", fileCfg.Tenant)
+			fmt.Fprintf(config.stdout, "  file.project: %q\n", fileCfg.Project)
+			fmt.Fprintf(config.stdout, "  file.remote:  %q\n", fileCfg.Remote)
 			userPath := scconfig.ResolveConfigPath(config.adminConfig.Remote)
 			fmt.Fprintf(config.stdout, "\nresolved:\n")
-			fmt.Fprintf(config.stdout, "  owner:        %q\n", config.adminConfig.Owner)
+			fmt.Fprintf(config.stdout, "  tenant:       %q\n", config.adminConfig.Tenant)
+			fmt.Fprintf(config.stdout, "  project:      %q\n", config.adminConfig.Project)
 			fmt.Fprintf(config.stdout, "  remote:       %q\n", config.adminConfig.Remote)
 			fmt.Fprintf(config.stdout, "  admin_remote: %q  (used by sc admin; SANDCASTLE_ADMIN_REMOTE overrides)\n", config.adminConfig.AdminRemote)
 			fmt.Fprintf(config.stdout, "  user incus config:  %q\n", userPath)
@@ -47,7 +49,8 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 		Use:   "set <key> <value>",
 		Short: "Set a value in ~/.config/sandcastle/config.yml",
 		Long: `Set a configuration value. Supported keys:
-  owner         default owner name (e.g. alice)
+  tenant        default tenant name (e.g. acme)
+  project       default project name (e.g. default)
   remote        default Sandcastle user remote name (e.g. sc-alice)
   admin_remote  Incus remote for sc admin commands in global ~/.config/incus/ (e.g. big)`,
 		Args: cobra.ExactArgs(2),
@@ -59,14 +62,16 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 			switch key {
-			case "owner":
-				cfg.Owner = value
+			case "tenant":
+				cfg.Tenant = value
+			case "project":
+				cfg.Project = value
 			case "remote":
 				cfg.Remote = value
 			case "admin_remote":
 				cfg.AdminRemote = value
 			default:
-				return fmt.Errorf("unknown config key %q; supported keys: owner, remote, admin_remote", key)
+				return fmt.Errorf("unknown config key %q; supported keys: tenant, project, remote, admin_remote", key)
 			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save config: %w", err)

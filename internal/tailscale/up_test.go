@@ -14,14 +14,14 @@ import (
 
 func TestPlanUp(t *testing.T) {
 	plan, err := PlanUp(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), UpRequest{
-		Reference:     "alice/myproject",
+		Reference:     "acme",
 		AuthKey:       "tskey-secret",
 		AdvertiseTags: []string{" tag:sandcastle,tag:sandcastle "},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.InstanceName != "sc-alice-myproject" {
+	if plan.InstanceName != "sc-acme" {
 		t.Fatalf("InstanceName = %q", plan.InstanceName)
 	}
 	if len(plan.AdvertiseRoutes) != 1 || plan.AdvertiseRoutes[0] != "10.248.0.0/24" {
@@ -55,7 +55,7 @@ func TestPlanUpRejectsInvalidAdvertiseTags(t *testing.T) {
 	for _, tag := range []string{"sandcastle", "tag:", "tag:Sandcastle", "tag:sand_castle"} {
 		t.Run(tag, func(t *testing.T) {
 			_, err := PlanUp(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), UpRequest{
-				Reference:     "alice/myproject",
+				Reference:     "acme",
 				AdvertiseTags: []string{tag},
 			})
 			if err == nil {
@@ -68,27 +68,27 @@ func TestPlanUpRejectsInvalidAdvertiseTags(t *testing.T) {
 	}
 }
 
-func TestPlanUpSupportsProjectShorthandWithOwner(t *testing.T) {
+func TestPlanUpSupportsCurrentTenant(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
-	admin.Owner = "alice"
-	plan, err := PlanUp(context.Background(), admin, projectStoreForTest(t), UpRequest{Reference: "myproject"})
+	admin.Tenant = "acme"
+	plan, err := PlanUp(context.Background(), admin, projectStoreForTest(t), UpRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Reference != "alice/myproject" {
+	if plan.Reference != "acme" {
 		t.Fatalf("Reference = %q", plan.Reference)
 	}
 }
 
 func TestPlanStatusAndParseStatus(t *testing.T) {
-	plan, err := PlanStatus(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), StatusRequest{Reference: "alice/myproject"})
+	plan, err := PlanStatus(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), StatusRequest{Reference: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.InstanceName != "sc-alice-myproject" {
+	if plan.InstanceName != "sc-acme" {
 		t.Fatalf("InstanceName = %q", plan.InstanceName)
 	}
-	result, err := ParseStatus("alice/myproject", plan.Project, []byte(`{
+	result, err := ParseStatus("acme", plan.Tenant, []byte(`{
 		"BackendState": "Running",
 		"CurrentTailnet": {"Name": "example.com"},
 		"Self": {
@@ -112,10 +112,9 @@ func TestPlanStatusAndParseStatus(t *testing.T) {
 }
 
 func TestParseStatusDoesNotPersistLoginURLs(t *testing.T) {
-	result, err := ParseStatus("alice/myproject", project.Summary{
-		Owner:     "alice",
-		Name:      "myproject",
-		IncusName: "sc-alice-myproject",
+	result, err := ParseStatus("acme", project.Summary{
+		Tenant:    "acme",
+		IncusName: "sc-acme",
 	}, []byte(`{
 		"BackendState": "NeedsLogin",
 		"AuthURL": "https://login.tailscale.com/a/secret-token",
@@ -151,7 +150,7 @@ func TestParseStatusDoesNotPersistLoginURLs(t *testing.T) {
 }
 
 func TestPlanDown(t *testing.T) {
-	plan, err := PlanDown(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), DownRequest{Reference: "alice/myproject"})
+	plan, err := PlanDown(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), DownRequest{Reference: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,18 +161,16 @@ func TestPlanDown(t *testing.T) {
 
 func projectStoreForTest(t *testing.T) project.MemoryStore {
 	t.Helper()
-	projectConfig, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	projectConfig, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-alice-myproject",
+		Name:   "sc-acme",
 		Config: projectConfig,
 	}}}
 }

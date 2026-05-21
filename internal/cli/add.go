@@ -38,7 +38,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if config.sandboxCreator == nil {
 					return fmt.Errorf("sandbox creation executor is not configured")
 				}
-				if err := config.sandboxCreator.CreateSandbox(cmd.Context(), plan); err != nil {
+				if err := config.sandboxCreator.CreateMachine(cmd.Context(), plan); err != nil {
 					return err
 				}
 				if !detach {
@@ -49,7 +49,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					if err := config.sandboxEnterer.EnterSandbox(cmd.Context(), enterPlan, sandbox.EnterSession{
+					if err := config.sandboxEnterer.ConnectMachine(cmd.Context(), enterPlan, sandbox.EnterSession{
 						Stdin:  config.stdin,
 						Stdout: config.stdout,
 						Stderr: config.stderr,

@@ -7,12 +7,12 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestPlanAdd(t *testing.T) {
-	plan, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreForTest{}, AddRequest{
-		Reference: "alice/myproject/codex",
+	plan, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), machineStoreForTest{}, AddRequest{
+		Reference: "acme/default/codex",
 		Hostname:  "Example.COM.",
 	})
 	if err != nil {
@@ -27,6 +27,9 @@ func TestPlanAdd(t *testing.T) {
 	if len(plan.ExtraSANs) != 1 || plan.ExtraSANs[0] != "example.com" {
 		t.Fatalf("ExtraSANs = %#v", plan.ExtraSANs)
 	}
+	if plan.Reference != "acme/default/codex" {
+		t.Fatalf("Reference = %q", plan.Reference)
+	}
 	if !strings.Contains(plan.HostsEntry.Line, "10.248.0.20 example.com") {
 		t.Fatalf("HostsEntry = %#v", plan.HostsEntry)
 	}
@@ -35,53 +38,60 @@ func TestPlanAdd(t *testing.T) {
 	}
 }
 
-func TestPlanAddSupportsProjectNameShorthandWithOwner(t *testing.T) {
+func TestPlanAddSupportsCurrentTenantAndProject(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
-	admin.Owner = "alice"
-	plan, err := PlanAdd(context.Background(), admin, projectStoreForTest(t), sandboxStoreForTest{}, AddRequest{
-		Reference: "myproject/codex",
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	plan, err := PlanAdd(context.Background(), admin, tenantStoreForTest(t), machineStoreWithMachines{machines: []meta.Machine{{
+		Tenant:    "acme",
+		Project:   "website",
+		Name:      "codex",
+		PrivateIP: "10.248.0.20",
+	}}}, AddRequest{
+		Reference: "codex",
 		Hostname:  "example.com",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Project.Owner != "alice" || plan.Project.Name != "myproject" || plan.Sandbox.Name != "codex" {
+	if plan.Tenant.Tenant != "acme" || plan.Machine.Project != "website" || plan.Machine.Name != "codex" {
 		t.Fatalf("plan = %#v", plan)
 	}
-	if plan.Reference != "alice/myproject/codex" {
+	if plan.Reference != "acme/website/codex" {
 		t.Fatalf("Reference = %q", plan.Reference)
 	}
-	if !strings.Contains(plan.HostsEntry.BeginLine, "alice/myproject/codex example.com") {
+	if !strings.Contains(plan.HostsEntry.BeginLine, "acme/website/codex example.com") {
 		t.Fatalf("HostsEntry = %#v", plan.HostsEntry)
 	}
 }
 
 func TestPlanRemoveUsesCanonicalHostsEntry(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
-	admin.Owner = "alice"
-	plan, err := PlanRemove(context.Background(), admin, projectStoreForTest(t), sandboxStoreForTest{}, RemoveRequest{
-		Reference: "myproject/codex",
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	plan, err := PlanRemove(context.Background(), admin, tenantStoreForTest(t), machineStoreForTest{}, RemoveRequest{
+		Reference: "codex",
 		Hostname:  "example.com",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Reference != "alice/myproject/codex" {
+	if plan.Reference != "acme/website/codex" {
 		t.Fatalf("Reference = %q", plan.Reference)
 	}
-	if !strings.Contains(plan.HostsEntry.BeginLine, "alice/myproject/codex example.com") {
+	if !strings.Contains(plan.HostsEntry.BeginLine, "acme/website/codex example.com") {
 		t.Fatalf("HostsEntry = %#v", plan.HostsEntry)
 	}
 }
 
-func TestPlanAddRejectsHostnameAssignedToAnotherSandbox(t *testing.T) {
-	_, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreWithSandboxes{
-		sandboxes: []meta.Sandbox{
-			{Name: "codex", PrivateIP: "10.248.0.20"},
-			{Name: "web", PrivateIP: "10.248.0.21", ExtraSANs: []string{"example.com"}},
+func TestPlanAddRejectsHostnameAssignedToAnotherMachine(t *testing.T) {
+	_, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), machineStoreWithMachines{
+		machines: []meta.Machine{
+			{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20"},
+			{Tenant: "acme", Project: "default", Name: "web", PrivateIP: "10.248.0.21", ExtraSANs: []string{"example.com"}},
 		},
 	}, AddRequest{
-		Reference: "alice/myproject/codex",
+		Reference: "acme/default/codex",
 		Hostname:  "example.com",
 	})
 	if err == nil {
@@ -93,8 +103,8 @@ func TestPlanAddRejectsHostnameAssignedToAnotherSandbox(t *testing.T) {
 }
 
 func TestPlanAddRejectsWildcardHostname(t *testing.T) {
-	_, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreForTest{}, AddRequest{
-		Reference: "alice/myproject/codex",
+	_, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), machineStoreForTest{}, AddRequest{
+		Reference: "acme/default/codex",
 		Hostname:  "*.example.com",
 	})
 	if err == nil {
@@ -103,8 +113,8 @@ func TestPlanAddRejectsWildcardHostname(t *testing.T) {
 }
 
 func TestPlanAddRejectsIPAddress(t *testing.T) {
-	_, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreForTest{}, AddRequest{
-		Reference: "alice/myproject/codex",
+	_, err := PlanAdd(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), machineStoreForTest{}, AddRequest{
+		Reference: "acme/default/codex",
 		Hostname:  "192.0.2.1",
 	})
 	if err == nil {
@@ -113,8 +123,8 @@ func TestPlanAddRejectsIPAddress(t *testing.T) {
 }
 
 func TestPlanRemove(t *testing.T) {
-	plan, err := PlanRemove(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreForTest{}, RemoveRequest{
-		Reference: "alice/myproject/codex",
+	plan, err := PlanRemove(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), machineStoreForTest{}, RemoveRequest{
+		Reference: "acme/default/codex",
 		Hostname:  "example.com",
 	})
 	if err != nil {
@@ -129,7 +139,7 @@ func TestPlanRemove(t *testing.T) {
 }
 
 func TestPlanList(t *testing.T) {
-	result, err := PlanList(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), sandboxStoreForTest{}, ListRequest{Reference: "alice/myproject"})
+	result, err := PlanList(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), machineStoreForTest{}, ListRequest{Reference: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,72 +151,68 @@ func TestPlanList(t *testing.T) {
 	}
 }
 
-func TestPlanListSupportsProjectShorthandWithOwner(t *testing.T) {
+func TestPlanListSupportsCurrentTenant(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
-	admin.Owner = "alice"
-	result, err := PlanList(context.Background(), admin, projectStoreForTest(t), sandboxStoreForTest{}, ListRequest{Reference: "myproject"})
+	admin.Tenant = "acme"
+	result, err := PlanList(context.Background(), admin, tenantStoreForTest(t), machineStoreForTest{}, ListRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Project.Owner != "alice" || result.Project.Name != "myproject" {
-		t.Fatalf("project = %#v", result.Project)
+	if result.Tenant.Tenant != "acme" {
+		t.Fatalf("tenant = %#v", result.Tenant)
 	}
 }
 
-type sandboxStoreForTest struct{}
+type machineStoreForTest struct{}
 
-func (s sandboxStoreForTest) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
-	return meta.Sandbox{
-		Owner:     summary.Owner,
-		Project:   summary.Name,
-		Name:      name,
+func (s machineStoreForTest) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, machineName string) (meta.Machine, error) {
+	return meta.Machine{
+		Tenant:    summary.Tenant,
+		Project:   projectName,
+		Name:      machineName,
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
 		ExtraSANs: []string{"example.com"},
 	}, nil
 }
 
-func (s sandboxStoreForTest) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
-	sandbox, err := s.FindSandbox(ctx, summary, "codex")
+func (s machineStoreForTest) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
+	machine, err := s.FindMachine(ctx, summary, "default", "codex")
 	if err != nil {
 		return nil, err
 	}
-	return []meta.Sandbox{sandbox}, nil
+	return []meta.Machine{machine}, nil
 }
 
-type sandboxStoreWithSandboxes struct {
-	sandboxes []meta.Sandbox
+type machineStoreWithMachines struct {
+	machines []meta.Machine
 }
 
-func (s sandboxStoreWithSandboxes) FindSandbox(ctx context.Context, summary project.Summary, name string) (meta.Sandbox, error) {
-	for _, sandbox := range s.sandboxes {
-		if sandbox.Name == name {
-			sandbox.Owner = summary.Owner
-			sandbox.Project = summary.Name
-			return sandbox, nil
+func (s machineStoreWithMachines) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, machineName string) (meta.Machine, error) {
+	for _, machine := range s.machines {
+		if machine.Project == projectName && machine.Name == machineName {
+			return machine, nil
 		}
 	}
-	return meta.Sandbox{}, nil
+	return meta.Machine{}, nil
 }
 
-func (s sandboxStoreWithSandboxes) ListSandboxes(ctx context.Context, summary project.Summary) ([]meta.Sandbox, error) {
-	return s.sandboxes, nil
+func (s machineStoreWithMachines) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
+	return s.machines, nil
 }
 
-func projectStoreForTest(t *testing.T) project.MemoryStore {
+func tenantStoreForTest(t *testing.T) tenant.MemoryStore {
 	t.Helper()
-	projectConfig, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	tenantConfig, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-alice-myproject",
-		Config: projectConfig,
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{{
+		Name:   "sc-acme",
+		Config: tenantConfig,
 	}}}
 }

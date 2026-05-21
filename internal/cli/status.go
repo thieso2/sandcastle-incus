@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/thieso2/sandcastle-incus/internal/naming"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -15,16 +14,12 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Show Sandcastle project status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ref, err := naming.ParseProjectRefWithDefaultOwner(args[0], config.adminConfig.Owner)
-			if err != nil {
-				return err
-			}
 			status, err := project.GetStatusWithTopology(
 				cmd.Context(),
 				config.projectStore,
 				config.topologyStore,
 				project.TopologyRequest{},
-				ref.String(),
+				args[0],
 			)
 			if err != nil {
 				return err
@@ -36,12 +31,12 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func formatProjectStatus(status project.Status) string {
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "Project: %s/%s\n", status.Summary.Owner, status.Summary.Name)
+	fmt.Fprintf(&builder, "Tenant: %s\n", status.Summary.Tenant)
 	fmt.Fprintf(&builder, "Incus project: %s\n", status.Summary.IncusName)
-	fmt.Fprintf(&builder, "Domain: %s\n", status.Summary.Domain)
+	fmt.Fprintf(&builder, "DNS suffix: %s\n", status.Summary.DNSSuffix)
 	fmt.Fprintf(&builder, "Private CIDR: %s\n", status.Summary.PrivateCIDR)
 	for _, publicRoute := range status.Summary.PublicRoutes {
-		fmt.Fprintf(&builder, "Route: %s -> %s:%d\n", publicRoute.Hostname, publicRoute.Sandbox, publicRoute.RoutePort)
+		fmt.Fprintf(&builder, "Route: %s -> %s/%s:%d\n", publicRoute.Hostname, publicRoute.Project, publicRoute.Machine, publicRoute.RoutePort)
 	}
 	for _, check := range status.Checks {
 		if check.Detail == "" {

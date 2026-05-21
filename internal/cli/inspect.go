@@ -31,22 +31,22 @@ func newInspectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func formatSandboxInspect(result sandbox.InspectResult) string {
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "Sandbox: %s/%s/%s\n", result.Sandbox.Owner, result.Sandbox.Project, result.Sandbox.Name)
-	fmt.Fprintf(&builder, "Incus project: %s\n", result.Project.IncusName)
+	fmt.Fprintf(&builder, "Machine: %s/%s/%s\n", result.Tenant.Tenant, result.Project, result.Name)
+	fmt.Fprintf(&builder, "Incus project: %s\n", result.Tenant.IncusName)
 	fmt.Fprintf(&builder, "Instance: %s\n", result.InstanceName)
-	fmt.Fprintf(&builder, "Private IP: %s\n", result.Sandbox.PrivateIP)
-	fmt.Fprintf(&builder, "App port: %d\n", result.Sandbox.AppPort)
-	fmt.Fprintf(&builder, "Linux user: %s\n", result.Sandbox.LinuxUser)
-	fmt.Fprintf(&builder, "Home dir: %s\n", result.Sandbox.HomeDir)
-	fmt.Fprintf(&builder, "Workspace dir: %s\n", result.Sandbox.WorkspaceDir)
-	fmt.Fprintf(&builder, "Container tools: %s\n", enabledString(result.Sandbox.ContainerTools))
-	if result.Sandbox.Running {
+	fmt.Fprintf(&builder, "Private IP: %s\n", result.Machine.PrivateIP)
+	fmt.Fprintf(&builder, "App port: %d\n", result.Machine.AppPort)
+	fmt.Fprintf(&builder, "Linux user: %s\n", result.Machine.LinuxUser)
+	fmt.Fprintf(&builder, "Home dir: %s\n", result.Machine.HomeDir)
+	fmt.Fprintf(&builder, "Workspace dir: %s\n", result.Machine.WorkspaceDir)
+	fmt.Fprintf(&builder, "Container tools: %s\n", enabledString(result.Machine.ContainerTools))
+	if result.Machine.Running {
 		fmt.Fprintln(&builder, "State: running")
 	} else {
 		fmt.Fprintln(&builder, "State: stopped")
 	}
-	if len(result.Sandbox.ExtraSANs) > 0 {
-		fmt.Fprintf(&builder, "Extra SANs: %s\n", strings.Join(result.Sandbox.ExtraSANs, ","))
+	if len(result.Machine.ExtraSANs) > 0 {
+		fmt.Fprintf(&builder, "Extra SANs: %s\n", strings.Join(result.Machine.ExtraSANs, ","))
 	}
 	return strings.TrimRight(builder.String(), "\n")
 }

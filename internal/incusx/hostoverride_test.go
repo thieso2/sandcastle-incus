@@ -74,10 +74,11 @@ func (r *fakeHostOverrideResource) ExecInstance(instanceName string, exec api.In
 	return fakeOperation{}, nil
 }
 
-func TestHostOverrideManagerFindsSandbox(t *testing.T) {
-	configMap, err := meta.SandboxConfig(meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+func TestHostOverrideManagerFindsMachine(t *testing.T) {
+	configMap, err := meta.MachineConfig(meta.Machine{
+
+		Tenant:    "acme",
+		Project:   "default",
 		Name:      "codex",
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
@@ -86,13 +87,14 @@ func TestHostOverrideManagerFindsSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := HostOverrideManager{Server: fakeHostOverrideServer{resource: &fakeHostOverrideResource{
-		instances: []api.Instance{{Name: "sc-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}}},
+		instances: []api.Instance{{Name: "default-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}}},
 	}}}
-	sandbox, err := manager.FindSandbox(context.Background(), project.Summary{
-		IncusName: "sc-alice-myproject",
-		Owner:     "alice",
-		Name:      "myproject",
-	}, "codex")
+	sandbox, err := manager.FindMachine(context.Background(), project.Summary{
+		IncusName: "sc-acme",
+
+		Tenant:    "acme",
+		DNSSuffix: "acme",
+	}, "default", "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,9 +104,10 @@ func TestHostOverrideManagerFindsSandbox(t *testing.T) {
 }
 
 func TestHostOverrideManagerAddUpdatesMetadataAndWritesFiles(t *testing.T) {
-	configMap, err := meta.SandboxConfig(meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+	configMap, err := meta.MachineConfig(meta.Machine{
+
+		Tenant:    "acme",
+		Project:   "default",
 		Name:      "codex",
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
@@ -117,18 +120,18 @@ func TestHostOverrideManagerAddUpdatesMetadataAndWritesFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	resource := &fakeHostOverrideResource{
-		instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}},
+		instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}},
 		caFiles: map[string]string{
-			project.ProjectCACertPath: string(ca.CertificatePEM),
-			project.ProjectCAKeyPath:  string(ca.PrivateKeyPEM),
+			project.TenantCACertPath: string(ca.CertificatePEM),
+			project.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
 		},
 	}
 	manager := HostOverrideManager{Server: fakeHostOverrideServer{resource: resource}}
 	err = manager.Add(context.Background(), hostoverride.AddPlan{
-		Reference:    "alice/myproject/codex",
-		Project:      project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject", Domain: "myproject.project-tld"},
-		Sandbox:      meta.Sandbox{Name: "codex", AppPort: 3000, PrivateIP: "10.248.0.20"},
-		InstanceName: "sc-codex",
+		Reference:    "acme/default/codex",
+		Tenant:       project.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"},
+		Machine:      meta.Machine{Tenant: "acme", Project: "default", Name: "codex", AppPort: 3000, PrivateIP: "10.248.0.20"},
+		InstanceName: "default-codex",
 		StoragePool:  "default",
 		CAVolume:     project.CAVolumeName,
 		Hostname:     "example.com",
@@ -140,7 +143,7 @@ func TestHostOverrideManagerAddUpdatesMetadataAndWritesFiles(t *testing.T) {
 	if resource.updated == nil {
 		t.Fatal("expected instance metadata update")
 	}
-	updated, err := meta.ParseSandboxConfig(map[string]string(resource.updated.Config))
+	updated, err := meta.ParseMachineConfig(map[string]string(resource.updated.Config))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,9 +162,10 @@ func TestHostOverrideManagerAddUpdatesMetadataAndWritesFiles(t *testing.T) {
 }
 
 func TestHostOverrideManagerRemoveUpdatesMetadataAndWritesFiles(t *testing.T) {
-	configMap, err := meta.SandboxConfig(meta.Sandbox{
-		Owner:     "alice",
-		Project:   "myproject",
+	configMap, err := meta.MachineConfig(meta.Machine{
+
+		Tenant:    "acme",
+		Project:   "default",
 		Name:      "codex",
 		AppPort:   3000,
 		PrivateIP: "10.248.0.20",
@@ -175,18 +179,18 @@ func TestHostOverrideManagerRemoveUpdatesMetadataAndWritesFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	resource := &fakeHostOverrideResource{
-		instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}},
+		instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}},
 		caFiles: map[string]string{
-			project.ProjectCACertPath: string(ca.CertificatePEM),
-			project.ProjectCAKeyPath:  string(ca.PrivateKeyPEM),
+			project.TenantCACertPath: string(ca.CertificatePEM),
+			project.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
 		},
 	}
 	manager := HostOverrideManager{Server: fakeHostOverrideServer{resource: resource}}
 	err = manager.Remove(context.Background(), hostoverride.RemovePlan{
-		Reference:    "alice/myproject/codex",
-		Project:      project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject", Domain: "myproject.project-tld"},
-		Sandbox:      meta.Sandbox{Name: "codex", AppPort: 3000, PrivateIP: "10.248.0.20", ExtraSANs: []string{"example.com"}},
-		InstanceName: "sc-codex",
+		Reference:    "acme/default/codex",
+		Tenant:       project.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"},
+		Machine:      meta.Machine{Tenant: "acme", Project: "default", Name: "codex", AppPort: 3000, PrivateIP: "10.248.0.20", ExtraSANs: []string{"example.com"}},
+		InstanceName: "default-codex",
 		StoragePool:  "default",
 		CAVolume:     project.CAVolumeName,
 		Hostname:     "example.com",
@@ -194,7 +198,7 @@ func TestHostOverrideManagerRemoveUpdatesMetadataAndWritesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := meta.ParseSandboxConfig(map[string]string(resource.updated.Config))
+	updated, err := meta.ParseMachineConfig(map[string]string(resource.updated.Config))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -75,11 +75,11 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 		instances: map[string]*api.Instance{
 			"sc-alice-myproject": {Name: "sc-alice-myproject", Status: "Stopped", StatusCode: api.Stopped},
 			project.DNSName:      {Name: project.DNSName, Status: "Running", StatusCode: api.Running},
-			"sc-codex": {
-				Name: "sc-codex",
+			"default-codex": {
+				Name: "default-codex",
 				InstancePut: api.InstancePut{
 					Config: map[string]string{
-						meta.KeyKind:    meta.KindSandbox,
+						meta.KeyKind:    meta.KindMachine,
 						meta.KeyVersion: "1",
 					},
 				},
@@ -94,14 +94,14 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 			},
 		},
 		files: map[string]string{
-			project.DNSName + ":/etc/coredns/Corefile":                       ".:53 {\n  errors\n}\n",
-			project.DNSName + ":/etc/coredns/zones/db.myproject.project-tld": "$ORIGIN myproject.project-tld.\n",
-			"sc-codex:" + sandbox.CaddyfilePath:                              "codex.myproject.project-tld {\n  reverse_proxy localhost:3000\n}\n",
+			project.DNSName + ":/etc/coredns/Corefile":      ".:53 {\n  errors\n}\n",
+			project.DNSName + ":/etc/coredns/zones/db.acme": "$ORIGIN acme.\n",
+			"default-codex:" + sandbox.CaddyfilePath:        "codex.default.acme {\n  reverse_proxy localhost:3000\n}\n",
 		},
 	}}}
 	topology, err := store.GetTopology(context.Background(), project.TopologyRequest{
 		IncusProject: "sc-alice-myproject",
-		Domain:       "myproject.project-tld",
+		DNSSuffix:    "acme",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -127,10 +127,10 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 	if topology.DiagnosticFiles[0].Path != "/etc/coredns/Corefile" || !strings.Contains(topology.DiagnosticFiles[0].Content, "errors") {
 		t.Fatalf("Corefile diagnostic = %#v", topology.DiagnosticFiles[0])
 	}
-	if topology.DiagnosticFiles[1].Path != "/etc/coredns/zones/db.myproject.project-tld" || !strings.Contains(topology.DiagnosticFiles[1].Content, "$ORIGIN") {
+	if topology.DiagnosticFiles[1].Path != "/etc/coredns/zones/db.acme" || !strings.Contains(topology.DiagnosticFiles[1].Content, "$ORIGIN") {
 		t.Fatalf("zone diagnostic = %#v", topology.DiagnosticFiles[1])
 	}
-	if topology.DiagnosticFiles[2].Instance != "sc-codex" || topology.DiagnosticFiles[2].Path != sandbox.CaddyfilePath || !strings.Contains(topology.DiagnosticFiles[2].Content, "reverse_proxy") {
+	if topology.DiagnosticFiles[2].Instance != "default-codex" || topology.DiagnosticFiles[2].Path != sandbox.CaddyfilePath || !strings.Contains(topology.DiagnosticFiles[2].Content, "reverse_proxy") {
 		t.Fatalf("sandbox Caddyfile diagnostic = %#v", topology.DiagnosticFiles[2])
 	}
 }

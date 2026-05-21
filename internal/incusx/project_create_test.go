@@ -11,6 +11,7 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -296,13 +297,13 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	server := fakeCreateServerForPlan(plan, resourceServer)
 	creator := ProjectCreator{Server: server}
 
-	if err := creator.CreateProject(context.Background(), plan); err != nil {
+	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if server.createdProject == nil {
 		t.Fatal("expected project to be created")
 	}
-	if server.createdProject.Name != "sc-alice-myproject" {
+	if server.createdProject.Name != "sc-acme" {
 		t.Fatalf("created project = %q", server.createdProject.Name)
 	}
 	for _, key := range []string{
@@ -351,7 +352,7 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/Corefile"]; got == "" {
 		t.Fatal("expected CoreDNS Corefile to be written")
 	}
-	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/zones/db.myproject.project-tld"]; got == "" {
+	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/zones/db.acme"]; got == "" {
 		t.Fatal("expected CoreDNS zone to be written")
 	}
 	if len(resourceServer.execCommands) != 3 {
@@ -401,7 +402,7 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	}
 	creator := ProjectCreator{Server: server}
 
-	if err := creator.CreateProject(context.Background(), plan); err != nil {
+	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if server.createdProject != nil {
@@ -413,7 +414,7 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	if server.updatedProject.Config["features.images"] != "false" {
 		t.Fatalf("existing config was not preserved: %#v", server.updatedProject.Config)
 	}
-	if server.updatedProject.Config["user.sandcastle.owner"] != "alice" {
+	if server.updatedProject.Config[meta.KeyTenant] != "acme" {
 		t.Fatalf("managed metadata missing: %#v", server.updatedProject.Config)
 	}
 	if resourceServer.createdNetwork != nil {
@@ -453,7 +454,7 @@ func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
 	server.project = &api.Project{Name: plan.IncusProject}
 	creator := ProjectCreator{Server: server}
 
-	if err := creator.CreateProject(context.Background(), plan); err != nil {
+	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if len(resourceServer.startedInstances) != 1 {
@@ -467,8 +468,7 @@ func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
 func createPlanForTest(t *testing.T) project.CreatePlan {
 	t.Helper()
 	plan, err := project.PlanCreate(config.LoadAdminFromEnv(), project.CreateRequest{
-		Reference: "alice/myproject",
-		Domain:    "myproject.project-tld",
+		Reference: "acme",
 	})
 	if err != nil {
 		t.Fatal(err)

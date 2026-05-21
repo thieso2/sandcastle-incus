@@ -40,7 +40,7 @@ func PrincipalFromFingerprint(ctx context.Context, mapper TrustMapper, fingerpri
 	if principal.Owner == "" {
 		return Principal{}, fmt.Errorf("client certificate %s is not mapped to a Sandcastle owner", fingerprint)
 	}
-	if _, err := naming.ParseProjectRef(principal.Owner + "/placeholder"); err != nil {
+	if err := naming.ValidateTenantName(principal.Owner); err != nil {
 		return Principal{}, fmt.Errorf("client certificate %s maps to invalid Sandcastle owner %q", fingerprint, principal.Owner)
 	}
 	projects, err := normalizeProjects(principal.Projects)
@@ -55,11 +55,8 @@ func AuthorizeAdd(principal Principal, plan route.AddPlan) error {
 	if strings.TrimSpace(principal.Owner) == "" {
 		return fmt.Errorf("route principal owner is required")
 	}
-	if principal.Owner != plan.Project.Owner {
-		return fmt.Errorf("owner %s cannot route sandbox owned by %s", principal.Owner, plan.Project.Owner)
-	}
-	if !principalCanAccessProject(principal, plan.Project.IncusName) {
-		return fmt.Errorf("owner %s is not granted access to project %s", principal.Owner, plan.Project.IncusName)
+	if !principalCanAccessProject(principal, plan.Tenant.IncusName) {
+		return fmt.Errorf("owner %s is not granted access to tenant %s", principal.Owner, plan.Tenant.Tenant)
 	}
 	return nil
 }
@@ -68,18 +65,12 @@ func AuthorizeRemove(principal Principal, routeMetadata meta.Route, projectPrefi
 	if strings.TrimSpace(principal.Owner) == "" {
 		return fmt.Errorf("route principal owner is required")
 	}
-	if principal.Owner != routeMetadata.TargetOwner {
-		return fmt.Errorf("owner %s cannot remove route owned by %s", principal.Owner, routeMetadata.TargetOwner)
-	}
-	incusProject, err := naming.IncusProjectNameWithPrefix(projectPrefix, naming.ProjectRef{
-		Owner:   routeMetadata.TargetOwner,
-		Project: routeMetadata.TargetProject,
-	})
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(projectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
 	if err != nil {
 		return err
 	}
 	if !principalCanAccessProject(principal, incusProject) {
-		return fmt.Errorf("owner %s is not granted access to project %s", principal.Owner, incusProject)
+		return fmt.Errorf("owner %s is not granted access to tenant %s", principal.Owner, routeMetadata.TargetTenant)
 	}
 	return nil
 }

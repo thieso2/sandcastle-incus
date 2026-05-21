@@ -38,13 +38,12 @@ type FileManager struct {
 }
 
 type State struct {
-	Projects []ProjectState `yaml:"projects" json:"projects"`
+	Tenants []TenantState `yaml:"tenants" json:"tenants"`
 }
 
-type ProjectState struct {
-	Owner       string        `yaml:"owner" json:"owner"`
-	Project     string        `yaml:"project" json:"project"`
-	Domain      string        `yaml:"domain" json:"domain"`
+type TenantState struct {
+	Tenant      string        `yaml:"tenant" json:"tenant"`
+	DNSSuffix   string        `yaml:"dnsSuffix" json:"dnsSuffix"`
 	DNSEndpoint EndpointState `yaml:"dnsEndpoint" json:"dnsEndpoint"`
 	Resolver    ResolverState `yaml:"resolver" json:"resolver"`
 }
@@ -83,7 +82,7 @@ func (m FileManager) Uninstall(ctx context.Context, plan Plan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	state.Projects = removeProject(state.Projects, plan.Reference)
+	state.Tenants = removeTenant(state.Tenants, plan.Reference)
 	if err := writeState(plan.StatePath, state); err != nil {
 		return Result{}, err
 	}
@@ -119,11 +118,11 @@ func writeLocalDNS(plan Plan) error {
 	if err != nil {
 		return err
 	}
-	entry, err := projectState(plan)
+	entry, err := tenantState(plan)
 	if err != nil {
 		return err
 	}
-	state.Projects = upsertProject(state.Projects, entry)
+	state.Tenants = upsertTenant(state.Tenants, entry)
 	if err := writeState(plan.StatePath, state); err != nil {
 		return err
 	}
@@ -159,8 +158,8 @@ func writeState(path string, state State) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	sort.Slice(state.Projects, func(i, j int) bool {
-		return state.Projects[i].Domain < state.Projects[j].Domain
+	sort.Slice(state.Tenants, func(i, j int) bool {
+		return state.Tenants[i].DNSSuffix < state.Tenants[j].DNSSuffix
 	})
 	content, err := yaml.Marshal(state)
 	if err != nil {
@@ -169,23 +168,22 @@ func writeState(path string, state State) error {
 	return os.WriteFile(path, content, 0o644)
 }
 
-func projectState(plan Plan) (ProjectState, error) {
+func tenantState(plan Plan) (TenantState, error) {
 	dnsIP, dnsPort, err := net.SplitHostPort(plan.DNSEndpoint)
 	if err != nil {
-		return ProjectState{}, err
+		return TenantState{}, err
 	}
 	port, err := strconv.Atoi(dnsPort)
 	if err != nil {
-		return ProjectState{}, err
+		return TenantState{}, err
 	}
-	ref, err := naming.ParseProjectRef(plan.Reference)
+	ref, err := naming.ParseTenantRef(plan.Reference)
 	if err != nil {
-		return ProjectState{}, err
+		return TenantState{}, err
 	}
-	return ProjectState{
-		Owner:   ref.Owner,
-		Project: ref.Project,
-		Domain:  plan.Domain,
+	return TenantState{
+		Tenant:    ref.Tenant,
+		DNSSuffix: plan.DNSSuffix,
 		DNSEndpoint: EndpointState{
 			IP:   dnsIP,
 			Port: port,
@@ -204,24 +202,24 @@ func resolverContent(plan Plan) (string, error) {
 	return fmt.Sprintf("nameserver %s\nport %s\n", host, port), nil
 }
 
-func upsertProject(projects []ProjectState, entry ProjectState) []ProjectState {
-	for index := range projects {
-		if projects[index].Owner == entry.Owner && projects[index].Project == entry.Project {
-			projects[index] = entry
-			return projects
+func upsertTenant(tenants []TenantState, entry TenantState) []TenantState {
+	for index := range tenants {
+		if tenants[index].Tenant == entry.Tenant {
+			tenants[index] = entry
+			return tenants
 		}
 	}
-	return append(projects, entry)
+	return append(tenants, entry)
 }
 
-func removeProject(projects []ProjectState, reference string) []ProjectState {
-	ref, err := naming.ParseProjectRef(reference)
+func removeTenant(tenants []TenantState, reference string) []TenantState {
+	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
-		return projects
+		return tenants
 	}
-	output := projects[:0]
-	for _, entry := range projects {
-		if entry.Owner == ref.Owner && entry.Project == ref.Project {
+	output := tenants[:0]
+	for _, entry := range tenants {
+		if entry.Tenant == ref.Tenant {
 			continue
 		}
 		output = append(output, entry)

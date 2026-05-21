@@ -12,10 +12,10 @@ import (
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func TestPlanInstallUsesProjectDNSRoleAddress(t *testing.T) {
+func TestPlanInstallUsesTenantDNSRoleAddress(t *testing.T) {
 	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(t.TempDir(), "dns.yaml"))
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", t.TempDir())
-	plan, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), storeForTest(t), Request{Reference: "alice/myproject"})
+	plan, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), storeForTest(t), Request{Reference: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,21 +25,21 @@ func TestPlanInstallUsesProjectDNSRoleAddress(t *testing.T) {
 	if plan.Listen != "127.0.0.1:53541" {
 		t.Fatalf("Listen = %q", plan.Listen)
 	}
-	if !strings.HasSuffix(plan.ResolverPath, "myproject.project-tld") {
+	if !strings.HasSuffix(plan.ResolverPath, "acme") {
 		t.Fatalf("ResolverPath = %q", plan.ResolverPath)
 	}
 }
 
-func TestPlanInstallSupportsProjectShorthandWithOwner(t *testing.T) {
+func TestPlanInstallSupportsCurrentTenant(t *testing.T) {
 	admin := scconfig.LoadAdminFromEnv()
-	admin.Owner = "alice"
+	admin.Tenant = "acme"
 	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(t.TempDir(), "dns.yaml"))
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", t.TempDir())
-	plan, err := PlanInstall(context.Background(), admin, storeForTest(t), Request{Reference: "myproject"})
+	plan, err := PlanInstall(context.Background(), admin, storeForTest(t), Request{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Reference != "alice/myproject" {
+	if plan.Reference != "acme" {
 		t.Fatalf("Reference = %q", plan.Reference)
 	}
 }
@@ -47,12 +47,12 @@ func TestPlanInstallSupportsProjectShorthandWithOwner(t *testing.T) {
 func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	dir := t.TempDir()
 	plan := Plan{
-		Reference:    "alice/myproject",
-		Domain:       "myproject.project-tld",
+		Reference:    "acme",
+		DNSSuffix:    "acme",
 		DNSEndpoint:  "10.248.0.53:53",
 		Listen:       "127.0.0.1:53541",
 		StatePath:    filepath.Join(dir, "state", "dns.yaml"),
-		ResolverPath: filepath.Join(dir, "resolver", "myproject.project-tld"),
+		ResolverPath: filepath.Join(dir, "resolver", "acme"),
 	}
 	manager := FileManager{}
 	result, err := manager.Install(context.Background(), plan)
@@ -109,12 +109,12 @@ func TestFileManagerRunsLinuxResolverSyncCommands(t *testing.T) {
 	runner := &recordingServiceRunner{}
 	manager := FileManager{Runner: runner}
 	plan := Plan{
-		Reference:        "alice/myproject",
-		Domain:           "myproject.project-tld",
+		Reference:        "acme",
+		DNSSuffix:        "acme",
 		DNSEndpoint:      "10.248.0.53:53",
 		Listen:           "127.0.0.1:53541",
 		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
-		ResolverPath:     filepath.Join(dir, "resolver", "myproject.project-tld"),
+		ResolverPath:     filepath.Join(dir, "resolver", "acme"),
 		ResolverStrategy: StrategySystemdResolve,
 		ResolverCommands: []Command{{Args: []string{"resolvectl", "dns", "lo", "127.0.0.1:53541"}}},
 	}
@@ -127,7 +127,7 @@ func TestFileManagerRunsLinuxResolverSyncCommands(t *testing.T) {
 	if got := joinArgs(runner.commands[0]); got != "resolvectl dns lo 127.0.0.1:53541" {
 		t.Fatalf("dns command = %q", got)
 	}
-	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~myproject.project-tld" {
+	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~acme" {
 		t.Fatalf("domain command = %q", got)
 	}
 }
@@ -137,8 +137,8 @@ func TestFileManagerUninstallSyncsRemainingLinuxResolverDomains(t *testing.T) {
 	dir := t.TempDir()
 	runner := &recordingServiceRunner{}
 	manager := FileManager{Runner: runner}
-	first := linuxResolverPlan(dir, "alice/alpha", "alpha.project-tld", "10.248.0.53:53")
-	second := linuxResolverPlan(dir, "alice/beta", "beta.project-tld", "10.248.1.53:53")
+	first := linuxResolverPlan(dir, "alpha", "alpha", "10.248.0.53:53")
+	second := linuxResolverPlan(dir, "beta", "beta", "10.248.1.53:53")
 	if _, err := manager.Install(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestFileManagerUninstallSyncsRemainingLinuxResolverDomains(t *testing.T) {
 	if len(runner.commands) != 2 {
 		t.Fatalf("commands = %#v", runner.commands)
 	}
-	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~beta.project-tld" {
+	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~beta" {
 		t.Fatalf("domain command = %q", got)
 	}
 	runner.commands = nil
@@ -170,7 +170,7 @@ func TestFileManagerUninstallSyncsRemainingLinuxResolverDomains(t *testing.T) {
 func linuxResolverPlan(dir string, reference string, domain string, endpoint string) Plan {
 	return Plan{
 		Reference:        reference,
-		Domain:           domain,
+		DNSSuffix:        domain,
 		DNSEndpoint:      endpoint,
 		Listen:           "127.0.0.1:53541",
 		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
@@ -182,18 +182,16 @@ func linuxResolverPlan(dir string, reference string, domain string, endpoint str
 
 func storeForTest(t *testing.T) project.MemoryStore {
 	t.Helper()
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-alice-myproject",
+		Name:   "sc-acme",
 		Config: configMap,
 	}}}
 }

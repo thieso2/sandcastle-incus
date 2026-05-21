@@ -9,16 +9,16 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
 
-type ProjectSSHKeyManager struct {
+type TenantSSHKeyManager struct {
 	Remote     string
 	ConfigPath string
 }
 
-func NewProjectSSHKeyManager(remote string) ProjectSSHKeyManager {
-	return ProjectSSHKeyManager{Remote: remote}
+func NewProjectSSHKeyManager(remote string) TenantSSHKeyManager {
+	return TenantSSHKeyManager{Remote: remote}
 }
 
-func (m ProjectSSHKeyManager) SetProjectSSHKey(_ context.Context, incusProjectName string, sshKey string) error {
+func (m TenantSSHKeyManager) SetTenantSSHKey(_ context.Context, incusProjectName string, sshKey string) error {
 	loaded, err := cliconfig.LoadConfig(m.ConfigPath)
 	if err != nil {
 		return fmt.Errorf("load Incus config: %w", err)
@@ -35,12 +35,12 @@ func (m ProjectSSHKeyManager) SetProjectSSHKey(_ context.Context, incusProjectNa
 	if err != nil {
 		return fmt.Errorf("get project %s: %w", incusProjectName, err)
 	}
-	managed, err := meta.ParseProjectConfig(map[string]string(incusProject.Config))
+	managed, err := meta.ParseTenantConfig(map[string]string(incusProject.Config))
 	if err != nil {
 		return fmt.Errorf("parse project metadata for %s: %w", incusProjectName, err)
 	}
 	managed.SSHPublicKey = sshKey
-	config, err := meta.ProjectConfig(managed)
+	config, err := meta.TenantConfig(managed)
 	if err != nil {
 		return err
 	}

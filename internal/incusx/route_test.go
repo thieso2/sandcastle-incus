@@ -10,8 +10,8 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeRouteServer struct {
@@ -130,7 +130,7 @@ func (s *fakeRouteResourceServer) ExecInstance(instanceName string, exec api.Ins
 
 func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
-	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
 	server := &fakeRouteServer{
 		resource:        resource,
 		targetResource:  target,
@@ -181,21 +181,21 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	if server.updatedProject == nil {
 		t.Fatal("expected target project route backlink update")
 	}
-	projectMetadata, err := meta.ParseProjectConfig(map[string]string(server.updatedProject.Config))
+	projectMetadata, err := meta.ParseTenantConfig(map[string]string(server.updatedProject.Config))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(projectMetadata.PublicRoutes) != 1 {
 		t.Fatalf("public routes = %#v", projectMetadata.PublicRoutes)
 	}
-	if projectMetadata.PublicRoutes[0].Hostname != "app.example.com" || projectMetadata.PublicRoutes[0].Sandbox != "codex" || projectMetadata.PublicRoutes[0].RoutePort != 5173 {
+	if projectMetadata.PublicRoutes[0].Hostname != "app.example.com" || projectMetadata.PublicRoutes[0].Project != "default" || projectMetadata.PublicRoutes[0].Machine != "codex" || projectMetadata.PublicRoutes[0].RoutePort != 5173 {
 		t.Fatalf("public route backlink = %#v", projectMetadata.PublicRoutes[0])
 	}
 }
 
 func TestRouteManagerRejectsRouteWhenDNSProofFails(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
-	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
 	manager := RouteManager{
 		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
 		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.11"}},
@@ -214,9 +214,9 @@ func TestRouteManagerRejectsRouteWhenDNSProofFails(t *testing.T) {
 func TestRouteManagerRejectsClaimedHostname(t *testing.T) {
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "bob",
+		TargetTenant:  "bob",
 		TargetProject: "other",
-		TargetSandbox: "web",
+		TargetMachine: "web",
 		TargetIP:      "10.248.0.30",
 		RoutePort:     3000,
 	})
@@ -226,7 +226,7 @@ func TestRouteManagerRejectsClaimedHostname(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{
 		"sc-route-app-example-com": {Name: "sc-route-app-example-com", ProfilePut: api.ProfilePut{Config: api.ConfigMap(metadata)}},
 	}}
-	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
 	manager := RouteManager{
 		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
 		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
@@ -250,7 +250,7 @@ func TestRouteManagerRejectsInfrastructureProfileConflict(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{
 		"sc-route-app-example-com": {Name: "sc-route-app-example-com", ProfilePut: api.ProfilePut{Config: api.ConfigMap{}}},
 	}}
-	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}
 	manager := RouteManager{
 		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
 		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
@@ -270,9 +270,9 @@ func TestRouteManagerRejectsInfrastructureProfileConflict(t *testing.T) {
 func TestRouteManagerListsRouteProfiles(t *testing.T) {
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 		TargetIP:      "10.248.0.20",
 		RoutePort:     5173,
 	})
@@ -291,7 +291,7 @@ func TestRouteManagerListsRouteProfiles(t *testing.T) {
 	if len(result.Routes) != 1 {
 		t.Fatalf("routes = %#v", result.Routes)
 	}
-	if result.Routes[0].TargetReference != "alice/myproject/codex" {
+	if result.Routes[0].TargetReference != "acme/default/codex" {
 		t.Fatalf("TargetReference = %q", result.Routes[0].TargetReference)
 	}
 }
@@ -299,9 +299,9 @@ func TestRouteManagerListsRouteProfiles(t *testing.T) {
 func TestRouteManagerFindsRouteMetadataByHostname(t *testing.T) {
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 		TargetIP:      "10.248.0.20",
 		RoutePort:     5173,
 	})
@@ -319,7 +319,7 @@ func TestRouteManagerFindsRouteMetadataByHostname(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if routeMetadata.TargetOwner != "alice" || routeMetadata.TargetSandbox != "codex" {
+	if routeMetadata.TargetTenant != "acme" || routeMetadata.TargetMachine != "codex" {
 		t.Fatalf("routeMetadata = %#v", routeMetadata)
 	}
 }
@@ -327,9 +327,9 @@ func TestRouteManagerFindsRouteMetadataByHostname(t *testing.T) {
 func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 		TargetIP:      "10.248.0.20",
 		RoutePort:     5173,
 	})
@@ -339,7 +339,7 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{
 		"sc-route-app-example-com": {Name: "sc-route-app-example-com", ProfilePut: api.ProfilePut{Config: api.ConfigMap(metadata)}},
 	}}
-	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "sc-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{
+	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{
 		"eth0":                     {"type": "nic"},
 		"sc-route-app-example-com": {"type": "nic", "parent": "sc-private"},
 	}}}}
@@ -347,7 +347,7 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 		resource:        resource,
 		targetResource:  target,
 		infrastructure:  "sc-infra",
-		projectMetadata: projectMetadataForRouteTest(t, []meta.PublicRoute{{Hostname: "app.example.com", Sandbox: "codex", RoutePort: 5173}}),
+		projectMetadata: projectMetadataForRouteTest(t, []meta.PublicRoute{{Hostname: "app.example.com", Project: "default", Machine: "codex", RoutePort: 5173}}),
 	}
 	manager := RouteManager{Server: server}
 	if err := manager.Remove(context.Background(), route.RemovePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra", ProjectPrefix: "sc"}); err != nil {
@@ -368,7 +368,7 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	if server.updatedProject == nil {
 		t.Fatal("expected target project route backlink update")
 	}
-	projectMetadata, err := meta.ParseProjectConfig(map[string]string(server.updatedProject.Config))
+	projectMetadata, err := meta.ParseTenantConfig(map[string]string(server.updatedProject.Config))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,12 +377,12 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 	}
 }
 
-func TestRouteManagerRemovesRouteProfileWhenTargetSandboxIsGone(t *testing.T) {
+func TestRouteManagerRemovesRouteProfileWhenTargetMachineIsGone(t *testing.T) {
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 		TargetIP:      "10.248.0.20",
 		RoutePort:     5173,
 	})
@@ -412,9 +412,9 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 	t.Helper()
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",
-		TargetOwner:   "alice",
-		TargetProject: "myproject",
-		TargetSandbox: "codex",
+		TargetTenant:  "acme",
+		TargetProject: "default",
+		TargetMachine: "codex",
 		TargetIP:      "10.248.0.20",
 		RoutePort:     5173,
 	})
@@ -423,10 +423,10 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 	}
 	return route.AddPlan{
 		Hostname:              "app.example.com",
-		TargetReference:       "alice/myproject/codex",
-		Project:               projectSummaryForRouteTest(),
-		Sandbox:               meta.Sandbox{Name: "codex"},
-		TargetInstanceName:    "sc-codex",
+		TargetReference:       "acme/default/codex",
+		Tenant:                projectSummaryForRouteTest(),
+		Machine:               meta.Machine{Tenant: "acme", Project: "default", Name: "codex"},
+		TargetInstanceName:    "default-codex",
 		InfrastructureProject: "sc-infra",
 		RoutePort:             5173,
 		IngressDevice:         "sc-route-app-example-com",
@@ -441,23 +441,21 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 }
 
 func projectSummaryForRouteTest() project.Summary {
-	return project.Summary{IncusName: "sc-alice-myproject", Owner: "alice", Name: "myproject"}
+	return project.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"}
 }
 
 func projectMetadataForRouteTest(t *testing.T, publicRoutes []meta.PublicRoute) *api.Project {
 	t.Helper()
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
-		PublicRoutes:    publicRoutes,
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:       "acme",
+		Projects:     []meta.Project{{Name: "default"}},
+		PrivateCIDR:  "10.248.0.0/24",
+		PublicRoutes: publicRoutes,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &api.Project{Name: "sc-alice-myproject", ProjectPut: api.ProjectPut{Config: api.ConfigMap(config)}}
+	return &api.Project{Name: "sc-acme", ProjectPut: api.ProjectPut{Config: api.ConfigMap(config)}}
 }
 
 type fakeRouteDNSResolver struct {
