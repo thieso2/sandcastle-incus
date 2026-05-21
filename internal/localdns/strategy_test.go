@@ -39,8 +39,8 @@ func TestLinuxResolverCommandsSkippedWhenResolverDirIsOverridden(t *testing.T) {
 func TestResolverSyncCommandsUseInstalledProjectDomains(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
 	state := State{Tenants: []TenantState{
-		{DNSSuffix: "beta.project-tld", DNSEndpoint: EndpointState{IP: "10.248.0.53", Port: 53}},
-		{DNSSuffix: "alpha.project-tld.", DNSEndpoint: EndpointState{IP: "10.248.1.53", Port: 53}},
+		{DNSSuffix: "beta.project-tld", DNSEndpoint: EndpointState{IP: "10.248.0.3", Port: 53}},
+		{DNSSuffix: "alpha.project-tld.", DNSEndpoint: EndpointState{IP: "10.248.1.3", Port: 53}},
 		{DNSSuffix: "broken.project-tld", DNSEndpoint: EndpointState{IP: "not-an-ip", Port: 53}},
 	}}
 	commands := ResolverSyncCommands(StrategySystemdResolve, state, "127.0.0.1:53541")

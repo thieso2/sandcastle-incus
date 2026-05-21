@@ -109,7 +109,7 @@ Deliverables:
   - home and workspace volumes;
   - CA volume and project CA generation;
   - real `sc-tailscale` sidecar at `.2`, started but unauthenticated;
-  - real `sc-dns` CoreDNS sidecar at `.53`, started with a minimal zone;
+  - real `sc-dns` CoreDNS sidecar at `.3`, started with a minimal zone;
   - default templates, with `ai` as default.
 - Domain deny-list validation seeded by embedded IANA public TLD and
   special-use snapshots.

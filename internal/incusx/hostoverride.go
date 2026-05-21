@@ -94,6 +94,7 @@ func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary 
 			Name:         instance.Name,
 			InstanceName: instance.Name,
 			Type:         string(instance.Type),
+			PrivateIP:    instancePrivateIP(instance),
 			Status:       instance.Status,
 			CreatedAt:    formatInstanceCreatedAt(instance.CreatedAt),
 			Running:      instance.IsActive(),
@@ -132,6 +133,20 @@ func formatInstanceCreatedAt(createdAt time.Time) string {
 		return ""
 	}
 	return createdAt.UTC().Format(time.RFC3339)
+}
+
+func instancePrivateIP(instance api.Instance) string {
+	for _, devices := range []map[string]map[string]string{instance.ExpandedDevices, instance.Devices} {
+		for _, device := range devices {
+			if device["type"] != "nic" {
+				continue
+			}
+			if ip := device["ipv4.address"]; ip != "" && ip != "none" && ip != "auto" {
+				return ip
+			}
+		}
+	}
+	return ""
 }
 
 func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan) error {

@@ -131,6 +131,19 @@ func TestPlanEnterSearchesBareMachineWhenUnique(t *testing.T) {
 	}
 }
 
+func TestPlanEnterConnectsUnmanagedReservedMachine(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := fakeMachineStore{unmanaged: []UnmanagedMachine{{Name: "sc-dns", InstanceName: "sc-dns"}}}
+	plan, err := PlanEnter(context.Background(), admin, tenantStoreForTest(t), store, EnterRequest{Reference: "sc-dns"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Managed || plan.InstanceName != "sc-dns" || plan.LinuxUser != "root" || plan.UserID != 0 || plan.GroupID != 0 || plan.WorkingDir != "/root" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestPlanEnterRejectsAmbiguousBareMachine(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
@@ -203,9 +216,14 @@ func tenantStoreForTest(t *testing.T) project.MemoryStore {
 }
 
 type fakeMachineStore struct {
-	machines []meta.Machine
+	machines  []meta.Machine
+	unmanaged []UnmanagedMachine
 }
 
 func (s fakeMachineStore) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
 	return s.machines, nil
+}
+
+func (s fakeMachineStore) ListUnmanagedMachines(ctx context.Context, summary project.Summary) ([]UnmanagedMachine, error) {
+	return s.unmanaged, nil
 }

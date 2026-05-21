@@ -16,6 +16,7 @@ type resolvedMachine struct {
 	Project      string
 	Name         string
 	InstanceName string
+	Managed      bool
 }
 
 type AmbiguousMachineError struct {
@@ -43,6 +44,9 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, projectStor
 	}
 	projectRef, machineName, err := naming.ParseUserMachineRef(reference, admin.Project)
 	if err != nil {
+		if unmanaged, unmanagedErr := resolveUnmanagedMachine(ctx, machineStore, summary, reference); unmanagedErr == nil {
+			return unmanaged, nil
+		}
 		return resolvedMachine{}, err
 	}
 	if strings.Contains(reference, "/") || strings.TrimSpace(admin.Project) != "" {
@@ -63,6 +67,9 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, projectStor
 	}
 	switch len(matches) {
 	case 0:
+		if unmanaged, err := resolveUnmanagedMachine(ctx, machineStore, summary, reference); err == nil {
+			return unmanaged, nil
+		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
 	case 1:
 		return resolveKnownProjectMachine(summary, matches[0], machineName)
@@ -84,5 +91,40 @@ func resolveKnownProjectMachine(summary project.Summary, projectName string, mac
 		Project:      projectName,
 		Name:         machineName,
 		InstanceName: instanceName,
+		Managed:      true,
 	}, nil
+}
+
+func resolveUnmanagedMachine(ctx context.Context, machineStore Store, summary project.Summary, reference string) (resolvedMachine, error) {
+	if machineStore == nil || strings.Contains(reference, "/") {
+		return resolvedMachine{}, fmt.Errorf("unmanaged machine %s not found", reference)
+	}
+	unmanagedStore, ok := machineStore.(UnmanagedStore)
+	if !ok {
+		return resolvedMachine{}, fmt.Errorf("unmanaged machine %s not found", reference)
+	}
+	name := strings.TrimSpace(reference)
+	if name == "" {
+		return resolvedMachine{}, fmt.Errorf("unmanaged machine %s not found", reference)
+	}
+	machines, err := unmanagedStore.ListUnmanagedMachines(ctx, summary)
+	if err != nil {
+		return resolvedMachine{}, fmt.Errorf("list unmanaged machines for %s: %w", summary.Tenant, err)
+	}
+	for _, machine := range machines {
+		if machine.Name != name && machine.InstanceName != name {
+			continue
+		}
+		instanceName := machine.InstanceName
+		if strings.TrimSpace(instanceName) == "" {
+			instanceName = machine.Name
+		}
+		return resolvedMachine{
+			Summary:      summary,
+			Name:         machine.Name,
+			InstanceName: instanceName,
+			Managed:      false,
+		}, nil
+	}
+	return resolvedMachine{}, fmt.Errorf("unmanaged machine %s not found", reference)
 }

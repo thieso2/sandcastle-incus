@@ -117,7 +117,7 @@ func dnsEndpoint(privateCIDR string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	addr, err := cidr.RoleAddress(prefix, 53)
+	addr, err := cidr.RoleAddress(prefix, cidr.DNSHostOctet)
 	if err != nil {
 		return "", err
 	}

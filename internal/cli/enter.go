@@ -100,7 +100,10 @@ func enterPlanFromCreatePlan(plan sandbox.CreatePlan, command []string) (sandbox
 		InstanceName: plan.InstanceName,
 		Command:      command,
 		LinuxUser:    plan.LinuxUser,
+		UserID:       sandbox.DefaultLinuxUID,
+		GroupID:      sandbox.DefaultLinuxGID,
 		WorkingDir:   "/workspace",
 		Interactive:  interactive,
+		Managed:      true,
 	}, nil
 }

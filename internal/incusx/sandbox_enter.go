@@ -48,11 +48,19 @@ func (e SandboxEnterer) ConnectMachine(ctx context.Context, plan sandbox.EnterPl
 		server = sdkSandboxEnterServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(plan.Tenant.IncusName)
+	userID := plan.UserID
+	groupID := plan.GroupID
+	if userID == 0 && plan.LinuxUser != "root" {
+		userID = sandbox.DefaultLinuxUID
+	}
+	if groupID == 0 && plan.LinuxUser != "root" {
+		groupID = sandbox.DefaultLinuxGID
+	}
 	exec := api.InstanceExecPost{
 		Command:     plan.Command,
 		Cwd:         plan.WorkingDir,
-		User:        sandbox.DefaultLinuxUID,
-		Group:       sandbox.DefaultLinuxGID,
+		User:        uint32(userID),
+		Group:       uint32(groupID),
 		Interactive: plan.Interactive,
 		WaitForWS:   true,
 		Environment: map[string]string{

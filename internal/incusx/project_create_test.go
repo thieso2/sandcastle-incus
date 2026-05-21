@@ -356,7 +356,7 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if resourceServer.createdInstances[1].Name != project.DNSName {
 		t.Fatalf("second sidecar = %q", resourceServer.createdInstances[1].Name)
 	}
-	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.53" {
+	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.3" {
 		t.Fatalf("dns address = %q", got)
 	}
 	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/Corefile"]; got == "" {

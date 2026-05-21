@@ -8,7 +8,7 @@ import (
 )
 
 func TestRenderInitial(t *testing.T) {
-	files, err := RenderInitial("Acme.", "10.248.0.53")
+	files, err := RenderInitial("Acme.", "10.248.0.3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestRenderInitial(t *testing.T) {
 	if zoneFile.Path != "/etc/coredns/zones/db.acme" {
 		t.Fatalf("zone path = %q", zoneFile.Path)
 	}
-	if !strings.Contains(zoneFile.Content, "ns IN A 10.248.0.53") {
+	if !strings.Contains(zoneFile.Content, "ns IN A 10.248.0.3") {
 		t.Fatalf("zone content = %q", zoneFile.Content)
 	}
 	if strings.Contains(zoneFile.Content, "*") {
@@ -49,14 +49,14 @@ func TestRenderInitial(t *testing.T) {
 }
 
 func TestRenderInitialRequiresTenantDNSSuffix(t *testing.T) {
-	_, err := RenderInitial("", "10.248.0.53")
+	_, err := RenderInitial("", "10.248.0.3")
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestRenderTenantIncludesMachineRecords(t *testing.T) {
-	files, err := RenderTenant("acme", "10.248.0.53", []meta.Machine{
+	files, err := RenderTenant("acme", "10.248.0.3", []meta.Machine{
 		{Project: "default", Name: "codex", PrivateIP: "10.248.0.20"},
 	})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestPlanApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.DNSAddress != "10.248.0.53" {
+	if result.DNSAddress != "10.248.0.3" {
 		t.Fatalf("DNSAddress = %q", result.DNSAddress)
 	}
 	if result.RecordCount != 4 {

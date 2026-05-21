@@ -85,7 +85,7 @@ func dnsAddressFromCIDR(privateCIDR string) string {
 	if err != nil {
 		return ""
 	}
-	addr, err := cidr.RoleAddress(prefix, 53)
+	addr, err := cidr.RoleAddress(prefix, cidr.DNSHostOctet)
 	if err != nil {
 		return ""
 	}

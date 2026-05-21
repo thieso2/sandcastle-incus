@@ -159,7 +159,7 @@ func summaryHasProject(summary project.Summary, name string) bool {
 
 func formatMachineList(result listPayload) string {
 	if len(result.Machines) == 0 && len(result.Unmanaged) == 0 {
-		return fmt.Sprintf("No Sandcastle machines found. Unmanaged: %d", result.UnmanagedCount)
+		return "No Sandcastle machines found."
 	}
 
 	var builder strings.Builder
@@ -196,14 +196,21 @@ func formatMachineList(result listPayload) string {
 			"-",
 			unmanaged.Name,
 			"-",
-			"-",
+			displayValue(unmanaged.PrivateIP),
 			formatListCreatedAt(unmanaged.CreatedAt),
 			"unmanaged:"+state,
 		)
 	}
 	_ = table.Flush()
-	fmt.Fprintf(&builder, "Unmanaged: %d", result.UnmanagedCount)
 	return strings.TrimRight(builder.String(), "\n")
+}
+
+func displayValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	return value
 }
 
 func machineFQDN(tenant project.Summary, machine meta.Machine) string {

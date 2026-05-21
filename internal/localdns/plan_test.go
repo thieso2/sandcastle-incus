@@ -19,7 +19,7 @@ func TestPlanInstallUsesTenantDNSRoleAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.DNSEndpoint != "10.248.0.53:53" {
+	if plan.DNSEndpoint != "10.248.0.3:53" {
 		t.Fatalf("DNSEndpoint = %q", plan.DNSEndpoint)
 	}
 	if plan.Listen != "127.0.0.1:53541" {
@@ -49,7 +49,7 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	plan := Plan{
 		Reference:    "acme",
 		DNSSuffix:    "acme",
-		DNSEndpoint:  "10.248.0.53:53",
+		DNSEndpoint:  "10.248.0.3:53",
 		Listen:       "127.0.0.1:53541",
 		StatePath:    filepath.Join(dir, "state", "dns.yaml"),
 		ResolverPath: filepath.Join(dir, "resolver", "acme"),
@@ -66,7 +66,7 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(state), "dnsEndpoint:") || !strings.Contains(string(state), "10.248.0.53") {
+	if !strings.Contains(string(state), "dnsEndpoint:") || !strings.Contains(string(state), "10.248.0.3") {
 		t.Fatalf("state = %s", state)
 	}
 	resolver, err := os.ReadFile(plan.ResolverPath)
@@ -76,7 +76,7 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	if string(resolver) != "nameserver 127.0.0.1\nport 53541\n" {
 		t.Fatalf("resolver = %q", resolver)
 	}
-	plan.DNSEndpoint = "10.248.1.53:53"
+	plan.DNSEndpoint = "10.248.1.3:53"
 	result, err = manager.Refresh(context.Background(), plan)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(state), "10.248.1.53") || strings.Contains(string(state), "10.248.0.53") {
+	if !strings.Contains(string(state), "10.248.1.3") || strings.Contains(string(state), "10.248.0.3") {
 		t.Fatalf("state = %s", state)
 	}
 	result, err = manager.Uninstall(context.Background(), plan)
@@ -111,7 +111,7 @@ func TestFileManagerRunsLinuxResolverSyncCommands(t *testing.T) {
 	plan := Plan{
 		Reference:        "acme",
 		DNSSuffix:        "acme",
-		DNSEndpoint:      "10.248.0.53:53",
+		DNSEndpoint:      "10.248.0.3:53",
 		Listen:           "127.0.0.1:53541",
 		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
 		ResolverPath:     filepath.Join(dir, "resolver", "acme"),
@@ -137,8 +137,8 @@ func TestFileManagerUninstallSyncsRemainingLinuxResolverDomains(t *testing.T) {
 	dir := t.TempDir()
 	runner := &recordingServiceRunner{}
 	manager := FileManager{Runner: runner}
-	first := linuxResolverPlan(dir, "alpha", "alpha", "10.248.0.53:53")
-	second := linuxResolverPlan(dir, "beta", "beta", "10.248.1.53:53")
+	first := linuxResolverPlan(dir, "alpha", "alpha", "10.248.0.3:53")
+	second := linuxResolverPlan(dir, "beta", "beta", "10.248.1.3:53")
 	if _, err := manager.Install(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}

@@ -228,8 +228,8 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 	if strings.Contains(stdout, "PORT") || strings.Contains(stdout, "3000") {
 		t.Fatalf("stdout = %q, want no port column", stdout)
 	}
-	if !strings.Contains(stdout, "Unmanaged: 0") {
-		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	if strings.Contains(stdout, "Unmanaged:") {
+		t.Fatalf("stdout = %q, want no unmanaged footer", stdout)
 	}
 }
 
@@ -318,17 +318,17 @@ func TestListShowsUnmanagedRowsByDefault(t *testing.T) {
 			Config: configMap,
 		}}},
 		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
-			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
+			Tenant: "acme", Name: "manual", InstanceName: "manual", PrivateIP: "10.248.0.99", Status: "Running", Running: true,
 		}}},
 	}, "list")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "Unmanaged: 1") {
-		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	if strings.Contains(stdout, "Unmanaged:") {
+		t.Fatalf("stdout = %q, want no unmanaged footer", stdout)
 	}
-	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "unmanaged:Running") || !strings.Contains(stdout, "Unmanaged: 1") {
-		t.Fatalf("stdout = %q, want unmanaged row and count", stdout)
+	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "10.248.0.99") || !strings.Contains(stdout, "unmanaged:Running") {
+		t.Fatalf("stdout = %q, want unmanaged row", stdout)
 	}
 }
 
@@ -348,16 +348,16 @@ func TestListProjectScopeAlsoShowsUnmanagedRows(t *testing.T) {
 			Config: configMap,
 		}}},
 		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
-			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
+			Tenant: "acme", Name: "manual", InstanceName: "manual", PrivateIP: "10.248.0.99", Status: "Running", Running: true,
 		}}},
 	}, "list", "default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "Unmanaged: 1") {
-		t.Fatalf("stdout = %q, want unmanaged count", stdout)
+	if strings.Contains(stdout, "Unmanaged:") {
+		t.Fatalf("stdout = %q, want no unmanaged footer", stdout)
 	}
-	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "unmanaged:Running") {
+	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "10.248.0.99") || !strings.Contains(stdout, "unmanaged:Running") {
 		t.Fatalf("stdout = %q, want unmanaged row", stdout)
 	}
 }
@@ -1241,6 +1241,38 @@ func TestEnterCommandSearchesBareMachineWhenUnique(t *testing.T) {
 	}
 }
 
+func TestEnterCommandConnectsUnmanagedReservedMachine(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enterer := &fakeSandboxEnterer{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
+			Tenant: "acme", Name: "sc-dns", InstanceName: "sc-dns", PrivateIP: "10.248.0.3", Status: "Running", Running: true,
+		}}},
+		sandboxEnterer: enterer,
+	}, "c", "sc-dns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enterer.called || enterer.plan.Managed || enterer.plan.InstanceName != "sc-dns" {
+		t.Fatalf("enterer.plan = %#v", enterer.plan)
+	}
+	if enterer.plan.UserID != 0 || enterer.plan.GroupID != 0 || enterer.plan.LinuxUser != "root" || enterer.plan.WorkingDir != "/root" {
+		t.Fatalf("enterer.plan = %#v", enterer.plan)
+	}
+}
+
 func TestEnterCommandRejectsAmbiguousBareMachine(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -1344,7 +1376,7 @@ func TestDNSStatusJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.DNSAddress != "10.248.0.53" {
+	if payload.DNSAddress != "10.248.0.3" {
 		t.Fatalf("DNSAddress = %q", payload.DNSAddress)
 	}
 }
@@ -1475,7 +1507,7 @@ func TestDNSInstallDryRunJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.DNSEndpoint != "10.248.0.53:53" {
+	if payload.DNSEndpoint != "10.248.0.3:53" {
 		t.Fatalf("DNSEndpoint = %q", payload.DNSEndpoint)
 	}
 }
@@ -1483,7 +1515,7 @@ func TestDNSInstallDryRunJSON(t *testing.T) {
 func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 	output := formatLocalDNSPlan("Install", localdns.Plan{
 		Reference:        "acme",
-		DNSEndpoint:      "10.248.0.53:53",
+		DNSEndpoint:      "10.248.0.3:53",
 		Listen:           "127.0.0.1:53541",
 		ResolverStrategy: localdns.StrategySystemdResolve,
 		ResolverCommands: []localdns.Command{
@@ -1527,7 +1559,7 @@ func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
 	if !manager.refreshed {
 		t.Fatal("expected local DNS refresh call")
 	}
-	if manager.plan.DNSEndpoint != "10.248.0.53:53" {
+	if manager.plan.DNSEndpoint != "10.248.0.3:53" {
 		t.Fatalf("DNSEndpoint = %q", manager.plan.DNSEndpoint)
 	}
 }

@@ -22,8 +22,11 @@ type EnterPlan struct {
 	InstanceName string          `json:"instanceName"`
 	Command      []string        `json:"command"`
 	LinuxUser    string          `json:"linuxUser"`
+	UserID       int             `json:"userId"`
+	GroupID      int             `json:"groupId"`
 	WorkingDir   string          `json:"workingDir"`
 	Interactive  bool            `json:"interactive"`
+	Managed      bool            `json:"managed"`
 }
 
 type EnterSession struct {
@@ -53,6 +56,16 @@ func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProje
 	if len(command) == 0 || command[0] == "" {
 		return EnterPlan{}, fmt.Errorf("enter command is required")
 	}
+	linuxUser := resolved.Summary.Tenant
+	workingDir := "/workspace"
+	userID := DefaultLinuxUID
+	groupID := DefaultLinuxGID
+	if !resolved.Managed {
+		linuxUser = "root"
+		workingDir = "/root"
+		userID = 0
+		groupID = 0
+	}
 	return EnterPlan{
 		Reference:    request.Reference,
 		Tenant:       resolved.Summary,
@@ -60,8 +73,11 @@ func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProje
 		Name:         resolved.Name,
 		InstanceName: resolved.InstanceName,
 		Command:      command,
-		LinuxUser:    resolved.Summary.Tenant,
-		WorkingDir:   "/workspace",
+		LinuxUser:    linuxUser,
+		UserID:       userID,
+		GroupID:      groupID,
+		WorkingDir:   workingDir,
 		Interactive:  interactive,
+		Managed:      resolved.Managed,
 	}, nil
 }

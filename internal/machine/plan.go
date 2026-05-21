@@ -92,6 +92,7 @@ type UnmanagedMachine struct {
 	Name         string `json:"name"`
 	InstanceName string `json:"instanceName"`
 	Type         string `json:"type,omitempty"`
+	PrivateIP    string `json:"privateIp,omitempty"`
 	Status       string `json:"status,omitempty"`
 	CreatedAt    string `json:"createdAt,omitempty"`
 	Running      bool   `json:"running"`

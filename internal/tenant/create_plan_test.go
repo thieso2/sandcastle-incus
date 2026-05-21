@@ -33,7 +33,7 @@ func TestPlanCreate(t *testing.T) {
 	if plan.TailscaleAddress != "10.248.1.2" {
 		t.Fatalf("TailscaleAddress = %q", plan.TailscaleAddress)
 	}
-	if plan.DNSAddress != "10.248.1.53" {
+	if plan.DNSAddress != "10.248.1.3" {
 		t.Fatalf("DNSAddress = %q", plan.DNSAddress)
 	}
 	if plan.TenantMetadataConfig[meta.KeyKind] != meta.KindTenant {
@@ -64,14 +64,14 @@ func TestPlanCreate(t *testing.T) {
 	if tun := plan.Sidecars[0].Devices["tun"]; tun["type"] != "unix-char" || tun["path"] != "/dev/net/tun" {
 		t.Fatalf("tailscale tun device = %#v", tun)
 	}
-	if plan.Sidecars[1].Name != DNSName || plan.Sidecars[1].Address != "10.248.1.53" {
+	if plan.Sidecars[1].Name != DNSName || plan.Sidecars[1].Address != "10.248.1.3" {
 		t.Fatalf("dns sidecar = %#v", plan.Sidecars[1])
 	}
 	if _, ok := plan.Sidecars[1].Devices["tun"]; ok {
 		t.Fatalf("dns sidecar should not have tun device: %#v", plan.Sidecars[1].Devices)
 	}
-	if len(plan.DNSFiles) != 2 {
-		t.Fatalf("DNS files = %d, want 2", len(plan.DNSFiles))
+	if len(plan.DNSFiles) != 4 {
+		t.Fatalf("DNS files = %d, want 4", len(plan.DNSFiles))
 	}
 	if plan.TenantCA.CertificatePath != "/ca.crt" {
 		t.Fatalf("CA certificate path = %q", plan.TenantCA.CertificatePath)
