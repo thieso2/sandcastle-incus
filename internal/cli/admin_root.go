@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/spf13/cobra"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/images"
@@ -22,13 +23,21 @@ func ExecuteAdmin(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
 	verbose := os.Getenv("VERBOSE") == "1"
 
-	// Prefer explicit admin_remote; fall back to auto-detecting the global remote
-	// whose server TLS cert matches the per-remote user config.
+	// Prefer explicit admin_remote; fall back to cert/IP-based auto-detection;
+	// finally fall back to the global Incus default remote.
 	adminRemote := adminConfig.AdminRemote
 	if adminRemote == "" {
 		adminRemote = detectAdminRemote(adminConfig.Remote, verbose)
 		if verbose && adminRemote != "" {
 			fmt.Fprintf(os.Stderr, "[verbose] admin remote auto-detected: %s\n", adminRemote)
+		}
+	}
+	if adminRemote == "" {
+		if globalCfg, err := cliconfig.LoadConfig(""); err == nil {
+			adminRemote = globalCfg.DefaultRemote
+			if verbose && adminRemote != "" {
+				fmt.Fprintf(os.Stderr, "[verbose] admin remote: using global incus default %q\n", adminRemote)
+			}
 		}
 	}
 	if adminRemote != "" {
