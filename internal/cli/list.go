@@ -173,7 +173,7 @@ func formatMachineList(result listPayload) string {
 
 	var builder strings.Builder
 	table := tabwriter.NewWriter(&builder, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "PROJECT\tMACHINE\tFQDN\tIP\tPORT\tSTATE")
+	fmt.Fprintln(table, "PROJECT\tMACHINE\tFQDN\tIP\tCREATED\tSTATE")
 	for _, machine := range result.Machines {
 		state := "stopped"
 		if machine.Running {
@@ -181,12 +181,12 @@ func formatMachineList(result listPayload) string {
 		}
 		fmt.Fprintf(
 			table,
-			"%s\t%s\t%s\t%s\t%d\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\n",
 			machine.Project,
 			machine.Name,
 			machineFQDN(result.Tenant, machine),
 			machine.PrivateIP,
-			machine.AppPort,
+			createdAtOrDash(machine.CreatedAt),
 			state,
 		)
 	}
@@ -206,7 +206,7 @@ func formatMachineList(result listPayload) string {
 			unmanaged.Name,
 			"-",
 			"-",
-			"-",
+			createdAtOrDash(unmanaged.CreatedAt),
 			"unmanaged:"+state,
 		)
 	}
@@ -224,4 +224,12 @@ func machineFQDN(tenant project.Summary, machine meta.Machine) string {
 		return "-"
 	}
 	return machine.Name + "." + machine.Project + "." + suffix
+}
+
+func createdAtOrDash(createdAt string) string {
+	createdAt = strings.TrimSpace(createdAt)
+	if createdAt == "" {
+		return "-"
+	}
+	return createdAt
 }

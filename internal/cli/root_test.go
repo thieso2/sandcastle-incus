@@ -192,16 +192,20 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 			Name:      "codex",
 			PrivateIP: "10.248.0.20",
 			AppPort:   3000,
+			CreatedAt: "2026-05-21T10:30:00Z",
 			Running:   true,
 		}}},
 	}, "list")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"PROJECT", "MACHINE", "FQDN", "default", "codex", "codex.default.acme"} {
+	for _, want := range []string{"PROJECT", "MACHINE", "FQDN", "IP", "CREATED", "STATE", "default", "codex", "codex.default.acme", "2026-05-21T10:30:00Z"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}
+	}
+	if strings.Contains(stdout, "PORT") || strings.Contains(stdout, "3000") {
+		t.Fatalf("stdout = %q, want no port column", stdout)
 	}
 	if !strings.Contains(stdout, "Unmanaged: 0") {
 		t.Fatalf("stdout = %q, want unmanaged count", stdout)
@@ -229,13 +233,14 @@ func TestListAliasShowsManagedMachines(t *testing.T) {
 			Name:      "codex",
 			PrivateIP: "10.248.0.20",
 			AppPort:   3000,
+			CreatedAt: "2026-05-21T10:30:00Z",
 			Running:   true,
 		}}},
 	}, "ls")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"default", "codex", "codex.default.acme"} {
+	for _, want := range []string{"default", "codex", "codex.default.acme", "2026-05-21T10:30:00Z"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}
