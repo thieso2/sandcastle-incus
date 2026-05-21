@@ -8,7 +8,7 @@ import (
 )
 
 func TestRenderInitial(t *testing.T) {
-	files, err := RenderInitial("MyProject.Project-TLD.", "10.248.0.53")
+	files, err := RenderInitial("Acme.", "10.248.0.53")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,10 +18,10 @@ func TestRenderInitial(t *testing.T) {
 	if files[0].Path != "/etc/coredns/Corefile" {
 		t.Fatalf("Corefile path = %q", files[0].Path)
 	}
-	if !strings.Contains(files[0].Content, "myproject.project-tld:53") {
+	if !strings.Contains(files[0].Content, "acme:53") {
 		t.Fatalf("Corefile content = %q", files[0].Content)
 	}
-	if files[1].Path != "/etc/coredns/zones/db.myproject.project-tld" {
+	if files[1].Path != "/etc/coredns/zones/db.acme" {
 		t.Fatalf("zone path = %q", files[1].Path)
 	}
 	if !strings.Contains(files[1].Content, "ns IN A 10.248.0.53") {
@@ -32,39 +32,38 @@ func TestRenderInitial(t *testing.T) {
 	}
 }
 
-func TestRenderInitialRequiresDomain(t *testing.T) {
+func TestRenderInitialRequiresTenantDNSSuffix(t *testing.T) {
 	_, err := RenderInitial("", "10.248.0.53")
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
-func TestRenderProjectIncludesSandboxRecords(t *testing.T) {
-	files, err := RenderProject("myproject.project-tld", "10.248.0.53", []meta.Sandbox{
-		{Name: "codex", PrivateIP: "10.248.0.20"},
+func TestRenderTenantIncludesMachineRecords(t *testing.T) {
+	files, err := RenderTenant("acme", "10.248.0.53", []meta.Machine{
+		{Project: "default", Name: "codex", PrivateIP: "10.248.0.20"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	zone := files[1].Content
-	if !strings.Contains(zone, "codex IN A 10.248.0.20") {
-		t.Fatalf("zone missing exact sandbox record: %q", zone)
+	if !strings.Contains(zone, "codex.default IN A 10.248.0.20") {
+		t.Fatalf("zone missing exact machine record: %q", zone)
 	}
-	if !strings.Contains(zone, "*.codex IN A 10.248.0.20") {
-		t.Fatalf("zone missing wildcard sandbox record: %q", zone)
+	if !strings.Contains(zone, "*.codex.default IN A 10.248.0.20") {
+		t.Fatalf("zone missing wildcard machine record: %q", zone)
 	}
-	if strings.Contains(zone, "*.myproject.project-tld") {
+	if strings.Contains(zone, "*.default.acme") {
 		t.Fatalf("zone should not contain project-wide wildcard: %q", zone)
 	}
 }
 
 func TestPlanApply(t *testing.T) {
-	result, err := PlanApply(Project{
-		Owner:       "alice",
-		Name:        "myproject",
-		Domain:      "myproject.project-tld",
+	result, err := PlanApply(Tenant{
+		Tenant:      "acme",
+		DNSSuffix:   "acme",
 		PrivateCIDR: "10.248.0.0/24",
-	}, []meta.Sandbox{{Name: "codex", PrivateIP: "10.248.0.20"}})
+	}, []meta.Machine{{Project: "default", Name: "codex", PrivateIP: "10.248.0.20"}})
 	if err != nil {
 		t.Fatal(err)
 	}

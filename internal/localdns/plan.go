@@ -12,7 +12,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	"github.com/thieso2/sandcastle-incus/internal/project"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 const (

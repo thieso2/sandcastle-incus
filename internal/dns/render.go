@@ -15,14 +15,14 @@ type File struct {
 	Mode    int    `json:"mode"`
 }
 
-func RenderInitial(domain string, dnsAddress string) ([]File, error) {
-	return RenderProject(domain, dnsAddress, nil)
+func RenderInitial(suffix string, dnsAddress string) ([]File, error) {
+	return RenderTenant(suffix, dnsAddress, nil)
 }
 
-func RenderProject(domain string, dnsAddress string, sandboxes []meta.Sandbox) ([]File, error) {
+func RenderTenant(domain string, dnsAddress string, machines []meta.Machine) ([]File, error) {
 	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
 	if domain == "" {
-		return nil, fmt.Errorf("domain is required")
+		return nil, fmt.Errorf("tenant DNS suffix is required")
 	}
 	if dnsAddress == "" {
 		return nil, fmt.Errorf("DNS address is required")
@@ -35,14 +35,18 @@ $TTL 60
 @ IN NS ns.%s.
 ns IN A %s
 `, domain, domain, domain, domain, dnsAddress)
-	sort.Slice(sandboxes, func(i, j int) bool {
-		return sandboxes[i].Name < sandboxes[j].Name
+	sort.Slice(machines, func(i, j int) bool {
+		if machines[i].Project == machines[j].Project {
+			return machines[i].Name < machines[j].Name
+		}
+		return machines[i].Project < machines[j].Project
 	})
-	for _, sandbox := range sandboxes {
-		if sandbox.Name == "" || sandbox.PrivateIP == "" {
+	for _, machine := range machines {
+		if machine.Project == "" || machine.Name == "" || machine.PrivateIP == "" {
 			continue
 		}
-		zone += fmt.Sprintf("%s IN A %s\n*.%s IN A %s\n", sandbox.Name, sandbox.PrivateIP, sandbox.Name, sandbox.PrivateIP)
+		record := machine.Name + "." + machine.Project
+		zone += fmt.Sprintf("%s IN A %s\n*.%s IN A %s\n", record, machine.PrivateIP, record, machine.PrivateIP)
 	}
 	return []File{
 		{

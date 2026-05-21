@@ -7,8 +7,8 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/thieso2/sandcastle-incus/internal/project"
-	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeSandboxLifecycleServer struct {

@@ -11,7 +11,7 @@ import (
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	"github.com/thieso2/sandcastle-incus/internal/project"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type DNSServer interface {

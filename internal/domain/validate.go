@@ -44,6 +44,17 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 	return domain, nil
 }
 
+func ValidateTenantDNSSuffix(value string, policy Policy) (string, error) {
+	suffix, err := ValidateProjectDomain(value, policy)
+	if err != nil {
+		return "", fmt.Errorf("%s", strings.ReplaceAll(err.Error(), "project domain", "tenant DNS suffix"))
+	}
+	if strings.Contains(suffix, ".") {
+		return "", fmt.Errorf("tenant DNS suffix %q must be a single DNS label", suffix)
+	}
+	return suffix, nil
+}
+
 func NormalizePolicySuffix(value string) (string, error) {
 	suffix := strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), "."), ".")
 	if suffix == "" {

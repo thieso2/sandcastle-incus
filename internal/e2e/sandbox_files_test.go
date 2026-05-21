@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
-	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
 func assertSandboxIngressFiles(t *testing.T, server incus.InstanceServer, instanceName string, hostname string, appPort int) {

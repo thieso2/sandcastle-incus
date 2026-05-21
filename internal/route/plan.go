@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
+	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	"github.com/thieso2/sandcastle-incus/internal/project"
-	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 const InfrastructureCaddyName = "sc-caddy"

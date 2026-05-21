@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
 func newSandboxLifecycleCommand(config commandConfig, opts *rootOptions, use string, action sandbox.Action, requireYes bool) *cobra.Command {

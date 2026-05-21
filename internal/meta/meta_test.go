@@ -2,72 +2,80 @@ package meta
 
 import "testing"
 
-func TestProjectConfigRoundTrip(t *testing.T) {
-	input := Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.88.17.0/24",
-		DefaultTemplate: "ai",
+func TestTenantConfigRoundTrip(t *testing.T) {
+	input := Tenant{
+		Tenant:      "acme",
+		PrivateCIDR: "10.88.17.0/24",
+		Projects: []Project{
+			{Name: "default"},
+			{Name: "website", CreatedBy: "alice"},
+		},
 		Tailscale: Tailscale{
 			State:            "connected",
 			AdvertisedRoutes: []string{"10.88.17.0/24"},
 		},
 		PublicRoutes: []PublicRoute{{
 			Hostname:  "app.example.com",
-			Sandbox:   "codex",
+			Project:   "website",
+			Machine:   "codex",
 			RoutePort: 5173,
 		}},
 	}
-	config, err := ProjectConfig(input)
+	config, err := TenantConfig(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config[KeyKind] != KindProject {
+	if config[KeyKind] != KindTenant {
 		t.Fatalf("kind = %q", config[KeyKind])
 	}
-	if config[KeyOwner] != "alice" {
-		t.Fatalf("owner scalar = %q", config[KeyOwner])
+	if config[KeyTenant] != "acme" {
+		t.Fatalf("tenant scalar = %q", config[KeyTenant])
 	}
-	output, err := ParseProjectConfig(config)
+	output, err := ParseTenantConfig(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Owner != input.Owner || output.Project != input.Project || output.PrivateCIDR != input.PrivateCIDR {
+	if output.Tenant != input.Tenant || output.PrivateCIDR != input.PrivateCIDR {
 		t.Fatalf("round trip = %#v, want %#v", output, input)
+	}
+	if len(output.Projects) != 2 || output.Projects[1].Name != "website" {
+		t.Fatalf("projects = %#v", output.Projects)
 	}
 	if len(output.Tailscale.AdvertisedRoutes) != 1 {
 		t.Fatalf("advertised routes = %#v", output.Tailscale.AdvertisedRoutes)
 	}
-	if len(output.PublicRoutes) != 1 || output.PublicRoutes[0].Hostname != "app.example.com" {
+	if len(output.PublicRoutes) != 1 || output.PublicRoutes[0].Machine != "codex" {
 		t.Fatalf("public routes = %#v", output.PublicRoutes)
 	}
 }
 
-func TestSandboxConfigRoundTrip(t *testing.T) {
-	input := Sandbox{
-		Owner:          "alice",
-		Project:        "myproject",
+func TestMachineConfigRoundTrip(t *testing.T) {
+	input := Machine{
+		Tenant:         "acme",
+		Project:        "website",
 		Name:           "codex",
+		Type:           MachineTypeContainer,
+		Template:       "ai",
 		AppPort:        3000,
 		PrivateIP:      "10.88.17.21",
 		LinuxUser:      "alice",
-		HomeDir:        "codex",
-		WorkspaceDir:   ".",
+		HomeDir:        "website/codex",
+		WorkspaceDir:   "website/codex",
 		ContainerTools: true,
 		ExtraSANs:      []string{"app.example.test"},
+		CreatedBy:      "alice",
 	}
-	config, err := SandboxConfig(input)
+	config, err := MachineConfig(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if config[KeyAppPort] != "3000" {
 		t.Fatalf("app port scalar = %q", config[KeyAppPort])
 	}
-	if config[KeyLinuxUser] != "alice" {
-		t.Fatalf("linux user scalar = %q", config[KeyLinuxUser])
+	if config[KeyMachine] != "codex" {
+		t.Fatalf("machine scalar = %q", config[KeyMachine])
 	}
-	output, err := ParseSandboxConfig(config)
+	output, err := ParseMachineConfig(config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,9 +93,9 @@ func TestSandboxConfigRoundTrip(t *testing.T) {
 func TestRouteConfigRoundTrip(t *testing.T) {
 	input := Route{
 		Hostname:        "app.example.com",
-		TargetOwner:     "alice",
-		TargetProject:   "myproject",
-		TargetSandbox:   "codex",
+		TargetTenant:    "acme",
+		TargetProject:   "website",
+		TargetMachine:   "codex",
 		TargetIP:        "10.248.0.20",
 		RoutePort:       5173,
 		CreatedBy:       "alice",
@@ -102,6 +110,9 @@ func TestRouteConfigRoundTrip(t *testing.T) {
 	}
 	if config[KeyHostname] != "app.example.com" {
 		t.Fatalf("hostname scalar = %q", config[KeyHostname])
+	}
+	if config[KeyTenant] != "acme" {
+		t.Fatalf("tenant scalar = %q", config[KeyTenant])
 	}
 	if config[KeyAppPort] != "5173" {
 		t.Fatalf("app port scalar = %q", config[KeyAppPort])
@@ -119,7 +130,7 @@ func TestRouteConfigRoundTrip(t *testing.T) {
 }
 
 func TestParseRejectsUnmanagedConfig(t *testing.T) {
-	_, err := ParseProjectConfig(map[string]string{})
+	_, err := ParseTenantConfig(map[string]string{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -129,7 +140,7 @@ func TestIsManaged(t *testing.T) {
 	if IsManaged(map[string]string{}) {
 		t.Fatal("empty config should be unmanaged")
 	}
-	if !IsManaged(map[string]string{KeyKind: KindProject, KeyVersion: "1"}) {
+	if !IsManaged(map[string]string{KeyKind: KindTenant, KeyVersion: "1"}) {
 		t.Fatal("Sandcastle config should be managed")
 	}
 }

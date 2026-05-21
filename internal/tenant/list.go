@@ -1,4 +1,4 @@
-package project
+package tenant
 
 import (
 	"context"
@@ -21,13 +21,13 @@ type IncusProjectStore interface {
 
 type Summary struct {
 	IncusName       string             `json:"incusName"`
-	Owner           string             `json:"owner"`
-	Name            string             `json:"name"`
-	Domain          string             `json:"domain,omitempty"`
+	Tenant          string             `json:"tenant"`
+	DNSSuffix       string             `json:"dnsSuffix,omitempty"`
 	PrivateCIDR     string             `json:"privateCIDR,omitempty"`
 	DNSAddress      string             `json:"dnsAddress,omitempty"`
 	DefaultTemplate string             `json:"defaultTemplate,omitempty"`
 	SSHPublicKey    string             `json:"sshPublicKey,omitempty"`
+	Projects        []meta.Project     `json:"projects,omitempty"`
 	Status          string             `json:"status"`
 	Tailscale       meta.Tailscale     `json:"tailscale,omitempty"`
 	PublicRoutes    []meta.PublicRoute `json:"publicRoutes,omitempty"`
@@ -43,29 +43,26 @@ func List(ctx context.Context, store IncusProjectStore) ([]Summary, error) {
 		if !meta.IsManaged(incusProject.Config) {
 			continue
 		}
-		project, err := meta.ParseProjectConfig(incusProject.Config)
+		tenant, err := meta.ParseTenantConfig(incusProject.Config)
 		if err != nil {
-			return nil, fmt.Errorf("parse project metadata for %s: %w", incusProject.Name, err)
+			return nil, fmt.Errorf("parse tenant metadata for %s: %w", incusProject.Name, err)
 		}
 		summaries = append(summaries, Summary{
 			IncusName:       incusProject.Name,
-			Owner:           project.Owner,
-			Name:            project.Project,
-			Domain:          project.Domain,
-			PrivateCIDR:     project.PrivateCIDR,
-			DNSAddress:      dnsAddressFromCIDR(project.PrivateCIDR),
-			DefaultTemplate: project.DefaultTemplate,
-			SSHPublicKey:    project.SSHPublicKey,
+			Tenant:          tenant.Tenant,
+			DNSSuffix:       tenant.Tenant,
+			PrivateCIDR:     tenant.PrivateCIDR,
+			DNSAddress:      dnsAddressFromCIDR(tenant.PrivateCIDR),
+			DefaultTemplate: "ai",
+			SSHPublicKey:    tenant.SSHPublicKey,
+			Projects:        append([]meta.Project{}, tenant.Projects...),
 			Status:          "managed",
-			Tailscale:       project.Tailscale,
-			PublicRoutes:    append([]meta.PublicRoute{}, project.PublicRoutes...),
+			Tailscale:       tenant.Tailscale,
+			PublicRoutes:    append([]meta.PublicRoute{}, tenant.PublicRoutes...),
 		})
 	}
 	sort.Slice(summaries, func(i, j int) bool {
-		if summaries[i].Owner == summaries[j].Owner {
-			return summaries[i].Name < summaries[j].Name
-		}
-		return summaries[i].Owner < summaries[j].Owner
+		return summaries[i].Tenant < summaries[j].Tenant
 	})
 	return summaries, nil
 }

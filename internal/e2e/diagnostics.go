@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
-	"github.com/thieso2/sandcastle-incus/internal/project"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"gopkg.in/yaml.v2"
 )
 

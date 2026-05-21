@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/thieso2/sandcastle-incus/internal/project"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type listPayload struct {

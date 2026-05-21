@@ -1,4 +1,4 @@
-package project
+package tenant
 
 import (
 	"testing"
@@ -8,13 +8,13 @@ import (
 
 func TestPlanDelete(t *testing.T) {
 	plan, err := PlanDelete(config.LoadAdminFromEnv(), DeleteRequest{
-		Reference: "alice/myproject",
+		Reference: "acme",
 		Purge:     true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.IncusProject != "sc-alice-myproject" {
+	if plan.IncusProject != "sc-acme" {
 		t.Fatalf("IncusProject = %q", plan.IncusProject)
 	}
 	if !plan.PurgeDurableState {

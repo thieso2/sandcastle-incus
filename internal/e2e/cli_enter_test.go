@@ -8,8 +8,8 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/cli"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	"github.com/thieso2/sandcastle-incus/internal/project"
-	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestCLIEnterCommandE2E(t *testing.T) {

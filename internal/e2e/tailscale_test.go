@@ -15,9 +15,9 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	"github.com/thieso2/sandcastle-incus/internal/project"
-	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestTailscaleAttachmentE2E(t *testing.T) {

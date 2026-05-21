@@ -1,4 +1,4 @@
-package project
+package tenant
 
 import (
 	"context"
@@ -23,18 +23,18 @@ type DeletePlan struct {
 }
 
 type Deleter interface {
-	DeleteProject(context.Context, DeletePlan) error
+	DeleteTenant(context.Context, DeletePlan) error
 }
 
 func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return DeletePlan{}, err
 	}
-	ref, err := naming.ParseProjectRef(request.Reference)
+	ref, err := naming.ParseTenantRef(request.Reference)
 	if err != nil {
 		return DeletePlan{}, err
 	}
-	incusName, err := naming.IncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
 	if err != nil {
 		return DeletePlan{}, err
 	}

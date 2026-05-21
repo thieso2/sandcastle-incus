@@ -9,9 +9,9 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
+	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	"github.com/thieso2/sandcastle-incus/internal/project"
-	"github.com/thieso2/sandcastle-incus/internal/sandbox"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeTopologyServer struct {
@@ -74,7 +74,7 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 		},
 		instances: map[string]*api.Instance{
 			"sc-alice-myproject": {Name: "sc-alice-myproject", Status: "Stopped", StatusCode: api.Stopped},
-			project.DNSName:       {Name: project.DNSName, Status: "Running", StatusCode: api.Running},
+			project.DNSName:      {Name: project.DNSName, Status: "Running", StatusCode: api.Running},
 			"sc-codex": {
 				Name: "sc-codex",
 				InstancePut: api.InstancePut{

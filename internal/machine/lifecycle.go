@@ -1,11 +1,12 @@
-package sandbox
+package machine
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
-	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type Action string
@@ -24,7 +25,8 @@ type LifecycleRequest struct {
 
 type LifecyclePlan struct {
 	Reference    string          `json:"reference"`
-	Project      project.Summary `json:"project"`
+	Tenant       project.Summary `json:"tenant"`
+	Project      string          `json:"project"`
 	Name         string          `json:"name"`
 	InstanceName string          `json:"instanceName"`
 	Action       Action          `json:"action"`
@@ -41,19 +43,31 @@ func PlanLifecycle(ctx context.Context, admin config.Admin, store project.IncusP
 	if err := validateAction(request.Action); err != nil {
 		return LifecyclePlan{}, err
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.Reference, admin.Owner)
+	tenantRef, err := currentTenantRef(admin)
 	if err != nil {
 		return LifecyclePlan{}, err
 	}
-	summary, err := findProject(ctx, store, projectRef)
+	projectRef, machineName, err := naming.ParseUserMachineRef(request.Reference, admin.Project)
+	if err != nil {
+		return LifecyclePlan{}, err
+	}
+	summary, err := findTenant(ctx, store, tenantRef)
+	if err != nil {
+		return LifecyclePlan{}, err
+	}
+	if !tenantHasProject(summary, projectRef.Project) {
+		return LifecyclePlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectRef.Project, summary.Tenant)
+	}
+	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: projectRef.Project, Machine: machineName})
 	if err != nil {
 		return LifecyclePlan{}, err
 	}
 	return LifecyclePlan{
 		Reference:    request.Reference,
-		Project:      summary,
-		Name:         sandboxName,
-		InstanceName: "sc-" + sandboxName,
+		Tenant:       summary,
+		Project:      projectRef.Project,
+		Name:         machineName,
+		InstanceName: instanceName,
 		Action:       request.Action,
 	}, nil
 }
@@ -63,6 +77,6 @@ func validateAction(action Action) error {
 	case ActionStart, ActionStop, ActionRestart, ActionRemove:
 		return nil
 	default:
-		return fmt.Errorf("unsupported sandbox action %q", action)
+		return fmt.Errorf("unsupported machine action %q", action)
 	}
 }

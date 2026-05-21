@@ -10,7 +10,8 @@ import (
 
 // SandcastleConfig holds user-facing defaults stored in ~/.config/sandcastle/config.yml.
 type SandcastleConfig struct {
-	Owner       string `yaml:"owner,omitempty"`
+	Tenant      string `yaml:"tenant,omitempty"`
+	Project     string `yaml:"project,omitempty"`
 	Remote      string `yaml:"remote,omitempty"`
 	AdminRemote string `yaml:"admin_remote,omitempty"`
 }
@@ -70,7 +71,8 @@ func LoadAdmin() Admin {
 // loadAdminFromFileAndEnv applies env var overrides on top of a file config.
 func loadAdminFromFileAndEnv(cfg SandcastleConfig) Admin {
 	return Admin{
-		Owner:                  firstNonEmpty(strings.TrimSpace(os.Getenv("SANDCASTLE_OWNER")), cfg.Owner),
+		Tenant:                 firstNonEmpty(strings.TrimSpace(os.Getenv("SANDCASTLE_TENANT")), cfg.Tenant),
+		Project:                firstNonEmpty(strings.TrimSpace(os.Getenv("SANDCASTLE_PROJECT")), cfg.Project),
 		Remote:                 firstNonEmpty(getenv("SANDCASTLE_REMOTE", ""), cfg.Remote, DefaultRemote),
 		AdminRemote:            firstNonEmpty(strings.TrimSpace(os.Getenv("SANDCASTLE_ADMIN_REMOTE")), cfg.AdminRemote),
 		StoragePool:            getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),

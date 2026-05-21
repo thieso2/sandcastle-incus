@@ -22,7 +22,8 @@ const (
 )
 
 type Admin struct {
-	Owner                  string
+	Tenant                 string
+	Project                string
 	Remote                 string
 	AdminRemote            string // Incus remote for admin commands; uses global ~/.config/incus/ config
 	ConfigPath             string // path to per-remote Incus config dir; empty = use default ~/.config/incus
@@ -45,7 +46,8 @@ type Images struct {
 
 func LoadAdminFromEnv() Admin {
 	return Admin{
-		Owner:                  strings.TrimSpace(os.Getenv("SANDCASTLE_OWNER")),
+		Tenant:                 strings.TrimSpace(os.Getenv("SANDCASTLE_TENANT")),
+		Project:                strings.TrimSpace(os.Getenv("SANDCASTLE_PROJECT")),
 		Remote:                 getenv("SANDCASTLE_REMOTE", DefaultRemote),
 		StoragePool:            getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
 		CIDRPool:               getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
@@ -76,7 +78,7 @@ func (c Admin) Validate() error {
 	if strings.TrimSpace(c.ProjectPrefix) == "" {
 		return fmt.Errorf("project prefix is required")
 	}
-	if err := naming.ValidateProjectPrefix(c.ProjectPrefix); err != nil {
+	if err := naming.ValidateIncusProjectPrefix(c.ProjectPrefix); err != nil {
 		return err
 	}
 	if strings.TrimSpace(c.InfrastructureProject) == "" {

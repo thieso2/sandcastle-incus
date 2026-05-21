@@ -1,4 +1,4 @@
-package sandbox
+package machine
 
 import (
 	"context"
@@ -6,7 +6,8 @@ import (
 	"io"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
-	"github.com/thieso2/sandcastle-incus/internal/project"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type EnterRequest struct {
@@ -16,7 +17,8 @@ type EnterRequest struct {
 
 type EnterPlan struct {
 	Reference    string          `json:"reference"`
-	Project      project.Summary `json:"project"`
+	Tenant       project.Summary `json:"tenant"`
+	Project      string          `json:"project"`
 	Name         string          `json:"name"`
 	InstanceName string          `json:"instanceName"`
 	Command      []string        `json:"command"`
@@ -32,18 +34,29 @@ type EnterSession struct {
 }
 
 type Enterer interface {
-	EnterSandbox(context.Context, EnterPlan, EnterSession) error
+	ConnectMachine(context.Context, EnterPlan, EnterSession) error
 }
 
 func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request EnterRequest) (EnterPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return EnterPlan{}, err
 	}
-	projectRef, sandboxName, err := parseSandboxRef(request.Reference, admin.Owner)
+	tenantRef, err := currentTenantRef(admin)
 	if err != nil {
 		return EnterPlan{}, err
 	}
-	summary, err := findProject(ctx, store, projectRef)
+	projectRef, machineName, err := naming.ParseUserMachineRef(request.Reference, admin.Project)
+	if err != nil {
+		return EnterPlan{}, err
+	}
+	summary, err := findTenant(ctx, store, tenantRef)
+	if err != nil {
+		return EnterPlan{}, err
+	}
+	if !tenantHasProject(summary, projectRef.Project) {
+		return EnterPlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectRef.Project, summary.Tenant)
+	}
+	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: projectRef.Project, Machine: machineName})
 	if err != nil {
 		return EnterPlan{}, err
 	}
@@ -58,11 +71,12 @@ func PlanEnter(ctx context.Context, admin config.Admin, store project.IncusProje
 	}
 	return EnterPlan{
 		Reference:    request.Reference,
-		Project:      summary,
-		Name:         sandboxName,
-		InstanceName: "sc-" + sandboxName,
+		Tenant:       summary,
+		Project:      projectRef.Project,
+		Name:         machineName,
+		InstanceName: instanceName,
 		Command:      command,
-		LinuxUser:    projectRef.Owner,
+		LinuxUser:    summary.Tenant,
 		WorkingDir:   "/workspace",
 		Interactive:  interactive,
 	}, nil

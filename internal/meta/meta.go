@@ -9,40 +9,43 @@ import (
 const (
 	Prefix = "user.sandcastle."
 
-	KeyKind            = Prefix + "kind"
-	KeyVersion         = Prefix + "version"
-	KeyOwner           = Prefix + "owner"
-	KeyProject         = Prefix + "project"
-	KeyDomain          = Prefix + "domain"
-	KeyPrivateCIDR     = Prefix + "private_cidr"
-	KeyDefaultTemplate = Prefix + "default_template"
-	KeyName            = Prefix + "name"
-	KeyRole            = Prefix + "role"
-	KeyHostname        = Prefix + "hostname"
-	KeyAppPort         = Prefix + "app_port"
-	KeyLinuxUser       = Prefix + "linux_user"
-	KeyCreatedBy       = Prefix + "created_by"
-	KeyState           = Prefix + "state"
+	KeyKind        = Prefix + "kind"
+	KeyVersion     = Prefix + "version"
+	KeyTenant      = Prefix + "tenant"
+	KeyProject     = Prefix + "project"
+	KeyMachine     = Prefix + "machine"
+	KeyType        = Prefix + "type"
+	KeyHostname    = Prefix + "hostname"
+	KeyPrivateCIDR = Prefix + "private_cidr"
+	KeyAppPort     = Prefix + "app_port"
+	KeyLinuxUser   = Prefix + "linux_user"
+	KeyCreatedBy   = Prefix + "created_by"
+	KeyState       = Prefix + "state"
 
-	KindProject = "project"
-	KindSandbox = "sandbox"
+	KindTenant  = "tenant"
+	KindMachine = "machine"
 	KindRoute   = "route"
 
 	Version = 1
 
+	MachineTypeContainer = "container"
+
 	TailscaleStateRunningLoggedOut = "running-logged-out"
 )
 
+type Tenant struct {
+	Tenant       string        `json:"tenant"`
+	Projects     []Project     `json:"projects"`
+	PrivateCIDR  string        `json:"privateCIDR"`
+	SSHPublicKey string        `json:"sshPublicKey,omitempty"`
+	Tailscale    Tailscale     `json:"tailscale,omitempty"`
+	Machines     []MachineRef  `json:"machines,omitempty"`
+	PublicRoutes []PublicRoute `json:"publicRoutes,omitempty"`
+}
+
 type Project struct {
-	Owner           string        `json:"owner"`
-	Project         string        `json:"project"`
-	Domain          string        `json:"domain"`
-	PrivateCIDR     string        `json:"privateCIDR"`
-	DefaultTemplate string        `json:"defaultTemplate"`
-	SSHPublicKey    string        `json:"sshPublicKey,omitempty"`
-	Tailscale       Tailscale     `json:"tailscale,omitempty"`
-	Sandboxes       []SandboxRef  `json:"sandboxes,omitempty"`
-	PublicRoutes    []PublicRoute `json:"publicRoutes,omitempty"`
+	Name      string `json:"name"`
+	CreatedBy string `json:"createdBy,omitempty"`
 }
 
 type Tailscale struct {
@@ -54,21 +57,25 @@ type Tailscale struct {
 	LastCheckedAt    string   `json:"lastCheckedAt,omitempty"`
 }
 
-type SandboxRef struct {
-	Name string `json:"name"`
-	IP   string `json:"ip"`
+type MachineRef struct {
+	Project string `json:"project"`
+	Name    string `json:"name"`
+	IP      string `json:"ip"`
 }
 
 type PublicRoute struct {
 	Hostname  string `json:"hostname"`
-	Sandbox   string `json:"sandbox"`
+	Project   string `json:"project"`
+	Machine   string `json:"machine"`
 	RoutePort int    `json:"routePort"`
 }
 
-type Sandbox struct {
-	Owner          string   `json:"owner"`
+type Machine struct {
+	Tenant         string   `json:"tenant"`
 	Project        string   `json:"project"`
 	Name           string   `json:"name"`
+	Type           string   `json:"type"`
+	Template       string   `json:"template,omitempty"`
 	AppPort        int      `json:"appPort"`
 	PrivateIP      string   `json:"privateIP"`
 	LinuxUser      string   `json:"linuxUser,omitempty"`
@@ -76,80 +83,86 @@ type Sandbox struct {
 	WorkspaceDir   string   `json:"workspaceDir,omitempty"`
 	ContainerTools bool     `json:"containerTools,omitempty"`
 	ExtraSANs      []string `json:"extraSANs,omitempty"`
+	CreatedBy      string   `json:"createdBy,omitempty"`
 	Running        bool     `json:"running,omitempty"`
 }
 
 type Route struct {
 	Hostname        string `json:"hostname"`
-	TargetOwner     string `json:"targetOwner"`
+	TargetTenant    string `json:"targetTenant"`
 	TargetProject   string `json:"targetProject"`
-	TargetSandbox   string `json:"targetSandbox"`
+	TargetMachine   string `json:"targetMachine"`
 	TargetIP        string `json:"targetIP"`
 	RoutePort       int    `json:"routePort"`
 	CreatedBy       string `json:"createdBy,omitempty"`
 	IngressAttached bool   `json:"ingressAttached,omitempty"`
 }
 
-func ProjectConfig(project Project) (map[string]string, error) {
-	state, err := encodeState(project)
+func TenantConfig(tenant Tenant) (map[string]string, error) {
+	state, err := encodeState(tenant)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]string{
-		KeyKind:            KindProject,
-		KeyVersion:         strconv.Itoa(Version),
-		KeyOwner:           project.Owner,
-		KeyProject:         project.Project,
-		KeyDomain:          project.Domain,
-		KeyPrivateCIDR:     project.PrivateCIDR,
-		KeyDefaultTemplate: project.DefaultTemplate,
-		KeyState:           state,
+		KeyKind:        KindTenant,
+		KeyVersion:     strconv.Itoa(Version),
+		KeyTenant:      tenant.Tenant,
+		KeyPrivateCIDR: tenant.PrivateCIDR,
+		KeyState:       state,
 	}, nil
 }
 
-func ParseProjectConfig(config map[string]string) (Project, error) {
-	if err := requireKind(config, KindProject); err != nil {
-		return Project{}, err
+func ParseTenantConfig(config map[string]string) (Tenant, error) {
+	if err := requireKind(config, KindTenant); err != nil {
+		return Tenant{}, err
 	}
-	var project Project
-	if err := decodeState(config[KeyState], &project); err != nil {
-		return Project{}, err
+	var tenant Tenant
+	if err := decodeState(config[KeyState], &tenant); err != nil {
+		return Tenant{}, err
 	}
-	return project, nil
+	return tenant, nil
 }
 
-func SandboxConfig(sandbox Sandbox) (map[string]string, error) {
-	state, err := encodeState(sandbox)
+func MachineConfig(machine Machine) (map[string]string, error) {
+	state, err := encodeState(machine)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]string{
-		KeyKind:      KindSandbox,
+		KeyKind:      KindMachine,
 		KeyVersion:   strconv.Itoa(Version),
-		KeyOwner:     sandbox.Owner,
-		KeyProject:   sandbox.Project,
-		KeyName:      sandbox.Name,
-		KeyAppPort:   strconv.Itoa(sandbox.AppPort),
-		KeyLinuxUser: sandbox.LinuxUser,
+		KeyTenant:    machine.Tenant,
+		KeyProject:   machine.Project,
+		KeyMachine:   machine.Name,
+		KeyType:      machine.Type,
+		KeyAppPort:   strconv.Itoa(machine.AppPort),
+		KeyLinuxUser: machine.LinuxUser,
+		KeyCreatedBy: machine.CreatedBy,
 		KeyState:     state,
 	}, nil
 }
 
-func ParseSandboxConfig(config map[string]string) (Sandbox, error) {
-	if err := requireKind(config, KindSandbox); err != nil {
-		return Sandbox{}, err
+func ParseMachineConfig(config map[string]string) (Machine, error) {
+	if err := requireKind(config, KindMachine); err != nil {
+		return Machine{}, err
 	}
-	var sandbox Sandbox
-	if err := decodeState(config[KeyState], &sandbox); err != nil {
-		return Sandbox{}, err
+	var machine Machine
+	if err := decodeState(config[KeyState], &machine); err != nil {
+		return Machine{}, err
 	}
-	if sandbox.LinuxUser == "" && config[KeyLinuxUser] != "" {
-		sandbox.LinuxUser = config[KeyLinuxUser]
+	if machine.Type == "" && config[KeyType] != "" {
+		machine.Type = config[KeyType]
 	}
-	if sandbox.LinuxUser == "" {
-		sandbox.LinuxUser = sandbox.Owner
+	if machine.Type == "" {
+		machine.Type = MachineTypeContainer
 	}
-	return sandbox, nil
+	if machine.LinuxUser == "" && config[KeyLinuxUser] != "" {
+		machine.LinuxUser = config[KeyLinuxUser]
+	}
+	if machine.LinuxUser == "" {
+		machine.LinuxUser = machine.CreatedBy
+	}
+	return machine, nil
 }
 
 func RouteConfig(route Route) (map[string]string, error) {
@@ -161,9 +174,9 @@ func RouteConfig(route Route) (map[string]string, error) {
 		KeyKind:      KindRoute,
 		KeyVersion:   strconv.Itoa(Version),
 		KeyHostname:  route.Hostname,
-		KeyOwner:     route.TargetOwner,
+		KeyTenant:    route.TargetTenant,
 		KeyProject:   route.TargetProject,
-		KeyName:      route.TargetSandbox,
+		KeyMachine:   route.TargetMachine,
 		KeyAppPort:   strconv.Itoa(route.RoutePort),
 		KeyCreatedBy: route.CreatedBy,
 		KeyState:     state,

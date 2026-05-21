@@ -7,72 +7,190 @@ import (
 )
 
 const (
-	DefaultProjectPrefix = "sc"
+	DefaultIncusProjectPrefix = "sc"
+	DefaultProjectName        = "default"
 )
 
 var safeNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 
+type TenantRef struct {
+	Tenant string
+}
+
 type ProjectRef struct {
-	Owner   string
+	Tenant  string
 	Project string
 }
 
-func ParseProjectRef(value string) (ProjectRef, error) {
-	owner, project, ok := strings.Cut(value, "/")
-	if !ok {
-		return ProjectRef{}, fmt.Errorf("project reference must be owner/project")
+type MachineRef struct {
+	Tenant  string
+	Project string
+	Machine string
+}
+
+func ParseTenantRef(value string) (TenantRef, error) {
+	ref := TenantRef{Tenant: strings.TrimSpace(value)}
+	if err := ref.Validate(); err != nil {
+		return TenantRef{}, err
 	}
-	ref := ProjectRef{Owner: owner, Project: project}
+	return ref, nil
+}
+
+func ParseProjectRef(value string) (ProjectRef, error) {
+	tenant, project, ok := strings.Cut(value, "/")
+	if !ok {
+		return ProjectRef{}, fmt.Errorf("project reference must be tenant/project")
+	}
+	ref := ProjectRef{Tenant: tenant, Project: project}
 	if err := ref.Validate(); err != nil {
 		return ProjectRef{}, err
 	}
 	return ref, nil
 }
 
-func ParseProjectRefWithDefaultOwner(value string, defaultOwner string) (ProjectRef, error) {
-	if strings.Contains(value, "/") {
-		return ParseProjectRef(value)
+func ParseAdminMachineRef(value string) (MachineRef, error) {
+	parts := strings.Split(value, "/")
+	switch len(parts) {
+	case 2:
+		return validateMachineRef(MachineRef{Tenant: parts[0], Project: DefaultProjectName, Machine: parts[1]})
+	case 3:
+		return validateMachineRef(MachineRef{Tenant: parts[0], Project: parts[1], Machine: parts[2]})
+	default:
+		return MachineRef{}, fmt.Errorf("machine reference must be tenant/machine or tenant/project/machine")
 	}
-	if strings.TrimSpace(defaultOwner) == "" {
-		return ProjectRef{}, fmt.Errorf("project reference must be owner/project or set SANDCASTLE_OWNER to use project")
+}
+
+func ParseUserMachineRef(value string, currentProject string) (ProjectRef, string, error) {
+	parts := strings.Split(value, "/")
+	switch len(parts) {
+	case 1:
+		project := strings.TrimSpace(currentProject)
+		if project == "" {
+			project = DefaultProjectName
+		}
+		ref := ProjectRef{Project: project}
+		if err := ValidateProjectName(ref.Project); err != nil {
+			return ProjectRef{}, "", err
+		}
+		if err := ValidateMachineName(parts[0]); err != nil {
+			return ProjectRef{}, "", err
+		}
+		return ref, parts[0], nil
+	case 2:
+		ref := ProjectRef{Project: parts[0]}
+		if err := ValidateProjectName(ref.Project); err != nil {
+			return ProjectRef{}, "", err
+		}
+		if err := ValidateMachineName(parts[1]); err != nil {
+			return ProjectRef{}, "", err
+		}
+		return ref, parts[1], nil
+	default:
+		return ProjectRef{}, "", fmt.Errorf("machine reference must be machine or project/machine")
 	}
-	return ParseProjectRef(defaultOwner + "/" + value)
+}
+
+func (r TenantRef) Validate() error {
+	return ValidateTenantName(r.Tenant)
+}
+
+func (r TenantRef) String() string {
+	return r.Tenant
 }
 
 func (r ProjectRef) Validate() error {
-	if !safeNamePattern.MatchString(r.Owner) {
-		return fmt.Errorf("invalid owner %q", r.Owner)
+	if strings.TrimSpace(r.Tenant) != "" {
+		if err := ValidateTenantName(r.Tenant); err != nil {
+			return err
+		}
 	}
-	if !safeNamePattern.MatchString(r.Project) {
-		return fmt.Errorf("invalid project %q", r.Project)
+	if err := ValidateProjectName(r.Project); err != nil {
+		return err
 	}
 	return nil
 }
 
 func (r ProjectRef) String() string {
-	return r.Owner + "/" + r.Project
+	if strings.TrimSpace(r.Tenant) == "" {
+		return r.Project
+	}
+	return r.Tenant + "/" + r.Project
 }
 
-func IncusProjectName(ref ProjectRef) (string, error) {
-	return IncusProjectNameWithPrefix(DefaultProjectPrefix, ref)
+func (r MachineRef) Validate() error {
+	_, err := validateMachineRef(r)
+	return err
 }
 
-func IncusProjectNameWithPrefix(prefix string, ref ProjectRef) (string, error) {
+func (r MachineRef) String() string {
+	return r.Tenant + "/" + r.Project + "/" + r.Machine
+}
+
+func TenantIncusProjectName(ref TenantRef) (string, error) {
+	return TenantIncusProjectNameWithPrefix(DefaultIncusProjectPrefix, ref)
+}
+
+func TenantIncusProjectNameWithPrefix(prefix string, ref TenantRef) (string, error) {
 	prefix = strings.TrimSpace(prefix)
-	if err := ValidateProjectPrefix(prefix); err != nil {
+	if err := ValidateIncusProjectPrefix(prefix); err != nil {
 		return "", err
 	}
 	if err := ref.Validate(); err != nil {
 		return "", err
 	}
-	name := prefix + "-" + ref.Owner + "-" + ref.Project
+	name := prefix + "-" + ref.Tenant
 	if len(name) > 63 {
 		return "", fmt.Errorf("incus project name %q exceeds 63 characters", name)
 	}
 	return name, nil
 }
 
-func ValidateProjectPrefix(prefix string) error {
+func MachineIncusInstanceName(ref MachineRef) (string, error) {
+	if err := ref.Validate(); err != nil {
+		return "", err
+	}
+	name := ref.Project + "-" + ref.Machine
+	if len(name) > 63 {
+		return "", fmt.Errorf("incus instance name %q exceeds 63 characters", name)
+	}
+	return name, nil
+}
+
+func ValidateTenantName(name string) error {
+	if !safeNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid tenant %q", name)
+	}
+	return nil
+}
+
+func ValidateProjectName(name string) error {
+	if !safeNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid project %q", name)
+	}
+	return nil
+}
+
+func ValidateNewProjectName(name string) error {
+	if err := ValidateProjectName(name); err != nil {
+		return err
+	}
+	if IsReservedProjectName(name) {
+		return fmt.Errorf("project name %q is reserved", name)
+	}
+	return nil
+}
+
+func ValidateMachineName(name string) error {
+	if !safeNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid machine %q", name)
+	}
+	if IsReservedInfrastructureName(name) {
+		return fmt.Errorf("machine name %q is reserved", name)
+	}
+	return nil
+}
+
+func ValidateIncusProjectPrefix(prefix string) error {
 	if strings.TrimSpace(prefix) == "" {
 		return fmt.Errorf("project prefix is required")
 	}
@@ -92,21 +210,31 @@ func ValidateIncusProjectName(name string) error {
 	return nil
 }
 
-func ValidateSandboxName(name string) error {
-	if !safeNamePattern.MatchString(name) {
-		return fmt.Errorf("invalid sandbox name %q", name)
+func IsReservedProjectName(name string) bool {
+	if name == DefaultProjectName {
+		return true
 	}
-	if IsReservedSandboxName(name) {
-		return fmt.Errorf("sandbox name %q is reserved", name)
-	}
-	return nil
+	return IsReservedInfrastructureName(name)
 }
 
-func IsReservedSandboxName(name string) bool {
+func IsReservedInfrastructureName(name string) bool {
 	switch name {
-	case "ca", "dns", "tailscale", "sc-ca", "sc-dns":
+	case "admin", "ca", "dns", "infra", "route", "tailscale", "sc-ca", "sc-dns":
 		return true
 	default:
 		return false
 	}
+}
+
+func validateMachineRef(ref MachineRef) (MachineRef, error) {
+	if err := ValidateTenantName(ref.Tenant); err != nil {
+		return MachineRef{}, err
+	}
+	if err := ValidateProjectName(ref.Project); err != nil {
+		return MachineRef{}, err
+	}
+	if err := ValidateMachineName(ref.Machine); err != nil {
+		return MachineRef{}, err
+	}
+	return ref, nil
 }

@@ -1,4 +1,4 @@
-package project
+package tenant
 
 import (
 	"context"
@@ -8,15 +8,14 @@ import (
 )
 
 func TestGetStatus(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		PrivateCIDR: "10.248.0.0/24",
+		Projects:    []meta.Project{{Name: "default"}},
 		PublicRoutes: []meta.PublicRoute{{
 			Hostname:  "app.example.com",
-			Sandbox:   "codex",
+			Project:   "default",
+			Machine:   "codex",
 			RoutePort: 5173,
 		}},
 	})
@@ -24,13 +23,13 @@ func TestGetStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{{
-		Name:   "sc-alice-myproject",
+		Name:   "sc-acme",
 		Config: config,
-	}}}, "alice/myproject")
+	}}}, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Summary.IncusName != "sc-alice-myproject" {
+	if status.Summary.IncusName != "sc-acme" {
 		t.Fatalf("IncusName = %q", status.Summary.IncusName)
 	}
 	if len(status.Summary.PublicRoutes) != 1 {
@@ -45,12 +44,10 @@ func TestGetStatus(t *testing.T) {
 }
 
 func TestGetStatusReportsTailscaleRoute(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		PrivateCIDR: "10.248.0.0/24",
+		Projects:    []meta.Project{{Name: "default"}},
 		Tailscale: meta.Tailscale{
 			State:            "Running",
 			AdvertisedRoutes: []string{"10.248.0.0/24"},
@@ -60,9 +57,9 @@ func TestGetStatusReportsTailscaleRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{{
-		Name:   "sc-alice-myproject",
+		Name:   "sc-acme",
 		Config: config,
-	}}}, "alice/myproject")
+	}}}, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,12 +69,10 @@ func TestGetStatusReportsTailscaleRoute(t *testing.T) {
 }
 
 func TestGetStatusReportsUnauthenticatedTailscaleRouteAsUnknown(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		PrivateCIDR: "10.248.0.0/24",
+		Projects:    []meta.Project{{Name: "default"}},
 		Tailscale: meta.Tailscale{
 			State: meta.TailscaleStateRunningLoggedOut,
 		},
@@ -86,9 +81,9 @@ func TestGetStatusReportsUnauthenticatedTailscaleRouteAsUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{{
-		Name:   "sc-alice-myproject",
+		Name:   "sc-acme",
 		Config: config,
-	}}}, "alice/myproject")
+	}}}, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,34 +93,32 @@ func TestGetStatusReportsUnauthenticatedTailscaleRouteAsUnknown(t *testing.T) {
 }
 
 func TestGetStatusWithTopology(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "alice",
-		Project:         "myproject",
-		Domain:          "myproject.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		PrivateCIDR: "10.248.0.0/24",
+		Projects:    []meta.Project{{Name: "default"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	status, err := GetStatusWithTopology(
 		context.Background(),
-		MemoryStore{Projects: []IncusProject{{Name: "sc-alice-myproject", Config: config}}},
+		MemoryStore{Projects: []IncusProject{{Name: "sc-acme", Config: config}}},
 		fakeTopologyStore{topology: Topology{
 			PrivateNetworkPresent: true,
-			TailscaleInstance:     "sc-alice-myproject",
+			TailscaleInstance:     "sc-acme",
 			DurableVolumes: map[string]bool{
 				HomeVolumeName:      true,
 				WorkspaceVolumeName: true,
 				CAVolumeName:        true,
 			},
 			Sidecars: map[string]SidecarStatus{
-				"sc-alice-myproject": {Present: true, Running: false, Status: "Stopped"},
-				DNSName:             {Present: true, Running: true, Status: "Running"},
+				"sc-acme": {Present: true, Running: false, Status: "Stopped"},
+				DNSName:   {Present: true, Running: true, Status: "Running"},
 			},
 		}},
 		TopologyRequest{},
-		"alice/myproject",
+		"acme",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -141,8 +134,8 @@ func TestGetStatusWithTopology(t *testing.T) {
 	}
 }
 
-func TestGetStatusReportsMissingProject(t *testing.T) {
-	_, err := GetStatus(context.Background(), MemoryStore{}, "alice/missing")
+func TestGetStatusReportsMissingTenant(t *testing.T) {
+	_, err := GetStatus(context.Background(), MemoryStore{}, "missing")
 	if err == nil {
 		t.Fatal("expected error")
 	}

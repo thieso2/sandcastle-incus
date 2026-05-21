@@ -1,4 +1,4 @@
-package project
+package tenant
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 type SSHKeyUpdater interface {
-	SetProjectSSHKey(ctx context.Context, incusProjectName string, sshKey string) error
+	SetTenantSSHKey(ctx context.Context, incusProjectName string, sshKey string) error
 }
 
 type ResolvedRef struct {
@@ -16,11 +16,11 @@ type ResolvedRef struct {
 }
 
 func ParseRef(admin config.Admin, reference string) (ResolvedRef, error) {
-	ref, err := naming.ParseProjectRef(reference)
+	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
 		return ResolvedRef{}, err
 	}
-	incusName, err := naming.IncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
 	if err != nil {
 		return ResolvedRef{}, err
 	}

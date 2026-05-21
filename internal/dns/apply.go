@@ -9,40 +9,39 @@ import (
 )
 
 type Applier interface {
-	Apply(context.Context, Project) (ApplyResult, error)
+	Apply(context.Context, Tenant) (ApplyResult, error)
 }
 
-type Project struct {
+type Tenant struct {
 	IncusName   string `json:"incusName"`
-	Owner       string `json:"owner"`
-	Name        string `json:"name"`
-	Domain      string `json:"domain"`
+	Tenant      string `json:"tenant"`
+	DNSSuffix   string `json:"dnsSuffix"`
 	PrivateCIDR string `json:"privateCIDR"`
 }
 
 type ApplyResult struct {
-	Project     Project        `json:"project"`
+	Tenant      Tenant         `json:"tenant"`
 	DNSAddress  string         `json:"dnsAddress"`
-	Sandboxes   []meta.Sandbox `json:"sandboxes"`
+	Machines    []meta.Machine `json:"machines"`
 	Files       []File         `json:"files"`
 	RecordCount int            `json:"recordCount"`
 }
 
-func PlanApply(summary Project, sandboxes []meta.Sandbox) (ApplyResult, error) {
+func PlanApply(summary Tenant, machines []meta.Machine) (ApplyResult, error) {
 	dnsAddress, err := dnsAddress(summary.PrivateCIDR)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	files, err := RenderProject(summary.Domain, dnsAddress, sandboxes)
+	files, err := RenderTenant(summary.DNSSuffix, dnsAddress, machines)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 	return ApplyResult{
-		Project:     summary,
+		Tenant:      summary,
 		DNSAddress:  dnsAddress,
-		Sandboxes:   sandboxes,
+		Machines:    machines,
 		Files:       files,
-		RecordCount: 2 + len(sandboxes)*2,
+		RecordCount: 2 + len(machines)*2,
 	}, nil
 }
 

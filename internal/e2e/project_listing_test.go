@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	"github.com/thieso2/sandcastle-incus/internal/project"
+	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestIncusProjectListingSmoke(t *testing.T) {

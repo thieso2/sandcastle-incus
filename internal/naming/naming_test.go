@@ -2,82 +2,103 @@ package naming
 
 import "testing"
 
+func TestParseTenantRef(t *testing.T) {
+	ref, err := ParseTenantRef("acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Tenant != "acme" {
+		t.Fatalf("ref = %#v", ref)
+	}
+}
+
 func TestParseProjectRef(t *testing.T) {
-	ref, err := ParseProjectRef("alice/myproject")
+	ref, err := ParseProjectRef("acme/website")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref.Owner != "alice" || ref.Project != "myproject" {
+	if ref.Tenant != "acme" || ref.Project != "website" {
 		t.Fatalf("ref = %#v", ref)
 	}
 }
 
-func TestParseProjectRefWithDefaultOwner(t *testing.T) {
-	ref, err := ParseProjectRefWithDefaultOwner("myproject", "alice")
+func TestParseAdminMachineRefDefaultsProject(t *testing.T) {
+	ref, err := ParseAdminMachineRef("acme/codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref.Owner != "alice" || ref.Project != "myproject" {
+	if ref.Tenant != "acme" || ref.Project != DefaultProjectName || ref.Machine != "codex" {
 		t.Fatalf("ref = %#v", ref)
 	}
 }
 
-func TestParseProjectRefWithDefaultOwnerPreservesExplicitOwner(t *testing.T) {
-	ref, err := ParseProjectRefWithDefaultOwner("bob/myproject", "alice")
+func TestParseAdminMachineRefWithProject(t *testing.T) {
+	ref, err := ParseAdminMachineRef("acme/website/codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref.Owner != "bob" || ref.Project != "myproject" {
+	if ref.Tenant != "acme" || ref.Project != "website" || ref.Machine != "codex" {
 		t.Fatalf("ref = %#v", ref)
 	}
 }
 
-func TestParseProjectRefWithDefaultOwnerRejectsMissingOwner(t *testing.T) {
-	_, err := ParseProjectRefWithDefaultOwner("myproject", "")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestParseProjectRefRejectsMissingOwner(t *testing.T) {
-	_, err := ParseProjectRef("/myproject")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestParseProjectRefRejectsUnsafeCase(t *testing.T) {
-	_, err := ParseProjectRef("Alice/myproject")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestIncusProjectName(t *testing.T) {
-	ref := ProjectRef{Owner: "alice", Project: "myproject"}
-	name, err := IncusProjectName(ref)
+func TestParseUserMachineRefDefaultsProject(t *testing.T) {
+	projectRef, machine, err := ParseUserMachineRef("codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if name != "sc-alice-myproject" {
-		t.Fatalf("name = %q, want sc-alice-myproject", name)
+	if projectRef.Project != DefaultProjectName || machine != "codex" {
+		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
 	}
 }
 
-func TestIncusProjectNameRejectsInvalidPrefix(t *testing.T) {
-	_, err := IncusProjectNameWithPrefix("bad_prefix", ProjectRef{Owner: "alice", Project: "myproject"})
-	if err == nil {
-		t.Fatal("expected error")
+func TestParseUserMachineRefUsesCurrentProject(t *testing.T) {
+	projectRef, machine, err := ParseUserMachineRef("codex", "website")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projectRef.Project != "website" || machine != "codex" {
+		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
 	}
 }
 
-func TestValidateProjectPrefix(t *testing.T) {
-	if err := ValidateProjectPrefix("dev"); err != nil {
+func TestParseUserMachineRefPreservesExplicitProject(t *testing.T) {
+	projectRef, machine, err := ParseUserMachineRef("default/codex", "website")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projectRef.Project != "default" || machine != "codex" {
+		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
+	}
+}
+
+func TestTenantIncusProjectName(t *testing.T) {
+	name, err := TenantIncusProjectName(TenantRef{Tenant: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "sc-acme" {
+		t.Fatalf("name = %q, want sc-acme", name)
+	}
+}
+
+func TestMachineIncusInstanceName(t *testing.T) {
+	name, err := MachineIncusInstanceName(MachineRef{Tenant: "acme", Project: "website", Machine: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "website-codex" {
+		t.Fatalf("name = %q, want website-codex", name)
+	}
+}
+
+func TestValidateIncusProjectPrefix(t *testing.T) {
+	if err := ValidateIncusProjectPrefix("dev"); err != nil {
 		t.Fatal(err)
 	}
 	for _, prefix := range []string{"", "s", "Bad", "bad_prefix", "bad.prefix"} {
 		t.Run(prefix, func(t *testing.T) {
-			if err := ValidateProjectPrefix(prefix); err == nil {
+			if err := ValidateIncusProjectPrefix(prefix); err == nil {
 				t.Fatal("expected error")
 			}
 		})
@@ -85,7 +106,7 @@ func TestValidateProjectPrefix(t *testing.T) {
 }
 
 func TestValidateIncusProjectName(t *testing.T) {
-	for _, name := range []string{"sc-infra", "sc-alice-myproject"} {
+	for _, name := range []string{"sc-infra", "sc-acme"} {
 		t.Run(name, func(t *testing.T) {
 			if err := ValidateIncusProjectName(name); err != nil {
 				t.Fatal(err)
@@ -101,24 +122,35 @@ func TestValidateIncusProjectName(t *testing.T) {
 	}
 }
 
-func TestReservedSandboxNames(t *testing.T) {
-	for _, name := range []string{"ca", "dns", "tailscale", "sc-ca", "sc-dns"} {
-		if !IsReservedSandboxName(name) {
+func TestReservedProjectNames(t *testing.T) {
+	for _, name := range []string{"default", "admin", "ca", "dns", "infra", "route", "tailscale"} {
+		if !IsReservedProjectName(name) {
 			t.Fatalf("%q should be reserved", name)
 		}
 	}
-	if IsReservedSandboxName("codex") {
+	if IsReservedProjectName("website") {
+		t.Fatal("website should not be reserved")
+	}
+}
+
+func TestReservedMachineNames(t *testing.T) {
+	for _, name := range []string{"admin", "ca", "dns", "infra", "route", "tailscale", "sc-ca", "sc-dns"} {
+		if !IsReservedInfrastructureName(name) {
+			t.Fatalf("%q should be reserved", name)
+		}
+	}
+	if IsReservedInfrastructureName("codex") {
 		t.Fatal("codex should not be reserved")
 	}
 }
 
-func TestValidateSandboxName(t *testing.T) {
-	if err := ValidateSandboxName("codex"); err != nil {
+func TestValidateMachineName(t *testing.T) {
+	if err := ValidateMachineName("codex"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"bad_name", "x", "sc-dns"} {
 		t.Run(name, func(t *testing.T) {
-			if err := ValidateSandboxName(name); err == nil {
+			if err := ValidateMachineName(name); err == nil {
 				t.Fatal("expected error")
 			}
 		})

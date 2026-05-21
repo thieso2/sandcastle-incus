@@ -1,4 +1,4 @@
-package project
+package tenant
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type TopologyStore interface {
 
 type TopologyRequest struct {
 	IncusProject string
-	Domain       string
+	DNSSuffix    string
 }
 
 type Topology struct {
@@ -54,7 +54,7 @@ func GetStatus(ctx context.Context, store IncusProjectStore, reference string) (
 }
 
 func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topologyStore TopologyStore, topologyRequest TopologyRequest, reference string) (Status, error) {
-	ref, err := naming.ParseProjectRef(reference)
+	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
 		return Status{}, err
 	}
@@ -63,19 +63,19 @@ func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topolog
 		return Status{}, err
 	}
 	for _, summary := range projects {
-		if summary.Owner == ref.Owner && summary.Name == ref.Project {
+		if summary.Tenant == ref.Tenant {
 			status := Status{
 				Summary: summary,
 				Checks: []Check{
-					{Name: "metadata", Status: "ok", Detail: "Sandcastle project metadata is present"},
+					{Name: "metadata", Status: "ok", Detail: "Sandcastle tenant metadata is present"},
 					{Name: "cidr", Status: checkPresent(summary.PrivateCIDR), Detail: summary.PrivateCIDR},
-					{Name: "domain", Status: checkPresent(summary.Domain), Detail: summary.Domain},
+					{Name: "dns", Status: checkPresent(summary.DNSSuffix), Detail: summary.DNSSuffix},
 					tailscaleRouteCheck(summary),
 				},
 			}
 			if topologyStore != nil {
 				topologyRequest.IncusProject = summary.IncusName
-				topologyRequest.Domain = summary.Domain
+				topologyRequest.DNSSuffix = summary.DNSSuffix
 				topology, err := topologyStore.GetTopology(ctx, topologyRequest)
 				if err != nil {
 					status.Checks = append(status.Checks, Check{Name: "topology", Status: "error", Detail: err.Error()})
@@ -86,7 +86,7 @@ func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topolog
 			return status, nil
 		}
 	}
-	return Status{}, fmt.Errorf("Sandcastle project %s not found", ref.String())
+	return Status{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
 }
 
 func tailscaleRouteCheck(summary Summary) Check {
