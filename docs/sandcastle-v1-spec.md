@@ -317,6 +317,9 @@ admin setup. The minimal base image contains:
 
 - Caddy;
 - OpenSSH server;
+- tmux;
+- SSH agent socket handoff for refreshed forwarded-agent sockets;
+- vim;
 - sudo;
 - curl, ca-certificates, bash;
 - Sandcastle bootstrap script or helper binary;

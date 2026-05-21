@@ -12,9 +12,11 @@ RUN apt-get update \
         caddy \
         curl \
         dbus \
+        dialog \
         ethtool \
         iproute2 \
         iputils-ping \
+        locales \
         lsof \
         netcat-openbsd \
         net-tools \
@@ -24,8 +26,15 @@ RUN apt-get update \
         systemd \
         systemd-sysv \
         tar \
+        tmux \
         traceroute \
+        vim \
     && rm -rf /var/lib/apt/lists/*
+
+RUN sed -i 's/^# *\(de_DE.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
+    && sed -i 's/^# *\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
+    && locale-gen \
+    && update-locale LANG=C.UTF-8
 
 RUN set -eux; \
     arch="${TARGETARCH:-amd64}"; \

@@ -161,29 +161,35 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	if resource.createdFiles[machine.MachineCertKeyPath] == "" {
 		t.Fatal("expected private key write")
 	}
-	if len(resource.execCommands) != 4 {
+	if len(resource.execCommands) != 6 {
 		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
 	if strings.Join(resource.execCommands[0], " ") != "hostname codex.default.acme" {
 		t.Fatalf("hostname command = %#v", resource.execCommands[0])
 	}
-	if strings.Join(resource.execCommands[1], " ") != "/usr/local/bin/sandcastle-bootstrap" {
-		t.Fatalf("bootstrap command = %#v", resource.execCommands[1])
+	if !strings.Contains(strings.Join(resource.execCommands[1], " "), "ssh-keygen -A") {
+		t.Fatalf("SSH host key command = %#v", resource.execCommands[1])
 	}
-	if resource.execEnvs[1]["SANDCASTLE_USER"] != "acme" {
-		t.Fatalf("bootstrap env = %#v", resource.execEnvs[1])
-	}
-	if resource.execEnvs[1]["SANDCASTLE_UID"] != "1000" || resource.execEnvs[1]["SANDCASTLE_GID"] != "1000" {
-		t.Fatalf("bootstrap uid/gid env = %#v", resource.execEnvs[1])
-	}
-	if !strings.Contains(strings.Join(resource.execCommands[2], " "), "sandcastle prompt: full hostname") {
-		t.Fatalf("prompt command = %#v", resource.execCommands[2])
+	if strings.Join(resource.execCommands[2], " ") != "/usr/local/bin/sandcastle-bootstrap" {
+		t.Fatalf("bootstrap command = %#v", resource.execCommands[2])
 	}
 	if resource.execEnvs[2]["SANDCASTLE_USER"] != "acme" {
-		t.Fatalf("prompt env = %#v", resource.execEnvs[2])
+		t.Fatalf("bootstrap env = %#v", resource.execEnvs[2])
 	}
-	if !strings.Contains(strings.Join(resource.execCommands[3], " "), "caddy") {
-		t.Fatalf("caddy command = %#v", resource.execCommands[3])
+	if resource.execEnvs[2]["SANDCASTLE_UID"] != "1000" || resource.execEnvs[2]["SANDCASTLE_GID"] != "1000" {
+		t.Fatalf("bootstrap uid/gid env = %#v", resource.execEnvs[2])
+	}
+	if !strings.Contains(strings.Join(resource.execCommands[3], " "), "sandcastle prompt: full hostname") {
+		t.Fatalf("prompt command = %#v", resource.execCommands[3])
+	}
+	if resource.execEnvs[3]["SANDCASTLE_USER"] != "acme" {
+		t.Fatalf("prompt env = %#v", resource.execEnvs[3])
+	}
+	if !strings.Contains(strings.Join(resource.execCommands[4], " "), "cap_net_raw+p /usr/bin/ping") {
+		t.Fatalf("ping capability command = %#v", resource.execCommands[4])
+	}
+	if !strings.Contains(strings.Join(resource.execCommands[5], " "), "caddy") {
+		t.Fatalf("caddy command = %#v", resource.execCommands[5])
 	}
 }
 

@@ -30,6 +30,17 @@ bash_profile="/home/${user_name}/.bash_profile"
 touch "${bashrc}" "${bash_profile}"
 chown "${user_name}:${user_name}" "${bashrc}" "${bash_profile}"
 
+auth_sock_marker="# sandcastle ssh agent socket"
+if ! grep -qF "${auth_sock_marker}" "${bashrc}"; then
+  cat >>"${bashrc}" <<'EOF_AUTH_SOCK'
+
+# sandcastle ssh agent socket
+if [ -S "$HOME/.ssh/ssh_auth_sock" ]; then
+  export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"
+fi
+EOF_AUTH_SOCK
+fi
+
 prompt_marker="# sandcastle prompt: full hostname"
 if ! grep -qF "${prompt_marker}" "${bashrc}"; then
   cat >>"${bashrc}" <<'EOF_PROMPT'
@@ -52,6 +63,21 @@ fi
 EOF_PROFILE
 fi
 chown "${user_name}:${user_name}" "${bashrc}" "${bash_profile}"
+
+ssh_dir="/home/${user_name}/.ssh"
+install -d -m 0700 -o "${user_name}" -g "${user_name}" "${ssh_dir}"
+ssh_rc="${ssh_dir}/rc"
+ssh_rc_marker="# sandcastle ssh agent socket"
+if ! grep -qF "${ssh_rc_marker}" "${ssh_rc}" 2>/dev/null; then
+  cat >>"${ssh_rc}" <<'EOF_SSH_RC'
+# sandcastle ssh agent socket
+if [ -n "${SSH_AUTH_SOCK:-}" ] && [ ! -S "$HOME/.ssh/ssh_auth_sock" ] && [ -S "$SSH_AUTH_SOCK" ]; then
+  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/ssh_auth_sock"
+fi
+EOF_SSH_RC
+fi
+chown "${user_name}:${user_name}" "${ssh_rc}"
+chmod 0600 "${ssh_rc}"
 
 # Inject SSH public key for both root and the Sandcastle user
 if [[ -n "${ssh_public_key}" ]]; then

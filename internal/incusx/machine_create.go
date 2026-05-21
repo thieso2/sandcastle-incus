@@ -251,10 +251,16 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan) e
 	if err := setMachineHostname(server, plan); err != nil {
 		return err
 	}
+	if err := ensureMachineSSHHostKeys(server, plan.InstanceName); err != nil {
+		return err
+	}
 	if err := bootstrapMachineUser(server, plan); err != nil {
 		return err
 	}
 	if err := ensureMachinePrompt(server, plan); err != nil {
+		return err
+	}
+	if err := ensureMachinePingCapability(server, plan.InstanceName); err != nil {
 		return err
 	}
 	if plan.Tenant.DNSAddress != "" {
@@ -314,6 +320,62 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan) e
 		return err
 	}
 	return restartMachineCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
+}
+
+func ensureMachineSSHHostKeys(server MachineResourceServer, instanceName string) error {
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
+		Command: []string{
+			"/bin/sh",
+			"-c",
+			strings.Join([]string{
+				"set -eu",
+				"marker=/var/lib/sandcastle/ssh-host-keys-generated",
+				"if [ ! -e \"$marker\" ]; then",
+				"install -d -m 0755 /var/lib/sandcastle",
+				"rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub",
+				"ssh-keygen -A",
+				"touch \"$marker\"",
+				"systemctl try-restart ssh.service 2>/dev/null || systemctl try-restart ssh 2>/dev/null || true",
+				"fi",
+			}, "\n"),
+		},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("ensure SSH host keys in %s: %w", instanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for SSH host keys in %s: %w", instanceName, err)
+	}
+	<-dataDone
+	return nil
+}
+
+func ensureMachinePingCapability(server MachineResourceServer, instanceName string) error {
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
+		Command: []string{
+			"/bin/sh",
+			"-c",
+			"if command -v setcap >/dev/null 2>&1 && [ -x /usr/bin/ping ]; then setcap cap_net_raw+p /usr/bin/ping; fi",
+		},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("set ping capability in %s: %w", instanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for ping capability in %s: %w", instanceName, err)
+	}
+	<-dataDone
+	return nil
 }
 
 func setMachineHostname(server MachineResourceServer, plan machine.CreatePlan) error {
