@@ -20,11 +20,11 @@ func newTrustCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "install tenant",
+		Use:   "install [tenant]",
 		Short: "Install a tenant CA into local trust",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localtrust.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: args[0]})
+			plan, err := localtrust.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: optionalReference(args)})
 			if err != nil {
 				return err
 			}
@@ -51,11 +51,11 @@ func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 func newTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "uninstall tenant",
+		Use:   "uninstall [tenant]",
 		Short: "Remove a tenant CA from local trust",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localtrust.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: args[0]})
+			plan, err := localtrust.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: optionalReference(args)})
 			if err != nil {
 				return err
 			}
@@ -74,6 +74,13 @@ func newTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Co
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the trust uninstall plan without changing local trust")
 	return command
+}
+
+func optionalReference(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }
 
 func formatTrustPlan(action string, plan localtrust.Plan) string {

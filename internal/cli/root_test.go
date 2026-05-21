@@ -1268,6 +1268,38 @@ func TestDNSInstallDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestDNSInstallUsesCurrentTenantWithoutProject(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.Project = ""
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "dns", "install", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload localdns.Plan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Reference != "acme" {
+		t.Fatalf("Reference = %q", payload.Reference)
+	}
+}
+
 func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 	output := formatLocalDNSPlan("Install", localdns.Plan{
 		Reference:        "acme",
@@ -1986,6 +2018,41 @@ func TestTrustInstallDryRunJSON(t *testing.T) {
 	}
 	if !strings.Contains(payload.Warning, "mint certificates") {
 		t.Fatalf("Warning = %q", payload.Warning)
+	}
+}
+
+func TestTrustInstallUsesCurrentTenantWithoutProject(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.Project = ""
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "trust", "install", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload localtrust.Plan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Reference != "acme" {
+		t.Fatalf("Reference = %q", payload.Reference)
+	}
+	if payload.IncusProject != "sc-acme" {
+		t.Fatalf("IncusProject = %q", payload.IncusProject)
 	}
 }
 

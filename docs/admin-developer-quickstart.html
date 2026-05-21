@@ -403,7 +403,8 @@ sc project status website</code></pre>
       <p>The setup command applies tenant DNS records, starts the local DNS forwarder service, and installs the local resolver for the current tenant.</p>
 
       <h3>8. Trust the tenant CA for private HTTPS</h3>
-      <pre><code>sc trust install acme</code></pre>
+      <pre><code>sc trust install</code></pre>
+      <p>On macOS, the CLI elevates the keychain write with <code>sudo security</code> when needed.</p>
       <p class="callout warn">This is explicit local-machine trust. Only install trust for tenants the developer owns and understands.</p>
 
       <h3>9. Create and connect to a machine</h3>
@@ -453,7 +454,7 @@ SANDCASTLE_E2E_VM_KEEP=1 scripts/e2e-local-vm.sh</code></pre>
       <h3>Developer cleanup</h3>
       <pre><code>sc delete codex --yes
 sc project delete website --yes
-sc trust uninstall acme
+sc trust uninstall
 sc dns teardown
 sc tailscale down acme</code></pre>
 

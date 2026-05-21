@@ -199,11 +199,11 @@ func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command
 func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "install tenant",
+		Use:   "install [tenant]",
 		Short: "Install local resolver state for a tenant",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: args[0]})
+			plan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: optionalReference(args)})
 			if err != nil {
 				return err
 			}
@@ -227,11 +227,11 @@ func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "refresh tenant",
+		Use:   "refresh [tenant]",
 		Short: "Refresh local resolver state for a tenant",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: args[0]})
+			plan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: optionalReference(args)})
 			if err != nil {
 				return err
 			}
@@ -255,11 +255,11 @@ func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 func newDNSUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "uninstall tenant",
+		Use:   "uninstall [tenant]",
 		Short: "Remove local resolver state for a tenant",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: args[0]})
+			plan, err := localdns.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: optionalReference(args)})
 			if err != nil {
 				return err
 			}

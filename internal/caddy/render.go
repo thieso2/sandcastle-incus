@@ -23,31 +23,30 @@ func RenderMachine(hostname string, appPort int, certPath string, keyPath string
 }
 
 func RenderMachineHosts(hostnames []string, appPort int, certPath string, keyPath string) File {
-	hosts := ""
-	for i, hostname := range hostnames {
+	blocks := ""
+	for _, hostname := range hostnames {
 		if hostname == "" {
 			continue
 		}
-		if hosts != "" {
-			hosts += ", "
-		}
-		hosts += hostname
-		if i == len(hostnames)-1 && hosts == "" {
-			hosts = hostname
-		}
+		blocks += fmt.Sprintf(`http://%s {
+    reverse_proxy 127.0.0.1:%d
+}
+
+https://%s {
+    tls %s %s
+    reverse_proxy 127.0.0.1:%d
+}
+`, hostname, appPort, hostname, certPath, keyPath, appPort)
 	}
 	return File{
 		Path: "/etc/caddy/Caddyfile",
 		Mode: 0o644,
 		Content: fmt.Sprintf(`{
     admin 127.0.0.1:2019
+    auto_https disable_redirects
 }
 
-%s {
-    tls %s %s
-    reverse_proxy 127.0.0.1:%d
-}
-`, hosts, certPath, keyPath, appPort),
+%s`, blocks),
 	}
 }
 
@@ -61,25 +60,32 @@ func RenderInfrastructureWithOptions(routes []meta.Route, options Infrastructure
 	})
 	content := ""
 	email := strings.TrimSpace(options.LetsEncryptEmail)
+	content += "{\n"
 	if email != "" {
-		content += fmt.Sprintf(`{
-    email %s
+		content += fmt.Sprintf("    email %s\n", email)
+	}
+	content += `    auto_https disable_redirects
 }
 
-`, email)
-	}
+`
+	hasRoutes := false
 	for _, route := range routes {
 		if route.Hostname == "" || route.TargetIP == "" || route.RoutePort == 0 {
 			continue
 		}
-		content += fmt.Sprintf(`%s {
+		hasRoutes = true
+		content += fmt.Sprintf(`http://%s {
     reverse_proxy http://%s:%d
 }
 
-`, route.Hostname, route.TargetIP, route.RoutePort)
+https://%s {
+    reverse_proxy http://%s:%d
+}
+
+`, route.Hostname, route.TargetIP, route.RoutePort, route.Hostname, route.TargetIP, route.RoutePort)
 	}
-	if content == "" {
-		content = `:80 {
+	if !hasRoutes {
+		content += `:80 {
     respond "sandcastle infrastructure"
 }
 `

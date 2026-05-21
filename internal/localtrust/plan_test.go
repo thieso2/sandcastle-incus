@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -141,6 +142,64 @@ func TestCommandStoreInstallLinuxCreatesTrustDirectoryAndUpdates(t *testing.T) {
 	}
 	if len(commands) != 1 || commands[0] != "update-ca-certificates" {
 		t.Fatalf("commands = %#v", commands)
+	}
+}
+
+func TestCommandStoreInstallDarwinUsesSudoWhenNotRoot(t *testing.T) {
+	var commandName string
+	var commandArgs []string
+	store := CommandStore{
+		GOOS:         "darwin",
+		EffectiveUID: func() int { return 501 },
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commandName = name
+			commandArgs = append([]string{}, args...)
+			return []byte("ok"), nil
+		},
+	}
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
+	result, err := store.InstallCA(context.Background(), plan, []byte("CERT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Platform != "darwin" || result.Action != "install" {
+		t.Fatalf("result = %#v", result)
+	}
+	if commandName != "sudo" {
+		t.Fatalf("commandName = %q", commandName)
+	}
+	if len(commandArgs) < 2 || commandArgs[0] != "security" || commandArgs[1] != "add-trusted-cert" {
+		t.Fatalf("commandArgs = %#v", commandArgs)
+	}
+	if !slices.Contains(commandArgs, "/Library/Keychains/System.keychain") {
+		t.Fatalf("commandArgs missing system keychain: %#v", commandArgs)
+	}
+}
+
+func TestCommandStoreInstallDarwinUsesSecurityDirectlyWhenRoot(t *testing.T) {
+	var commandName string
+	var commandArgs []string
+	store := CommandStore{
+		GOOS:         "darwin",
+		EffectiveUID: func() int { return 0 },
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commandName = name
+			commandArgs = append([]string{}, args...)
+			return []byte("ok"), nil
+		},
+	}
+	_, err := store.InstallCA(context.Background(), Plan{
+		Reference: "acme",
+		TrustName: "Sandcastle acme tenant CA",
+	}, []byte("CERT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commandName != "security" {
+		t.Fatalf("commandName = %q", commandName)
+	}
+	if len(commandArgs) == 0 || commandArgs[0] != "add-trusted-cert" {
+		t.Fatalf("commandArgs = %#v", commandArgs)
 	}
 }
 

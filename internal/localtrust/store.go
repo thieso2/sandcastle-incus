@@ -48,9 +48,10 @@ func (s FileStore) UninstallCA(ctx context.Context, plan Plan) (Result, error) {
 }
 
 type CommandStore struct {
-	GOOS       string
-	LinuxDir   string
-	RunCommand func(context.Context, string, ...string) ([]byte, error)
+	GOOS         string
+	LinuxDir     string
+	RunCommand   func(context.Context, string, ...string) ([]byte, error)
+	EffectiveUID func() int
 }
 
 func (s CommandStore) InstallCA(ctx context.Context, plan Plan, certPEM []byte) (Result, error) {
@@ -70,7 +71,8 @@ func (s CommandStore) InstallCA(ctx context.Context, plan Plan, certPEM []byte) 
 func (s CommandStore) UninstallCA(ctx context.Context, plan Plan) (Result, error) {
 	switch s.GOOS {
 	case "darwin":
-		if output, err := s.runCommand(ctx, "security", "delete-certificate", "-c", plan.TrustName, "/Library/Keychains/System.keychain"); err != nil {
+		name, args := s.securityCommand("delete-certificate", "-c", plan.TrustName, "/Library/Keychains/System.keychain")
+		if output, err := s.runCommand(ctx, name, args...); err != nil {
 			return Result{}, fmt.Errorf("remove macOS trust certificate: %w: %s", err, string(output))
 		}
 		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "uninstall", Target: "/Library/Keychains/System.keychain"}, nil
@@ -101,10 +103,25 @@ func (s CommandStore) installDarwin(ctx context.Context, plan Plan, certPEM []by
 	if err := tmp.Close(); err != nil {
 		return Result{}, err
 	}
-	if output, err := s.runCommand(ctx, "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", "/Library/Keychains/System.keychain", tmp.Name()); err != nil {
+	name, args := s.securityCommand("add-trusted-cert", "-d", "-r", "trustRoot", "-k", "/Library/Keychains/System.keychain", tmp.Name())
+	if output, err := s.runCommand(ctx, name, args...); err != nil {
 		return Result{}, fmt.Errorf("install macOS trust certificate: %w: %s", err, string(output))
 	}
 	return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "install", Target: "/Library/Keychains/System.keychain"}, nil
+}
+
+func (s CommandStore) securityCommand(args ...string) (string, []string) {
+	if s.effectiveUID() == 0 {
+		return "security", args
+	}
+	return "sudo", append([]string{"security"}, args...)
+}
+
+func (s CommandStore) effectiveUID() int {
+	if s.EffectiveUID != nil {
+		return s.EffectiveUID()
+	}
+	return os.Geteuid()
 }
 
 func (s CommandStore) installLinux(ctx context.Context, plan Plan, certPEM []byte) (Result, error) {

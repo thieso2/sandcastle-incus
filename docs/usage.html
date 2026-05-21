@@ -435,18 +435,21 @@ Bootstrap:
   <div class="step">
     <h3>Trust the tenant CA on your machine <span class="badge badge-user">user</span></h3>
     <p>Makes the tenant's self-signed CA trusted by your OS/browser so machine HTTPS URLs work without warnings.</p>
-    <pre><code><span class="cmd">sandcastle trust install</span> <span class="arg">acme</span></code></pre>
+    <p>On macOS, the CLI elevates the keychain write with <code>sudo security</code> when needed.</p>
+    <pre><code><span class="cmd">sandcastle trust install</span>
+<span class="cmd">sandcastle trust install</span> <span class="arg">acme</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Remove the CA from local trust <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle trust uninstall</span> <span class="arg">acme</span></code></pre>
+    <pre><code><span class="cmd">sandcastle trust uninstall</span>
+<span class="cmd">sandcastle trust uninstall</span> <span class="arg">acme</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Preview trust changes</h3>
-    <pre><code><span class="cmd">sandcastle trust install</span>   <span class="arg">acme</span> <span class="flag">--dry-run</span>
-<span class="cmd">sandcastle trust uninstall</span> <span class="arg">acme</span> <span class="flag">--dry-run</span></code></pre>
+    <pre><code><span class="cmd">sandcastle trust install</span>   <span class="flag">--dry-run</span>
+<span class="cmd">sandcastle trust uninstall</span> <span class="flag">--dry-run</span></code></pre>
   </div>
 </section>
 
@@ -645,8 +648,8 @@ Bootstrap:
         <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
         <tr><td>sandcastle ssh-key set [--file &lt;path&gt;]</td><td>Publish the developer SSH key for tenant machines</td></tr>
         <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change machine app port</td></tr>
-        <tr><td>sandcastle trust install &lt;tenant&gt;</td><td>Trust tenant CA locally</td></tr>
-        <tr><td>sandcastle trust uninstall &lt;tenant&gt;</td><td>Remove tenant CA trust</td></tr>
+        <tr><td>sandcastle trust install [tenant]</td><td>Trust tenant CA locally</td></tr>
+        <tr><td>sandcastle trust uninstall [tenant]</td><td>Remove tenant CA trust</td></tr>
         <tr><td>sandcastle dns setup [tenant]</td><td>Apply tenant DNS and install local DNS forwarding</td></tr>
         <tr><td>sandcastle dns teardown [tenant]</td><td>Remove local DNS forwarding</td></tr>
         <tr><td>sandcastle tailscale up [tenant]</td><td>Attach Tailscale to tenant</td></tr>
