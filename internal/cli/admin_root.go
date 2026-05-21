@@ -7,11 +7,13 @@ import (
 	"os"
 	"strings"
 
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/spf13/cobra"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
+	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
@@ -56,6 +58,21 @@ func ExecuteAdmin(name string, args []string) int {
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
+	routeBrokerProjects := incusx.NewProjectStore(adminConfig.Remote)
+	routeBrokerMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
+	routeBrokerTrust := incusx.NewRouteBrokerTrustMapper(adminConfig.Remote)
+	if routeBrokerServeArgs(args) {
+		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
+			routeBrokerProjects = incusx.NewProjectStoreForServer(socketServer)
+			routeBrokerMachines = incusx.NewHostOverrideManagerForServer(socketServer)
+			directRouteManager = incusx.NewRouteManagerForServer(socketServer)
+			directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
+			directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
+			routeBrokerTrust = incusx.NewRouteBrokerTrustMapperForServer(socketServer)
+		} else if err != nil && verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] route broker unix socket unavailable: %v\n", err)
+		}
+	}
 
 	cmd := NewAdminRootCommand(commandConfig{
 		name:                 name,
@@ -82,11 +99,11 @@ func ExecuteAdmin(name string, args []string) int {
 		sandboxPort:          incusx.NewSandboxPortSetter(adminConfig.Remote),
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
-			Projects:      incusx.NewProjectStore(adminConfig.Remote),
-			Machines:      incusx.NewHostOverrideManager(adminConfig.Remote),
+			Projects:      routeBrokerProjects,
+			Machines:      routeBrokerMachines,
 			Routes:        directRouteManager,
 			RouteMetadata: directRouteManager,
-			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),
+			Trust:         routeBrokerTrust,
 		}},
 	})
 	cmd.SetOut(os.Stdout)
@@ -97,6 +114,23 @@ func ExecuteAdmin(name string, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func routeBrokerSocketServer() (incus.InstanceServer, error) {
+	if _, err := os.Stat(infra.RouteBrokerIncusSocketPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return incus.ConnectIncusUnix(infra.RouteBrokerIncusSocketPath, nil)
+}
+
+func routeBrokerServeArgs(args []string) bool {
+	if len(args) < 2 {
+		return false
+	}
+	return args[0] == "route-broker" && args[1] == "serve"
 }
 
 // NewAdminRootCommand builds the Sandcastle admin command tree with all admin

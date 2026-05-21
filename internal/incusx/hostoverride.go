@@ -40,6 +40,10 @@ func NewHostOverrideManager(remote string) HostOverrideManager {
 	return HostOverrideManager{Remote: remote}
 }
 
+func NewHostOverrideManagerForServer(server incus.InstanceServer) HostOverrideManager {
+	return HostOverrideManager{Server: sdkHostOverrideServer{inner: server}}
+}
+
 func (m HostOverrideManager) FindMachine(ctx context.Context, summary project.Summary, projectName string, machineName string) (meta.Machine, error) {
 	machines, err := m.ListMachines(ctx, summary)
 	if err != nil {

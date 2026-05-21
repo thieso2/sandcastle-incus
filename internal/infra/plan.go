@@ -18,7 +18,7 @@ import (
 const (
 	RouteBrokerName            = "sc-route-broker"
 	RouteBrokerListen          = ":9443"
-	RouteBrokerBinaryPath      = "/usr/local/bin/sandcastle"
+	RouteBrokerBinaryPath      = "/usr/local/bin/sandcastle-admin"
 	RouteBrokerCertPath        = "/etc/sandcastle/route-broker/tls.crt"
 	RouteBrokerKeyPath         = "/etc/sandcastle/route-broker/tls.key"
 	RouteBrokerEnvPath         = "/etc/sandcastle/route-broker/env"
@@ -182,7 +182,7 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 		{
 			Instance: RouteBrokerName,
 			Path:     RouteBrokerUnitPath,
-			Content:  "[Unit]\nDescription=Sandcastle route broker\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + RouteBrokerEnvPath + "\nExecStart=" + RouteBrokerBinaryPath + " admin route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			Content:  "[Unit]\nDescription=Sandcastle route broker\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + RouteBrokerEnvPath + "\nExecStart=" + RouteBrokerBinaryPath + " route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
 			Mode:     0o644,
 		},
 	}
@@ -197,7 +197,10 @@ func shellQuote(value string) string {
 }
 
 func runtimeBinaries() []RuntimeBinary {
-	source := strings.TrimSpace(os.Getenv("SANDCASTLE_BIN"))
+	source := strings.TrimSpace(os.Getenv("SANDCASTLE_ADMIN_BIN"))
+	if source == "" {
+		source = strings.TrimSpace(os.Getenv("SANDCASTLE_BIN"))
+	}
 	if source == "" {
 		if executable, err := os.Executable(); err == nil {
 			source = executable
@@ -238,6 +241,12 @@ func runtimeCommands() []RuntimeCommand {
 }
 
 func instancePlan(admin config.Admin, name string, role string) InstancePlan {
+	instanceConfig := map[string]string{
+		meta.KeyKind:         "infrastructure",
+		meta.KeyVersion:      "1",
+		meta.Prefix + "name": name,
+		meta.Prefix + "role": role,
+	}
 	devices := map[string]Device{
 		"root": {
 			"type": "disk",
@@ -251,19 +260,15 @@ func instancePlan(admin config.Admin, name string, role string) InstancePlan {
 			"source": strings.TrimSpace(admin.RouteBrokerIncusSocket),
 			"path":   RouteBrokerIncusSocketPath,
 		}
+		instanceConfig["security.privileged"] = "true"
 	}
 	return InstancePlan{
 		Name:       name,
 		Role:       role,
 		ImageAlias: admin.Images.Base,
-		Config: map[string]string{
-			meta.KeyKind:         "infrastructure",
-			meta.KeyVersion:      "1",
-			meta.Prefix + "name": name,
-			meta.Prefix + "role": role,
-		},
-		Devices: devices,
-		Start:   true,
+		Config:     instanceConfig,
+		Devices:    devices,
+		Start:      true,
 	}
 }
 

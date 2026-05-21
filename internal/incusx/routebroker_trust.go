@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -23,6 +24,10 @@ type RouteBrokerTrustMapper struct {
 
 func NewRouteBrokerTrustMapper(remote string) RouteBrokerTrustMapper {
 	return RouteBrokerTrustMapper{Remote: remote}
+}
+
+func NewRouteBrokerTrustMapperForServer(server incus.InstanceServer) RouteBrokerTrustMapper {
+	return RouteBrokerTrustMapper{Server: server}
 }
 
 func (m RouteBrokerTrustMapper) PrincipalForFingerprint(ctx context.Context, fingerprint string) (routebroker.Principal, error) {

@@ -26,6 +26,7 @@ func TestListManagedTenants(t *testing.T) {
 	}
 	store := MemoryStore{Projects: []IncusProject{
 		{Name: "default", Config: map[string]string{}},
+		{Name: "sc-infra", Config: map[string]string{meta.KeyKind: "infrastructure", meta.KeyVersion: "1"}},
 		{Name: "sc-zeus", Config: zeusConfig},
 		{Name: "sc-acme", Config: acmeConfig},
 	}}

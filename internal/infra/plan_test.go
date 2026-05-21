@@ -11,7 +11,7 @@ import (
 
 func TestPlanCreate(t *testing.T) {
 	binaryPath := writeRuntimeBinaryForTest(t)
-	t.Setenv("SANDCASTLE_BIN", binaryPath)
+	t.Setenv("SANDCASTLE_ADMIN_BIN", binaryPath)
 	admin := config.LoadAdminFromEnv()
 	admin.LetsEncryptEmail = "ops@example.com"
 	plan, err := PlanCreate(admin, CreateRequest{})
@@ -84,6 +84,9 @@ func TestPlanCreate(t *testing.T) {
 	if len(plan.RuntimeCommands) != 2 {
 		t.Fatalf("runtime commands = %#v", plan.RuntimeCommands)
 	}
+	if !strings.Contains(runtimeFileContent(plan, RouteBrokerName, RouteBrokerUnitPath), "sandcastle-admin route-broker serve") {
+		t.Fatalf("broker unit = %q", runtimeFileContent(plan, RouteBrokerName, RouteBrokerUnitPath))
+	}
 	if !strings.Contains(strings.Join(plan.RuntimeCommands[0].Command, " "), "systemctl restart caddy") {
 		t.Fatalf("caddy command = %#v", plan.RuntimeCommands[0])
 	}
@@ -129,6 +132,12 @@ func TestPlanCreateMountsRouteBrokerIncusSocketWhenConfigured(t *testing.T) {
 	}
 	if device["type"] != "disk" || device["source"] != "/run/incus/unix.socket" || device["path"] != RouteBrokerIncusSocketPath {
 		t.Fatalf("incus socket device = %#v", device)
+	}
+	if routeBroker.Config["security.privileged"] != "true" {
+		t.Fatalf("route broker with host Incus socket must be privileged, config = %#v", routeBroker.Config)
+	}
+	if plan.Instances[0].Config["security.privileged"] == "true" {
+		t.Fatalf("caddy should not be privileged, config = %#v", plan.Instances[0].Config)
 	}
 	if _, ok := plan.Instances[0].Devices["incus-socket"]; ok {
 		t.Fatalf("caddy should not receive Incus socket, devices = %#v", plan.Instances[0].Devices)

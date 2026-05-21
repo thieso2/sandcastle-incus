@@ -367,9 +367,10 @@ Test:
 
 1. Create infrastructure project and Caddy.
 2. Start route broker on the private/Tailscale network.
-   The checked-in infrastructure creator uploads the local `sandcastle` binary
-   from `SANDCASTLE_BIN`; infrastructure e2e can use
-   `SANDCASTLE_E2E_SANDCASTLE_BIN`, or build `./cmd/sandcastle` automatically.
+   The checked-in infrastructure creator uploads the local `sandcastle-admin`
+   binary from `SANDCASTLE_ADMIN_BIN`, falling back to `SANDCASTLE_BIN` for older
+   local setups. Infrastructure e2e builds `./cmd/sandcastle-admin`
+   automatically.
    `TestDisposableInfrastructureCreateAndDelete` verifies the route broker
    runtime process accepts an mTLS client certificate inside the disposable
    infrastructure container.

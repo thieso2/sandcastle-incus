@@ -183,6 +183,12 @@ remote: sc-alice</code></pre>
 <span class="comment"># Infrastructure Incus project name (for route broker / shared Caddy)</span>
 <span class="env">export SANDCASTLE_INFRASTRUCTURE_PROJECT</span>=sc-infra
 
+<span class="comment"># Optional host Incus socket mount for route broker mutation service</span>
+<span class="env">export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</span>=/var/lib/incus/unix.socket
+
+<span class="comment"># Optional prebuilt admin binary uploaded into infrastructure sidecars</span>
+<span class="env">export SANDCASTLE_ADMIN_BIN</span>=$PWD/bin/sc-adm
+
 <span class="comment"># Let's Encrypt email for shared Caddy TLS</span>
 <span class="env">export SANDCASTLE_LETSENCRYPT_EMAIL</span>=ops@example.com</code></pre>
   </div>
@@ -493,6 +499,7 @@ Bootstrap:
   <div class="step">
     <h3>Create shared infrastructure</h3>
     <p>Provisions the shared Caddy reverse proxy and route broker inside a dedicated Incus project.</p>
+    <p>The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. When <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> is set, the sidecar mounts the host Incus socket and uses the uploaded <code>sandcastle-admin</code> binary from <code>SANDCASTLE_ADMIN_BIN</code>, falling back to <code>SANDCASTLE_BIN</code>.</p>
     <pre><code><span class="cmd">sandcastle-admin infra create</span>
 <span class="cmd">sandcastle-admin infra create</span> <span class="flag">--dry-run</span>   <span class="comment"># preview only</span></code></pre>
   </div>

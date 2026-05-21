@@ -193,6 +193,36 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	}
 }
 
+func TestRouteManagerDoesNotAddDuplicateIngressNIC(t *testing.T) {
+	metadata := projectMetadataForRouteTest(t, nil)
+	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
+	target := &fakeRouteResourceServer{instance: &api.Instance{
+		Name: "default-codex",
+		InstancePut: api.InstancePut{
+			Devices: api.DevicesMap{},
+		},
+		ExpandedDevices: api.DevicesMap{
+			"eth0": {"type": "nic", "parent": "sc-private"},
+		},
+	}}
+	server := &fakeRouteServer{
+		resource:        resource,
+		targetResource:  target,
+		infrastructure:  "sc-infra",
+		projectMetadata: metadata,
+	}
+	manager := RouteManager{Server: server, Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}}}
+	if err := manager.Add(context.Background(), routePlanForTest(t)); err != nil {
+		t.Fatal(err)
+	}
+	if target.updated != nil {
+		t.Fatalf("target machine should already be attached to ingress network: %#v", target.updated)
+	}
+	if resource.createdProfile == nil {
+		t.Fatal("expected route metadata profile creation")
+	}
+}
+
 func TestRouteManagerRejectsRouteWhenDNSProofFails(t *testing.T) {
 	resource := &fakeRouteResourceServer{profiles: map[string]*api.Profile{}}
 	target := &fakeRouteResourceServer{instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Devices: api.DevicesMap{}}}}

@@ -43,6 +43,9 @@ func List(ctx context.Context, store IncusProjectStore) ([]Summary, error) {
 		if !meta.IsManaged(incusProject.Config) {
 			continue
 		}
+		if incusProject.Config[meta.KeyKind] != meta.KindTenant {
+			continue
+		}
 		tenant, err := meta.ParseTenantConfig(incusProject.Config)
 		if err != nil {
 			return nil, fmt.Errorf("parse tenant metadata for %s: %w", incusProject.Name, err)

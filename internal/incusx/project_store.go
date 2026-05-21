@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -21,6 +22,10 @@ type ProjectStore struct {
 
 func NewProjectStore(remote string) ProjectStore {
 	return ProjectStore{Remote: remote}
+}
+
+func NewProjectStoreForServer(server incus.InstanceServer) ProjectStore {
+	return ProjectStore{Server: server}
 }
 
 func (s ProjectStore) ListProjects(ctx context.Context) ([]project.IncusProject, error) {

@@ -47,6 +47,10 @@ func NewRouteManager(remote string) RouteManager {
 	return RouteManager{Remote: remote}
 }
 
+func NewRouteManagerForServer(server incus.InstanceServer) RouteManager {
+	return RouteManager{Server: sdkRouteServer{inner: server}}
+}
+
 func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 	server, err := m.server()
 	if err != nil {
@@ -95,6 +99,9 @@ func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan
 	if err != nil {
 		return fmt.Errorf("get route target machine %s: %w", plan.TargetReference, err)
 	}
+	if instanceHasNICOnNetwork(instance, plan.IngressNetwork) {
+		return nil
+	}
 	put := instance.Writable()
 	devices := api.DevicesMap{}
 	for name, device := range put.Devices {
@@ -126,6 +133,20 @@ func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan
 		}
 	}
 	return nil
+}
+
+func instanceHasNICOnNetwork(instance *api.Instance, networkName string) bool {
+	for _, devices := range []api.DevicesMap{instance.ExpandedDevices, instance.Devices} {
+		for _, device := range devices {
+			if device["type"] != "nic" {
+				continue
+			}
+			if device["parent"] == networkName || device["network"] == networkName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func removeRouteIngressAttachment(server RouteServer, plan route.RemovePlan, routeMetadata meta.Route) error {

@@ -165,3 +165,24 @@
   binding `:53`. DNS sidecar CoreDNS restart now stops and masks
   `systemd-resolved` before launching CoreDNS. Verified with
   `TestProjectDNSE2E` on host Incus run `e2e-dns-fix-20260521-1100`.
+- Infrastructure now uploads and runs `sandcastle-admin` for the route broker
+  service (`sandcastle-admin route-broker serve`). `SANDCASTLE_ADMIN_BIN` is the
+  preferred binary source, with `SANDCASTLE_BIN` as a local fallback for older
+  setups. The e2e infrastructure tests build `./cmd/sandcastle-admin` for the
+  target architecture before creating the sidecars.
+- The route broker sidecar uses the mounted Incus Unix socket directly when it
+  is serving inside infrastructure. Socket-mounted broker instances are marked
+  privileged because an unprivileged container root cannot open the host
+  `/var/lib/incus/unix.socket`; Caddy remains unprivileged and does not receive
+  that mount.
+- Tenant listing skips managed projects whose Sandcastle metadata kind is not
+  `tenant`, so infrastructure projects (`kind=infrastructure`) no longer make
+  `tenant list`/e2e diagnostics fail while parsing tenant summaries.
+- Route broker mutation e2e now uses canonical `tenant/default/machine` target
+  references. The host route-broker tier passed as
+  `e2e-route-broker-20260521-1212`, including unowned-target 403, DNS-proof 400,
+  add/list/remove 201/200, and route cleanup checks.
+- The broader host `incus` tier passed again as `e2e-incus-20260521-1220` after
+  the route broker service and route ingress fixes. That tier still skips the
+  broker mutation test unless `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` is set; the
+  dedicated `route-broker` tier covers that socket-mounted path.

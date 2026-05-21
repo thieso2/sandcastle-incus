@@ -45,21 +45,22 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if sandcastleBin == "" {
 		sandcastleBin = buildSandcastleForE2E(t)
 	}
+	adminBin := buildSandcastleAdminForRemote(t, e2eConfig.Remote)
 	t.Setenv("SANDCASTLE_BIN", sandcastleBin)
+	t.Setenv("SANDCASTLE_ADMIN_BIN", adminBin)
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
 	otherOwner := safeProjectName("other-" + runID)
-	name := safeProjectName("broker-" + runID)
-	_ = name
-	otherName := safeProjectName("other-broker-" + runID)
 	sandboxName := safeProjectName("box-" + runID)
 	otherSandboxName := safeProjectName("other-box-" + runID)
 	ref := owner
-	otherRef := otherOwner + "/" + otherName
+	otherRef := otherOwner
 	sandboxRef := sandboxName
-	otherSandboxRef := otherRef + "/" + otherSandboxName
+	otherSandboxRef := otherSandboxName
+	targetRef := ref + "/default/" + sandboxName
+	unownedTargetRef := otherRef + "/default/" + otherSandboxName
 	publicDomain := strings.Trim(strings.TrimSpace(e2eConfig.PublicRoutes.Domain), ".")
 	if publicDomain == "" {
 		publicDomain = "example.com"
@@ -89,6 +90,8 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 			AI:   aiAlias,
 		},
 	}
+	otherAdminConfig := adminConfig
+	otherAdminConfig.Tenant = otherRef
 
 	server, err := e2eInstanceServer(e2eConfig.Remote)
 	if err != nil {
@@ -96,6 +99,9 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	}
 	t.Cleanup(cleanupImageAlias(t, e2eConfig, server, aiAlias))
 	t.Cleanup(cleanupImageAlias(t, e2eConfig, server, baseAlias))
+	imageManager := incusx.NewImageManager(e2eConfig.Remote)
+	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
+	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
 	infraCreator := incusx.NewInfrastructureCreator(e2eConfig.Remote)
 	infraDeleter := incusx.NewInfrastructureDeleter(e2eConfig.Remote)
@@ -121,10 +127,6 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	}
 	infraServer := server.UseProject(infraProject)
 	registerInfrastructureCaddyDiagnostics(t, infraServer)
-
-	imageManager := incusx.NewImageManager(e2eConfig.Remote)
-	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
-	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
 	store := incusx.NewProjectStore(e2eConfig.Remote)
 	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
@@ -161,14 +163,14 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	createOtherProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createOtherProjectPlan, err := project.PlanCreate(otherAdminConfig, project.CreateRequest{
 		Reference:     otherRef,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherProjectDeletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: otherRef, Purge: true})
+	otherProjectDeletePlan, err := project.PlanDelete(otherAdminConfig, project.DeleteRequest{Reference: otherRef, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +197,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, sandboxPlan); err != nil {
 		t.Fatal(err)
 	}
-	otherSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
+	otherSandboxPlan, err := sandbox.PlanCreate(ctx, otherAdminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
 		Reference: otherSandboxRef,
 		Template:  "base",
 	})
@@ -209,13 +211,13 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	publicBody := "sandcastle-public-route"
 	startSandboxHTTPApp(t, targetServer, sandboxPlan.InstanceName, sandboxPlan.AppPort, publicBody)
 
-	certPEM, keyPEM := createRouteBrokerE2ECertificate(t, e2eConfig, server, owner)
+	certPEM, keyPEM := createRouteBrokerE2ECertificate(t, e2eConfig, server, owner, []string{createProjectPlan.IncusProject})
 	certPath, keyPath := writeRouteBrokerClientFiles(t, infraServer, string(certPEM), string(keyPEM))
 	addRouteBrokerHostsEntry(t, infraServer, hostname, adminConfig.InfrastructureHost)
 	addRouteBrokerHostsEntry(t, infraServer, dnsFailHostname, wrongInfrastructureHost(adminConfig.InfrastructureHost))
 
 	output := execInstanceOutput(t, infraServer, infra.RouteBrokerName, []string{
-		"python3", "-c", routeBrokerAddProbeScript(certPath, keyPath, hostname, sandboxRef, unownedHostname, otherSandboxRef, dnsFailHostname),
+		"python3", "-c", routeBrokerAddProbeScript(certPath, keyPath, hostname, targetRef, unownedHostname, unownedTargetRef, dnsFailHostname),
 	})
 	for _, want := range []string{"UNOWNED 403", "DNS-PROOF 400", "ADD 201", "LIST-ADD 200"} {
 		if !strings.Contains(output, want) {
@@ -390,7 +392,7 @@ func assertInfrastructureRouteAbsent(t *testing.T, server incus.InstanceServer, 
 	}
 }
 
-func createRouteBrokerE2ECertificate(t *testing.T, e2eConfig Config, server incus.InstanceServer, owner string) ([]byte, []byte) {
+func createRouteBrokerE2ECertificate(t *testing.T, e2eConfig Config, server incus.InstanceServer, owner string, projects []string) ([]byte, []byte) {
 	t.Helper()
 	certPEM, keyPEM, err := sharedtls.GenerateMemCert(true, false)
 	if err != nil {
@@ -405,7 +407,7 @@ func createRouteBrokerE2ECertificate(t *testing.T, e2eConfig Config, server incu
 		Name:        certificateName,
 		Type:        api.CertificateTypeClient,
 		Restricted:  true,
-		Projects:    []string{},
+		Projects:    projects,
 		Certificate: string(certPEM),
 		Description: "Sandcastle route broker mutation e2e user " + owner,
 	}}); err != nil {
@@ -460,6 +462,10 @@ for _ in range(50):
         response = request('GET', '/routes')
         response.read()
         break
+    except urllib.error.HTTPError as err:
+        body = err.read().decode('utf-8')
+        last = 'HTTP %s %s' % (err.code, body)
+        time.sleep(0.2)
     except Exception as err:
         last = repr(err)
         time.sleep(0.2)

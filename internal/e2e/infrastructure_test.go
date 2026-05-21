@@ -31,7 +31,9 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 	if sandcastleBin == "" {
 		sandcastleBin = buildSandcastleForRemote(t, e2eConfig.Remote)
 	}
+	adminBin := buildSandcastleAdminForRemote(t, e2eConfig.Remote)
 	t.Setenv("SANDCASTLE_BIN", sandcastleBin)
+	t.Setenv("SANDCASTLE_ADMIN_BIN", adminBin)
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
@@ -228,6 +230,18 @@ func buildSandcastleForE2E(t *testing.T) string {
 	command := exec.Command("go", "build", "-o", path, "github.com/thieso2/sandcastle-incus/cmd/sandcastle")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build sandcastle e2e binary: %v\n%s", err, strings.TrimSpace(string(output)))
+	}
+	return path
+}
+
+func buildSandcastleAdminForRemote(t *testing.T, remote string) string {
+	t.Helper()
+	goarch := remoteGOARCH(t, remote)
+	path := filepath.Join(t.TempDir(), "sandcastle-admin-linux-"+goarch)
+	command := exec.Command("go", "build", "-o", path, "github.com/thieso2/sandcastle-incus/cmd/sandcastle-admin")
+	command.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+goarch)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandcastle-admin e2e binary (linux/%s): %v\n%s", goarch, err, strings.TrimSpace(string(output)))
 	}
 	return path
 }
