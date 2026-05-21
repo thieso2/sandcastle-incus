@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/lxc/incus/v6/shared/cliconfig"
@@ -79,12 +81,16 @@ func Execute(name string, args []string) int {
 	// Admin commands use the global Incus config (~/.config/incus/) with the admin remote.
 	// User-facing commands use the per-remote Sandcastle dir (restricted cert).
 	isAdmin := len(args) > 0 && args[0] == "admin"
+	verbose := os.Getenv("VERBOSE") == "1"
 	if isAdmin {
 		// Prefer explicit admin_remote; fall back to auto-detecting the global remote
-		// whose server address matches the per-remote user config.
+		// whose server TLS cert matches the per-remote user config.
 		adminRemote := adminConfig.AdminRemote
 		if adminRemote == "" {
-			adminRemote = detectAdminRemote(adminConfig.Remote)
+			adminRemote = detectAdminRemote(adminConfig.Remote, verbose)
+			if verbose && adminRemote != "" {
+				fmt.Fprintf(os.Stderr, "[verbose] admin remote auto-detected: %s\n", adminRemote)
+			}
 		}
 		if adminRemote != "" {
 			adminConfig.Remote = adminRemote
@@ -95,7 +101,7 @@ func Execute(name string, args []string) int {
 			os.Setenv("INCUS_CONF", userPath)
 		}
 	}
-	if os.Getenv("VERBOSE") == "1" {
+	if verbose {
 		incusConf := os.Getenv("INCUS_CONF")
 		if incusConf == "" {
 			incusConf = "~/.config/incus (default)"
@@ -259,20 +265,72 @@ func (f outputFormat) Type() string {
 	return "format"
 }
 
-// detectAdminRemote finds the global Incus remote (~/.config/incus/) whose server address
-// matches the user's per-remote Sandcastle incus config. This lets admin commands work
-// automatically without an explicit admin_remote setting.
-func detectAdminRemote(userRemote string) string {
+// detectAdminRemote finds the global Incus remote (~/.config/incus/) that points to the same
+// server as the user's per-remote Sandcastle incus config, by comparing server TLS certificates.
+// This is more reliable than address comparison (which can fail when one config uses an IP and
+// the other uses a hostname).
+func detectAdminRemote(userRemote string, verbose bool) string {
 	userDir := scconfig.ResolveConfigPath(userRemote)
 	if userDir == "" {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: no per-remote config dir for %q\n", userRemote)
+		}
 		return ""
 	}
+
+	// Read the server certificate stored in the per-remote config dir.
+	userCertPath := filepath.Join(userDir, "servercerts", userRemote+".crt")
+	userCert, err := os.ReadFile(userCertPath)
+	if err != nil || len(userCert) == 0 {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: no server cert at %s, trying address match\n", userCertPath)
+		}
+		return detectAdminRemoteByAddr(userRemote, userDir, verbose)
+	}
+
+	// Scan global incus servercerts/ for a matching certificate.
+	home, _ := os.UserHomeDir()
+	globalCertsDir := filepath.Join(home, ".config", "incus", "servercerts")
+	entries, err := os.ReadDir(globalCertsDir)
+	if err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: cannot read %s: %v\n", globalCertsDir, err)
+		}
+		return ""
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".crt") {
+			continue
+		}
+		globalCert, err := os.ReadFile(filepath.Join(globalCertsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if bytes.Equal(userCert, globalCert) {
+			return strings.TrimSuffix(entry.Name(), ".crt")
+		}
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: no global remote cert matches %s\n", userCertPath)
+	}
+	return ""
+}
+
+// detectAdminRemoteByAddr is the fallback detection path that compares remote addresses via cliconfig.
+func detectAdminRemoteByAddr(userRemote string, userDir string, verbose bool) string {
 	userCfg, err := cliconfig.LoadConfig(userDir)
 	if err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: cannot load user config from %s: %v\n", userDir, err)
+		}
 		return ""
 	}
 	userRemoteInfo, ok := userCfg.Remotes[userRemote]
 	if !ok {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: remote %q not found in %s/config.yml\n", userRemote, userDir)
+		}
 		return ""
 	}
 	globalCfg, err := cliconfig.LoadConfig("")
@@ -281,8 +339,14 @@ func detectAdminRemote(userRemote string) string {
 	}
 	for name, remote := range globalCfg.Remotes {
 		if remote.Addr == userRemoteInfo.Addr {
+			if verbose {
+				fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: addr match: %s == %s (%s)\n", name, userRemote, remote.Addr)
+			}
 			return name
 		}
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: no addr match for %s (%s)\n", userRemote, userRemoteInfo.Addr)
 	}
 	return ""
 }
