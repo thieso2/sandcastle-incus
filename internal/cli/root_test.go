@@ -977,6 +977,7 @@ func TestAddDetachSkipsEnter(t *testing.T) {
 	}
 	creator := &fakeSandboxCreator{}
 	enterer := &fakeSandboxEnterer{}
+	applier := &fakeDNSApplier{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
 		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
@@ -985,6 +986,7 @@ func TestAddDetachSkipsEnter(t *testing.T) {
 		}}},
 		sandboxCreator: creator,
 		sandboxEnterer: enterer,
+		dnsApplier:     applier,
 	}, "create", "codex", "--detach")
 	if err != nil {
 		t.Fatal(err)
@@ -994,6 +996,9 @@ func TestAddDetachSkipsEnter(t *testing.T) {
 	}
 	if enterer.called {
 		t.Fatal("expected add --detach to skip enter")
+	}
+	if !applier.called || applier.tenant.Tenant != "acme" {
+		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
 	}
 }
 
@@ -1160,6 +1165,7 @@ func TestEnterCreatesMissingBareMachine(t *testing.T) {
 	}
 	creator := &fakeSandboxCreator{}
 	enterer := &fakeSandboxEnterer{}
+	applier := &fakeDNSApplier{}
 	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
 		name: "sandcastle",
 		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
@@ -1169,6 +1175,7 @@ func TestEnterCreatesMissingBareMachine(t *testing.T) {
 		sandboxStore:   fakeSandboxInspectStore{},
 		sandboxCreator: creator,
 		sandboxEnterer: enterer,
+		dnsApplier:     applier,
 	}, "connect", "codex")
 	if err != nil {
 		t.Fatal(err)
@@ -1181,6 +1188,9 @@ func TestEnterCreatesMissingBareMachine(t *testing.T) {
 	}
 	if !enterer.called || enterer.plan.InstanceName != "default-codex" || !enterer.plan.Interactive {
 		t.Fatalf("enterer = %#v", enterer)
+	}
+	if !applier.called || applier.tenant.Tenant != "acme" {
+		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
 	}
 }
 
@@ -1284,6 +1294,40 @@ func TestRemoveRequiresConfirmation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("error = %q, want --yes hint", err.Error())
+	}
+}
+
+func TestRemoveRefreshesDNSAfterDelete(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeSandboxController{}
+	applier := &fakeDNSApplier{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+			Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20",
+		}}},
+		sandboxControl: controller,
+		dnsApplier:     applier,
+	}, "delete", "codex", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !controller.called {
+		t.Fatal("expected sandbox delete call")
+	}
+	if !applier.called || applier.tenant.Tenant != "acme" {
+		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
 	}
 }
 
@@ -2561,6 +2605,7 @@ func TestAdminMachineDeleteCallsExecutor(t *testing.T) {
 		t.Fatal(err)
 	}
 	controller := &fakeSandboxController{}
+	applier := &fakeDNSApplier{}
 	_, err = executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
 		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
@@ -2568,12 +2613,16 @@ func TestAdminMachineDeleteCallsExecutor(t *testing.T) {
 			Config: configMap,
 		}}},
 		sandboxControl: controller,
+		dnsApplier:     applier,
 	}, "delete", "acme/codex", "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !controller.called || controller.plan.Reference != "acme/default/codex" || controller.plan.InstanceName != "default-codex" {
 		t.Fatalf("controller.plan = %#v", controller.plan)
+	}
+	if !applier.called || applier.tenant.Tenant != "acme" {
+		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
 	}
 }
 

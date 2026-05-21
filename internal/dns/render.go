@@ -16,7 +16,9 @@ type File struct {
 }
 
 const (
-	UpstreamResolverPath    = "/etc/resolv.conf"
+	SelfResolverPath        = "/etc/resolv.conf"
+	SelfResolverContent     = "nameserver 127.0.0.1\n"
+	UpstreamResolverPath    = "/etc/coredns/upstream-resolv.conf"
 	UpstreamResolverContent = "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
 )
 
@@ -73,6 +75,11 @@ ns IN A %s
 			Path:    zonePath,
 			Mode:    0o644,
 			Content: zone,
+		},
+		{
+			Path:    SelfResolverPath,
+			Mode:    0o644,
+			Content: SelfResolverContent,
 		},
 		{
 			Path:    UpstreamResolverPath,

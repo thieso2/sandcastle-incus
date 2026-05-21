@@ -30,6 +30,11 @@ func newSandboxLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			if err := config.sandboxControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
 				return err
 			}
+			if plan.Action == sandbox.ActionRemove {
+				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
+					return err
+				}
+			}
 			return writeOutput(config.stdout, opts.output, formatLifecyclePlan(plan), plan)
 		},
 	}

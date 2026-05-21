@@ -66,6 +66,9 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 	if err := config.sandboxCreator.CreateMachine(cmd.Context(), createPlan); err != nil {
 		return err
 	}
+	if err := refreshTenantDNS(cmd.Context(), config, createPlan.Tenant); err != nil {
+		return err
+	}
 	if config.sandboxEnterer == nil {
 		return fmt.Errorf("machine connect executor is not configured")
 	}

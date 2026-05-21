@@ -12,32 +12,39 @@ func TestRenderInitial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 3 {
-		t.Fatalf("len(files) = %d, want 3", len(files))
+	if len(files) != 4 {
+		t.Fatalf("len(files) = %d, want 4", len(files))
 	}
-	if files[0].Path != "/etc/coredns/Corefile" {
+	corefile := fileByPath(t, files, "/etc/coredns/Corefile")
+	if corefile.Path != "/etc/coredns/Corefile" {
 		t.Fatalf("Corefile path = %q", files[0].Path)
 	}
-	if !strings.Contains(files[0].Content, "acme:53") {
-		t.Fatalf("Corefile content = %q", files[0].Content)
+	if !strings.Contains(corefile.Content, "acme:53") {
+		t.Fatalf("Corefile content = %q", corefile.Content)
 	}
-	if !strings.Contains(files[0].Content, "forward . /etc/resolv.conf") {
-		t.Fatalf("Corefile missing upstream forwarder: %q", files[0].Content)
+	if !strings.Contains(corefile.Content, "forward . /etc/coredns/upstream-resolv.conf") {
+		t.Fatalf("Corefile missing upstream forwarder: %q", corefile.Content)
 	}
-	if !strings.Contains(files[0].Content, "force_tcp") {
-		t.Fatalf("Corefile missing TCP upstream forwarding: %q", files[0].Content)
+	if !strings.Contains(corefile.Content, "force_tcp") {
+		t.Fatalf("Corefile missing TCP upstream forwarding: %q", corefile.Content)
 	}
-	if files[1].Path != "/etc/coredns/zones/db.acme" {
-		t.Fatalf("zone path = %q", files[1].Path)
+	zoneFile := fileByPath(t, files, "/etc/coredns/zones/db.acme")
+	if zoneFile.Path != "/etc/coredns/zones/db.acme" {
+		t.Fatalf("zone path = %q", zoneFile.Path)
 	}
-	if !strings.Contains(files[1].Content, "ns IN A 10.248.0.53") {
-		t.Fatalf("zone content = %q", files[1].Content)
+	if !strings.Contains(zoneFile.Content, "ns IN A 10.248.0.53") {
+		t.Fatalf("zone content = %q", zoneFile.Content)
 	}
-	if strings.Contains(files[1].Content, "*") {
-		t.Fatalf("initial zone should not contain wildcards: %q", files[1].Content)
+	if strings.Contains(zoneFile.Content, "*") {
+		t.Fatalf("initial zone should not contain wildcards: %q", zoneFile.Content)
 	}
-	if files[2].Path != "/etc/resolv.conf" || !strings.Contains(files[2].Content, "nameserver 1.1.1.1") {
-		t.Fatalf("upstream resolver file = %#v", files[2])
+	resolver := fileByPath(t, files, "/etc/resolv.conf")
+	if resolver.Content != "nameserver 127.0.0.1\n" {
+		t.Fatalf("self resolver file = %#v", resolver)
+	}
+	upstream := fileByPath(t, files, "/etc/coredns/upstream-resolv.conf")
+	if !strings.Contains(upstream.Content, "nameserver 1.1.1.1") {
+		t.Fatalf("upstream resolver file = %#v", upstream)
 	}
 }
 
@@ -65,6 +72,9 @@ func TestRenderTenantIncludesMachineRecords(t *testing.T) {
 	if strings.Contains(zone, "*.default.acme") {
 		t.Fatalf("zone should not contain project-wide wildcard: %q", zone)
 	}
+	if strings.Contains(zone, "codex.default IN A") || strings.Contains(zone, "*.codex.default IN A") {
+		t.Fatalf("zone should not contain relative short machine records: %q", zone)
+	}
 }
 
 func TestPlanApply(t *testing.T) {
@@ -82,4 +92,15 @@ func TestPlanApply(t *testing.T) {
 	if result.RecordCount != 4 {
 		t.Fatalf("RecordCount = %d", result.RecordCount)
 	}
+}
+
+func fileByPath(t *testing.T, files []File, path string) File {
+	t.Helper()
+	for _, file := range files {
+		if file.Path == path {
+			return file
+		}
+	}
+	t.Fatalf("missing file %s in %#v", path, files)
+	return File{}
 }

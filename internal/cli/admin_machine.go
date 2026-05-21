@@ -73,6 +73,9 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 				if err := cfg.sandboxCreator.CreateMachine(cmd.Context(), plan); err != nil {
 					return err
 				}
+				if err := refreshTenantDNS(cmd.Context(), cfg, plan.Tenant); err != nil {
+					return err
+				}
 				if !detach {
 					if cfg.sandboxEnterer == nil {
 						return fmt.Errorf("machine connect executor is not configured")
@@ -182,6 +185,9 @@ func newAdminMachineDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 				return fmt.Errorf("machine lifecycle executor is not configured")
 			}
 			if err := cfg.sandboxControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
+				return err
+			}
+			if err := refreshTenantDNS(cmd.Context(), cfg, plan.Tenant); err != nil {
 				return err
 			}
 			return writeOutput(cfg.stdout, opts.output, formatLifecyclePlan(plan), plan)

@@ -41,6 +41,9 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if err := config.sandboxCreator.CreateMachine(cmd.Context(), plan); err != nil {
 					return err
 				}
+				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
+					return err
+				}
 				if !detach {
 					if config.sandboxEnterer == nil {
 						return fmt.Errorf("machine connect executor is not configured")
