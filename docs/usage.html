@@ -323,7 +323,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Use incus directly against your remote</h3>
-    <p><code>sc incus</code> wraps the <code>incus</code> CLI with the correct <code>INCUS_CONF</code> for the active remote.</p>
+    <p><code>sc incus</code> wraps the <code>incus</code> CLI with the correct <code>INCUS_CONF</code> and defaults to the current tenant's Incus project. Pass an explicit <code>--project</code> to override the project.</p>
     <pre><code><span class="cmd">sc incus</span> <span class="arg">ls</span>                          <span class="comment"># list instances in your project</span>
 <span class="cmd">sc incus</span> <span class="arg">project list</span>               <span class="comment"># list Incus projects you can access</span>
 <span class="cmd">sc incus</span> <span class="arg">exec sc-alice-myproject -- bash</span></code></pre>

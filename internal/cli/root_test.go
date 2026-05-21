@@ -1332,7 +1332,7 @@ func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
 	var gotEnv []string
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
-		adminConfig: scconfig.Admin{Remote: "sandcastle-alice"},
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", ProjectPrefix: "sc"},
 		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 			gotArgs = append([]string{}, args...)
 			gotEnv = append([]string{}, env...)
@@ -1346,11 +1346,87 @@ func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
 	if stdout != "incus ok" {
 		t.Fatalf("stdout = %q", stdout)
 	}
-	if strings.Join(gotArgs, " ") != "project list" {
+	if strings.Join(gotArgs, " ") != "project list --project sc-acme" {
 		t.Fatalf("args = %#v", gotArgs)
 	}
 	if !envContains(gotEnv, "INCUS_CONF="+incusDir) {
 		t.Fatalf("env missing INCUS_CONF=%s", incusDir)
+	}
+	if !envContains(gotEnv, "INCUS_PROJECT=sc-acme") {
+		t.Fatalf("env missing INCUS_PROJECT=sc-acme")
+	}
+}
+
+func TestIncusCommandKeepsExplicitProject(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var gotArgs []string
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", ProjectPrefix: "sc"},
+		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+			gotArgs = append([]string{}, args...)
+			return nil
+		},
+	}, "incus", "ls", "--project", "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(gotArgs, " ") != "ls --project other" {
+		t.Fatalf("args = %#v", gotArgs)
+	}
+}
+
+func TestIncusCommandInsertsProjectBeforeDoubleDash(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var gotArgs []string
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", ProjectPrefix: "sc"},
+		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+			gotArgs = append([]string{}, args...)
+			return nil
+		},
+	}, "incus", "exec", "default-codex", "--", "bash", "-lc", "hostname")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(gotArgs, " ") != "exec default-codex --project sc-acme -- bash -lc hostname" {
+		t.Fatalf("args = %#v", gotArgs)
+	}
+}
+
+func TestIncusCommandVerboseShowsEnvAndCommand(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VERBOSE", "1")
+	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", ProjectPrefix: "sc"},
+		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+			return nil
+		},
+	}, "incus", "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"[verbose] sc incus env: INCUS_CONF=" + incusDir + " INCUS_PROJECT=sc-acme",
+		"[verbose] sc incus command: incus ls --project sc-acme",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
+		}
 	}
 }
 
