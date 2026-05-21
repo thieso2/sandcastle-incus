@@ -198,8 +198,10 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "default") || !strings.Contains(stdout, "codex") {
-		t.Fatalf("stdout = %q, want machine project and name", stdout)
+	for _, want := range []string{"PROJECT", "MACHINE", "FQDN", "default", "codex", "codex.default.acme"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
 	}
 	if !strings.Contains(stdout, "Unmanaged: 0") {
 		t.Fatalf("stdout = %q, want unmanaged count", stdout)
@@ -233,8 +235,10 @@ func TestListAliasShowsManagedMachines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "default") || !strings.Contains(stdout, "codex") {
-		t.Fatalf("stdout = %q, want machine project and name", stdout)
+	for _, want := range []string{"default", "codex", "codex.default.acme"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
 	}
 }
 

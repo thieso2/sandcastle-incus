@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
@@ -171,16 +172,19 @@ func formatMachineList(result listPayload) string {
 	}
 
 	var builder strings.Builder
+	table := tabwriter.NewWriter(&builder, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "PROJECT\tMACHINE\tFQDN\tIP\tPORT\tSTATE")
 	for _, machine := range result.Machines {
 		state := "stopped"
 		if machine.Running {
 			state = "running"
 		}
 		fmt.Fprintf(
-			&builder,
-			"%s\t%s\t%s\t%d\t%s\n",
+			table,
+			"%s\t%s\t%s\t%s\t%d\t%s\n",
 			machine.Project,
 			machine.Name,
+			machineFQDN(result.Tenant, machine),
 			machine.PrivateIP,
 			machine.AppPort,
 			state,
@@ -196,15 +200,28 @@ func formatMachineList(result listPayload) string {
 			}
 		}
 		fmt.Fprintf(
-			&builder,
-			"%s\t%s\t%s\t%d\t%s\n",
+			table,
+			"%s\t%s\t%s\t%s\t%s\t%s\n",
 			"-",
 			unmanaged.Name,
-			"",
-			0,
+			"-",
+			"-",
+			"-",
 			"unmanaged:"+state,
 		)
 	}
+	_ = table.Flush()
 	fmt.Fprintf(&builder, "Unmanaged: %d", result.UnmanagedCount)
 	return strings.TrimRight(builder.String(), "\n")
+}
+
+func machineFQDN(tenant project.Summary, machine meta.Machine) string {
+	suffix := strings.Trim(strings.TrimSpace(tenant.DNSSuffix), ".")
+	if suffix == "" {
+		suffix = strings.Trim(strings.TrimSpace(tenant.Tenant), ".")
+	}
+	if machine.Name == "" || machine.Project == "" || suffix == "" {
+		return "-"
+	}
+	return machine.Name + "." + machine.Project + "." + suffix
 }
