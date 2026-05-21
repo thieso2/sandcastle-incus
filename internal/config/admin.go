@@ -13,7 +13,7 @@ const (
 	DefaultRemote                = "local"
 	DefaultStoragePool           = "default"
 	DefaultCIDRPool              = "10.248.0.0/16"
-	DefaultProjectPrefix         = "sc"
+	DefaultIncusProjectPrefix    = "sc"
 	DefaultInfrastructureProject = "sc-infra"
 	DefaultInfrastructureHost    = ""
 	DefaultLetsEncryptEmail      = ""
@@ -29,7 +29,7 @@ type Admin struct {
 	ConfigPath             string // path to per-remote Incus config dir; empty = use default ~/.config/incus
 	StoragePool            string
 	CIDRPool               string
-	ProjectPrefix          string
+	IncusProjectPrefix     string
 	InfrastructureProject  string
 	InfrastructureHost     string
 	LetsEncryptEmail       string
@@ -51,7 +51,7 @@ func LoadAdminFromEnv() Admin {
 		Remote:                 getenv("SANDCASTLE_REMOTE", DefaultRemote),
 		StoragePool:            getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
 		CIDRPool:               getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
-		ProjectPrefix:          getenv("SANDCASTLE_PROJECT_PREFIX", DefaultProjectPrefix),
+		IncusProjectPrefix:     incusProjectPrefixFromEnv(),
 		InfrastructureProject:  getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
 		InfrastructureHost:     getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
 		LetsEncryptEmail:       getenv("SANDCASTLE_LETSENCRYPT_EMAIL", DefaultLetsEncryptEmail),
@@ -75,10 +75,10 @@ func (c Admin) Validate() error {
 	if strings.TrimSpace(c.CIDRPool) == "" {
 		return fmt.Errorf("CIDR pool is required")
 	}
-	if strings.TrimSpace(c.ProjectPrefix) == "" {
-		return fmt.Errorf("project prefix is required")
+	if strings.TrimSpace(c.IncusProjectPrefix) == "" {
+		return fmt.Errorf("incus project prefix is required")
 	}
-	if err := naming.ValidateIncusProjectPrefix(c.ProjectPrefix); err != nil {
+	if err := naming.ValidateIncusProjectPrefix(c.IncusProjectPrefix); err != nil {
 		return err
 	}
 	if strings.TrimSpace(c.InfrastructureProject) == "" {
@@ -120,6 +120,10 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func incusProjectPrefixFromEnv() string {
+	return firstNonEmpty(os.Getenv("SANDCASTLE_INCUS_PROJECT_PREFIX"), os.Getenv("SANDCASTLE_PROJECT_PREFIX"), DefaultIncusProjectPrefix)
 }
 
 func splitList(value string) []string {

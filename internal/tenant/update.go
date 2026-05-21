@@ -39,14 +39,14 @@ func ParseRef(admin config.Admin, reference string) (ResolvedRef, error) {
 	if err != nil {
 		return ResolvedRef{}, err
 	}
-	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
 	if err != nil {
 		return ResolvedRef{}, err
 	}
 	return ResolvedRef{IncusProject: incusName}, nil
 }
 
-func PlanCreateProject(ctx context.Context, admin config.Admin, store IncusProjectStore, request ProjectMutationRequest) (ProjectMutationPlan, error) {
+func PlanCreateProject(ctx context.Context, admin config.Admin, store IncusTenantStore, request ProjectMutationRequest) (ProjectMutationPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return ProjectMutationPlan{}, err
 	}
@@ -72,7 +72,7 @@ func PlanCreateProject(ctx context.Context, admin config.Admin, store IncusProje
 	}, nil
 }
 
-func PlanDeleteProject(ctx context.Context, admin config.Admin, store IncusProjectStore, request ProjectMutationRequest) (ProjectMutationPlan, error) {
+func PlanDeleteProject(ctx context.Context, admin config.Admin, store IncusTenantStore, request ProjectMutationRequest) (ProjectMutationPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return ProjectMutationPlan{}, err
 	}
@@ -112,7 +112,7 @@ func PlanDeleteProject(ctx context.Context, admin config.Admin, store IncusProje
 	}, nil
 }
 
-func findCurrentTenant(ctx context.Context, admin config.Admin, store IncusProjectStore) (Summary, error) {
+func findCurrentTenant(ctx context.Context, admin config.Admin, store IncusTenantStore) (Summary, error) {
 	ref, err := naming.ParseTenantRef(admin.Tenant)
 	if err != nil {
 		return Summary{}, err

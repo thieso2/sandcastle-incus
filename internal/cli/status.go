@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -16,15 +16,15 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 && args[0] != config.adminConfig.Tenant {
-				result, err := machine.Inspect(
+				result, err := machine.GetStatus(
 					cmd.Context(),
 					config.adminConfig,
-					config.projectStore,
-					config.sandboxStore,
-					machine.InspectRequest{Reference: args[0]},
+					config.tenantStore,
+					config.machineStore,
+					machine.StatusRequest{Reference: args[0]},
 				)
 				if err == nil {
-					return writeOutput(config.stdout, opts.output, formatSandboxInspect(result), result)
+					return writeOutput(config.stdout, opts.output, formatMachineStatus(result), result)
 				}
 				if machine.IsAmbiguousMachineError(err) || strings.Contains(args[0], "/") {
 					return err
@@ -34,22 +34,22 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if len(args) == 1 {
 				reference = args[0]
 			}
-			status, err := project.GetStatusWithTopology(
+			status, err := tenant.GetStatusWithTopology(
 				cmd.Context(),
-				config.projectStore,
+				config.tenantStore,
 				config.topologyStore,
-				project.TopologyRequest{},
+				tenant.TopologyRequest{},
 				reference,
 			)
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatProjectStatus(status), status)
+			return writeOutput(config.stdout, opts.output, formatTenantStatus(status), status)
 		},
 	}
 }
 
-func formatProjectStatus(status project.Status) string {
+func formatTenantStatus(status tenant.Status) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "Tenant: %s\n", status.Summary.Tenant)
 	fmt.Fprintf(&builder, "Incus project: %s\n", status.Summary.IncusName)

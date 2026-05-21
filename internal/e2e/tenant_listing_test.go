@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func TestIncusProjectListingSmoke(t *testing.T) {
+func TestTenantListingSmoke(t *testing.T) {
 	config := LoadConfig()
 	if !config.Enabled {
 		t.Skip("set SANDCASTLE_E2E=1 to run real Incus e2e tests")
@@ -17,8 +17,8 @@ func TestIncusProjectListingSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store := incusx.NewProjectStore(config.Remote)
-	projects, err := project.List(context.Background(), store)
+	store := incusx.NewTenantStore(config.Remote)
+	projects, err := tenant.List(context.Background(), store)
 	if err != nil {
 		t.Fatal(err)
 	}

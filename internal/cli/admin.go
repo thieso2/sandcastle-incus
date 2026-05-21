@@ -9,7 +9,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -19,7 +19,7 @@ func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Run Sandcastle administrator commands",
 	}
 	admin.AddCommand(newAdminVersionCommand(config, opts))
-	admin.AddCommand(newAdminProjectCommand(config, opts))
+	admin.AddCommand(newAdminTenantCommand(config, opts))
 	admin.AddCommand(newAdminUserCommand(config, opts))
 	admin.AddCommand(newAdminInfraCommand(config, opts))
 	admin.AddCommand(newAdminImageCommand(config, opts))
@@ -40,60 +40,60 @@ func newAdminVersionCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	}
 }
 
-func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	project := &cobra.Command{
+func newAdminTenantCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	command := &cobra.Command{
 		Use:   "tenant",
 		Short: "Manage Sandcastle tenants",
 	}
-	project.AddCommand(newAdminProjectListCommand(config, opts))
-	project.AddCommand(newAdminProjectStatusCommand(config, opts))
-	project.AddCommand(newAdminProjectCreateCommand(config, opts))
-	project.AddCommand(newAdminProjectDeleteCommand(config, opts))
-	project.AddCommand(newAdminTenantGrantCommand(config, opts))
-	project.AddCommand(newAdminTenantRevokeCommand(config, opts))
-	project.AddCommand(newAdminTenantUsersCommand(config, opts))
-	project.AddCommand(newAdminProjectSetSSHKeyCommand(config))
-	return project
+	command.AddCommand(newAdminTenantListCommand(config, opts))
+	command.AddCommand(newAdminTenantStatusCommand(config, opts))
+	command.AddCommand(newAdminTenantCreateCommand(config, opts))
+	command.AddCommand(newAdminTenantDeleteCommand(config, opts))
+	command.AddCommand(newAdminTenantGrantCommand(config, opts))
+	command.AddCommand(newAdminTenantRevokeCommand(config, opts))
+	command.AddCommand(newAdminTenantUsersCommand(config, opts))
+	command.AddCommand(newAdminTenantSetSSHKeyCommand(config))
+	return command
 }
 
-func newAdminProjectListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+func newAdminTenantListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List Sandcastle tenants",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projects, err := listProjects(cmd.Context(), config.projectStore)
+			tenants, err := listTenants(cmd.Context(), config.tenantStore)
 			if err != nil {
 				return err
 			}
-			payload := tenantListPayload{Tenants: projects}
-			return writeOutput(config.stdout, opts.output, formatTenantList(projects), payload)
+			payload := tenantListPayload{Tenants: tenants}
+			return writeOutput(config.stdout, opts.output, formatTenantList(tenants), payload)
 		},
 	}
 }
 
-func newAdminProjectStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+func newAdminTenantStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status tenant",
 		Short: "Show Sandcastle tenant status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			status, err := project.GetStatusWithTopology(
+			status, err := tenant.GetStatusWithTopology(
 				cmd.Context(),
-				config.projectStore,
+				config.tenantStore,
 				config.topologyStore,
-				project.TopologyRequest{},
+				tenant.TopologyRequest{},
 				args[0],
 			)
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatProjectStatus(status), status)
+			return writeOutput(config.stdout, opts.output, formatTenantStatus(status), status)
 		},
 	}
 }
 
-func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+func newAdminTenantCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	var sshKey string
 	command := &cobra.Command{
@@ -103,13 +103,13 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var occupiedCIDRs []string
 			if !dryRun {
-				existingProjects, err := listProjects(cmd.Context(), config.projectStore)
+				existingTenants, err := listTenants(cmd.Context(), config.tenantStore)
 				if err != nil {
 					return err
 				}
-				occupiedCIDRs = project.OccupiedCIDRs(existingProjects)
+				occupiedCIDRs = tenant.OccupiedCIDRs(existingTenants)
 			}
-			plan, err := project.PlanCreate(config.adminConfig, project.CreateRequest{
+			plan, err := tenant.PlanCreate(config.adminConfig, tenant.CreateRequest{
 				Reference:     args[0],
 				SSHPublicKey:  sshKey,
 				OccupiedCIDRs: occupiedCIDRs,
@@ -118,10 +118,10 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 				return err
 			}
 			if !dryRun {
-				if config.projectCreator == nil {
+				if config.tenantCreator == nil {
 					return fmt.Errorf("tenant creation executor is not configured")
 				}
-				if err := config.projectCreator.CreateTenant(cmd.Context(), plan); err != nil {
+				if err := config.tenantCreator.CreateTenant(cmd.Context(), plan); err != nil {
 					return err
 				}
 			}
@@ -133,7 +133,7 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 	return command
 }
 
-func formatCreatePlan(plan project.CreatePlan) string {
+func formatCreatePlan(plan tenant.CreatePlan) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "Tenant: %s\n", plan.Reference)
 	fmt.Fprintf(&builder, "Incus project: %s\n", plan.IncusProject)
@@ -145,7 +145,7 @@ func formatCreatePlan(plan project.CreatePlan) string {
 	return builder.String()
 }
 
-func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var yes bool
 	var purge bool
 	command := &cobra.Command{
@@ -156,17 +156,17 @@ func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 			if !yes {
 				return fmt.Errorf("refusing to delete without --yes")
 			}
-			plan, err := project.PlanDelete(config.adminConfig, project.DeleteRequest{
+			plan, err := tenant.PlanDelete(config.adminConfig, tenant.DeleteRequest{
 				Reference: args[0],
 				Purge:     purge,
 			})
 			if err != nil {
 				return err
 			}
-			if config.projectDeleter == nil {
+			if config.tenantDeleter == nil {
 				return fmt.Errorf("tenant deletion executor is not configured")
 			}
-			if err := config.projectDeleter.DeleteTenant(cmd.Context(), plan); err != nil {
+			if err := config.tenantDeleter.DeleteTenant(cmd.Context(), plan); err != nil {
 				return err
 			}
 			return writeOutput(config.stdout, opts.output, formatDeletePlan(plan), plan)
@@ -177,20 +177,20 @@ func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 	return command
 }
 
-func newAdminProjectSetSSHKeyCommand(config commandConfig) *cobra.Command {
+func newAdminTenantSetSSHKeyCommand(config commandConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set-ssh-key tenant key",
 		Short: "Set or update the SSH public key for a Sandcastle tenant",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if config.projectSSHKeyUpdater == nil {
-				return fmt.Errorf("project SSH key updater is not configured")
+			if config.tenantSSHKeyUpdater == nil {
+				return fmt.Errorf("tenant SSH key updater is not configured")
 			}
-			ref, err := project.ParseRef(config.adminConfig, args[0])
+			ref, err := tenant.ParseRef(config.adminConfig, args[0])
 			if err != nil {
 				return err
 			}
-			return config.projectSSHKeyUpdater.SetTenantSSHKey(cmd.Context(), ref.IncusProject, args[1])
+			return config.tenantSSHKeyUpdater.SetTenantSSHKey(cmd.Context(), ref.IncusProject, args[1])
 		},
 	}
 }
@@ -282,7 +282,7 @@ func formatTenantUsers(result usertrust.TenantUsersResult) string {
 	return fmt.Sprintf("Tenant: %s\nUsers: %s", result.Tenant, strings.Join(result.Users, ", "))
 }
 
-func formatDeletePlan(plan project.DeletePlan) string {
+func formatDeletePlan(plan tenant.DeletePlan) string {
 	if plan.PurgeDurableState {
 		return fmt.Sprintf("Deleted %s and purged durable state.", plan.Reference)
 	}
@@ -572,7 +572,6 @@ func newAdminUserCommand(config commandConfig, opts *rootOptions) *cobra.Command
 		Short: "Manage Sandcastle restricted users",
 	}
 	user.AddCommand(newAdminUserCreateCommand(config, opts))
-	user.AddCommand(newAdminUserGrantCommand(config, opts))
 	user.AddCommand(newAdminUserTokenCommand(config, opts))
 	return user
 }
@@ -605,40 +604,11 @@ func newAdminUserCreateCommand(config commandConfig, opts *rootOptions) *cobra.C
 	return command
 }
 
-func newAdminUserGrantCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var dryRun bool
-	command := &cobra.Command{
-		Use:   "grant user tenant [tenant...]",
-		Short: "Plan restricted certificate tenant grants",
-		Args:  cobra.MinimumNArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := usertrust.PlanGrant(config.adminConfig, usertrust.GrantRequest{
-				User:     args[0],
-				Projects: args[1:],
-			})
-			if err != nil {
-				return err
-			}
-			if !dryRun {
-				if config.trustManager == nil {
-					return fmt.Errorf("restricted user grant executor is not configured")
-				}
-				if err := config.trustManager.Grant(cmd.Context(), plan); err != nil {
-					return err
-				}
-			}
-			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
-		},
-	}
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the grant plan without mutating trust state")
-	return command
-}
-
 func newAdminUserTokenCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "token user",
-		Short: "Plan a restricted certificate add token",
+		Short: "Create a restricted certificate add token",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := usertrust.PlanToken(args[0])
@@ -676,15 +646,13 @@ func formatTokenResult(result usertrust.TokenResult) string {
 		remoteName = usertrust.RestrictedName(result.User)
 	}
 	return fmt.Sprintf(
-		"User: %s\nCertificate: %s\nRemote: %s\nToken: %s\nBootstrap:\n  incus remote add %s %s\n  export SANDCASTLE_REMOTE=%s\n  export SANDCASTLE_TENANT=%s",
+		"User: %s\nCertificate: %s\nRemote: %s\nToken: %s\nBootstrap:\n  sc remote add %s %s\nAfter tenant access is granted, set the default tenant with:\n  sc config set tenant <tenant>",
 		result.User,
 		result.CertificateName,
 		remoteName,
 		result.Token,
 		remoteName,
 		result.Token,
-		remoteName,
-		result.User,
 	)
 }
 

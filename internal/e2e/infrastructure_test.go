@@ -42,7 +42,7 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 		Remote:                 e2eConfig.Remote,
 		StoragePool:            e2eConfig.StoragePool,
 		CIDRPool:               e2eConfig.CIDRPool,
-		ProjectPrefix:          config.DefaultProjectPrefix,
+		IncusProjectPrefix:     config.DefaultIncusProjectPrefix,
 		InfrastructureProject:  infraProject,
 		RouteBrokerIncusSocket: strings.TrimSpace(e2eConfig.RouteBroker.IncusSocket),
 		Images: config.Images{
@@ -93,7 +93,7 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 
 func assertRouteBrokerAuthorizedList(t *testing.T, e2eConfig Config, adminServer incus.InstanceServer, server incus.InstanceServer, runID string) {
 	t.Helper()
-	owner := safeProjectName("broker-" + runID)
+	user := safeTenantResourceName("broker-" + runID)
 	certPEM, keyPEM, err := sharedtls.GenerateMemCert(true, false)
 	if err != nil {
 		t.Fatal(err)
@@ -102,14 +102,14 @@ func assertRouteBrokerAuthorizedList(t *testing.T, e2eConfig Config, adminServer
 	if err != nil {
 		t.Fatal(err)
 	}
-	certificateName := usertrust.CertificateNamePrefix + owner
+	certificateName := usertrust.CertificateNamePrefix + user
 	if err := adminServer.CreateCertificate(api.CertificatesPost{CertificatePut: api.CertificatePut{
 		Name:        certificateName,
 		Type:        api.CertificateTypeClient,
 		Restricted:  true,
 		Projects:    []string{},
 		Certificate: string(certPEM),
-		Description: "Sandcastle route broker e2e user " + owner,
+		Description: "Sandcastle route broker e2e user " + user,
 	}}); err != nil {
 		t.Fatal(err)
 	}

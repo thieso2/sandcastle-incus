@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type Action string
@@ -14,7 +14,7 @@ const (
 	ActionStart   Action = "start"
 	ActionStop    Action = "stop"
 	ActionRestart Action = "restart"
-	ActionRemove  Action = "remove"
+	ActionDelete  Action = "delete"
 )
 
 type LifecycleRequest struct {
@@ -23,19 +23,19 @@ type LifecycleRequest struct {
 }
 
 type LifecyclePlan struct {
-	Reference    string          `json:"reference"`
-	Tenant       project.Summary `json:"tenant"`
-	Project      string          `json:"project"`
-	Name         string          `json:"name"`
-	InstanceName string          `json:"instanceName"`
-	Action       Action          `json:"action"`
+	Reference    string         `json:"reference"`
+	Tenant       tenant.Summary `json:"tenant"`
+	Project      string         `json:"project"`
+	Name         string         `json:"name"`
+	InstanceName string         `json:"instanceName"`
+	Action       Action         `json:"action"`
 }
 
 type Controller interface {
 	ApplyLifecycle(context.Context, LifecyclePlan) error
 }
 
-func PlanLifecycle(ctx context.Context, admin config.Admin, store project.IncusProjectStore, machineStore Store, request LifecycleRequest) (LifecyclePlan, error) {
+func PlanLifecycle(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, machineStore Store, request LifecycleRequest) (LifecyclePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return LifecyclePlan{}, err
 	}
@@ -58,7 +58,7 @@ func PlanLifecycle(ctx context.Context, admin config.Admin, store project.IncusP
 
 func validateAction(action Action) error {
 	switch action {
-	case ActionStart, ActionStop, ActionRestart, ActionRemove:
+	case ActionStart, ActionStop, ActionRestart, ActionDelete:
 		return nil
 	default:
 		return fmt.Errorf("unsupported machine action %q", action)

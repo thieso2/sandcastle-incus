@@ -14,7 +14,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -37,7 +37,7 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: config.DefaultBaseImageAlias,
@@ -45,7 +45,7 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	store := incusx.NewProjectStore(e2eConfig.Remote)
+	store := incusx.NewTenantStore(e2eConfig.Remote)
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
+	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
 	infraDeleter := incusx.NewInfrastructureDeleter(e2eConfig.Remote)
 	deletedProjects := 0
 	deletedInfrastructure := 0
@@ -70,14 +70,14 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse project metadata for cleanup target %s: %v", incusProject.Name, err)
 			}
-			deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{
+			deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{
 				Reference: managed.Tenant,
 				Purge:     true,
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+			if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 				t.Fatalf("cleanup project %s: %v", deletePlan.Reference, err)
 			}
 			deletedProjects++
@@ -119,7 +119,7 @@ func cleanupRunToken(config Config) (string, error) {
 	return runToken, nil
 }
 
-func managedProjectMatchesRun(incusProject project.IncusProject, runToken string) bool {
+func managedProjectMatchesRun(incusProject tenant.IncusProject, runToken string) bool {
 	if strings.Contains(incusProject.Name, runToken) {
 		return true
 	}
@@ -135,7 +135,7 @@ func managedProjectMatchesRun(incusProject project.IncusProject, runToken string
 	return false
 }
 
-func managedInfrastructureMatchesRun(incusProject project.IncusProject, runToken string) bool {
+func managedInfrastructureMatchesRun(incusProject tenant.IncusProject, runToken string) bool {
 	if strings.Contains(incusProject.Name, runToken) {
 		return true
 	}
@@ -271,16 +271,16 @@ func TestCleanupProjectSelectionMatchesOnlyRunID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !managedProjectMatchesRun(project.IncusProject{Name: "sc-tenant-e2e-20260520-120000", Config: config}, "e2e-20260520-120000") {
+	if !managedProjectMatchesRun(tenant.IncusProject{Name: "sc-tenant-e2e-20260520-120000", Config: config}, "e2e-20260520-120000") {
 		t.Fatal("expected project cleanup match")
 	}
-	if managedProjectMatchesRun(project.IncusProject{Name: "sc-tenant-other", Config: config}, "e2e-19990101-000000") {
+	if managedProjectMatchesRun(tenant.IncusProject{Name: "sc-tenant-other", Config: config}, "e2e-19990101-000000") {
 		t.Fatal("unexpected project cleanup match")
 	}
 }
 
 func TestCleanupInfrastructureSelectionMatchesOnlyRunID(t *testing.T) {
-	project := project.IncusProject{
+	project := tenant.IncusProject{
 		Name: "sc-infra-e2e-20260520-120000",
 		Config: map[string]string{
 			meta.KeyKind:         infrastructureKind,
@@ -300,11 +300,11 @@ func TestCleanupCertificateSelectionMatchesOnlySandcastleRunID(t *testing.T) {
 	certificate := api.Certificate{
 		Fingerprint: "abcd",
 		CertificatePut: api.CertificatePut{
-			Name:        "sandcastle-owner-e2e-20260520-120000",
+			Name:        "sandcastle-user-e2e-20260520-120000",
 			Type:        api.CertificateTypeClient,
 			Restricted:  true,
-			Description: "Sandcastle restricted user owner-e2e-20260520-120000",
-			Projects:    []string{"sc-owner-e2e-20260520-120000-project"},
+			Description: "Sandcastle restricted user user-e2e-20260520-120000",
+			Projects:    []string{"sc-tenant-e2e-20260520-120000"},
 		},
 	}
 	if !managedCertificateMatchesRun(certificate, "e2e-20260520-120000") {

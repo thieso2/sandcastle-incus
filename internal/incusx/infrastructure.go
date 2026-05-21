@@ -17,13 +17,13 @@ import (
 type InfrastructureCreator struct {
 	Remote     string
 	ConfigPath string
-	Server     ProjectCreateServer
+	Server     TenantCreateServer
 }
 
 type InfrastructureDeleter struct {
 	Remote     string
 	ConfigPath string
-	Server     ProjectDeleteServer
+	Server     TenantDeleteServer
 }
 
 func NewInfrastructureCreator(remote string) InfrastructureCreator {
@@ -49,7 +49,7 @@ func (c InfrastructureCreator) CreateInfrastructure(ctx context.Context, plan in
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkProjectServer{inner: instanceServer}
+		server = sdkTenantCreateServer{inner: instanceServer}
 	}
 	if err := ensureInfrastructureProject(server, plan); err != nil {
 		return err
@@ -72,7 +72,7 @@ func (c InfrastructureCreator) CreateInfrastructure(ctx context.Context, plan in
 	return nil
 }
 
-func ensureInfrastructureProject(server ProjectCreateServer, plan infra.CreatePlan) error {
+func ensureInfrastructureProject(server TenantCreateServer, plan infra.CreatePlan) error {
 	existing, etag, err := server.GetProject(plan.Project)
 	if err != nil {
 		if api.StatusErrorCheck(err, http.StatusNotFound) {
@@ -96,7 +96,7 @@ func ensureInfrastructureProject(server ProjectCreateServer, plan infra.CreatePl
 	return nil
 }
 
-func ensureInfrastructureInstance(server ProjectResourceServer, instance infra.InstancePlan) error {
+func ensureInfrastructureInstance(server TenantResourceServer, instance infra.InstancePlan) error {
 	existing, _, err := server.GetInstance(instance.Name)
 	if err == nil {
 		if instance.Start && !existing.IsActive() {
@@ -152,7 +152,7 @@ func infrastructureDevicesMap(devices map[string]infra.Device) api.DevicesMap {
 	return output
 }
 
-func ensureInfrastructureRuntimeFiles(server ProjectResourceServer, plan infra.CreatePlan) error {
+func ensureInfrastructureRuntimeFiles(server TenantResourceServer, plan infra.CreatePlan) error {
 	for _, directory := range plan.RuntimeDirectories {
 		err := server.CreateInstanceFile(directory.Instance, directory.Path, incus.InstanceFileArgs{
 			Type: "directory",
@@ -176,7 +176,7 @@ func ensureInfrastructureRuntimeFiles(server ProjectResourceServer, plan infra.C
 	return nil
 }
 
-func ensureInfrastructureRuntimeBinaries(server ProjectResourceServer, plan infra.CreatePlan) error {
+func ensureInfrastructureRuntimeBinaries(server TenantResourceServer, plan infra.CreatePlan) error {
 	for _, binary := range plan.RuntimeBinaries {
 		data, err := os.ReadFile(binary.SourcePath)
 		if err != nil {
@@ -195,7 +195,7 @@ func ensureInfrastructureRuntimeBinaries(server ProjectResourceServer, plan infr
 	return nil
 }
 
-func runInfrastructureRuntimeCommands(server ProjectResourceServer, plan infra.CreatePlan) error {
+func runInfrastructureRuntimeCommands(server TenantResourceServer, plan infra.CreatePlan) error {
 	for _, command := range plan.RuntimeCommands {
 		var stderr bytes.Buffer
 		dataDone := make(chan bool)

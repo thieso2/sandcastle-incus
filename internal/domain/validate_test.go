@@ -2,49 +2,49 @@ package domain
 
 import "testing"
 
-func TestValidateProjectDomainNormalizesAllowedPrivateDomain(t *testing.T) {
-	domain, err := ValidateProjectDomain("MyProject.Project-TLD.", Policy{})
+func TestValidateTenantDNSSuffixNormalizesLabel(t *testing.T) {
+	suffix, err := ValidateTenantDNSSuffix("Acme.", Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if domain != "myproject.project-tld" {
-		t.Fatalf("domain = %q", domain)
+	if suffix != "acme" {
+		t.Fatalf("suffix = %q", suffix)
 	}
 }
 
-func TestValidateProjectDomainRejectsMalformedDomain(t *testing.T) {
+func TestValidateTenantDNSSuffixRejectsMalformedSuffix(t *testing.T) {
 	for _, candidate := range []string{"bad domain", "bad/name", "bad..name", "-bad.name", "bad-.name", "bad_name"} {
 		t.Run(candidate, func(t *testing.T) {
-			if _, err := ValidateProjectDomain(candidate, Policy{}); err == nil {
+			if _, err := ValidateTenantDNSSuffix(candidate, Policy{}); err == nil {
 				t.Fatal("expected error")
 			}
 		})
 	}
 }
 
-func TestValidateProjectDomainRejectsDeniedFinalLabels(t *testing.T) {
-	for _, candidate := range []string{"project.com", "project.local", "project.test", "project.alt", "project.home.arpa"} {
+func TestValidateTenantDNSSuffixRejectsDeniedLabels(t *testing.T) {
+	for _, candidate := range []string{"com", "local", "test", "alt"} {
 		t.Run(candidate, func(t *testing.T) {
-			if _, err := ValidateProjectDomain(candidate, Policy{}); err == nil {
+			if _, err := ValidateTenantDNSSuffix(candidate, Policy{}); err == nil {
 				t.Fatal("expected error")
 			}
 		})
 	}
 }
 
-func TestValidateProjectDomainAllowsExplicitLabSuffixes(t *testing.T) {
-	domain, err := ValidateProjectDomain("Project.Test", Policy{
+func TestValidateTenantDNSSuffixAllowsExplicitLabSuffixes(t *testing.T) {
+	suffix, err := ValidateTenantDNSSuffix("Test", Policy{
 		AllowedSuffixes: []string{"test"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if domain != "project.test" {
-		t.Fatalf("domain = %q", domain)
+	if suffix != "test" {
+		t.Fatalf("suffix = %q", suffix)
 	}
 }
 
-func TestValidateProjectDomainRejectsMalformedPolicySuffixes(t *testing.T) {
+func TestValidateTenantDNSSuffixRejectsMalformedPolicySuffixes(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		policy Policy
@@ -53,7 +53,7 @@ func TestValidateProjectDomainRejectsMalformedPolicySuffixes(t *testing.T) {
 		{name: "denied suffix", policy: Policy{DeniedSuffixes: []string{"bad/suffix"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := ValidateProjectDomain("project.project-tld", tc.policy); err == nil {
+			if _, err := ValidateTenantDNSSuffix("acme", tc.policy); err == nil {
 				t.Fatal("expected error")
 			}
 		})
@@ -73,9 +73,9 @@ func TestNormalizePolicySuffix(t *testing.T) {
 	}
 }
 
-func TestValidateProjectDomainRejectsAdminDeniedSuffixes(t *testing.T) {
-	_, err := ValidateProjectDomain("project.corp.private", Policy{
-		DeniedSuffixes: []string{"corp.private"},
+func TestValidateTenantDNSSuffixRejectsAdminDeniedSuffixes(t *testing.T) {
+	_, err := ValidateTenantDNSSuffix("acme", Policy{
+		DeniedSuffixes: []string{"acme"},
 	})
 	if err == nil {
 		t.Fatal("expected error")

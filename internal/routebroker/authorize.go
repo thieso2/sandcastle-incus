@@ -12,7 +12,7 @@ import (
 
 type Principal struct {
 	Fingerprint string   `json:"fingerprint"`
-	Owner       string   `json:"owner"`
+	User        string   `json:"user"`
 	Projects    []string `json:"projects,omitempty"`
 }
 
@@ -36,12 +36,12 @@ func PrincipalFromFingerprint(ctx context.Context, mapper TrustMapper, fingerpri
 	if principal.Fingerprint == "" {
 		principal.Fingerprint = fingerprint
 	}
-	principal.Owner = strings.TrimSpace(principal.Owner)
-	if principal.Owner == "" {
-		return Principal{}, fmt.Errorf("client certificate %s is not mapped to a Sandcastle owner", fingerprint)
+	principal.User = strings.TrimSpace(principal.User)
+	if principal.User == "" {
+		return Principal{}, fmt.Errorf("client certificate %s is not mapped to a Sandcastle user", fingerprint)
 	}
-	if err := naming.ValidateTenantName(principal.Owner); err != nil {
-		return Principal{}, fmt.Errorf("client certificate %s maps to invalid Sandcastle owner %q", fingerprint, principal.Owner)
+	if err := naming.ValidateTenantName(principal.User); err != nil {
+		return Principal{}, fmt.Errorf("client certificate %s maps to invalid Sandcastle user %q", fingerprint, principal.User)
 	}
 	projects, err := normalizeProjects(principal.Projects)
 	if err != nil {
@@ -51,26 +51,26 @@ func PrincipalFromFingerprint(ctx context.Context, mapper TrustMapper, fingerpri
 	return principal, nil
 }
 
-func AuthorizeAdd(principal Principal, plan route.AddPlan) error {
-	if strings.TrimSpace(principal.Owner) == "" {
-		return fmt.Errorf("route principal owner is required")
+func AuthorizeCreate(principal Principal, plan route.CreatePlan) error {
+	if strings.TrimSpace(principal.User) == "" {
+		return fmt.Errorf("route principal user is required")
 	}
 	if !principalCanAccessProject(principal, plan.Tenant.IncusName) {
-		return fmt.Errorf("owner %s is not granted access to tenant %s", principal.Owner, plan.Tenant.Tenant)
+		return fmt.Errorf("user %s is not granted access to tenant %s", principal.User, plan.Tenant.Tenant)
 	}
 	return nil
 }
 
-func AuthorizeRemove(principal Principal, routeMetadata meta.Route, projectPrefix string) error {
-	if strings.TrimSpace(principal.Owner) == "" {
-		return fmt.Errorf("route principal owner is required")
+func AuthorizeDelete(principal Principal, routeMetadata meta.Route, incusProjectPrefix string) error {
+	if strings.TrimSpace(principal.User) == "" {
+		return fmt.Errorf("route principal user is required")
 	}
-	incusProject, err := naming.TenantIncusProjectNameWithPrefix(projectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(incusProjectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
 	if err != nil {
 		return err
 	}
 	if !principalCanAccessProject(principal, incusProject) {
-		return fmt.Errorf("owner %s is not granted access to tenant %s", principal.Owner, routeMetadata.TargetTenant)
+		return fmt.Errorf("user %s is not granted access to tenant %s", principal.User, routeMetadata.TargetTenant)
 	}
 	return nil
 }

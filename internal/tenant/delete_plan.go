@@ -34,7 +34,7 @@ func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 	if err != nil {
 		return DeletePlan{}, err
 	}
-	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
 	if err != nil {
 		return DeletePlan{}, err
 	}

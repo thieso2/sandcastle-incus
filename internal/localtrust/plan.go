@@ -8,7 +8,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type Request struct {
@@ -40,15 +40,15 @@ type Manager interface {
 	Uninstall(context.Context, Plan) (Result, error)
 }
 
-func PlanInstall(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request Request) (Plan, error) {
+func PlanInstall(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request Request) (Plan, error) {
 	return plan(ctx, admin, store, request)
 }
 
-func PlanUninstall(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request Request) (Plan, error) {
+func PlanUninstall(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request Request) (Plan, error) {
 	return plan(ctx, admin, store, request)
 }
 
-func plan(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request Request) (Plan, error) {
+func plan(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request Request) (Plan, error) {
 	if err := admin.Validate(); err != nil {
 		return Plan{}, err
 	}
@@ -56,7 +56,7 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 	if err != nil {
 		return Plan{}, err
 	}
-	summaries, err := project.List(ctx, store)
+	summaries, err := tenant.List(ctx, store)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -67,8 +67,8 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 				IncusProject:    summary.IncusName,
 				DNSSuffix:       summary.DNSSuffix,
 				StoragePool:     summary.IncusName,
-				CAVolume:        project.CAVolumeName,
-				CertificatePath: project.TenantCACertPath,
+				CAVolume:        tenant.CAVolumeName,
+				CertificatePath: tenant.TenantCACertPath,
 				TrustName:       trustName(ref),
 				Platform:        runtime.GOOS,
 				Warning:         "Trusting this tenant CA allows the tenant to mint certificates trusted by this machine.",

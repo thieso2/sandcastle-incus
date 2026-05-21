@@ -11,10 +11,10 @@ import (
 )
 
 type LocalTrustServer interface {
-	UseProject(name string) LocalTrustProjectServer
+	UseProject(name string) LocalTrustTenantResourceServer
 }
 
-type LocalTrustProjectServer interface {
+type LocalTrustTenantResourceServer interface {
 	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 }
 
@@ -69,7 +69,7 @@ func (m LocalTrustManager) readCA(plan localtrust.Plan) ([]byte, error) {
 	projectServer := server.UseProject(plan.IncusProject)
 	content, _, err := projectServer.GetStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.CertificatePath)
 	if err != nil {
-		return nil, fmt.Errorf("read project CA certificate: %w", err)
+		return nil, fmt.Errorf("read tenant CA certificate: %w", err)
 	}
 	defer content.Close()
 	return io.ReadAll(content)
@@ -79,15 +79,15 @@ type sdkLocalTrustServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkLocalTrustServer) UseProject(name string) LocalTrustProjectServer {
-	return sdkLocalTrustProjectServer{inner: s.inner.UseProject(name), projectName: name}
+func (s sdkLocalTrustServer) UseProject(name string) LocalTrustTenantResourceServer {
+	return sdkLocalTrustTenantResourceServer{inner: s.inner.UseProject(name), projectName: name}
 }
 
-type sdkLocalTrustProjectServer struct {
+type sdkLocalTrustTenantResourceServer struct {
 	inner       incus.InstanceServer
 	projectName string
 }
 
-func (s sdkLocalTrustProjectServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+func (s sdkLocalTrustTenantResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
 	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
 }

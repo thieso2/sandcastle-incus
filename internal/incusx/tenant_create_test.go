@@ -12,7 +12,7 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeCreateServer struct {
@@ -44,7 +44,7 @@ func (s *fakeCreateServer) UpdateProject(name string, project api.ProjectPut, et
 	return nil
 }
 
-func (s *fakeCreateServer) UseProject(name string) ProjectResourceServer {
+func (s *fakeCreateServer) UseProject(name string) TenantResourceServer {
 	return s.resourceServer
 }
 
@@ -250,7 +250,7 @@ func (s *fakeResourceServer) CreateImageAlias(alias api.ImageAliasesPost) error 
 	return nil
 }
 
-func (s *fakeResourceServer) CopyImageFrom(source ProjectCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error) {
+func (s *fakeResourceServer) CopyImageFrom(source TenantCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error) {
 	if s.images == nil {
 		s.images = map[string]*api.Image{}
 	}
@@ -292,7 +292,7 @@ func (fakeRemoteOperation) CancelTarget() error                { return nil }
 func (fakeRemoteOperation) GetTarget() (*api.Operation, error) { return &api.Operation{}, nil }
 func (fakeRemoteOperation) Wait() error                        { return nil }
 
-func TestProjectCreatorCreatesMissingResources(t *testing.T) {
+func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 	plan := createPlanForTest(t)
 	resourceServer := &fakeResourceServer{
 		networks:           map[string]*api.Network{},
@@ -302,7 +302,7 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 		createdVolumeFiles: map[string]string{},
 	}
 	server := fakeCreateServerForPlan(plan, resourceServer)
-	creator := ProjectCreator{Server: server}
+	creator := TenantCreator{Server: server}
 
 	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -311,7 +311,7 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 		t.Fatal("expected project to be created")
 	}
 	if server.createdProject.Name != "sc-acme" {
-		t.Fatalf("created project = %q", server.createdProject.Name)
+		t.Fatalf("created Incus project = %q", server.createdProject.Name)
 	}
 	if got := server.createdPool.Config["source"]; got != "default/sc-acme" {
 		t.Fatalf("created pool source = %q", got)
@@ -323,7 +323,7 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 		"features.storage.volumes",
 	} {
 		if got := server.createdProject.Config[key]; got != "true" {
-			t.Fatalf("created project %s = %q, want true", key, got)
+			t.Fatalf("created Incus project config %s = %q, want true", key, got)
 		}
 	}
 	if len(resourceServer.copiedImages) != len(plan.ImageAliases) {
@@ -338,10 +338,10 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if len(resourceServer.createdVolumes) != 3 {
 		t.Fatalf("created volumes = %d, want 3", len(resourceServer.createdVolumes))
 	}
-	if resourceServer.createdVolumeFiles[project.CAVolumeName+":/ca.crt"] == "" {
+	if resourceServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.crt"] == "" {
 		t.Fatal("expected CA certificate to be written")
 	}
-	if resourceServer.createdVolumeFiles[project.CAVolumeName+":/ca.key"] == "" {
+	if resourceServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.key"] == "" {
 		t.Fatal("expected CA private key to be written")
 	}
 	if len(resourceServer.createdInstances) != 2 {
@@ -353,23 +353,23 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if got := resourceServer.createdInstances[0].Devices["eth0"]["ipv4.address"]; got != "10.248.0.2" {
 		t.Fatalf("tailscale address = %q", got)
 	}
-	if resourceServer.createdInstances[1].Name != project.DNSName {
+	if resourceServer.createdInstances[1].Name != tenant.DNSName {
 		t.Fatalf("second sidecar = %q", resourceServer.createdInstances[1].Name)
 	}
 	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.53" {
 		t.Fatalf("dns address = %q", got)
 	}
-	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/Corefile"]; got == "" {
+	if got := resourceServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"]; got == "" {
 		t.Fatal("expected CoreDNS Corefile to be written")
 	}
-	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/zones/db.acme"]; got == "" {
+	if got := resourceServer.createdFiles[tenant.DNSName+":/etc/coredns/zones/db.acme"]; got == "" {
 		t.Fatal("expected CoreDNS zone to be written")
 	}
 	if len(resourceServer.execCommands) != 3 {
 		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
 	}
 	// First two execs configure networking for tailscale and dns sidecars.
-	for i, name := range []string{plan.TailscaleInstance, project.DNSName} {
+	for i, name := range []string{plan.TailscaleInstance, tenant.DNSName} {
 		if resourceServer.execInstances[i] != name {
 			t.Fatalf("exec[%d] instance = %q, want %q", i, resourceServer.execInstances[i], name)
 		}
@@ -378,15 +378,15 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 		}
 	}
 	// Third exec restarts CoreDNS.
-	if resourceServer.execInstances[2] != project.DNSName {
-		t.Fatalf("exec[2] instance = %q, want %q", resourceServer.execInstances[2], project.DNSName)
+	if resourceServer.execInstances[2] != tenant.DNSName {
+		t.Fatalf("exec[2] instance = %q, want %q", resourceServer.execInstances[2], tenant.DNSName)
 	}
 	if got := strings.Join(resourceServer.execCommands[2], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") {
 		t.Fatalf("exec[2] command = %q", got)
 	}
 }
 
-func TestProjectCreatorOmitsSourceForDirStoragePool(t *testing.T) {
+func TestTenantCreatorOmitsSourceForDirStoragePool(t *testing.T) {
 	plan := createPlanForTest(t)
 	resourceServer := &fakeResourceServer{
 		networks:           map[string]*api.Network{},
@@ -403,7 +403,7 @@ func TestProjectCreatorOmitsSourceForDirStoragePool(t *testing.T) {
 			Config: api.ConfigMap{"source": "/var/lib/incus/storage-pools/default"},
 		},
 	}
-	creator := ProjectCreator{Server: server}
+	creator := TenantCreator{Server: server}
 
 	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -413,7 +413,7 @@ func TestProjectCreatorOmitsSourceForDirStoragePool(t *testing.T) {
 	}
 }
 
-func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
+func TestTenantCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	plan := createPlanForTest(t)
 	resourceServer := &fakeResourceServer{
 		networks: map[string]*api.Network{plan.PrivateNetwork: {Name: plan.PrivateNetwork}},
@@ -437,7 +437,7 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 			Config:      api.ConfigMap{"features.images": "false"},
 		},
 	}
-	creator := ProjectCreator{Server: server}
+	creator := TenantCreator{Server: server}
 
 	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -463,15 +463,15 @@ func TestProjectCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	if len(resourceServer.createdInstances) != 0 {
 		t.Fatalf("created instances = %d, want 0", len(resourceServer.createdInstances))
 	}
-	if resourceServer.createdFiles[project.DNSName+":/etc/coredns/Corefile"] == "" {
+	if resourceServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"] == "" {
 		t.Fatal("expected DNS files to be refreshed")
 	}
-	if resourceServer.createdVolumeFiles[project.CAVolumeName+":/ca.crt"] == "" {
+	if resourceServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.crt"] == "" {
 		t.Fatal("expected CA files to be refreshed")
 	}
 }
 
-func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
+func TestTenantCreatorStartsExistingStoppedSidecars(t *testing.T) {
 	plan := createPlanForTest(t)
 	resourceServer := &fakeResourceServer{
 		networks: map[string]*api.Network{plan.PrivateNetwork: {Name: plan.PrivateNetwork}},
@@ -489,7 +489,7 @@ func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
 	}
 	server := fakeCreateServerForPlan(plan, resourceServer)
 	server.project = &api.Project{Name: plan.IncusProject}
-	creator := ProjectCreator{Server: server}
+	creator := TenantCreator{Server: server}
 
 	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -502,9 +502,9 @@ func TestProjectCreatorStartsExistingStoppedSidecars(t *testing.T) {
 	}
 }
 
-func createPlanForTest(t *testing.T) project.CreatePlan {
+func createPlanForTest(t *testing.T) tenant.CreatePlan {
 	t.Helper()
-	plan, err := project.PlanCreate(config.LoadAdminFromEnv(), project.CreateRequest{
+	plan, err := tenant.PlanCreate(config.LoadAdminFromEnv(), tenant.CreateRequest{
 		Reference: "acme",
 	})
 	if err != nil {
@@ -513,7 +513,7 @@ func createPlanForTest(t *testing.T) project.CreatePlan {
 	return plan
 }
 
-func fakeCreateServerForPlan(plan project.CreatePlan, resourceServer *fakeResourceServer) *fakeCreateServer {
+func fakeCreateServerForPlan(plan tenant.CreatePlan, resourceServer *fakeResourceServer) *fakeCreateServer {
 	images := map[string]*api.Image{}
 	imageAliases := map[string]*api.ImageAliasesEntry{}
 	for _, alias := range plan.ImageAliases {

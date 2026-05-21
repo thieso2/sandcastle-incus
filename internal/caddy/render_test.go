@@ -7,12 +7,12 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
 
-func TestRenderSandbox(t *testing.T) {
-	file := RenderSandbox("codex.myproject.project-tld", 5173, "/etc/caddy/certs/tls.crt", "/etc/caddy/certs/tls.key")
+func TestRenderMachine(t *testing.T) {
+	file := RenderMachine("codex.acme.sandcastle.internal", 5173, "/etc/caddy/certs/tls.crt", "/etc/caddy/certs/tls.key")
 	if file.Path != "/etc/caddy/Caddyfile" {
 		t.Fatalf("Path = %q", file.Path)
 	}
-	if !strings.Contains(file.Content, "codex.myproject.project-tld") {
+	if !strings.Contains(file.Content, "codex.acme.sandcastle.internal") {
 		t.Fatalf("content missing hostname: %q", file.Content)
 	}
 	if !strings.Contains(file.Content, "reverse_proxy 127.0.0.1:5173") {
@@ -20,9 +20,9 @@ func TestRenderSandbox(t *testing.T) {
 	}
 }
 
-func TestRenderSandboxHosts(t *testing.T) {
-	file := RenderSandboxHosts([]string{"codex.myproject.project-tld", "example.com"}, 5173, "/etc/caddy/certs/tls.crt", "/etc/caddy/certs/tls.key")
-	if !strings.Contains(file.Content, "codex.myproject.project-tld, example.com {") {
+func TestRenderMachineHosts(t *testing.T) {
+	file := RenderMachineHosts([]string{"codex.acme.sandcastle.internal", "example.com"}, 5173, "/etc/caddy/certs/tls.crt", "/etc/caddy/certs/tls.key")
+	if !strings.Contains(file.Content, "codex.acme.sandcastle.internal, example.com {") {
 		t.Fatalf("content missing hostnames: %q", file.Content)
 	}
 }

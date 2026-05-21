@@ -9,16 +9,16 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
 
-type fakeProjectServer struct {
+type fakeTenantListServer struct {
 	projects []api.Project
 	err      error
 }
 
-func (s fakeProjectServer) GetProjects() ([]api.Project, error) {
+func (s fakeTenantListServer) GetProjects() ([]api.Project, error) {
 	return s.projects, s.err
 }
 
-func TestProjectStoreUsesInjectedServer(t *testing.T) {
+func TestTenantStoreUsesInjectedServer(t *testing.T) {
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -28,7 +28,7 @@ func TestProjectStoreUsesInjectedServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store := ProjectStore{Server: fakeProjectServer{projects: []api.Project{{
+	store := TenantStore{Server: fakeTenantListServer{projects: []api.Project{{
 		Name: "sc-acme",
 		ProjectPut: api.ProjectPut{
 			Config: api.ConfigMap(config),
@@ -50,8 +50,8 @@ func TestProjectStoreUsesInjectedServer(t *testing.T) {
 	}
 }
 
-func TestProjectStoreWrapsListErrors(t *testing.T) {
-	store := ProjectStore{Server: fakeProjectServer{err: errors.New("boom")}}
+func TestTenantStoreWrapsListErrors(t *testing.T) {
+	store := TenantStore{Server: fakeTenantListServer{err: errors.New("boom")}}
 	_, err := store.ListProjects(context.Background())
 	if err == nil {
 		t.Fatal("expected error")

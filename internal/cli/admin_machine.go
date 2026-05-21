@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
@@ -53,7 +53,7 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 			if err != nil {
 				return err
 			}
-			plan, err := sandbox.PlanCreate(cmd.Context(), cfg.adminConfig, cfg.projectStore, cfg.sandboxStore, sandbox.CreateRequest{
+			plan, err := machine.PlanCreate(cmd.Context(), cfg.adminConfig, cfg.tenantStore, cfg.machineStore, machine.CreateRequest{
 				Reference:      userRef,
 				Template:       template,
 				AppPort:        appPort,
@@ -67,22 +67,22 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 			}
 			plan.Reference = adminRef
 			if !dryRun {
-				if cfg.sandboxCreator == nil {
+				if cfg.machineCreator == nil {
 					return fmt.Errorf("machine creation executor is not configured")
 				}
-				if err := cfg.sandboxCreator.CreateMachine(cmd.Context(), plan); err != nil {
+				if err := cfg.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
 					return err
 				}
 				if !detach {
-					if cfg.sandboxEnterer == nil {
+					if cfg.machineConnector == nil {
 						return fmt.Errorf("machine connect executor is not configured")
 					}
-					enterPlan, err := sandbox.PlanEnter(cmd.Context(), cfg.adminConfig, cfg.projectStore, cfg.sandboxStore, sandbox.EnterRequest{Reference: userRef})
+					connectPlan, err := machine.PlanConnect(cmd.Context(), cfg.adminConfig, cfg.tenantStore, cfg.machineStore, machine.ConnectRequest{Reference: userRef})
 					if err != nil {
 						return err
 					}
-					enterPlan.Reference = adminRef
-					if err := cfg.sandboxEnterer.ConnectMachine(cmd.Context(), enterPlan, sandbox.EnterSession{
+					connectPlan.Reference = adminRef
+					if err := cfg.machineConnector.ConnectMachine(cmd.Context(), connectPlan, machine.ConnectSession{
 						Stdin:  cfg.stdin,
 						Stdout: cfg.stdout,
 						Stderr: cfg.stderr,
@@ -91,7 +91,7 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 					}
 				}
 			}
-			return writeOutput(cfg.stdout, opts.output, formatSandboxPlan(plan), plan)
+			return writeOutput(cfg.stdout, opts.output, formatMachinePlan(plan), plan)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the machine creation plan without creating a container")
@@ -116,7 +116,7 @@ func newAdminMachineConnectCommand(config commandConfig, opts *rootOptions) *cob
 			if err != nil {
 				return err
 			}
-			plan, err := sandbox.PlanEnter(cmd.Context(), cfg.adminConfig, cfg.projectStore, cfg.sandboxStore, sandbox.EnterRequest{
+			plan, err := machine.PlanConnect(cmd.Context(), cfg.adminConfig, cfg.tenantStore, cfg.machineStore, machine.ConnectRequest{
 				Reference: userRef,
 				Command:   args[1:],
 			})
@@ -124,10 +124,10 @@ func newAdminMachineConnectCommand(config commandConfig, opts *rootOptions) *cob
 				return err
 			}
 			plan.Reference = adminRef
-			if cfg.sandboxEnterer == nil {
+			if cfg.machineConnector == nil {
 				return fmt.Errorf("machine connect executor is not configured")
 			}
-			return cfg.sandboxEnterer.ConnectMachine(cmd.Context(), plan, sandbox.EnterSession{
+			return cfg.machineConnector.ConnectMachine(cmd.Context(), plan, machine.ConnectSession{
 				Stdin:  cfg.stdin,
 				Stdout: cfg.stdout,
 				Stderr: cfg.stderr,
@@ -146,12 +146,12 @@ func newAdminMachineStatusCommand(config commandConfig, opts *rootOptions) *cobr
 			if err != nil {
 				return err
 			}
-			result, err := sandbox.Inspect(cmd.Context(), cfg.adminConfig, cfg.projectStore, cfg.sandboxStore, sandbox.InspectRequest{Reference: userRef})
+			result, err := machine.GetStatus(cmd.Context(), cfg.adminConfig, cfg.tenantStore, cfg.machineStore, machine.StatusRequest{Reference: userRef})
 			if err != nil {
 				return err
 			}
 			result.Reference = adminRef
-			return writeOutput(cfg.stdout, opts.output, formatSandboxInspect(result), result)
+			return writeOutput(cfg.stdout, opts.output, formatMachineStatus(result), result)
 		},
 	}
 }
@@ -170,18 +170,18 @@ func newAdminMachineDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 			if err != nil {
 				return err
 			}
-			plan, err := sandbox.PlanLifecycle(cmd.Context(), cfg.adminConfig, cfg.projectStore, cfg.sandboxStore, sandbox.LifecycleRequest{
+			plan, err := machine.PlanLifecycle(cmd.Context(), cfg.adminConfig, cfg.tenantStore, cfg.machineStore, machine.LifecycleRequest{
 				Reference: userRef,
-				Action:    sandbox.ActionRemove,
+				Action:    machine.ActionDelete,
 			})
 			if err != nil {
 				return err
 			}
 			plan.Reference = adminRef
-			if cfg.sandboxControl == nil {
+			if cfg.machineControl == nil {
 				return fmt.Errorf("machine lifecycle executor is not configured")
 			}
-			if err := cfg.sandboxControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
+			if err := cfg.machineControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
 				return err
 			}
 			return writeOutput(cfg.stdout, opts.output, formatLifecyclePlan(plan), plan)

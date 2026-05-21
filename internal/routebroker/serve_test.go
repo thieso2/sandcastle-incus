@@ -81,9 +81,9 @@ func TestHTTPRunnerServesAuthorizedRouteOverMTLS(t *testing.T) {
 		InsecureSkipVerify: true,
 	}
 
-	addRouteWithRetry(t, client)
-	if routes.added == nil {
-		t.Fatal("expected route add")
+	createRouteWithRetry(t, client)
+	if routes.created == nil {
+		t.Fatal("expected route create")
 	}
 	result, err := client.List(ctx, route.ListPlan{})
 	if err != nil {
@@ -136,12 +136,12 @@ func freeLocalAddress(t *testing.T) string {
 	return listener.Addr().String()
 }
 
-func addRouteWithRetry(t *testing.T, client Client) {
+func createRouteWithRetry(t *testing.T, client Client) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		err := client.Add(context.Background(), route.AddPlan{
+		err := client.Create(context.Background(), route.CreatePlan{
 			Hostname:        "app.example.com",
 			TargetReference: "acme/default/codex",
 		})

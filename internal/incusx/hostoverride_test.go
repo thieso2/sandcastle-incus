@@ -12,7 +12,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeHostOverrideServer struct {
@@ -89,7 +89,7 @@ func TestHostOverrideManagerFindsMachine(t *testing.T) {
 	manager := HostOverrideManager{Server: fakeHostOverrideServer{resource: &fakeHostOverrideResource{
 		instances: []api.Instance{{Name: "default-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}}},
 	}}}
-	sandbox, err := manager.FindMachine(context.Background(), project.Summary{
+	machine, err := manager.FindMachine(context.Background(), tenant.Summary{
 		IncusName: "sc-acme",
 
 		Tenant:    "acme",
@@ -98,8 +98,8 @@ func TestHostOverrideManagerFindsMachine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sandbox.PrivateIP != "10.248.0.20" {
-		t.Fatalf("PrivateIP = %q", sandbox.PrivateIP)
+	if machine.PrivateIP != "10.248.0.20" {
+		t.Fatalf("PrivateIP = %q", machine.PrivateIP)
 	}
 }
 
@@ -122,18 +122,18 @@ func TestHostOverrideManagerAddUpdatesMetadataAndWritesFiles(t *testing.T) {
 	resource := &fakeHostOverrideResource{
 		instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}},
 		caFiles: map[string]string{
-			project.TenantCACertPath: string(ca.CertificatePEM),
-			project.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
+			tenant.TenantCACertPath: string(ca.CertificatePEM),
+			tenant.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
 		},
 	}
 	manager := HostOverrideManager{Server: fakeHostOverrideServer{resource: resource}}
 	err = manager.Add(context.Background(), hostoverride.AddPlan{
 		Reference:    "acme/default/codex",
-		Tenant:       project.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"},
+		Tenant:       tenant.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"},
 		Machine:      meta.Machine{Tenant: "acme", Project: "default", Name: "codex", AppPort: 3000, PrivateIP: "10.248.0.20"},
 		InstanceName: "default-codex",
 		StoragePool:  "default",
-		CAVolume:     project.CAVolumeName,
+		CAVolume:     tenant.CAVolumeName,
 		Hostname:     "example.com",
 		ExtraSANs:    []string{"example.com"},
 	})
@@ -181,18 +181,18 @@ func TestHostOverrideManagerRemoveUpdatesMetadataAndWritesFiles(t *testing.T) {
 	resource := &fakeHostOverrideResource{
 		instance: &api.Instance{Name: "default-codex", InstancePut: api.InstancePut{Config: api.ConfigMap(configMap)}},
 		caFiles: map[string]string{
-			project.TenantCACertPath: string(ca.CertificatePEM),
-			project.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
+			tenant.TenantCACertPath: string(ca.CertificatePEM),
+			tenant.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
 		},
 	}
 	manager := HostOverrideManager{Server: fakeHostOverrideServer{resource: resource}}
-	err = manager.Remove(context.Background(), hostoverride.RemovePlan{
+	err = manager.Delete(context.Background(), hostoverride.DeletePlan{
 		Reference:    "acme/default/codex",
-		Tenant:       project.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"},
+		Tenant:       tenant.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"},
 		Machine:      meta.Machine{Tenant: "acme", Project: "default", Name: "codex", AppPort: 3000, PrivateIP: "10.248.0.20", ExtraSANs: []string{"example.com"}},
 		InstanceName: "default-codex",
 		StoragePool:  "default",
-		CAVolume:     project.CAVolumeName,
+		CAVolume:     tenant.CAVolumeName,
 		Hostname:     "example.com",
 	})
 	if err != nil {

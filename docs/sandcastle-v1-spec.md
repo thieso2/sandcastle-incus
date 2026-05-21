@@ -275,7 +275,8 @@ perform live Incus lookups for every DNS query.
 Each tenant has one tenant CA. Trust installation is tenant-scoped:
 
 ```bash
-sandcastle trust install
+sandcastle trust install acme
+sandcastle trust uninstall acme
 ```
 
 Installing tenant trust means trusting that tenant's infrastructure to mint
@@ -418,7 +419,7 @@ sandcastle start codex
 sandcastle stop codex
 sandcastle restart codex
 sandcastle status codex
-sandcastle delete codex
+sandcastle delete codex --yes
 ```
 
 Project references:
@@ -515,8 +516,8 @@ Tenant commands:
 sandcastle-admin tenant list
 sandcastle-admin tenant create acme
 sandcastle-admin tenant status acme
-sandcastle-admin tenant delete acme
-sandcastle-admin tenant delete acme --purge
+sandcastle-admin tenant delete acme --yes
+sandcastle-admin tenant delete acme --yes --purge
 sandcastle-admin tenant grant acme alice
 sandcastle-admin tenant revoke acme alice
 sandcastle-admin tenant users acme
@@ -529,11 +530,12 @@ Incus project.
 User commands:
 
 ```bash
-sandcastle-admin user list
 sandcastle-admin user create alice
-sandcastle-admin user status alice
-sandcastle-admin user delete alice
+sandcastle-admin user token alice
 ```
+
+Tenant access is managed with the tenant-first grant, revoke, and users
+commands above.
 
 Admin machine commands use the same verbs as the user CLI, scoped by an explicit
 tenant reference:
@@ -545,7 +547,7 @@ sandcastle-admin create acme/codex
 sandcastle-admin create acme/website/codex
 sandcastle-admin connect acme/website/codex
 sandcastle-admin status acme/website/codex
-sandcastle-admin delete acme/website/codex
+sandcastle-admin delete acme/website/codex --yes
 ```
 
 For admin machine references, `tenant/machine` means the tenant's default
@@ -560,11 +562,8 @@ sandcastle-admin list acme -u    # all projects plus unmanaged instances
 sandcastle-admin list acme/site  # project only
 ```
 
-Bare admin `status` reports global admin and infrastructure status:
-
-```bash
-sandcastle-admin status
-```
+Admin `status` takes an explicit machine reference. There is no bare admin
+status command in v1.
 
 ## Unmanaged Incus Resources
 

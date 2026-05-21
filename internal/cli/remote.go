@@ -25,7 +25,7 @@ func newRemoteAddCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 		Short: "Add a Sandcastle remote using an Incus join token",
 		Long: `Add a Sandcastle remote.
 
-<join-token> is the token produced by "sc admin user create" (or
+<join-token> is the token produced by "sandcastle-admin user create" (or
 "incus config trust add --generate-certificate" on the server). The token
 already contains the server address — no separate address argument is needed.
 

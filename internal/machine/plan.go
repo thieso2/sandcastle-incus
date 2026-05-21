@@ -14,7 +14,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 const DefaultAppPort = 3000
@@ -48,7 +48,7 @@ type CreateRequest struct {
 
 type CreatePlan struct {
 	Reference        string            `json:"reference"`
-	Tenant           project.Summary   `json:"tenant"`
+	Tenant           tenant.Summary    `json:"tenant"`
 	Project          string            `json:"project"`
 	Name             string            `json:"name"`
 	InstanceName     string            `json:"instanceName"`
@@ -83,7 +83,7 @@ type Creator interface {
 }
 
 type Store interface {
-	ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error)
+	ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error)
 }
 
 type UnmanagedMachine struct {
@@ -96,10 +96,10 @@ type UnmanagedMachine struct {
 }
 
 type UnmanagedStore interface {
-	ListUnmanagedMachines(ctx context.Context, summary project.Summary) ([]UnmanagedMachine, error)
+	ListUnmanagedMachines(ctx context.Context, summary tenant.Summary) ([]UnmanagedMachine, error)
 }
 
-func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProjectStore, machineStore Store, request CreateRequest) (CreatePlan, error) {
+func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, machineStore Store, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err
 	}
@@ -179,7 +179,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		return CreatePlan{}, err
 	}
 	hostname := machineName + "." + projectRef.Project + "." + summary.DNSSuffix
-	caddyFile := caddy.RenderSandbox(hostname, appPort, MachineCertPath, MachineCertKeyPath)
+	caddyFile := caddy.RenderMachine(hostname, appPort, MachineCertPath, MachineCertKeyPath)
 	certificateFiles, err := certificateFilesFromRequest(request, machineName, projectRef.Project, summary.DNSSuffix)
 	if err != nil {
 		return CreatePlan{}, err
@@ -196,7 +196,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 		HomeDir:        homeDir,
 		WorkspaceDir:   workspaceDir,
 		StoragePool:    summary.IncusName,
-		CAVolume:       project.CAVolumeName,
+		CAVolume:       tenant.CAVolumeName,
 		Template:       template,
 		ImageAlias:     imageAlias,
 		ContainerTools: request.ContainerTools,
@@ -210,19 +210,19 @@ func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProj
 			"eth0": {
 				"type":         "nic",
 				"nictype":      "bridged",
-				"parent":       project.PrivateNetworkName(summary.IncusName),
+				"parent":       tenant.PrivateNetworkName(summary.IncusName),
 				"ipv4.address": privateIP,
 			},
 			"home": {
 				"type":   "disk",
 				"pool":   summary.IncusName,
-				"source": project.HomeVolumeName + "/" + homeDir,
+				"source": tenant.HomeVolumeName + "/" + homeDir,
 				"path":   "/home/" + linuxUser,
 			},
 			"workspace": {
 				"type":   "disk",
 				"pool":   summary.IncusName,
-				"source": project.WorkspaceVolumeName + "/" + workspaceDir,
+				"source": tenant.WorkspaceVolumeName + "/" + workspaceDir,
 				"path":   "/workspace",
 			},
 		},
@@ -307,11 +307,11 @@ func IssueCertificateFiles(machineName string, projectName string, suffix string
 
 func IssueCertificateFilesWithExtraSANs(machineName string, projectName string, suffix string, extraSANs []string, caCertPEM []byte, caKeyPEM []byte) ([]File, error) {
 	hostname := machineName + "." + projectName + "." + suffix
-	leaf, err := certs.IssueSandboxLeaf(
+	leaf, err := certs.IssueMachineLeaf(
 		caCertPEM,
 		caKeyPEM,
 		hostname,
-		certs.SandboxDNSNames(machineName+"."+projectName, suffix, extraSANs),
+		certs.MachineDNSNames(machineName+"."+projectName, suffix, extraSANs),
 		time.Now().UTC(),
 	)
 	if err != nil {
@@ -331,20 +331,20 @@ func currentTenantRef(admin config.Admin) (naming.TenantRef, error) {
 	return ref, nil
 }
 
-func findTenant(ctx context.Context, store project.IncusProjectStore, ref naming.TenantRef) (project.Summary, error) {
-	tenants, err := project.List(ctx, store)
+func findTenant(ctx context.Context, store tenant.IncusTenantStore, ref naming.TenantRef) (tenant.Summary, error) {
+	tenants, err := tenant.List(ctx, store)
 	if err != nil {
-		return project.Summary{}, err
+		return tenant.Summary{}, err
 	}
 	for _, summary := range tenants {
 		if summary.Tenant == ref.Tenant {
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
+	return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
 }
 
-func tenantHasProject(summary project.Summary, projectName string) bool {
+func tenantHasProject(summary tenant.Summary, projectName string) bool {
 	for _, candidate := range summary.Projects {
 		if candidate.Name == projectName {
 			return true
@@ -353,7 +353,7 @@ func tenantHasProject(summary project.Summary, projectName string) bool {
 	return false
 }
 
-func listExistingMachines(ctx context.Context, store Store, summary project.Summary) ([]meta.Machine, error) {
+func listExistingMachines(ctx context.Context, store Store, summary tenant.Summary) ([]meta.Machine, error) {
 	if store == nil {
 		return nil, nil
 	}

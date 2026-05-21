@@ -29,7 +29,7 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 		t.Fatal("expected infrastructure project to be created")
 	}
 	if server.createdProject.Name != config.DefaultInfrastructureProject {
-		t.Fatalf("created project = %q", server.createdProject.Name)
+		t.Fatalf("created Incus project = %q", server.createdProject.Name)
 	}
 	if len(resourceServer.createdInstances) != 2 {
 		t.Fatalf("created instances = %d, want 2", len(resourceServer.createdInstances))

@@ -109,11 +109,11 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	tenantCIDR, err := cidr.Allocate(admin.CIDRPool, cidr.DefaultProjectPrefixBits, request.OccupiedCIDRs)
+	tenantCIDR, err := cidr.Allocate(admin.CIDRPool, cidr.DefaultTenantPrefixBits, request.OccupiedCIDRs)
 	if err != nil {
 		return CreatePlan{}, err
 	}

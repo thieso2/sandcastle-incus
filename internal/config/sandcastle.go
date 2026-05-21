@@ -77,7 +77,7 @@ func loadAdminFromFileAndEnv(cfg SandcastleConfig) Admin {
 		AdminRemote:            firstNonEmpty(strings.TrimSpace(os.Getenv("SANDCASTLE_ADMIN_REMOTE")), cfg.AdminRemote),
 		StoragePool:            getenv("SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
 		CIDRPool:               getenv("SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
-		ProjectPrefix:          getenv("SANDCASTLE_PROJECT_PREFIX", DefaultProjectPrefix),
+		IncusProjectPrefix:     incusProjectPrefixFromEnv(),
 		InfrastructureProject:  getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
 		InfrastructureHost:     getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
 		LetsEncryptEmail:       getenv("SANDCASTLE_LETSENCRYPT_EMAIL", DefaultLetsEncryptEmail),

@@ -65,11 +65,11 @@ func TestPlanAddSupportsCurrentTenantAndProject(t *testing.T) {
 	}
 }
 
-func TestPlanRemoveUsesCanonicalHostsEntry(t *testing.T) {
+func TestPlanDeleteUsesCanonicalHostsEntry(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
 	admin.Project = "website"
-	plan, err := PlanRemove(context.Background(), admin, tenantStoreForTest(t), machineStoreForTest{}, RemoveRequest{
+	plan, err := PlanDelete(context.Background(), admin, tenantStoreForTest(t), machineStoreForTest{}, DeleteRequest{
 		Reference: "codex",
 		Hostname:  "example.com",
 	})
@@ -122,8 +122,8 @@ func TestPlanAddRejectsIPAddress(t *testing.T) {
 	}
 }
 
-func TestPlanRemove(t *testing.T) {
-	plan, err := PlanRemove(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), machineStoreForTest{}, RemoveRequest{
+func TestPlanDelete(t *testing.T) {
+	plan, err := PlanDelete(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), machineStoreForTest{}, DeleteRequest{
 		Reference: "acme/default/codex",
 		Hostname:  "example.com",
 	})

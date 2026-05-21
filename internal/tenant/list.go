@@ -15,7 +15,7 @@ type IncusProject struct {
 	Config map[string]string
 }
 
-type IncusProjectStore interface {
+type IncusTenantStore interface {
 	ListProjects(ctx context.Context) ([]IncusProject, error)
 }
 
@@ -33,7 +33,7 @@ type Summary struct {
 	PublicRoutes    []meta.PublicRoute `json:"publicRoutes,omitempty"`
 }
 
-func List(ctx context.Context, store IncusProjectStore) ([]Summary, error) {
+func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
 		return nil, err
@@ -70,11 +70,11 @@ func List(ctx context.Context, store IncusProjectStore) ([]Summary, error) {
 	return summaries, nil
 }
 
-func OccupiedCIDRs(projects []Summary) []string {
-	cidrs := make([]string, 0, len(projects))
-	for _, project := range projects {
-		if project.PrivateCIDR != "" {
-			cidrs = append(cidrs, project.PrivateCIDR)
+func OccupiedCIDRs(tenants []Summary) []string {
+	cidrs := make([]string, 0, len(tenants))
+	for _, summary := range tenants {
+		if summary.PrivateCIDR != "" {
+			cidrs = append(cidrs, summary.PrivateCIDR)
 		}
 	}
 	return cidrs

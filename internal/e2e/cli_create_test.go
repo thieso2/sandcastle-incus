@@ -13,14 +13,14 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/cli"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func TestCLIAddDetachE2E(t *testing.T) {
-	fixture := setupCLIAddProjectE2E(t, "cli")
+func TestCLICreateDetachE2E(t *testing.T) {
+	fixture := setupCLICreateTenantE2E(t, "cli")
 	setSandcastleCLIEnv(t, fixture)
-	shorthandRef := fixture.ProjectName + "/" + fixture.SandboxName
+	shorthandRef := fixture.ProjectName + "/" + fixture.MachineName
 
 	if exitCode := cli.Execute("sandcastle", []string{
 		"create", shorthandRef,
@@ -34,13 +34,13 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	}
 
 	projectServer := fixture.Server.UseProject(fixture.Project.IncusProject)
-	instanceName := fixture.ProjectName + "-" + fixture.SandboxName
+	instanceName := fixture.ProjectName + "-" + fixture.MachineName
 	assertInstanceExists(t, projectServer, instanceName)
 	instance, _, err := projectServer.GetInstance(instanceName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if instance.Devices["home"]["source"] != project.HomeVolumeName+"/shared-home" {
+	if instance.Devices["home"]["source"] != tenant.HomeVolumeName+"/shared-home" {
 		t.Fatalf("home source = %q", instance.Devices["home"]["source"])
 	}
 	if instance.Devices["home"]["path"] != "/home/"+fixture.Tenant {
@@ -53,12 +53,12 @@ func TestCLIAddDetachE2E(t *testing.T) {
 		t.Fatalf("security.privileged should not be set: %#v", instance.Config)
 	}
 	if strings.TrimSpace(execInstanceOutput(t, projectServer, instanceName, []string{"id", "-un", fixture.Tenant})) != fixture.Tenant {
-		t.Fatalf("sandbox Linux user %q was not created", fixture.Tenant)
+		t.Fatalf("machine Linux user %q was not created", fixture.Tenant)
 	}
-	if instance.Devices["workspace"]["source"] != project.WorkspaceVolumeName+"/." {
+	if instance.Devices["workspace"]["source"] != tenant.WorkspaceVolumeName+"/." {
 		t.Fatalf("workspace source = %q", instance.Devices["workspace"]["source"])
 	}
-	assertSandboxIngressFiles(t, projectServer, instanceName, fixture.SandboxName+"."+fixture.ProjectName+"."+fixture.Project.DNSSuffix, sandbox.DefaultAppPort)
+	assertMachineIngressFiles(t, projectServer, instanceName, fixture.MachineName+"."+fixture.ProjectName+"."+fixture.Project.DNSSuffix, machine.DefaultAppPort)
 	sandcastleBin := strings.TrimSpace(fixture.Config.SandcastleBin)
 	if sandcastleBin == "" {
 		sandcastleBin = buildSandcastleForE2E(t)
@@ -74,14 +74,14 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sandcastle status: %v\n%s", err, strings.TrimSpace(string(output)))
 	}
-	var status sandbox.InspectResult
+	var status machine.StatusResult
 	if err := json.Unmarshal(output, &status); err != nil {
 		t.Fatalf("decode status output: %v\n%s", err, strings.TrimSpace(string(output)))
 	}
 	if status.InstanceName != instanceName {
 		t.Fatalf("status instance = %q, want %q", status.InstanceName, instanceName)
 	}
-	if status.Machine.PrivateIP == "" || status.Machine.AppPort != sandbox.DefaultAppPort || status.Machine.LinuxUser != fixture.Tenant || !status.Machine.Running {
+	if status.Machine.PrivateIP == "" || status.Machine.AppPort != machine.DefaultAppPort || status.Machine.LinuxUser != fixture.Tenant || !status.Machine.Running {
 		t.Fatalf("status machine = %#v", status.Machine)
 	}
 	if !status.Machine.ContainerTools {
@@ -95,8 +95,8 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	}
 }
 
-func TestCLIAddDefaultEnterE2E(t *testing.T) {
-	fixture := setupCLIAddProjectE2E(t, "create")
+func TestCLICreateDefaultConnectE2E(t *testing.T) {
+	fixture := setupCLICreateTenantE2E(t, "create")
 	sandcastleBin := strings.TrimSpace(fixture.Config.SandcastleBin)
 	if sandcastleBin == "" {
 		sandcastleBin = buildSandcastleForE2E(t)
@@ -105,56 +105,56 @@ func TestCLIAddDefaultEnterE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, sandcastleBin,
-		"create", fixture.SandboxRef,
+		"create", fixture.MachineRef,
 		"--template", "base",
 		"--home-dir", "interactive-home",
 		"--workspace-dir", ".",
 	)
-	command.Stdin = strings.NewReader("printf 'sandcastle-add-interactive-ok\\n'; whoami; pwd; exit\n")
+	command.Stdin = strings.NewReader("printf 'sandcastle-create-interactive-ok\\n'; whoami; pwd; exit\n")
 	command.Env = append(os.Environ(), sandcastleCLIEnv(fixture)...)
 	output, err := command.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		t.Fatalf("sandcastle create default enter timed out\n%s", strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle create default connect timed out\n%s", strings.TrimSpace(string(output)))
 	}
 	if err != nil {
-		t.Fatalf("sandcastle create default enter: %v\n%s", err, strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle create default connect: %v\n%s", err, strings.TrimSpace(string(output)))
 	}
-	if !strings.Contains(string(output), "sandcastle-add-interactive-ok") {
-		t.Fatalf("sandcastle create default enter output missing marker:\n%s", strings.TrimSpace(string(output)))
+	if !strings.Contains(string(output), "sandcastle-create-interactive-ok") {
+		t.Fatalf("sandcastle create default connect output missing marker:\n%s", strings.TrimSpace(string(output)))
 	}
 	if !strings.Contains(string(output), fixture.Tenant) {
-		t.Fatalf("sandcastle create default enter output missing Linux user %q:\n%s", fixture.Tenant, strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle create default connect output missing Linux user %q:\n%s", fixture.Tenant, strings.TrimSpace(string(output)))
 	}
 
 	projectServer := fixture.Server.UseProject(fixture.Project.IncusProject)
-	instanceName := "default-" + fixture.SandboxName
+	instanceName := "default-" + fixture.MachineName
 	assertInstanceExists(t, projectServer, instanceName)
 	instance, _, err := projectServer.GetInstance(instanceName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if instance.Devices["home"]["source"] != project.HomeVolumeName+"/interactive-home" {
+	if instance.Devices["home"]["source"] != tenant.HomeVolumeName+"/interactive-home" {
 		t.Fatalf("home source = %q", instance.Devices["home"]["source"])
 	}
 	if instance.Devices["home"]["path"] != "/home/"+fixture.Tenant {
 		t.Fatalf("home path = %q", instance.Devices["home"]["path"])
 	}
-	assertSandboxIngressFiles(t, projectServer, instanceName, fixture.SandboxName+".default."+fixture.Project.DNSSuffix, sandbox.DefaultAppPort)
+	assertMachineIngressFiles(t, projectServer, instanceName, fixture.MachineName+".default."+fixture.Project.DNSSuffix, machine.DefaultAppPort)
 }
 
-type cliAddFixture struct {
+type cliCreateFixture struct {
 	Config      Config
 	Server      incus.InstanceServer
-	Project     project.CreatePlan
+	Project     tenant.CreatePlan
 	Tenant      string
 	ProjectName string
-	SandboxRef  string
-	SandboxName string
+	MachineRef  string
+	MachineName string
 	BaseAlias   string
 	AIAlias     string
 }
 
-func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
+func setupCLICreateTenantE2E(t *testing.T, suffix string) cliCreateFixture {
 	t.Helper()
 	e2eConfig := LoadConfig()
 	if !e2eConfig.Enabled {
@@ -171,11 +171,11 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	tenant := safeProjectName("tenant-" + runID)
-	name := safeProjectName("project-" + runID)
-	sandboxName := safeProjectName(suffix + "-" + runID)
-	ref := tenant
-	sandboxRef := sandboxName
+	tenantName := safeTenantResourceName("tenant-" + runID)
+	name := safeTenantResourceName("project-" + runID)
+	machineName := safeTenantResourceName(suffix + "-" + runID)
+	ref := tenantName
+	machineRef := machineName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-" + suffix
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-" + suffix
 	adminConfig := config.Admin{
@@ -183,7 +183,7 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: baseAlias,
@@ -202,61 +202,61 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
-	store := incusx.NewProjectStore(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
-	creator := incusx.NewProjectCreator(e2eConfig.Remote)
-	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	store := incusx.NewTenantStore(e2eConfig.Remote)
+	registerTenantDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
+	creator := incusx.NewTenantCreator(e2eConfig.Remote)
+	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
+	deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+		if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
 
-	existing, err := project.List(ctx, store)
+	existing, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createTenantPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
 		SSHPublicKey:  e2eConfig.SSHPublicKey,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createTenantPlan); err != nil {
 		t.Fatal(err)
 	}
-	namespacePlan, err := project.PlanCreateProject(ctx, adminConfig, store, project.ProjectMutationRequest{Name: name})
+	namespacePlan, err := tenant.PlanCreateProject(ctx, adminConfig, store, tenant.ProjectMutationRequest{Name: name})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewProjectSSHKeyManager(e2eConfig.Remote).SetTenantProjects(ctx, namespacePlan.IncusProject, namespacePlan.Projects); err != nil {
+	if err := incusx.NewTenantSSHKeyManager(e2eConfig.Remote).SetTenantProjects(ctx, namespacePlan.IncusProject, namespacePlan.Projects); err != nil {
 		t.Fatal(err)
 	}
 
-	return cliAddFixture{
+	return cliCreateFixture{
 		Config:      e2eConfig,
 		Server:      server,
-		Project:     createProjectPlan,
-		Tenant:      tenant,
+		Project:     createTenantPlan,
+		Tenant:      tenantName,
 		ProjectName: name,
-		SandboxRef:  sandboxRef,
-		SandboxName: sandboxName,
+		MachineRef:  machineRef,
+		MachineName: machineName,
 		BaseAlias:   baseAlias,
 		AIAlias:     aiAlias,
 	}
 }
 
-func setSandcastleCLIEnv(t *testing.T, fixture cliAddFixture) {
+func setSandcastleCLIEnv(t *testing.T, fixture cliCreateFixture) {
 	t.Helper()
 	for _, entry := range sandcastleCLIEnv(fixture) {
 		name, value, ok := strings.Cut(entry, "=")
@@ -267,13 +267,13 @@ func setSandcastleCLIEnv(t *testing.T, fixture cliAddFixture) {
 	}
 }
 
-func sandcastleCLIEnv(fixture cliAddFixture) []string {
+func sandcastleCLIEnv(fixture cliCreateFixture) []string {
 	return []string{
 		"SANDCASTLE_REMOTE=" + fixture.Config.Remote,
 		"SANDCASTLE_TENANT=" + fixture.Tenant,
 		"SANDCASTLE_STORAGE_POOL=" + fixture.Config.StoragePool,
 		"SANDCASTLE_CIDR_POOL=" + fixture.Config.CIDRPool,
-		"SANDCASTLE_PROJECT_PREFIX=" + config.DefaultProjectPrefix,
+		"SANDCASTLE_INCUS_PROJECT_PREFIX=" + config.DefaultIncusProjectPrefix,
 		"SANDCASTLE_INFRA_PROJECT=" + config.DefaultInfrastructureProject,
 		"SANDCASTLE_BASE_IMAGE=" + fixture.BaseAlias,
 		"SANDCASTLE_AI_IMAGE=" + fixture.AIAlias,

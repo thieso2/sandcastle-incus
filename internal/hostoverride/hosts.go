@@ -11,7 +11,7 @@ const DefaultHostsPath = "/etc/hosts"
 
 type HostsManager interface {
 	AddHostsEntry(context.Context, AddPlan) error
-	RemoveHostsEntry(context.Context, RemovePlan) error
+	RemoveHostsEntry(context.Context, DeletePlan) error
 }
 
 type FileHostsManager struct {
@@ -37,7 +37,7 @@ func (m FileHostsManager) AddHostsEntry(ctx context.Context, plan AddPlan) error
 	return nil
 }
 
-func (m FileHostsManager) RemoveHostsEntry(ctx context.Context, plan RemovePlan) error {
+func (m FileHostsManager) RemoveHostsEntry(ctx context.Context, plan DeletePlan) error {
 	content, err := os.ReadFile(m.Path)
 	if err != nil {
 		return fmt.Errorf("read hosts file %s: %w", m.Path, err)

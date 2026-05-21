@@ -9,31 +9,31 @@ import (
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"gopkg.in/yaml.v2"
 )
 
-func logProjectDiagnostics(t *testing.T, ctx context.Context, store project.IncusProjectStore, runID string) {
-	logProjectDiagnosticsWithTopology(t, ctx, store, nil, runID)
+func logTenantDiagnostics(t *testing.T, ctx context.Context, store tenant.IncusTenantStore, runID string) {
+	logTenantDiagnosticsWithTopology(t, ctx, store, nil, runID)
 }
 
-func registerProjectDiagnostics(t *testing.T, ctx context.Context, store project.IncusProjectStore, topologyStore project.TopologyStore, runID string) {
+func registerTenantDiagnostics(t *testing.T, ctx context.Context, store tenant.IncusTenantStore, topologyStore tenant.TopologyStore, runID string) {
 	t.Helper()
 	t.Cleanup(func() {
 		if t.Failed() {
-			logProjectDiagnosticsWithTopology(t, ctx, store, topologyStore, runID)
+			logTenantDiagnosticsWithTopology(t, ctx, store, topologyStore, runID)
 		}
 	})
 }
 
-func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store project.IncusProjectStore, topologyStore project.TopologyStore, runID string) {
+func logTenantDiagnosticsWithTopology(t *testing.T, ctx context.Context, store tenant.IncusTenantStore, topologyStore tenant.TopologyStore, runID string) {
 	t.Helper()
-	projects, err := project.List(ctx, store)
+	tenants, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Logf("diagnostics: list tenants failed: %v", err)
 		return
 	}
-	lines := projectDiagnosticLines(ctx, projects, topologyStore, runID)
+	lines := tenantDiagnosticLines(ctx, tenants, topologyStore, runID)
 	localDNSLines, err := localDNSDiagnosticLines(localdns.DefaultStatePath(), runID)
 	if err != nil {
 		t.Logf("diagnostics: local DNS state failed: %v", err)
@@ -46,10 +46,10 @@ func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store 
 	t.Logf("diagnostics: matching Sandcastle tenants:\n%s", strings.Join(lines, "\n"))
 }
 
-func projectDiagnosticLines(ctx context.Context, projects []project.Summary, topologyStore project.TopologyStore, runID string) []string {
+func tenantDiagnosticLines(ctx context.Context, tenants []tenant.Summary, topologyStore tenant.TopologyStore, runID string) []string {
 	var lines []string
-	for _, summary := range projects {
-		if !matchesProjectRun(summary, runID) {
+	for _, summary := range tenants {
+		if !matchesTenantRun(summary, runID) {
 			continue
 		}
 		line := fmt.Sprintf(
@@ -61,9 +61,9 @@ func projectDiagnosticLines(ctx context.Context, projects []project.Summary, top
 			summary.Status,
 		)
 		if topologyStore != nil {
-			line += "\n  topology: " + projectTopologyDiagnostics(ctx, topologyStore, summary)
+			line += "\n  topology: " + tenantTopologyDiagnostics(ctx, topologyStore, summary)
 		}
-		if tailscaleLine := projectTailscaleDiagnostics(summary); tailscaleLine != "" {
+		if tailscaleLine := tenantTailscaleDiagnostics(summary); tailscaleLine != "" {
 			line += "\n  tailscale: " + tailscaleLine
 		}
 		lines = append(lines, line)
@@ -71,7 +71,7 @@ func projectDiagnosticLines(ctx context.Context, projects []project.Summary, top
 	return lines
 }
 
-func matchesProjectRun(summary project.Summary, runID string) bool {
+func matchesTenantRun(summary tenant.Summary, runID string) bool {
 	if strings.TrimSpace(runID) == "" {
 		return false
 	}
@@ -80,8 +80,8 @@ func matchesProjectRun(summary project.Summary, runID string) bool {
 		strings.Contains(summary.DNSSuffix, runID)
 }
 
-func projectTopologyDiagnostics(ctx context.Context, topologyStore project.TopologyStore, summary project.Summary) string {
-	topology, err := topologyStore.GetTopology(ctx, project.TopologyRequest{
+func tenantTopologyDiagnostics(ctx context.Context, topologyStore tenant.TopologyStore, summary tenant.Summary) string {
+	topology, err := topologyStore.GetTopology(ctx, tenant.TopologyRequest{
 		IncusProject: summary.IncusName,
 		DNSSuffix:    summary.DNSSuffix,
 	})
@@ -89,7 +89,7 @@ func projectTopologyDiagnostics(ctx context.Context, topologyStore project.Topol
 		return "error=" + err.Error()
 	}
 	var parts []string
-	for _, check := range project.TopologyChecks(topology) {
+	for _, check := range tenant.TopologyChecks(topology) {
 		value := check.Status
 		if check.Detail != "" {
 			value += "(" + check.Detail + ")"
@@ -103,7 +103,7 @@ func projectTopologyDiagnostics(ctx context.Context, topologyStore project.Topol
 	return output
 }
 
-func topologyDiagnosticFiles(files []project.DiagnosticFile) string {
+func topologyDiagnosticFiles(files []tenant.DiagnosticFile) string {
 	var parts []string
 	for _, file := range files {
 		label := file.Instance + ":" + file.Path
@@ -129,7 +129,7 @@ func indentDiagnosticContent(content string, prefix string) string {
 	return strings.Join(lines, "\n")
 }
 
-func projectTailscaleDiagnostics(summary project.Summary) string {
+func tenantTailscaleDiagnostics(summary tenant.Summary) string {
 	state := strings.TrimSpace(summary.Tailscale.State)
 	tailnet := strings.TrimSpace(summary.Tailscale.Tailnet)
 	hostname := strings.TrimSpace(summary.Tailscale.Hostname)

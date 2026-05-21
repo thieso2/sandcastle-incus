@@ -9,9 +9,9 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeTopologyServer struct {
@@ -67,14 +67,14 @@ func (r fakeTopologyResource) GetInstanceFile(instanceName string, filePath stri
 
 func TestTopologyStoreGetTopology(t *testing.T) {
 	store := TopologyStore{Server: fakeTopologyServer{resource: &fakeTopologyResource{
-		networks: map[string]*api.Network{project.PrivateNetworkName("sc-alice-myproject"): {Name: project.PrivateNetworkName("sc-alice-myproject")}},
+		networks: map[string]*api.Network{tenant.PrivateNetworkName("sc-alice-myproject"): {Name: tenant.PrivateNetworkName("sc-alice-myproject")}},
 		volumes: map[string]*api.StorageVolume{
-			project.HomeVolumeName: {Name: project.HomeVolumeName},
-			project.CAVolumeName:   {Name: project.CAVolumeName},
+			tenant.HomeVolumeName: {Name: tenant.HomeVolumeName},
+			tenant.CAVolumeName:   {Name: tenant.CAVolumeName},
 		},
 		instances: map[string]*api.Instance{
 			"sc-alice-myproject": {Name: "sc-alice-myproject", Status: "Stopped", StatusCode: api.Stopped},
-			project.DNSName:      {Name: project.DNSName, Status: "Running", StatusCode: api.Running},
+			tenant.DNSName:       {Name: tenant.DNSName, Status: "Running", StatusCode: api.Running},
 			"default-codex": {
 				Name: "default-codex",
 				InstancePut: api.InstancePut{
@@ -94,12 +94,12 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 			},
 		},
 		files: map[string]string{
-			project.DNSName + ":/etc/coredns/Corefile":      ".:53 {\n  errors\n}\n",
-			project.DNSName + ":/etc/coredns/zones/db.acme": "$ORIGIN acme.\n",
-			"default-codex:" + sandbox.CaddyfilePath:        "codex.default.acme {\n  reverse_proxy localhost:3000\n}\n",
+			tenant.DNSName + ":/etc/coredns/Corefile":      ".:53 {\n  errors\n}\n",
+			tenant.DNSName + ":/etc/coredns/zones/db.acme": "$ORIGIN acme.\n",
+			"default-codex:" + machine.CaddyfilePath:       "codex.default.acme {\n  reverse_proxy localhost:3000\n}\n",
 		},
 	}}}
-	topology, err := store.GetTopology(context.Background(), project.TopologyRequest{
+	topology, err := store.GetTopology(context.Background(), tenant.TopologyRequest{
 		IncusProject: "sc-alice-myproject",
 		DNSSuffix:    "acme",
 	})
@@ -109,20 +109,20 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 	if !topology.PrivateNetworkPresent {
 		t.Fatal("private network should be present")
 	}
-	if !topology.DurableVolumes[project.HomeVolumeName] {
+	if !topology.DurableVolumes[tenant.HomeVolumeName] {
 		t.Fatal("home volume should be present")
 	}
-	if topology.DurableVolumes[project.WorkspaceVolumeName] {
+	if topology.DurableVolumes[tenant.WorkspaceVolumeName] {
 		t.Fatal("workspace volume should be missing")
 	}
 	if topology.Sidecars[topology.TailscaleInstance].Running {
 		t.Fatal("tailscale sidecar should be stopped")
 	}
-	if !topology.Sidecars[project.DNSName].Running {
+	if !topology.Sidecars[tenant.DNSName].Running {
 		t.Fatal("dns sidecar should be running")
 	}
 	if len(topology.DiagnosticFiles) != 3 {
-		t.Fatalf("DiagnosticFiles = %#v, want CoreDNS files and sandbox Caddyfile", topology.DiagnosticFiles)
+		t.Fatalf("DiagnosticFiles = %#v, want CoreDNS files and machine Caddyfile", topology.DiagnosticFiles)
 	}
 	if topology.DiagnosticFiles[0].Path != "/etc/coredns/Corefile" || !strings.Contains(topology.DiagnosticFiles[0].Content, "errors") {
 		t.Fatalf("Corefile diagnostic = %#v", topology.DiagnosticFiles[0])
@@ -130,7 +130,7 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 	if topology.DiagnosticFiles[1].Path != "/etc/coredns/zones/db.acme" || !strings.Contains(topology.DiagnosticFiles[1].Content, "$ORIGIN") {
 		t.Fatalf("zone diagnostic = %#v", topology.DiagnosticFiles[1])
 	}
-	if topology.DiagnosticFiles[2].Instance != "default-codex" || topology.DiagnosticFiles[2].Path != sandbox.CaddyfilePath || !strings.Contains(topology.DiagnosticFiles[2].Content, "reverse_proxy") {
-		t.Fatalf("sandbox Caddyfile diagnostic = %#v", topology.DiagnosticFiles[2])
+	if topology.DiagnosticFiles[2].Instance != "default-codex" || topology.DiagnosticFiles[2].Path != machine.CaddyfilePath || !strings.Contains(topology.DiagnosticFiles[2].Content, "reverse_proxy") {
+		t.Fatalf("machine Caddyfile diagnostic = %#v", topology.DiagnosticFiles[2])
 	}
 }

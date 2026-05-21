@@ -8,11 +8,11 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type resolvedMachine struct {
-	Summary      project.Summary
+	Summary      tenant.Summary
 	Project      string
 	Name         string
 	InstanceName string
@@ -32,12 +32,12 @@ func IsAmbiguousMachineError(err error) bool {
 	return errors.As(err, &ambiguous)
 }
 
-func resolveExistingMachine(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore Store, reference string) (resolvedMachine, error) {
+func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore tenant.IncusTenantStore, machineStore Store, reference string) (resolvedMachine, error) {
 	tenantRef, err := currentTenantRef(admin)
 	if err != nil {
 		return resolvedMachine{}, err
 	}
-	summary, err := findTenant(ctx, projectStore, tenantRef)
+	summary, err := findTenant(ctx, tenantStore, tenantRef)
 	if err != nil {
 		return resolvedMachine{}, err
 	}
@@ -71,7 +71,7 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, projectStor
 	}
 }
 
-func resolveKnownProjectMachine(summary project.Summary, projectName string, machineName string) (resolvedMachine, error) {
+func resolveKnownProjectMachine(summary tenant.Summary, projectName string, machineName string) (resolvedMachine, error) {
 	if !tenantHasProject(summary, projectName) {
 		return resolvedMachine{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectName, summary.Tenant)
 	}

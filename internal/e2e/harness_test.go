@@ -17,9 +17,6 @@ func TestLoadConfigDefaultsToDisabledAndSandcastleTag(t *testing.T) {
 	if config.Tailscale.Tag != "tag:sandcastle" {
 		t.Fatalf("Tailscale tag = %q, want tag:sandcastle", config.Tailscale.Tag)
 	}
-	if config.DomainSuffix != "e2e.project-tld" {
-		t.Fatalf("DomainSuffix = %q, want e2e.project-tld", config.DomainSuffix)
-	}
 	if config.Images.Build {
 		t.Fatal("Images.Build = true, want false")
 	}

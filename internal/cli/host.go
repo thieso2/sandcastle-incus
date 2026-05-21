@@ -19,7 +19,7 @@ func newHostCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	override.AddCommand(newHostOverrideAddCommand(config, opts))
 	override.AddCommand(newHostOverrideListCommand(config, opts))
-	override.AddCommand(newHostOverrideRemoveCommand(config, opts))
+	override.AddCommand(newHostOverrideDeleteCommand(config, opts))
 	command.AddCommand(override)
 	return command
 }
@@ -28,10 +28,10 @@ func newHostOverrideAddCommand(config commandConfig, opts *rootOptions) *cobra.C
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "create [project/]machine hostname",
-		Short: "Plan a local exact host override",
+		Short: "Create a local exact host override",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := hostoverride.PlanAdd(cmd.Context(), config.adminConfig, config.projectStore, config.hostSandbox, hostoverride.AddRequest{
+			plan, err := hostoverride.PlanAdd(cmd.Context(), config.adminConfig, config.tenantStore, config.hostMachine, hostoverride.AddRequest{
 				Reference: args[0],
 				Hostname:  args[1],
 			})
@@ -61,11 +61,15 @@ func newHostOverrideAddCommand(config commandConfig, opts *rootOptions) *cobra.C
 
 func newHostOverrideListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list project",
+		Use:   "list [tenant]",
 		Short: "List local host override metadata",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := hostoverride.PlanList(cmd.Context(), config.adminConfig, config.projectStore, config.hostSandbox, hostoverride.ListRequest{Reference: args[0]})
+			var reference string
+			if len(args) > 0 {
+				reference = args[0]
+			}
+			result, err := hostoverride.PlanList(cmd.Context(), config.adminConfig, config.tenantStore, config.hostMachine, hostoverride.ListRequest{Reference: reference})
 			if err != nil {
 				return err
 			}
@@ -74,14 +78,14 @@ func newHostOverrideListCommand(config commandConfig, opts *rootOptions) *cobra.
 	}
 }
 
-func newHostOverrideRemoveCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+func newHostOverrideDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "delete [project/]machine hostname",
-		Short: "Remove a local exact host override",
+		Short: "Delete a local exact host override",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := hostoverride.PlanRemove(cmd.Context(), config.adminConfig, config.projectStore, config.hostSandbox, hostoverride.RemoveRequest{
+			plan, err := hostoverride.PlanDelete(cmd.Context(), config.adminConfig, config.tenantStore, config.hostMachine, hostoverride.DeleteRequest{
 				Reference: args[0],
 				Hostname:  args[1],
 			})
@@ -92,7 +96,7 @@ func newHostOverrideRemoveCommand(config commandConfig, opts *rootOptions) *cobr
 				if config.hostOverrides == nil {
 					return fmt.Errorf("host override executor is not configured")
 				}
-				if err := config.hostOverrides.Remove(cmd.Context(), plan); err != nil {
+				if err := config.hostOverrides.Delete(cmd.Context(), plan); err != nil {
 					return err
 				}
 				if config.hostFiles == nil {
@@ -102,10 +106,10 @@ func newHostOverrideRemoveCommand(config commandConfig, opts *rootOptions) *cobr
 					return err
 				}
 			}
-			return writeOutput(config.stdout, opts.output, formatHostOverrideRemove(plan), plan)
+			return writeOutput(config.stdout, opts.output, formatHostOverrideDelete(plan), plan)
 		},
 	}
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the host override removal plan without editing local state")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the host override delete plan without editing local state")
 	return command
 }
 
@@ -129,6 +133,6 @@ func formatHostOverrideList(result hostoverride.ListResult) string {
 	return strings.TrimSuffix(builder.String(), "\n")
 }
 
-func formatHostOverrideRemove(plan hostoverride.RemovePlan) string {
-	return fmt.Sprintf("Remove host override: %s from %s", plan.Hostname, plan.Reference)
+func formatHostOverrideDelete(plan hostoverride.DeletePlan) string {
+	return fmt.Sprintf("Delete host override: %s from %s", plan.Hostname, plan.Reference)
 }

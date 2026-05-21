@@ -18,9 +18,9 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/route"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -51,16 +51,17 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	otherOwner := safeProjectName("other-" + runID)
-	sandboxName := safeProjectName("box-" + runID)
-	otherSandboxName := safeProjectName("other-box-" + runID)
-	ref := owner
-	otherRef := otherOwner
-	sandboxRef := sandboxName
-	otherSandboxRef := otherSandboxName
-	targetRef := ref + "/default/" + sandboxName
-	unownedTargetRef := otherRef + "/default/" + otherSandboxName
+	user := safeTenantResourceName("user-" + runID)
+	tenantName := safeTenantResourceName("tenant-" + runID)
+	otherTenant := safeTenantResourceName("other-" + runID)
+	machineName := safeTenantResourceName("box-" + runID)
+	otherMachineName := safeTenantResourceName("other-box-" + runID)
+	ref := tenantName
+	otherRef := otherTenant
+	machineRef := machineName
+	otherMachineRef := otherMachineName
+	targetRef := ref + "/default/" + machineName
+	unownedTargetRef := otherRef + "/default/" + otherMachineName
 	publicDomain := strings.Trim(strings.TrimSpace(e2eConfig.PublicRoutes.Domain), ".")
 	if publicDomain == "" {
 		publicDomain = "example.com"
@@ -80,7 +81,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 		Remote:                 e2eConfig.Remote,
 		StoragePool:            e2eConfig.StoragePool,
 		CIDRPool:               e2eConfig.CIDRPool,
-		ProjectPrefix:          config.DefaultProjectPrefix,
+		IncusProjectPrefix:     config.DefaultIncusProjectPrefix,
 		InfrastructureProject:  infraProject,
 		InfrastructureHost:     infrastructureHost,
 		LetsEncryptEmail:       strings.TrimSpace(e2eConfig.PublicRoutes.LetsEncryptEmail),
@@ -128,90 +129,90 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	infraServer := server.UseProject(infraProject)
 	registerInfrastructureCaddyDiagnostics(t, infraServer)
 
-	store := incusx.NewProjectStore(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
-	projectCreator := incusx.NewProjectCreator(e2eConfig.Remote)
-	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	projectDeletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	store := incusx.NewTenantStore(e2eConfig.Remote)
+	registerTenantDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
+	tenantCreator := incusx.NewTenantCreator(e2eConfig.Remote)
+	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
+	tenantDeletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteTenant(ctx, projectDeletePlan); err != nil {
+		if err := tenantDeleter.DeleteTenant(ctx, tenantDeletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
-	existing, err := project.List(ctx, store)
+	existing, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createTenantPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := projectCreator.CreateTenant(ctx, createProjectPlan); err != nil {
+	if err := tenantCreator.CreateTenant(ctx, createTenantPlan); err != nil {
 		t.Fatal(err)
 	}
-	existing, err = project.List(ctx, store)
+	existing, err = tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createOtherProjectPlan, err := project.PlanCreate(otherAdminConfig, project.CreateRequest{
+	createOtherTenantPlan, err := tenant.PlanCreate(otherAdminConfig, tenant.CreateRequest{
 		Reference:     otherRef,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherProjectDeletePlan, err := project.PlanDelete(otherAdminConfig, project.DeleteRequest{Reference: otherRef, Purge: true})
+	otherTenantDeletePlan, err := tenant.PlanDelete(otherAdminConfig, tenant.DeleteRequest{Reference: otherRef, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", otherRef)
+			t.Logf("keeping disposable tenant %s", otherRef)
 			return
 		}
-		if err := projectDeleter.DeleteTenant(ctx, otherProjectDeletePlan); err != nil {
+		if err := tenantDeleter.DeleteTenant(ctx, otherTenantDeletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", otherRef, err)
 		}
 	})
-	if err := projectCreator.CreateTenant(ctx, createOtherProjectPlan); err != nil {
+	if err := tenantCreator.CreateTenant(ctx, createOtherTenantPlan); err != nil {
 		t.Fatal(err)
 	}
 
-	sandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
-		Reference: sandboxRef,
+	machinePlan, err := machine.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), machine.CreateRequest{
+		Reference: machineRef,
 		Template:  "base",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, sandboxPlan); err != nil {
+	if err := incusx.NewMachineCreator(e2eConfig.Remote).CreateMachine(ctx, machinePlan); err != nil {
 		t.Fatal(err)
 	}
-	otherSandboxPlan, err := sandbox.PlanCreate(ctx, otherAdminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
-		Reference: otherSandboxRef,
+	otherMachinePlan, err := machine.PlanCreate(ctx, otherAdminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), machine.CreateRequest{
+		Reference: otherMachineRef,
 		Template:  "base",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, otherSandboxPlan); err != nil {
+	if err := incusx.NewMachineCreator(e2eConfig.Remote).CreateMachine(ctx, otherMachinePlan); err != nil {
 		t.Fatal(err)
 	}
-	targetServer := server.UseProject(createProjectPlan.IncusProject)
+	targetServer := server.UseProject(createTenantPlan.IncusProject)
 	publicBody := "sandcastle-public-route"
-	startSandboxHTTPApp(t, targetServer, sandboxPlan.InstanceName, sandboxPlan.AppPort, publicBody)
+	startMachineHTTPApp(t, targetServer, machinePlan.InstanceName, machinePlan.AppPort, publicBody)
 
-	certPEM, keyPEM := createRouteBrokerE2ECertificate(t, e2eConfig, server, owner, []string{createProjectPlan.IncusProject})
+	certPEM, keyPEM := createRouteBrokerE2ECertificate(t, e2eConfig, server, user, []string{createTenantPlan.IncusProject})
 	certPath, keyPath := writeRouteBrokerClientFiles(t, infraServer, string(certPEM), string(keyPEM))
 	addRouteBrokerHostsEntry(t, infraServer, hostname, adminConfig.InfrastructureHost)
 	addRouteBrokerHostsEntry(t, infraServer, dnsFailHostname, wrongInfrastructureHost(adminConfig.InfrastructureHost))
@@ -224,51 +225,51 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 			t.Fatalf("broker mutation output missing %q:\n%s", want, output)
 		}
 	}
-	assertInfrastructureRoutePort(t, infraServer, hostname, sandboxPlan.PrivateIP, sandboxPlan.AppPort)
+	assertInfrastructureRoutePort(t, infraServer, hostname, machinePlan.PrivateIP, machinePlan.AppPort)
 	if publicRouteExternalCheckEnabled(e2eConfig) {
 		waitForPublicHTTPSRoute(t, hostname, adminConfig.InfrastructureHost, publicBody)
 	}
-	portPlan, err := sandbox.PlanSetPort(ctx, adminConfig, store, sandbox.PortSetRequest{
-		Reference: sandboxRef,
+	portPlan, err := machine.PlanSetPort(ctx, adminConfig, store, machine.PortSetRequest{
+		Reference: machineRef,
 		AppPort:   5174,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxPortSetter(e2eConfig.Remote).SetAppPort(ctx, portPlan); err != nil {
+	if err := incusx.NewMachinePortSetter(e2eConfig.Remote).SetAppPort(ctx, portPlan); err != nil {
 		t.Fatal(err)
 	}
-	assertInfrastructureRoutePort(t, infraServer, hostname, sandboxPlan.PrivateIP, sandboxPlan.AppPort)
+	assertInfrastructureRoutePort(t, infraServer, hostname, machinePlan.PrivateIP, machinePlan.AppPort)
 	caddyfile := readInstanceFile(t, infraServer, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile")
-	if strings.Contains(caddyfile, sandboxPlan.PrivateIP+":5174") {
-		t.Fatalf("infrastructure route was not pinned after sandbox app port change: %q", caddyfile)
+	if strings.Contains(caddyfile, machinePlan.PrivateIP+":5174") {
+		t.Fatalf("infrastructure route was not pinned after machine app port change: %q", caddyfile)
 	}
 	output = execInstanceOutput(t, infraServer, infra.RouteBrokerName, []string{
-		"python3", "-c", routeBrokerRemoveProbeScript(certPath, keyPath, hostname),
+		"python3", "-c", routeBrokerDeleteProbeScript(certPath, keyPath, hostname),
 	})
-	for _, want := range []string{"REMOVE 200", "LIST-REMOVE 200"} {
+	for _, want := range []string{"DELETE 200", "LIST-DELETE 200"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("broker mutation output missing %q:\n%s", want, output)
 		}
 	}
 	assertInfrastructureRouteAbsent(t, infraServer, hostname)
-	target, _, err := targetServer.GetInstance(sandboxPlan.InstanceName)
+	target, _, err := targetServer.GetInstance(machinePlan.InstanceName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := target.Devices[route.ProfileName(hostname)]; ok {
-		t.Fatalf("route ingress device was not removed from %s: %#v", sandboxPlan.InstanceName, target.Devices)
+		t.Fatalf("route ingress device was not removed from %s: %#v", machinePlan.InstanceName, target.Devices)
 	}
 	if _, _, err := infraServer.GetProfile(route.ProfileName(hostname)); !api.StatusErrorCheck(err, 404) {
 		t.Fatalf("expected route profile cleanup for %s, err = %v", hostname, err)
 	}
-	otherTargetServer := server.UseProject(createOtherProjectPlan.IncusProject)
-	otherTarget, _, err := otherTargetServer.GetInstance(otherSandboxPlan.InstanceName)
+	otherTargetServer := server.UseProject(createOtherTenantPlan.IncusProject)
+	otherTarget, _, err := otherTargetServer.GetInstance(otherMachinePlan.InstanceName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := otherTarget.Devices[route.ProfileName(unownedHostname)]; ok {
-		t.Fatalf("unowned route ingress device was attached to %s: %#v", otherSandboxPlan.InstanceName, otherTarget.Devices)
+		t.Fatalf("unowned route ingress device was attached to %s: %#v", otherMachinePlan.InstanceName, otherTarget.Devices)
 	}
 	if _, _, err := infraServer.GetProfile(route.ProfileName(unownedHostname)); !api.StatusErrorCheck(err, 404) {
 		t.Fatalf("expected no route profile for rejected unowned route %s, err = %v", unownedHostname, err)
@@ -392,7 +393,7 @@ func assertInfrastructureRouteAbsent(t *testing.T, server incus.InstanceServer, 
 	}
 }
 
-func createRouteBrokerE2ECertificate(t *testing.T, e2eConfig Config, server incus.InstanceServer, owner string, projects []string) ([]byte, []byte) {
+func createRouteBrokerE2ECertificate(t *testing.T, e2eConfig Config, server incus.InstanceServer, user string, projects []string) ([]byte, []byte) {
 	t.Helper()
 	certPEM, keyPEM, err := sharedtls.GenerateMemCert(true, false)
 	if err != nil {
@@ -402,14 +403,14 @@ func createRouteBrokerE2ECertificate(t *testing.T, e2eConfig Config, server incu
 	if err != nil {
 		t.Fatal(err)
 	}
-	certificateName := usertrust.CertificateNamePrefix + owner
+	certificateName := usertrust.CertificateNamePrefix + user
 	if err := server.CreateCertificate(api.CertificatesPost{CertificatePut: api.CertificatePut{
 		Name:        certificateName,
 		Type:        api.CertificateTypeClient,
 		Restricted:  true,
 		Projects:    projects,
 		Certificate: string(certPEM),
-		Description: "Sandcastle route broker mutation e2e user " + owner,
+		Description: "Sandcastle route broker mutation e2e user " + user,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +513,7 @@ except Exception as err:
 `
 }
 
-func routeBrokerRemoveProbeScript(certPath string, keyPath string, hostname string) string {
+func routeBrokerDeleteProbeScript(certPath string, keyPath string, hostname string) string {
 	return `
 import json, ssl, sys, time, urllib.error, urllib.request
 cert_path = ` + pythonQuote(certPath) + `
@@ -534,12 +535,12 @@ def request(method, path, payload=None):
 
 try:
     response = request('DELETE', '/routes/' + hostname)
-    print('REMOVE', response.status)
-    print('REMOVE-BODY', response.read().decode('utf-8'))
+    print('DELETE', response.status)
+    print('DELETE-BODY', response.read().decode('utf-8'))
     response = request('GET', '/routes')
     list_body = response.read().decode('utf-8')
-    print('LIST-REMOVE', response.status)
-    print('LIST-REMOVE-BODY', list_body)
+    print('LIST-DELETE', response.status)
+    print('LIST-DELETE-BODY', list_body)
     if hostname in list_body:
         sys.exit(1)
 except urllib.error.HTTPError as err:

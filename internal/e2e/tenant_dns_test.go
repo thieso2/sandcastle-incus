@@ -11,11 +11,11 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func TestProjectDNSE2E(t *testing.T) {
+func TestTenantDNSE2E(t *testing.T) {
 	e2eConfig := LoadConfig()
 	if !e2eConfig.Enabled {
 		t.Skip("set SANDCASTLE_E2E=1 to run destructive real Incus e2e tests")
@@ -31,12 +31,12 @@ func TestProjectDNSE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	tenant := safeProjectName("tenant-" + runID)
-	firstSandboxName := safeProjectName("codex-" + runID)
-	secondSandboxName := safeProjectName("claude-" + runID)
-	ref := tenant
-	firstSandboxRef := firstSandboxName
-	secondSandboxRef := secondSandboxName
+	tenantName := safeTenantResourceName("tenant-" + runID)
+	firstMachineName := safeTenantResourceName("codex-" + runID)
+	secondMachineName := safeTenantResourceName("claude-" + runID)
+	ref := tenantName
+	firstMachineRef := firstMachineName
+	secondMachineRef := secondMachineName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-dns"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-dns"
 	adminConfig := config.Admin{
@@ -44,7 +44,7 @@ func TestProjectDNSE2E(t *testing.T) {
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: baseAlias,
@@ -63,100 +63,100 @@ func TestProjectDNSE2E(t *testing.T) {
 	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
-	store := incusx.NewProjectStore(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
-	creator := incusx.NewProjectCreator(e2eConfig.Remote)
-	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	store := incusx.NewTenantStore(e2eConfig.Remote)
+	registerTenantDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
+	creator := incusx.NewTenantCreator(e2eConfig.Remote)
+	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
+	deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+	if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 		t.Logf("pre-cleanup for %s: %v", ref, err)
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+		if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
 
-	existing, err := project.List(ctx, store)
+	existing, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createTenantPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createTenantPlan); err != nil {
 		t.Fatal(err)
 	}
 
-	sandboxStore := incusx.NewHostOverrideManager(e2eConfig.Remote)
-	createFirstSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: firstSandboxRef})
+	machineStore := incusx.NewHostOverrideManager(e2eConfig.Remote)
+	createFirstMachinePlan, err := machine.PlanCreate(ctx, adminConfig, store, machineStore, machine.CreateRequest{Reference: firstMachineRef})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sandboxCreator := incusx.NewSandboxCreator(e2eConfig.Remote)
-	if err := sandboxCreator.CreateMachine(ctx, createFirstSandboxPlan); err != nil {
+	machineCreator := incusx.NewMachineCreator(e2eConfig.Remote)
+	if err := machineCreator.CreateMachine(ctx, createFirstMachinePlan); err != nil {
 		t.Fatal(err)
 	}
-	createSecondSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: secondSandboxRef, ShareHome: true})
+	createSecondMachinePlan, err := machine.PlanCreate(ctx, adminConfig, store, machineStore, machine.CreateRequest{Reference: secondMachineRef, ShareHome: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if createSecondSandboxPlan.PrivateIP == createFirstSandboxPlan.PrivateIP {
-		t.Fatalf("second sandbox reused private IP %s", createSecondSandboxPlan.PrivateIP)
+	if createSecondMachinePlan.PrivateIP == createFirstMachinePlan.PrivateIP {
+		t.Fatalf("second machine reused private IP %s", createSecondMachinePlan.PrivateIP)
 	}
-	if err := sandboxCreator.CreateMachine(ctx, createSecondSandboxPlan); err != nil {
+	if err := machineCreator.CreateMachine(ctx, createSecondMachinePlan); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Tenant{
-		IncusName:   createProjectPlan.IncusProject,
-		Tenant:      createProjectPlan.Reference,
-		DNSSuffix:   createProjectPlan.DNSSuffix,
-		PrivateCIDR: createProjectPlan.PrivateCIDR,
+		IncusName:   createTenantPlan.IncusProject,
+		Tenant:      createTenantPlan.Reference,
+		DNSSuffix:   createTenantPlan.DNSSuffix,
+		PrivateCIDR: createTenantPlan.PrivateCIDR,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	projectServer := server.UseProject(createProjectPlan.IncusProject)
-	firstExact := firstSandboxName + ".default." + createProjectPlan.DNSSuffix
+	projectServer := server.UseProject(createTenantPlan.IncusProject)
+	firstExact := firstMachineName + ".default." + createTenantPlan.DNSSuffix
 	firstWildcard := "app." + firstExact
-	secondExact := secondSandboxName + ".default." + createProjectPlan.DNSSuffix
-	absent := "app.default." + createProjectPlan.DNSSuffix
-	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstExact, createFirstSandboxPlan.PrivateIP)
-	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstWildcard, createFirstSandboxPlan.PrivateIP)
-	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, secondExact, createSecondSandboxPlan.PrivateIP)
-	assertCoreDNSNoAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, absent)
+	secondExact := secondMachineName + ".default." + createTenantPlan.DNSSuffix
+	absent := "app.default." + createTenantPlan.DNSSuffix
+	assertCoreDNSAnswer(t, projectServer, createFirstMachinePlan.InstanceName, createTenantPlan.DNSAddress, firstExact, createFirstMachinePlan.PrivateIP)
+	assertCoreDNSAnswer(t, projectServer, createFirstMachinePlan.InstanceName, createTenantPlan.DNSAddress, firstWildcard, createFirstMachinePlan.PrivateIP)
+	assertCoreDNSAnswer(t, projectServer, createFirstMachinePlan.InstanceName, createTenantPlan.DNSAddress, secondExact, createSecondMachinePlan.PrivateIP)
+	assertCoreDNSNoAnswer(t, projectServer, createFirstMachinePlan.InstanceName, createTenantPlan.DNSAddress, absent)
 
-	removeSecondPlan, err := sandbox.PlanLifecycle(ctx, adminConfig, store, sandboxStore, sandbox.LifecycleRequest{
-		Reference: secondSandboxRef,
-		Action:    sandbox.ActionRemove,
+	deleteSecondPlan, err := machine.PlanLifecycle(ctx, adminConfig, store, machineStore, machine.LifecycleRequest{
+		Reference: secondMachineRef,
+		Action:    machine.ActionDelete,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxController(e2eConfig.Remote).ApplyLifecycle(ctx, removeSecondPlan); err != nil {
+	if err := incusx.NewMachineController(e2eConfig.Remote).ApplyLifecycle(ctx, deleteSecondPlan); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Tenant{
-		IncusName:   createProjectPlan.IncusProject,
-		Tenant:      createProjectPlan.Reference,
-		DNSSuffix:   createProjectPlan.DNSSuffix,
-		PrivateCIDR: createProjectPlan.PrivateCIDR,
+		IncusName:   createTenantPlan.IncusProject,
+		Tenant:      createTenantPlan.Reference,
+		DNSSuffix:   createTenantPlan.DNSSuffix,
+		PrivateCIDR: createTenantPlan.PrivateCIDR,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	assertCoreDNSNoAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, secondExact)
+	assertCoreDNSNoAnswer(t, projectServer, createFirstMachinePlan.InstanceName, createTenantPlan.DNSAddress, secondExact)
 }
 
 func assertCoreDNSAnswer(t *testing.T, server incus.InstanceServer, instance string, dnsAddress string, name string, wantIP string) {

@@ -7,17 +7,17 @@ import (
 	"time"
 )
 
-func TestGenerateCAAndIssueSandboxLeaf(t *testing.T) {
+func TestGenerateCAAndIssueMachineLeaf(t *testing.T) {
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
-	ca, err := GenerateCA("Sandcastle alice/myproject CA", now)
+	ca, err := GenerateCA("Sandcastle acme tenant CA", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, err := IssueSandboxLeaf(
+	leaf, err := IssueMachineLeaf(
 		ca.CertificatePEM,
 		ca.PrivateKeyPEM,
-		"codex.myproject.project-tld",
-		SandboxDNSNames("codex", "myproject.project-tld", []string{"app.example.test"}),
+		"codex.acme.sandcastle.internal",
+		MachineDNSNames("codex", "acme.sandcastle.internal", []string{"app.example.test"}),
 		now,
 	)
 	if err != nil {
@@ -27,10 +27,10 @@ func TestGenerateCAAndIssueSandboxLeaf(t *testing.T) {
 	if len(cert.DNSNames) != 3 {
 		t.Fatalf("DNSNames = %#v", cert.DNSNames)
 	}
-	if cert.DNSNames[0] != "codex.myproject.project-tld" {
+	if cert.DNSNames[0] != "codex.acme.sandcastle.internal" {
 		t.Fatalf("first DNSName = %q", cert.DNSNames[0])
 	}
-	if cert.DNSNames[1] != "*.codex.myproject.project-tld" {
+	if cert.DNSNames[1] != "*.codex.acme.sandcastle.internal" {
 		t.Fatalf("wildcard DNSName = %q", cert.DNSNames[1])
 	}
 	if cert.DNSNames[2] != "app.example.test" {
@@ -38,13 +38,13 @@ func TestGenerateCAAndIssueSandboxLeaf(t *testing.T) {
 	}
 }
 
-func TestIssueSandboxLeafRequiresSAN(t *testing.T) {
+func TestIssueMachineLeafRequiresSAN(t *testing.T) {
 	now := time.Now()
 	ca, err := GenerateCA("Sandcastle CA", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = IssueSandboxLeaf(ca.CertificatePEM, ca.PrivateKeyPEM, "", nil, now)
+	_, err = IssueMachineLeaf(ca.CertificatePEM, ca.PrivateKeyPEM, "", nil, now)
 	if err == nil {
 		t.Fatal("expected error")
 	}

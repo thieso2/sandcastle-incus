@@ -21,11 +21,11 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -39,39 +39,39 @@ const (
 )
 
 type commandConfig struct {
-	name                 string
-	stdin                io.Reader
-	stdout               io.Writer
-	stderr               io.Writer
-	projectStore         project.IncusProjectStore
-	adminConfig          scconfig.Admin
-	projectCreator       project.Creator
-	projectDeleter       project.Deleter
-	projectSSHKeyUpdater project.SSHKeyUpdater
-	projectUpdater       project.ProjectUpdater
-	infraCreator         infra.Creator
-	infraDeleter         infra.Deleter
-	imageManager         images.Manager
-	imageBuilder         images.Builder
-	imageImporter        images.Importer
-	topologyStore        project.TopologyStore
-	trustManager         usertrust.Manager
-	sandboxCreator       sandbox.Creator
-	sandboxStore         sandbox.Store
-	sandboxEnterer       sandbox.Enterer
-	sandboxControl       sandbox.Controller
-	sandboxPort          sandbox.PortSetter
-	dnsApplier           dns.Applier
-	localDNS             localdns.Manager
-	localDNSService      localdns.ServiceManager
-	tailscale            tailscale.Runner
-	hostOverrides        hostoverride.Manager
-	hostSandbox          hostoverride.MachineStore
-	hostFiles            hostoverride.HostsManager
-	localTrust           localtrust.Manager
-	routes               route.Manager
-	routeSandbox         route.MachineStore
-	routeBroker          routebroker.Runner
+	name                string
+	stdin               io.Reader
+	stdout              io.Writer
+	stderr              io.Writer
+	tenantStore         tenant.IncusTenantStore
+	adminConfig         scconfig.Admin
+	tenantCreator       tenant.Creator
+	tenantDeleter       tenant.Deleter
+	tenantSSHKeyUpdater tenant.SSHKeyUpdater
+	tenantUpdater       tenant.ProjectUpdater
+	infraCreator        infra.Creator
+	infraDeleter        infra.Deleter
+	imageManager        images.Manager
+	imageBuilder        images.Builder
+	imageImporter       images.Importer
+	topologyStore       tenant.TopologyStore
+	trustManager        usertrust.Manager
+	machineCreator      machine.Creator
+	machineStore        machine.Store
+	machineConnector    machine.Connector
+	machineControl      machine.Controller
+	machinePort         machine.PortSetter
+	dnsApplier          dns.Applier
+	localDNS            localdns.Manager
+	localDNSService     localdns.ServiceManager
+	tailscale           tailscale.Runner
+	hostOverrides       hostoverride.Manager
+	hostMachine         hostoverride.MachineStore
+	hostFiles           hostoverride.HostsManager
+	localTrust          localtrust.Manager
+	routes              route.Manager
+	routeMachine        route.MachineStore
+	routeBroker         routebroker.Runner
 }
 
 type rootOptions struct {
@@ -107,38 +107,38 @@ func Execute(name string, args []string) int {
 		stdout:      os.Stdout,
 		stderr:      os.Stderr,
 		adminConfig: adminConfig,
-		projectStore: incusx.NewProjectStore(
+		tenantStore: incusx.NewTenantStore(
 			adminConfig.Remote,
 		),
-		projectCreator:       incusx.NewProjectCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		projectDeleter:       incusx.NewProjectDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		projectSSHKeyUpdater: incusx.NewProjectSSHKeyManager(adminConfig.Remote),
-		projectUpdater:       incusx.NewProjectSSHKeyManager(adminConfig.Remote),
-		infraCreator:         incusx.NewInfrastructureCreator(adminConfig.Remote),
-		infraDeleter:         incusx.NewInfrastructureDeleter(adminConfig.Remote),
-		imageManager:         incusx.NewImageManager(adminConfig.Remote),
-		imageBuilder:         images.LocalBuilder{},
-		imageImporter:        images.LocalImporter{},
-		topologyStore:        incusx.NewTopologyStore(adminConfig.Remote),
-		trustManager:         incusx.NewTrustManager(adminConfig.Remote),
-		sandboxCreator:       incusx.NewSandboxCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		sandboxStore:         incusx.NewHostOverrideManager(adminConfig.Remote),
-		sandboxEnterer:       incusx.NewSandboxEnterer(adminConfig.Remote),
-		sandboxControl:       incusx.NewSandboxController(adminConfig.Remote),
-		sandboxPort:          incusx.NewSandboxPortSetter(adminConfig.Remote),
-		dnsApplier:           incusx.NewDNSManager(adminConfig.Remote),
-		localDNS:             localdns.FileManager{},
-		localDNSService:      localdns.FileServiceManager{},
-		tailscale:            incusx.NewTailscaleManager(adminConfig.Remote),
-		hostOverrides:        incusx.NewHostOverrideManager(adminConfig.Remote),
-		hostSandbox:          incusx.NewHostOverrideManager(adminConfig.Remote),
-		hostFiles:            hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
-		localTrust:           incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
-		routes:               userRouteManager,
-		routeSandbox:         incusx.NewHostOverrideManager(adminConfig.Remote),
+		tenantCreator:       incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		tenantDeleter:       incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManager(adminConfig.Remote),
+		tenantUpdater:       incusx.NewTenantSSHKeyManager(adminConfig.Remote),
+		infraCreator:        incusx.NewInfrastructureCreator(adminConfig.Remote),
+		infraDeleter:        incusx.NewInfrastructureDeleter(adminConfig.Remote),
+		imageManager:        incusx.NewImageManager(adminConfig.Remote),
+		imageBuilder:        images.LocalBuilder{},
+		imageImporter:       images.LocalImporter{},
+		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
+		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
+		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		machineStore:        incusx.NewHostOverrideManager(adminConfig.Remote),
+		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote),
+		machineControl:      incusx.NewMachineController(adminConfig.Remote),
+		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
+		dnsApplier:          incusx.NewDNSManager(adminConfig.Remote),
+		localDNS:            localdns.FileManager{},
+		localDNSService:     localdns.FileServiceManager{},
+		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),
+		hostOverrides:       incusx.NewHostOverrideManager(adminConfig.Remote),
+		hostMachine:         incusx.NewHostOverrideManager(adminConfig.Remote),
+		hostFiles:           hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
+		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
+		routes:              userRouteManager,
+		routeMachine:        incusx.NewHostOverrideManager(adminConfig.Remote),
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
-			Projects:      incusx.NewProjectStore(adminConfig.Remote),
+			Tenants:       incusx.NewTenantStore(adminConfig.Remote),
 			Machines:      incusx.NewHostOverrideManager(adminConfig.Remote),
 			Routes:        directRouteManager,
 			RouteMetadata: directRouteManager,
@@ -182,8 +182,8 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	if config.stderr == nil {
 		config.stderr = io.Discard
 	}
-	if config.projectStore == nil {
-		config.projectStore = project.MemoryStore{}
+	if config.tenantStore == nil {
+		config.tenantStore = tenant.MemoryStore{}
 	}
 	if config.adminConfig.Remote == "" {
 		config.adminConfig = scconfig.LoadAdmin()
@@ -213,12 +213,12 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newVersionCommand(config, opts))
 	root.AddCommand(newListCommand(config, opts))
 	root.AddCommand(newStatusCommand(config, opts))
-	root.AddCommand(newAddCommand(config, opts))
-	root.AddCommand(newEnterCommand(config, opts))
-	root.AddCommand(newSandboxLifecycleCommand(config, opts, "start", sandbox.ActionStart, false))
-	root.AddCommand(newSandboxLifecycleCommand(config, opts, "stop", sandbox.ActionStop, false))
-	root.AddCommand(newSandboxLifecycleCommand(config, opts, "restart", sandbox.ActionRestart, false))
-	root.AddCommand(newSandboxLifecycleCommand(config, opts, "delete", sandbox.ActionRemove, true))
+	root.AddCommand(newCreateCommand(config, opts))
+	root.AddCommand(newConnectCommand(config, opts))
+	root.AddCommand(newMachineLifecycleCommand(config, opts, "start", machine.ActionStart, false))
+	root.AddCommand(newMachineLifecycleCommand(config, opts, "stop", machine.ActionStop, false))
+	root.AddCommand(newMachineLifecycleCommand(config, opts, "restart", machine.ActionRestart, false))
+	root.AddCommand(newMachineLifecycleCommand(config, opts, "delete", machine.ActionDelete, true))
 	root.AddCommand(newPortCommand(config, opts))
 	root.AddCommand(newProjectCommand(config, opts))
 	root.AddCommand(newDNSCommand(config, opts))

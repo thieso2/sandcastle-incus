@@ -12,13 +12,13 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-// TestCLIAdminProjectCreateE2E verifies that the sc admin tenant create / delete commands
+// TestCLIAdminTenantCreateE2E verifies that the sc admin tenant create / delete commands
 // work end-to-end, including the admin remote detection that uses the global ~/.config/incus/
 // config (admin TLS certificates) rather than the per-user Sandcastle config directory.
-func TestCLIAdminProjectCreateE2E(t *testing.T) {
+func TestCLIAdminTenantCreateE2E(t *testing.T) {
 	e2eConfig := LoadConfig()
 	if !e2eConfig.Enabled {
 		t.Skip("set SANDCASTLE_E2E=1 to run destructive real Incus e2e tests")
@@ -33,13 +33,13 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 	}
 
 	runID := e2eConfig.DisposableRunID()
-	ref := safeProjectName("cadmin-" + runID)
+	ref := safeTenantResourceName("cadmin-" + runID)
 
 	adminConfig := config.Admin{
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: config.DefaultBaseImageAlias,
@@ -47,11 +47,11 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deleter := incusx.NewProjectDeleter(e2eConfig.Remote)
+	deleter := incusx.NewTenantDeleter(e2eConfig.Remote)
 
 	// Pre-cleanup: remove any leaked project from a previous run.
 	if err := deleter.DeleteTenant(ctx, deletePlan); err != nil {
@@ -59,7 +59,7 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
 		if err := deleter.DeleteTenant(ctx, deletePlan); err != nil {
@@ -67,10 +67,10 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 		}
 	})
 
-	// Derive the Incus project name from the plan so we can inspect it afterwards.
+	// Derive the Incus project name from the plan so we can check it afterwards.
 	// We call PlanCreate with zero OccupiedCIDRs just to get the name — the CLI will
 	// do its own plan with the real list.
-	createPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference: ref,
 	})
 	if err != nil {
@@ -131,7 +131,7 @@ func adminCLIEnv(e2eConfig Config) []string {
 		"SANDCASTLE_REMOTE="+e2eConfig.Remote,
 		"SANDCASTLE_STORAGE_POOL="+e2eConfig.StoragePool,
 		"SANDCASTLE_CIDR_POOL="+e2eConfig.CIDRPool,
-		"SANDCASTLE_PROJECT_PREFIX="+config.DefaultProjectPrefix,
+		"SANDCASTLE_INCUS_PROJECT_PREFIX="+config.DefaultIncusProjectPrefix,
 		"SANDCASTLE_INFRA_PROJECT="+config.DefaultInfrastructureProject,
 	)
 }

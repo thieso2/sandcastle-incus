@@ -9,16 +9,16 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-type ProjectDeleteServer interface {
+type TenantDeleteServer interface {
 	DeleteProject(name string) error
 	DeleteStoragePool(name string) error
-	UseProject(name string) ProjectDeleteResourceServer
+	UseProject(name string) TenantDeleteResourceServer
 }
 
-type ProjectDeleteResourceServer interface {
+type TenantDeleteResourceServer interface {
 	GetInstances(instanceType api.InstanceType) ([]api.Instance, error)
 	GetInstance(name string) (*api.Instance, string, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
@@ -31,31 +31,31 @@ type ProjectDeleteResourceServer interface {
 	DeleteProfile(name string) error
 }
 
-type ProjectDeleter struct {
+type TenantDeleter struct {
 	Remote     string
 	ConfigPath string
-	Server     ProjectDeleteServer
+	Server     TenantDeleteServer
 	Log        func(string)
 }
 
-func NewProjectDeleter(remote string) ProjectDeleter {
-	return ProjectDeleter{Remote: remote}
+func NewTenantDeleter(remote string) TenantDeleter {
+	return TenantDeleter{Remote: remote}
 }
 
-func (d ProjectDeleter) WithVerbose(enabled bool, w io.Writer) ProjectDeleter {
+func (d TenantDeleter) WithVerbose(enabled bool, w io.Writer) TenantDeleter {
 	if enabled {
-		d.Log = func(msg string) { fmt.Fprintln(w, "[project-delete] "+msg) }
+		d.Log = func(msg string) { fmt.Fprintln(w, "[tenant-delete] "+msg) }
 	}
 	return d
 }
 
-func (d ProjectDeleter) log(msg string) {
+func (d TenantDeleter) log(msg string) {
 	if d.Log != nil {
 		d.Log(msg)
 	}
 }
 
-func (d ProjectDeleter) DeleteTenant(ctx context.Context, plan project.DeletePlan) error {
+func (d TenantDeleter) DeleteTenant(ctx context.Context, plan tenant.DeletePlan) error {
 	server := d.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(d.ConfigPath)
@@ -134,7 +134,7 @@ func (d ProjectDeleter) DeleteTenant(ctx context.Context, plan project.DeletePla
 	return nil
 }
 
-func deleteInstance(server ProjectDeleteResourceServer, name string) error {
+func deleteInstance(server TenantDeleteResourceServer, name string) error {
 	instance, _, err := server.GetInstance(name)
 	if err != nil {
 		return ignoreNotFound(err)
@@ -173,7 +173,7 @@ func (s sdkDeleteServer) DeleteProject(name string) error { return s.inner.Delet
 func (s sdkDeleteServer) DeleteStoragePool(name string) error {
 	return s.inner.DeleteStoragePool(name)
 }
-func (s sdkDeleteServer) UseProject(name string) ProjectDeleteResourceServer {
+func (s sdkDeleteServer) UseProject(name string) TenantDeleteResourceServer {
 	return sdkDeleteResourceServer{inner: s.inner.UseProject(name)}
 }
 

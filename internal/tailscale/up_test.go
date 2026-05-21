@@ -9,11 +9,11 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestPlanUp(t *testing.T) {
-	plan, err := PlanUp(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), UpRequest{
+	plan, err := PlanUp(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), UpRequest{
 		Reference:     "acme",
 		AuthKey:       "tskey-secret",
 		AdvertiseTags: []string{" tag:sandcastle,tag:sandcastle "},
@@ -54,7 +54,7 @@ func TestPlanUp(t *testing.T) {
 func TestPlanUpRejectsInvalidAdvertiseTags(t *testing.T) {
 	for _, tag := range []string{"sandcastle", "tag:", "tag:Sandcastle", "tag:sand_castle"} {
 		t.Run(tag, func(t *testing.T) {
-			_, err := PlanUp(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), UpRequest{
+			_, err := PlanUp(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), UpRequest{
 				Reference:     "acme",
 				AdvertiseTags: []string{tag},
 			})
@@ -71,7 +71,7 @@ func TestPlanUpRejectsInvalidAdvertiseTags(t *testing.T) {
 func TestPlanUpSupportsCurrentTenant(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	plan, err := PlanUp(context.Background(), admin, projectStoreForTest(t), UpRequest{})
+	plan, err := PlanUp(context.Background(), admin, tenantStoreForTest(t), UpRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestPlanUpSupportsCurrentTenant(t *testing.T) {
 }
 
 func TestPlanStatusAndParseStatus(t *testing.T) {
-	plan, err := PlanStatus(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), StatusRequest{Reference: "acme"})
+	plan, err := PlanStatus(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), StatusRequest{Reference: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestPlanStatusAndParseStatus(t *testing.T) {
 }
 
 func TestParseStatusDoesNotPersistLoginURLs(t *testing.T) {
-	result, err := ParseStatus("acme", project.Summary{
+	result, err := ParseStatus("acme", tenant.Summary{
 		Tenant:    "acme",
 		IncusName: "sc-acme",
 	}, []byte(`{
@@ -150,7 +150,7 @@ func TestParseStatusDoesNotPersistLoginURLs(t *testing.T) {
 }
 
 func TestPlanDown(t *testing.T) {
-	plan, err := PlanDown(context.Background(), config.LoadAdminFromEnv(), projectStoreForTest(t), DownRequest{Reference: "acme"})
+	plan, err := PlanDown(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), DownRequest{Reference: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestPlanDown(t *testing.T) {
 	}
 }
 
-func projectStoreForTest(t *testing.T) project.MemoryStore {
+func tenantStoreForTest(t *testing.T) tenant.MemoryStore {
 	t.Helper()
 	projectConfig, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -169,7 +169,7 @@ func projectStoreForTest(t *testing.T) project.MemoryStore {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-acme",
 		Config: projectConfig,
 	}}}

@@ -49,20 +49,20 @@ type DiagnosticFile struct {
 	Error    string `json:"error,omitempty"`
 }
 
-func GetStatus(ctx context.Context, store IncusProjectStore, reference string) (Status, error) {
+func GetStatus(ctx context.Context, store IncusTenantStore, reference string) (Status, error) {
 	return GetStatusWithTopology(ctx, store, nil, TopologyRequest{}, reference)
 }
 
-func GetStatusWithTopology(ctx context.Context, store IncusProjectStore, topologyStore TopologyStore, topologyRequest TopologyRequest, reference string) (Status, error) {
+func GetStatusWithTopology(ctx context.Context, store IncusTenantStore, topologyStore TopologyStore, topologyRequest TopologyRequest, reference string) (Status, error) {
 	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
 		return Status{}, err
 	}
-	projects, err := List(ctx, store)
+	tenants, err := List(ctx, store)
 	if err != nil {
 		return Status{}, err
 	}
-	for _, summary := range projects {
+	for _, summary := range tenants {
 		if summary.Tenant == ref.Tenant {
 			status := Status{
 				Summary: summary,
@@ -111,7 +111,7 @@ func checkPresent(value string) string {
 	return "ok"
 }
 
-// TopologyChecks returns stable project resource checks for status and diagnostics output.
+// TopologyChecks returns stable tenant resource checks for status and diagnostics output.
 func TopologyChecks(topology Topology) []Check {
 	checks := []Check{
 		{Name: "network:sc-private", Status: presentStatus(topology.PrivateNetworkPresent)},

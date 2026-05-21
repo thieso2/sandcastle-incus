@@ -8,29 +8,29 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
-type SandboxLifecycleServer interface {
-	UseProject(name string) SandboxLifecycleResourceServer
+type MachineLifecycleServer interface {
+	UseProject(name string) MachineLifecycleResourceServer
 }
 
-type SandboxLifecycleResourceServer interface {
+type MachineLifecycleResourceServer interface {
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	DeleteInstance(name string) (incus.Operation, error)
 }
 
-type SandboxController struct {
+type MachineController struct {
 	Remote     string
 	ConfigPath string
-	Server     SandboxLifecycleServer
+	Server     MachineLifecycleServer
 }
 
-func NewSandboxController(remote string) SandboxController {
-	return SandboxController{Remote: remote}
+func NewMachineController(remote string) MachineController {
+	return MachineController{Remote: remote}
 }
 
-func (c SandboxController) ApplyLifecycle(ctx context.Context, plan sandbox.LifecyclePlan) error {
+func (c MachineController) ApplyLifecycle(ctx context.Context, plan machine.LifecyclePlan) error {
 	server := c.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
@@ -45,33 +45,33 @@ func (c SandboxController) ApplyLifecycle(ctx context.Context, plan sandbox.Life
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkSandboxLifecycleServer{inner: instanceServer}
+		server = sdkMachineLifecycleServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(plan.Tenant.IncusName)
 	switch plan.Action {
-	case sandbox.ActionStart:
+	case machine.ActionStart:
 		op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
-		return waitOperation(op, err, "start sandbox "+plan.InstanceName)
-	case sandbox.ActionStop:
+		return waitOperation(op, err, "start machine "+plan.InstanceName)
+	case machine.ActionStop:
 		op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "stop", Timeout: -1, Force: true}, "")
-		return waitOperation(op, err, "stop sandbox "+plan.InstanceName)
-	case sandbox.ActionRestart:
+		return waitOperation(op, err, "stop machine "+plan.InstanceName)
+	case machine.ActionRestart:
 		op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "restart", Timeout: -1, Force: true}, "")
-		return waitOperation(op, err, "restart sandbox "+plan.InstanceName)
-	case sandbox.ActionRemove:
+		return waitOperation(op, err, "restart machine "+plan.InstanceName)
+	case machine.ActionDelete:
 		stopOp, stopErr := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "stop", Timeout: -1, Force: true}, "")
 		if stopErr == nil {
 			if err := stopOp.Wait(); err != nil {
-				return fmt.Errorf("stop sandbox %s before remove: %w", plan.InstanceName, err)
+				return fmt.Errorf("stop machine %s before delete: %w", plan.InstanceName, err)
 			}
 		}
 		op, err := projectServer.DeleteInstance(plan.InstanceName)
 		if api.StatusErrorCheck(err, http.StatusNotFound) {
 			return nil
 		}
-		return waitOperation(op, err, "remove sandbox "+plan.InstanceName)
+		return waitOperation(op, err, "delete machine "+plan.InstanceName)
 	default:
-		return fmt.Errorf("unsupported sandbox action %q", plan.Action)
+		return fmt.Errorf("unsupported machine action %q", plan.Action)
 	}
 }
 
@@ -85,22 +85,22 @@ func waitOperation(op incus.Operation, err error, action string) error {
 	return nil
 }
 
-type sdkSandboxLifecycleServer struct {
+type sdkMachineLifecycleServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkSandboxLifecycleServer) UseProject(name string) SandboxLifecycleResourceServer {
-	return sdkSandboxLifecycleResourceServer{inner: s.inner.UseProject(name)}
+func (s sdkMachineLifecycleServer) UseProject(name string) MachineLifecycleResourceServer {
+	return sdkMachineLifecycleResourceServer{inner: s.inner.UseProject(name)}
 }
 
-type sdkSandboxLifecycleResourceServer struct {
+type sdkMachineLifecycleResourceServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkSandboxLifecycleResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
+func (s sdkMachineLifecycleResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
 	return s.inner.UpdateInstanceState(name, state, etag)
 }
 
-func (s sdkSandboxLifecycleResourceServer) DeleteInstance(name string) (incus.Operation, error) {
+func (s sdkMachineLifecycleResourceServer) DeleteInstance(name string) (incus.Operation, error) {
 	return s.inner.DeleteInstance(name)
 }

@@ -13,7 +13,7 @@ func TestForwarderRoutesByStateAndReloads(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "dns.yaml")
 	upstreamOne := startUDPResponder(t, []byte{0x01, 0x01})
 	upstreamTwo := startUDPResponder(t, []byte{0x02, 0x02})
-	writeForwarderState(t, statePath, "myproject.project-tld", upstreamOne)
+	writeForwarderState(t, statePath, "acme.sandcastle.internal", upstreamOne)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -24,13 +24,13 @@ func TestForwarderRoutesByStateAndReloads(t *testing.T) {
 	}()
 	waitForUDP(t, listen)
 
-	response := queryForwarder(t, listen, dnsQuery("codex.myproject.project-tld"))
+	response := queryForwarder(t, listen, dnsQuery("codex.acme.sandcastle.internal"))
 	if string(response) != string([]byte{0x01, 0x01}) {
 		t.Fatalf("response = %#v", response)
 	}
 
-	writeForwarderState(t, statePath, "myproject.project-tld", upstreamTwo)
-	response = queryForwarder(t, listen, dnsQuery("codex.myproject.project-tld"))
+	writeForwarderState(t, statePath, "acme.sandcastle.internal", upstreamTwo)
+	response = queryForwarder(t, listen, dnsQuery("codex.acme.sandcastle.internal"))
 	if string(response) != string([]byte{0x02, 0x02}) {
 		t.Fatalf("response after reload = %#v", response)
 	}
@@ -51,8 +51,8 @@ func TestForwarderUsesMostSpecificMatchingDomain(t *testing.T) {
 	parent := startUDPResponder(t, []byte{0x01, 0x01})
 	child := startUDPResponder(t, []byte{0x02, 0x02})
 	writeForwarderStateEntries(t, statePath, []forwarderStateEntry{
-		{domain: "project-tld", endpoint: parent},
-		{domain: "sub.project-tld", endpoint: child},
+		{domain: "sandcastle.internal", endpoint: parent},
+		{domain: "acme.sandcastle.internal", endpoint: child},
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -64,9 +64,9 @@ func TestForwarderUsesMostSpecificMatchingDomain(t *testing.T) {
 	}()
 	waitForUDP(t, listen)
 
-	response := queryForwarder(t, listen, dnsQuery("codex.sub.project-tld"))
+	response := queryForwarder(t, listen, dnsQuery("codex.acme.sandcastle.internal"))
 	if string(response) != string([]byte{0x02, 0x02}) {
-		t.Fatalf("response = %#v, want child project response", response)
+		t.Fatalf("response = %#v, want tenant-specific response", response)
 	}
 
 	cancel()
@@ -89,14 +89,14 @@ func TestForwarderSkipsInvalidStateEntries(t *testing.T) {
 	}
 	content := "tenants:\n" +
 		"- tenant: broken\n" +
-		"  dnsSuffix: sub.project-tld\n" +
+		"  dnsSuffix: acme.sandcastle.internal\n" +
 		"  dnsEndpoint:\n" +
 		"    ip: 127.0.0.1\n" +
 		"    port: 0\n" +
 		"  resolver:\n" +
 		"    listen: 127.0.0.1:53541\n" +
 		"- tenant: parent\n" +
-		"  dnsSuffix: project-tld\n" +
+		"  dnsSuffix: sandcastle.internal\n" +
 		"  dnsEndpoint:\n" +
 		"    ip: " + host + "\n" +
 		"    port: " + port + "\n" +
@@ -115,9 +115,9 @@ func TestForwarderSkipsInvalidStateEntries(t *testing.T) {
 	}()
 	waitForUDP(t, listen)
 
-	response := queryForwarder(t, listen, dnsQuery("codex.sub.project-tld"))
+	response := queryForwarder(t, listen, dnsQuery("codex.acme.sandcastle.internal"))
 	if string(response) != string([]byte{0x01, 0x01}) {
-		t.Fatalf("response = %#v, want parent project response", response)
+		t.Fatalf("response = %#v, want parent tenant response", response)
 	}
 
 	cancel()
@@ -132,11 +132,11 @@ func TestForwarderSkipsInvalidStateEntries(t *testing.T) {
 }
 
 func TestQuestionNameParsesDNSQuestion(t *testing.T) {
-	name, err := questionName(dnsQuery("codex.myproject.project-tld"))
+	name, err := questionName(dnsQuery("codex.acme.sandcastle.internal"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if name != "codex.myproject.project-tld" {
+	if name != "codex.acme.sandcastle.internal" {
 		t.Fatalf("name = %q", name)
 	}
 }

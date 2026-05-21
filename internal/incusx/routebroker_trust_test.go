@@ -32,8 +32,8 @@ func TestRouteBrokerTrustMapperMapsSandcastleCertificateName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if principal.Owner != "alice" {
-		t.Fatalf("owner = %q", principal.Owner)
+	if principal.User != "alice" {
+		t.Fatalf("user = %q", principal.User)
 	}
 	if len(principal.Projects) != 1 || principal.Projects[0] != "sc-alice-myproject" {
 		t.Fatalf("projects = %#v", principal.Projects)
@@ -58,10 +58,10 @@ func TestRouteBrokerTrustMapperRejectsNonSandcastleCertificate(t *testing.T) {
 	}
 }
 
-func TestRouteBrokerTrustMapperRejectsInvalidSandcastleOwner(t *testing.T) {
+func TestRouteBrokerTrustMapperRejectsInvalidSandcastleUser(t *testing.T) {
 	mapper := RouteBrokerTrustMapper{Server: fakeRouteBrokerTrustServer{certificates: []api.Certificate{{
 		CertificatePut: api.CertificatePut{
-			Name:       "sandcastle-bad_owner",
+			Name:       "sandcastle-bad_user",
 			Type:       api.CertificateTypeClient,
 			Restricted: true,
 		},

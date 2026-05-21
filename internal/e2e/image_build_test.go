@@ -99,7 +99,7 @@ func imageBuildAdminConfig(e2eConfig Config, baseTag string, aiTag string) confi
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: baseTag,

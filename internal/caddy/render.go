@@ -18,11 +18,11 @@ type InfrastructureOptions struct {
 	LetsEncryptEmail string
 }
 
-func RenderSandbox(hostname string, appPort int, certPath string, keyPath string) File {
-	return RenderSandboxHosts([]string{hostname}, appPort, certPath, keyPath)
+func RenderMachine(hostname string, appPort int, certPath string, keyPath string) File {
+	return RenderMachineHosts([]string{hostname}, appPort, certPath, keyPath)
 }
 
-func RenderSandboxHosts(hostnames []string, appPort int, certPath string, keyPath string) File {
+func RenderMachineHosts(hostnames []string, appPort int, certPath string, keyPath string) File {
 	hosts := ""
 	for i, hostname := range hostnames {
 		if hostname == "" {

@@ -9,7 +9,7 @@ import (
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestPlanInstallUsesTenantDNSRoleAddress(t *testing.T) {
@@ -180,7 +180,7 @@ func linuxResolverPlan(dir string, reference string, domain string, endpoint str
 	}
 }
 
-func storeForTest(t *testing.T) project.MemoryStore {
+func storeForTest(t *testing.T) tenant.MemoryStore {
 	t.Helper()
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -190,7 +190,7 @@ func storeForTest(t *testing.T) project.MemoryStore {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-acme",
 		Config: configMap,
 	}}}

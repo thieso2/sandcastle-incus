@@ -8,11 +8,11 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/cli"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func TestCLIEnterCommandE2E(t *testing.T) {
+func TestCLIConnectCommandE2E(t *testing.T) {
 	e2eConfig := LoadConfig()
 	if !e2eConfig.Enabled {
 		t.Skip("set SANDCASTLE_E2E=1 to run destructive real Incus e2e tests")
@@ -28,18 +28,18 @@ func TestCLIEnterCommandE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	tenant := safeProjectName("tenant-" + runID)
-	sandboxName := safeProjectName("enter-" + runID)
-	ref := tenant
-	sandboxRef := sandboxName
-	baseAlias := "sandcastle/base:" + safeToken(runID) + "-enter"
-	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-enter"
+	tenantName := safeTenantResourceName("tenant-" + runID)
+	machineName := safeTenantResourceName("connect-" + runID)
+	ref := tenantName
+	machineRef := machineName
+	baseAlias := "sandcastle/base:" + safeToken(runID) + "-connect"
+	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-connect"
 	adminConfig := config.Admin{
 		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: baseAlias,
@@ -58,48 +58,48 @@ func TestCLIEnterCommandE2E(t *testing.T) {
 	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
-	store := incusx.NewProjectStore(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
-	creator := incusx.NewProjectCreator(e2eConfig.Remote)
-	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	store := incusx.NewTenantStore(e2eConfig.Remote)
+	registerTenantDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
+	creator := incusx.NewTenantCreator(e2eConfig.Remote)
+	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
+	deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Pre-cleanup: remove any leaked project with the same name from a previous run.
-	if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+	if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 		t.Logf("pre-cleanup for %s: %v", ref, err)
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+		if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
 
-	existing, err := project.List(ctx, store)
+	existing, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createTenantPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createTenantPlan); err != nil {
 		t.Fatal(err)
 	}
 
-	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{Reference: sandboxRef})
+	createMachinePlan, err := machine.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), machine.CreateRequest{Reference: machineRef})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, createSandboxPlan); err != nil {
+	if err := incusx.NewMachineCreator(e2eConfig.Remote).CreateMachine(ctx, createMachinePlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -107,11 +107,11 @@ func TestCLIEnterCommandE2E(t *testing.T) {
 	t.Setenv("SANDCASTLE_TENANT", ref)
 	t.Setenv("SANDCASTLE_STORAGE_POOL", e2eConfig.StoragePool)
 	t.Setenv("SANDCASTLE_CIDR_POOL", e2eConfig.CIDRPool)
-	t.Setenv("SANDCASTLE_PROJECT_PREFIX", config.DefaultProjectPrefix)
+	t.Setenv("SANDCASTLE_INCUS_PROJECT_PREFIX", config.DefaultIncusProjectPrefix)
 	t.Setenv("SANDCASTLE_INFRA_PROJECT", config.DefaultInfrastructureProject)
 	t.Setenv("SANDCASTLE_BASE_IMAGE", baseAlias)
 	t.Setenv("SANDCASTLE_AI_IMAGE", aiAlias)
-	if exitCode := cli.Execute("sandcastle", []string{"connect", sandboxRef, "pwd"}); exitCode != 0 {
+	if exitCode := cli.Execute("sandcastle", []string{"connect", machineRef, "pwd"}); exitCode != 0 {
 		t.Fatalf("sandcastle connect pwd exit code = %d", exitCode)
 	}
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 // ExecuteAdmin runs the Sandcastle admin CLI and returns a process exit code.
@@ -58,12 +58,12 @@ func ExecuteAdmin(name string, args []string) int {
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
-	routeBrokerProjects := incusx.NewProjectStore(adminConfig.Remote)
+	routeBrokerTenants := incusx.NewTenantStore(adminConfig.Remote)
 	routeBrokerMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
 	routeBrokerTrust := incusx.NewRouteBrokerTrustMapper(adminConfig.Remote)
 	if routeBrokerServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
-			routeBrokerProjects = incusx.NewProjectStoreForServer(socketServer)
+			routeBrokerTenants = incusx.NewTenantStoreForServer(socketServer)
 			routeBrokerMachines = incusx.NewHostOverrideManagerForServer(socketServer)
 			directRouteManager = incusx.NewRouteManagerForServer(socketServer)
 			directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
@@ -75,31 +75,31 @@ func ExecuteAdmin(name string, args []string) int {
 	}
 
 	cmd := NewAdminRootCommand(commandConfig{
-		name:                 name,
-		stdin:                os.Stdin,
-		stdout:               os.Stdout,
-		stderr:               os.Stderr,
-		adminConfig:          adminConfig,
-		projectStore:         incusx.NewProjectStore(adminConfig.Remote),
-		projectCreator:       incusx.NewProjectCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
-		projectDeleter:       incusx.NewProjectDeleter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
-		projectSSHKeyUpdater: incusx.NewProjectSSHKeyManager(adminConfig.Remote),
-		projectUpdater:       incusx.NewProjectSSHKeyManager(adminConfig.Remote),
-		infraCreator:         incusx.NewInfrastructureCreator(adminConfig.Remote),
-		infraDeleter:         incusx.NewInfrastructureDeleter(adminConfig.Remote),
-		imageManager:         incusx.NewImageManager(adminConfig.Remote),
-		imageBuilder:         images.LocalBuilder{},
-		imageImporter:        images.LocalImporter{},
-		topologyStore:        incusx.NewTopologyStore(adminConfig.Remote),
-		trustManager:         incusx.NewTrustManager(adminConfig.Remote),
-		sandboxCreator:       incusx.NewSandboxCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
-		sandboxStore:         incusx.NewHostOverrideManager(adminConfig.Remote),
-		sandboxEnterer:       incusx.NewSandboxEnterer(adminConfig.Remote),
-		sandboxControl:       incusx.NewSandboxController(adminConfig.Remote),
-		sandboxPort:          incusx.NewSandboxPortSetter(adminConfig.Remote),
+		name:                name,
+		stdin:               os.Stdin,
+		stdout:              os.Stdout,
+		stderr:              os.Stderr,
+		adminConfig:         adminConfig,
+		tenantStore:         incusx.NewTenantStore(adminConfig.Remote),
+		tenantCreator:       incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		tenantDeleter:       incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManager(adminConfig.Remote),
+		tenantUpdater:       incusx.NewTenantSSHKeyManager(adminConfig.Remote),
+		infraCreator:        incusx.NewInfrastructureCreator(adminConfig.Remote),
+		infraDeleter:        incusx.NewInfrastructureDeleter(adminConfig.Remote),
+		imageManager:        incusx.NewImageManager(adminConfig.Remote),
+		imageBuilder:        images.LocalBuilder{},
+		imageImporter:       images.LocalImporter{},
+		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
+		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
+		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		machineStore:        incusx.NewHostOverrideManager(adminConfig.Remote),
+		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote),
+		machineControl:      incusx.NewMachineController(adminConfig.Remote),
+		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
-			Projects:      routeBrokerProjects,
+			Tenants:       routeBrokerTenants,
 			Machines:      routeBrokerMachines,
 			Routes:        directRouteManager,
 			RouteMetadata: directRouteManager,
@@ -151,8 +151,8 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	if config.adminConfig.Remote == "" {
 		config.adminConfig = scconfig.LoadAdmin()
 	}
-	if config.projectStore == nil {
-		config.projectStore = project.MemoryStore{}
+	if config.tenantStore == nil {
+		config.tenantStore = tenant.MemoryStore{}
 	}
 
 	opts := &rootOptions{output: outputText}
@@ -176,13 +176,13 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.PersistentFlags().Var(&opts.output, "output", "output format: text or json")
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "write JSON output")
 
-	root.AddCommand(newVersionCommand(config, opts))
+	root.AddCommand(newAdminVersionCommand(config, opts))
 	root.AddCommand(newAdminMachineListCommand(config, opts))
 	root.AddCommand(newAdminMachineCreateCommand(config, opts))
 	root.AddCommand(newAdminMachineConnectCommand(config, opts))
 	root.AddCommand(newAdminMachineStatusCommand(config, opts))
 	root.AddCommand(newAdminMachineDeleteCommand(config, opts))
-	root.AddCommand(newAdminProjectCommand(config, opts))
+	root.AddCommand(newAdminTenantCommand(config, opts))
 	root.AddCommand(newAdminUserCommand(config, opts))
 	root.AddCommand(newAdminInfraCommand(config, opts))
 	root.AddCommand(newAdminImageCommand(config, opts))

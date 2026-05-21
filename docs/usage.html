@@ -141,9 +141,9 @@
   <h2>Contents</h2>
   <ol>
     <li><a href="#env">Environment setup</a></li>
-    <li><a href="#projects">Create &amp; manage tenants</a></li>
+    <li><a href="#tenants">Create &amp; manage tenants</a></li>
     <li><a href="#users">Create users &amp; credentials</a></li>
-    <li><a href="#sandboxes">Create &amp; manage machines</a></li>
+    <li><a href="#machines">Create &amp; manage machines</a></li>
     <li><a href="#trust">Install local CA trust</a></li>
     <li><a href="#tailscale">Attach Tailscale</a></li>
     <li><a href="#routes">Publish public routes</a></li>
@@ -167,6 +167,9 @@ project: website
 remote: sc-alice</code></pre>
     <p>Once set, <code>sc create codex</code> works without any extra flags or exports.</p>
     <p>Environment variables take precedence over the config file if both are set.</p>
+    <pre><code><span class="cmd">sc config set</span> <span class="arg">project website</span>
+<span class="cmd">sc config unset</span> <span class="arg">project</span>
+<span class="cmd">sc config show</span></code></pre>
   </div>
 
   <div class="step">
@@ -178,11 +181,14 @@ remote: sc-alice</code></pre>
 <span class="comment"># Storage pool name in Incus</span>
 <span class="env">export SANDCASTLE_STORAGE_POOL</span>=default
 
-<span class="comment"># Private CIDR pool for project networks (optional; default 10.248.0.0/16)</span>
-<span class="env">export SANDCASTLE_PRIVATE_CIDR_POOL</span>=10.248.0.0/16
+<span class="comment"># Private CIDR pool for tenant networks (optional; default 10.248.0.0/16)</span>
+<span class="env">export SANDCASTLE_CIDR_POOL</span>=10.248.0.0/16
+
+<span class="comment"># Prefix for managed tenant Incus projects (optional; default sc)</span>
+<span class="env">export SANDCASTLE_INCUS_PROJECT_PREFIX</span>=sc
 
 <span class="comment"># Infrastructure Incus project name (for route broker / shared Caddy)</span>
-<span class="env">export SANDCASTLE_INFRASTRUCTURE_PROJECT</span>=sc-infra
+<span class="env">export SANDCASTLE_INFRA_PROJECT</span>=sc-infra
 
 <span class="comment"># Optional host Incus socket mount for route broker mutation service</span>
 <span class="env">export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</span>=/var/lib/incus/unix.socket
@@ -223,7 +229,7 @@ remote: sc-alice</code></pre>
 </section>
 
 <!-- ─── 2. Tenants ────────────────────────────────────────────────────── -->
-<section id="projects">
+<section id="tenants">
   <h2>2. Create &amp; manage tenants <span class="badge badge-admin">admin</span></h2>
 
   <div class="step">
@@ -255,13 +261,13 @@ remote: sc-alice</code></pre>
   </div>
 
   <div class="step">
-    <h3>Delete a project (keep volumes)</h3>
+    <h3>Delete a tenant (keep volumes)</h3>
     <p>Stops runtime resources (sidecars, network) but preserves home/workspace volumes.</p>
     <pre><code><span class="cmd">sandcastle-admin tenant delete</span> <span class="arg">acme</span> <span class="flag">--yes</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Purge a project (destroy everything)</h3>
+    <h3>Purge a tenant (destroy everything)</h3>
     <pre><code><span class="cmd">sandcastle-admin tenant delete</span> <span class="arg">acme</span> <span class="flag">--yes</span> <span class="flag">--purge</span></code></pre>
   </div>
 </section>
@@ -280,13 +286,15 @@ Certificate: sc-alice
 Remote: sc-alice
 Token: 7f3a...
 Bootstrap:
-  sc remote add sc-acme &lt;join-token&gt; --tenant acme</code></pre>
-    <div class="note"><strong>Share the bootstrap commands with the user.</strong> They run <code>sc remote add</code> on their machine — this registers the remote and saves it as the default in <code>~/.config/sandcastle/config.yml</code>.</div>
+  sc remote add sc-alice &lt;join-token&gt;
+After tenant access is granted, set the default tenant with:
+  sc config set tenant &lt;tenant&gt;</code></pre>
+    <div class="note"><strong>Share the bootstrap command with the user.</strong> They run <code>sc remote add</code> on their machine — this registers the remote and saves it as the default in <code>~/.config/sandcastle/config.yml</code>. If the tenant is already known, they can add <code>--tenant acme</code> to the remote command.</div>
   </div>
 
   <div class="step">
-    <h3>Grant a user access to a project</h3>
-    <p>Adds the Incus project to the user's certificate restriction list.</p>
+    <h3>Grant a user access to a tenant</h3>
+    <p>Tenant access is managed with the tenant commands. Grants add the tenant's Incus project to the user's certificate restriction list.</p>
     <pre><code><span class="cmd">sandcastle-admin tenant grant</span> <span class="arg">acme alice</span>
 <span class="cmd">sandcastle-admin tenant revoke</span> <span class="arg">acme alice</span>
 <span class="cmd">sandcastle-admin tenant users</span> <span class="arg">acme</span></code></pre>
@@ -312,14 +320,14 @@ Bootstrap:
   <div class="step">
     <h3>Use incus directly against your remote</h3>
     <p><code>sc incus</code> wraps the <code>incus</code> CLI with the correct <code>INCUS_CONF</code> for the active remote.</p>
-    <pre><code><span class="cmd">sc incus</span> <span class="arg">ls</span>                          <span class="comment"># list instances in your project</span>
+    <pre><code><span class="cmd">sc incus</span> <span class="arg">ls</span>                          <span class="comment"># list instances in your tenant</span>
 <span class="cmd">sc incus</span> <span class="arg">project list</span>               <span class="comment"># list Incus projects you can access</span>
-<span class="cmd">sc incus</span> <span class="arg">exec sc-alice-myproject -- bash</span></code></pre>
+<span class="cmd">sc incus</span> <span class="arg">exec website-codex -- bash</span></code></pre>
   </div>
 </section>
 
 <!-- ─── 4. Machines / containers ──────────────────────────────────────── -->
-<section id="sandboxes">
+<section id="machines">
   <h2>4. Create &amp; manage machines</h2>
 
   <div class="step">
@@ -411,13 +419,13 @@ Bootstrap:
   <h2>5. Install local CA trust</h2>
 
   <div class="step">
-    <h3>Trust the tenant CA on your machine <span class="badge badge-admin">admin</span></h3>
+    <h3>Trust the tenant CA on your machine <span class="badge badge-user">user</span></h3>
     <p>Makes the tenant's self-signed CA trusted by your OS/browser so machine HTTPS URLs work without warnings.</p>
     <pre><code><span class="cmd">sandcastle trust install</span> <span class="arg">acme</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Remove the CA from local trust <span class="badge badge-admin">admin</span></h3>
+    <h3>Remove the CA from local trust <span class="badge badge-user">user</span></h3>
     <pre><code><span class="cmd">sandcastle trust uninstall</span> <span class="arg">acme</span></code></pre>
   </div>
 
@@ -441,27 +449,28 @@ Bootstrap:
   </div>
 
   <div class="step">
-    <h3>Activate Tailscale on a project (interactive)</h3>
-    <p>Starts <code>tailscaled</code> inside the sidecar and runs <code>tailscale up --advertise-routes=&lt;project-cidr&gt;</code>. Opens an interactive browser auth flow if no auth key is provided.</p>
-    <pre><code><span class="cmd">sandcastle tailscale up</span> <span class="arg">alice/myproject</span></code></pre>
+    <h3>Activate Tailscale on a tenant (interactive)</h3>
+    <p>Starts <code>tailscaled</code> inside the sidecar and runs <code>tailscale up --advertise-routes=&lt;tenant-cidr&gt;</code>. Opens an interactive browser auth flow if no auth key is provided.</p>
+    <pre><code><span class="cmd">sandcastle tailscale up</span>
+<span class="cmd">sandcastle tailscale up</span> <span class="arg">acme</span>  <span class="comment"># explicit tenant</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Activate with an auth key (unattended)</h3>
-    <pre><code><span class="cmd">sandcastle tailscale up</span> <span class="arg">alice/myproject</span> <span class="flag">--auth-key</span> <span class="arg">tskey-auth-...</span></code></pre>
+    <pre><code><span class="cmd">sandcastle tailscale up</span> <span class="flag">--auth-key</span> <span class="arg">tskey-auth-...</span></code></pre>
     <p>Generate auth keys in the Tailscale admin console. Use a reusable key if you need to re-run this after a container restart.</p>
   </div>
 
   <div class="step">
     <h3>Check Tailscale status</h3>
-    <pre><code><span class="cmd">sandcastle tailscale status</span> <span class="arg">alice/myproject</span></code></pre>
+    <pre><code><span class="cmd">sandcastle tailscale status</span></code></pre>
     <p>Reports the Tailscale state, Tailnet name, assigned IPs, and which routes are being advertised.</p>
   </div>
 
   <div class="step">
     <h3>Detach Tailscale</h3>
     <p>Runs <code>tailscale down</code> inside the sidecar. The container keeps running; only the Tailnet attachment is removed.</p>
-    <pre><code><span class="cmd">sandcastle tailscale down</span> <span class="arg">alice/myproject</span></code></pre>
+    <pre><code><span class="cmd">sandcastle tailscale down</span></code></pre>
   </div>
 </section>
 
@@ -488,7 +497,7 @@ Bootstrap:
   </div>
 
   <div class="step">
-    <h3>Remove a route <span class="badge badge-user">user</span></h3>
+    <h3>Delete a route <span class="badge badge-user">user</span></h3>
     <pre><code><span class="cmd">sandcastle route delete</span> <span class="arg">myapp.example.com</span></code></pre>
   </div>
 </section>
@@ -588,6 +597,16 @@ Bootstrap:
     <pre><code><span class="cmd">scripts/e2e-local-vm.sh</span>
 <span class="env">SANDCASTLE_E2E_VM_KEEP</span>=1 <span class="cmd">scripts/e2e-local-vm.sh</span>   <span class="comment"># keep VM for diagnosis</span></code></pre>
   </div>
+
+  <div class="step">
+    <h3>Run the destructive Incus command tier</h3>
+    <p>The <code>incus</code> tier includes tenant create/purge and listing coverage, tenant DNS, the current <code>create</code> and <code>connect</code> CLI machine flows, machine lifecycle, image sync, host override, local trust, and infrastructure checks.</p>
+    <p>Disposable tenant names are generated from the e2e run id; each tenant's private DNS suffix is that tenant name.</p>
+    <pre><code><span class="env">SANDCASTLE_E2E</span>=1 \
+<span class="env">SANDCASTLE_E2E_BASE_IMAGE_SOURCE</span>=sandcastle/base:debian-13 \
+<span class="env">SANDCASTLE_E2E_AI_IMAGE_SOURCE</span>=sandcastle/ai:debian-13 \
+<span class="cmd">scripts/e2e.sh</span> <span class="arg">incus</span></code></pre>
+  </div>
 </section>
 
 <!-- ─── 11. Quick reference ───────────────────────────────────────────── -->
@@ -602,6 +621,7 @@ Bootstrap:
       </thead>
       <tbody>
         <tr><td>sandcastle list</td><td>List machines in the current tenant</td></tr>
+        <tr><td>sandcastle config show/set/unset</td><td>Manage local CLI defaults</td></tr>
         <tr><td>sandcastle status [machine]</td><td>Show tenant or machine status</td></tr>
         <tr><td>sandcastle create &lt;ref&gt;</td><td>Create and connect to a machine</td></tr>
         <tr><td>sandcastle connect &lt;ref&gt;</td><td>Connect to an existing machine</td></tr>
@@ -609,15 +629,16 @@ Bootstrap:
         <tr><td>sandcastle delete &lt;ref&gt; --yes</td><td>Delete a machine container</td></tr>
         <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
         <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change machine app port</td></tr>
-        <tr><td>sandcastle trust install &lt;proj&gt;</td><td>Trust project CA locally</td></tr>
-        <tr><td>sandcastle trust uninstall &lt;proj&gt;</td><td>Remove project CA trust</td></tr>
-        <tr><td>sandcastle tailscale up &lt;proj&gt;</td><td>Attach Tailscale to project</td></tr>
-        <tr><td>sandcastle tailscale status &lt;proj&gt;</td><td>Check Tailscale state</td></tr>
-        <tr><td>sandcastle tailscale down &lt;proj&gt;</td><td>Detach Tailscale</td></tr>
+        <tr><td>sandcastle trust install &lt;tenant&gt;</td><td>Trust tenant CA locally</td></tr>
+        <tr><td>sandcastle trust uninstall &lt;tenant&gt;</td><td>Remove tenant CA trust</td></tr>
+        <tr><td>sandcastle tailscale up [tenant]</td><td>Attach Tailscale to tenant</td></tr>
+        <tr><td>sandcastle tailscale status [tenant]</td><td>Check Tailscale state</td></tr>
+        <tr><td>sandcastle tailscale down [tenant]</td><td>Detach Tailscale</td></tr>
         <tr><td>sandcastle route create &lt;host&gt; &lt;ref&gt;</td><td>Publish public HTTP route</td></tr>
         <tr><td>sandcastle route list</td><td>List published routes</td></tr>
         <tr><td>sandcastle route status &lt;host&gt;</td><td>Show a public route</td></tr>
-        <tr><td>sandcastle route delete &lt;host&gt;</td><td>Remove a public route</td></tr>
+        <tr><td>sandcastle route delete &lt;host&gt;</td><td>Delete a public route</td></tr>
+        <tr><td>sandcastle host override create/list/delete</td><td>Manage local exact host overrides</td></tr>
         <tr><td>sandcastle-admin tenant create</td><td>Create a new tenant</td></tr>
         <tr><td>sandcastle-admin tenant grant/revoke/users</td><td>Manage tenant access</td></tr>
         <tr><td>sandcastle-admin tenant delete</td><td>Delete a tenant</td></tr>

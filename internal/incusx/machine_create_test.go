@@ -12,20 +12,20 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/config"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-type fakeSandboxServer struct {
-	resource *fakeSandboxResource
+type fakeMachineServer struct {
+	resource *fakeMachineResource
 }
 
-func (s fakeSandboxServer) UseProject(name string) SandboxResourceServer {
+func (s fakeMachineServer) UseProject(name string) MachineResourceServer {
 	return s.resource
 }
 
-type fakeSandboxResource struct {
+type fakeMachineResource struct {
 	instance          *api.Instance
 	created           *api.InstancesPost
 	helperCreated     *api.InstancesPost
@@ -39,14 +39,14 @@ type fakeSandboxResource struct {
 	volumeFileErr     error
 }
 
-func (r *fakeSandboxResource) GetInstance(name string) (*api.Instance, string, error) {
+func (r *fakeMachineResource) GetInstance(name string) (*api.Instance, string, error) {
 	if r.instance != nil {
 		return r.instance, "etag", nil
 	}
 	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
 }
 
-func (r *fakeSandboxResource) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
+func (r *fakeMachineResource) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
 	if strings.HasPrefix(instance.Name, "sc-storage-init-") {
 		r.helperCreated = &instance
 		return fakeOperation{}, nil
@@ -55,14 +55,14 @@ func (r *fakeSandboxResource) CreateInstance(instance api.InstancesPost) (incus.
 	return fakeOperation{}, nil
 }
 
-func (r *fakeSandboxResource) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
+func (r *fakeMachineResource) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
 	if state.Action == "start" {
 		r.started = true
 	}
 	return fakeOperation{}, nil
 }
 
-func (r *fakeSandboxResource) DeleteInstance(name string) (incus.Operation, error) {
+func (r *fakeMachineResource) DeleteInstance(name string) (incus.Operation, error) {
 	if strings.HasPrefix(name, "sc-storage-init-") {
 		r.helperDeleted = true
 		return fakeOperation{}, nil
@@ -70,7 +70,7 @@ func (r *fakeSandboxResource) DeleteInstance(name string) (incus.Operation, erro
 	return nil, api.StatusErrorf(http.StatusNotFound, "not found")
 }
 
-func (r *fakeSandboxResource) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+func (r *fakeMachineResource) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	if r.createdFiles == nil {
 		r.createdFiles = map[string]string{}
 	}
@@ -86,7 +86,7 @@ func (r *fakeSandboxResource) CreateInstanceFile(instanceName string, path strin
 	return nil
 }
 
-func (r *fakeSandboxResource) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+func (r *fakeMachineResource) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
 	if r.volumeFileErr != nil {
 		return r.volumeFileErr
 	}
@@ -100,7 +100,7 @@ func (r *fakeSandboxResource) CreateStorageVolumeFile(pool string, volumeType st
 	return nil
 }
 
-func (r *fakeSandboxResource) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+func (r *fakeMachineResource) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
 	content, ok := r.caFiles[filePath]
 	if !ok {
 		return nil, nil, api.StatusErrorf(http.StatusNotFound, "not found")
@@ -108,7 +108,7 @@ func (r *fakeSandboxResource) GetStorageVolumeFile(pool string, volumeType strin
 	return io.NopCloser(strings.NewReader(content)), &incus.InstanceFileResponse{Type: "file"}, nil
 }
 
-func (r *fakeSandboxResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+func (r *fakeMachineResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	r.execCommands = append(r.execCommands, exec.Command)
 	r.execEnvs = append(r.execEnvs, exec.Environment)
 	if args.DataDone != nil {
@@ -117,10 +117,10 @@ func (r *fakeSandboxResource) ExecInstance(instanceName string, exec api.Instanc
 	return fakeOperation{}, nil
 }
 
-func TestSandboxCreatorCreatesInstance(t *testing.T) {
-	plan := sandboxPlanForTest(t)
-	resource := fakeSandboxResourceWithCA(t)
-	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
+func TestMachineCreatorCreatesInstance(t *testing.T) {
+	plan := machinePlanForTest(t)
+	resource := fakeMachineResourceWithCA(t)
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
 	if err := creator.CreateMachine(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
@@ -149,13 +149,13 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	if _, ok := resource.created.Config["security.privileged"]; ok {
 		t.Fatalf("security.privileged is set by default: %#v", resource.created.Config)
 	}
-	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
+	if resource.createdFiles[machine.CaddyfilePath] == "" {
 		t.Fatal("expected Caddyfile write")
 	}
-	if resource.createdFiles[sandbox.MachineCertPath] == "" {
+	if resource.createdFiles[machine.MachineCertPath] == "" {
 		t.Fatal("expected certificate write")
 	}
-	if resource.createdFiles[sandbox.MachineCertKeyPath] == "" {
+	if resource.createdFiles[machine.MachineCertKeyPath] == "" {
 		t.Fatal("expected private key write")
 	}
 	if len(resource.execCommands) != 2 {
@@ -175,11 +175,11 @@ func TestSandboxCreatorCreatesInstance(t *testing.T) {
 	}
 }
 
-func TestSandboxCreatorFallsBackToHelperForStorageDirs(t *testing.T) {
-	plan := sandboxPlanForTest(t)
-	resource := fakeSandboxResourceWithCA(t)
+func TestMachineCreatorFallsBackToHelperForStorageDirs(t *testing.T) {
+	plan := machinePlanForTest(t)
+	resource := fakeMachineResourceWithCA(t)
 	resource.volumeFileErr = api.StatusErrorf(http.StatusNotFound, "not found")
-	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
 	if err := creator.CreateMachine(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestSandboxCreatorFallsBackToHelperForStorageDirs(t *testing.T) {
 		t.Fatal("expected storage helper cleanup")
 	}
 	if resource.created == nil {
-		t.Fatal("expected sandbox instance creation")
+		t.Fatal("expected machine instance creation")
 	}
 	commands := strings.Join(flattenCommands(resource.execCommands), "\n")
 	if !strings.Contains(commands, "install -d -o 1000 -g 1000 -m 0755 -- '/mnt/home/default/codex'") {
@@ -204,11 +204,11 @@ func TestSandboxCreatorFallsBackToHelperForStorageDirs(t *testing.T) {
 	}
 }
 
-func TestSandboxCreatorEnablesNestingForContainerTools(t *testing.T) {
-	plan := sandboxPlanForTest(t)
+func TestMachineCreatorEnablesNestingForContainerTools(t *testing.T) {
+	plan := machinePlanForTest(t)
 	plan.ContainerTools = true
-	resource := fakeSandboxResourceWithCA(t)
-	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
+	resource := fakeMachineResourceWithCA(t)
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
 	if err := creator.CreateMachine(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
@@ -231,23 +231,23 @@ func flattenCommands(commands [][]string) []string {
 	return flattened
 }
 
-func TestSandboxCreatorStartsExistingStoppedInstance(t *testing.T) {
-	plan := sandboxPlanForTest(t)
-	resource := fakeSandboxResourceWithCA(t)
+func TestMachineCreatorStartsExistingStoppedInstance(t *testing.T) {
+	plan := machinePlanForTest(t)
+	resource := fakeMachineResourceWithCA(t)
 	resource.instance = &api.Instance{Name: plan.InstanceName, StatusCode: api.Stopped}
-	creator := SandboxCreator{Server: fakeSandboxServer{resource: resource}}
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
 	if err := creator.CreateMachine(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if !resource.started {
 		t.Fatal("expected stopped instance to be started")
 	}
-	if resource.createdFiles[sandbox.CaddyfilePath] == "" {
+	if resource.createdFiles[machine.CaddyfilePath] == "" {
 		t.Fatal("expected Caddyfile write")
 	}
 }
 
-func sandboxPlanForTest(t *testing.T) sandbox.CreatePlan {
+func machinePlanForTest(t *testing.T) machine.CreatePlan {
 	t.Helper()
 	projectConfig, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -259,24 +259,24 @@ func sandboxPlanForTest(t *testing.T) sandbox.CreatePlan {
 	}
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	plan, err := sandbox.PlanCreate(context.Background(), admin, project.MemoryStore{Projects: []project.IncusProject{{
+	plan, err := machine.PlanCreate(context.Background(), admin, tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-acme",
 		Config: projectConfig,
-	}}}, nil, sandbox.CreateRequest{Reference: "codex"})
+	}}}, nil, machine.CreateRequest{Reference: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return plan
 }
 
-func fakeSandboxResourceWithCA(t *testing.T) *fakeSandboxResource {
+func fakeMachineResourceWithCA(t *testing.T) *fakeMachineResource {
 	t.Helper()
 	ca, err := certs.GenerateCA("test CA", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fakeSandboxResource{caFiles: map[string]string{
-		project.TenantCACertPath: string(ca.CertificatePEM),
-		project.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
+	return &fakeMachineResource{caFiles: map[string]string{
+		tenant.TenantCACertPath: string(ca.CertificatePEM),
+		tenant.TenantCAKeyPath:  string(ca.PrivateKeyPEM),
 	}}
 }

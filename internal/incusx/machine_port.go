@@ -10,32 +10,32 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
 
-type SandboxPortServer interface {
-	UseProject(name string) SandboxPortResourceServer
+type MachinePortServer interface {
+	UseProject(name string) MachinePortResourceServer
 }
 
-type SandboxPortResourceServer interface {
+type MachinePortResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
-type SandboxPortSetter struct {
+type MachinePortSetter struct {
 	Remote     string
 	ConfigPath string
-	Server     SandboxPortServer
+	Server     MachinePortServer
 }
 
-func NewSandboxPortSetter(remote string) SandboxPortSetter {
-	return SandboxPortSetter{Remote: remote}
+func NewMachinePortSetter(remote string) MachinePortSetter {
+	return MachinePortSetter{Remote: remote}
 }
 
-func (s SandboxPortSetter) SetAppPort(ctx context.Context, plan sandbox.PortSetPlan) error {
+func (s MachinePortSetter) SetAppPort(ctx context.Context, plan machine.PortSetPlan) error {
 	server := s.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(s.ConfigPath)
@@ -50,18 +50,18 @@ func (s SandboxPortSetter) SetAppPort(ctx context.Context, plan sandbox.PortSetP
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkSandboxPortServer{inner: instanceServer}
+		server = sdkMachinePortServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(plan.Tenant.IncusName)
 	instance, etag, err := projectServer.GetInstance(plan.InstanceName)
 	if err != nil {
-		return fmt.Errorf("get sandbox %s: %w", plan.InstanceName, err)
+		return fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
 	}
 	put := instance.Writable()
 	config := map[string]string(put.Config)
 	state, err := meta.ParseMachineConfig(config)
 	if err != nil {
-		return fmt.Errorf("parse sandbox metadata for %s: %w", plan.InstanceName, err)
+		return fmt.Errorf("parse machine metadata for %s: %w", plan.InstanceName, err)
 	}
 	state.AppPort = plan.AppPort
 	updated, err := meta.MachineConfig(state)
@@ -75,24 +75,24 @@ func (s SandboxPortSetter) SetAppPort(ctx context.Context, plan sandbox.PortSetP
 	put.Config = api.ConfigMap(config)
 	op, err := projectServer.UpdateInstance(plan.InstanceName, put, etag)
 	if err != nil {
-		return fmt.Errorf("update sandbox %s app port: %w", plan.InstanceName, err)
+		return fmt.Errorf("update machine %s app port: %w", plan.InstanceName, err)
 	}
 	if err := op.Wait(); err != nil {
 		return err
 	}
-	if err := writeSandboxCaddyfile(projectServer, plan); err != nil {
+	if err := writeMachineCaddyfile(projectServer, plan); err != nil {
 		return err
 	}
-	return restartSandboxCaddy(projectServer, plan.InstanceName, "", "")
+	return restartMachineCaddy(projectServer, plan.InstanceName, "", "")
 }
 
-func writeSandboxCaddyfile(server SandboxPortResourceServer, plan sandbox.PortSetPlan) error {
+func writeMachineCaddyfile(server MachinePortResourceServer, plan machine.PortSetPlan) error {
 	err := server.CreateInstanceFile(plan.InstanceName, "/etc/caddy", incus.InstanceFileArgs{
 		Type: "directory",
 		Mode: 0o755,
 	})
 	if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
-		return fmt.Errorf("create sandbox Caddy config directory: %w", err)
+		return fmt.Errorf("create machine Caddy config directory: %w", err)
 	}
 	if err := server.CreateInstanceFile(plan.InstanceName, plan.CaddyFile.Path, incus.InstanceFileArgs{
 		Content:   strings.NewReader(plan.CaddyFile.Content),
@@ -100,35 +100,35 @@ func writeSandboxCaddyfile(server SandboxPortResourceServer, plan sandbox.PortSe
 		Mode:      plan.CaddyFile.Mode,
 		WriteMode: "overwrite",
 	}); err != nil {
-		return fmt.Errorf("write sandbox Caddyfile %s: %w", plan.CaddyFile.Path, err)
+		return fmt.Errorf("write machine Caddyfile %s: %w", plan.CaddyFile.Path, err)
 	}
 	return nil
 }
 
-type sdkSandboxPortServer struct {
+type sdkMachinePortServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkSandboxPortServer) UseProject(name string) SandboxPortResourceServer {
-	return sdkSandboxPortResourceServer{inner: s.inner.UseProject(name)}
+func (s sdkMachinePortServer) UseProject(name string) MachinePortResourceServer {
+	return sdkMachinePortResourceServer{inner: s.inner.UseProject(name)}
 }
 
-type sdkSandboxPortResourceServer struct {
+type sdkMachinePortResourceServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkSandboxPortResourceServer) GetInstance(name string) (*api.Instance, string, error) {
+func (s sdkMachinePortResourceServer) GetInstance(name string) (*api.Instance, string, error) {
 	return s.inner.GetInstance(name)
 }
 
-func (s sdkSandboxPortResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
+func (s sdkMachinePortResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
 	return s.inner.UpdateInstance(name, instance, etag)
 }
 
-func (s sdkSandboxPortResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+func (s sdkMachinePortResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateInstanceFile(instanceName, path, args)
 }
 
-func (s sdkSandboxPortResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+func (s sdkMachinePortResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	return s.inner.ExecInstance(instanceName, exec, args)
 }

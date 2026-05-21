@@ -6,25 +6,25 @@ import (
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeMachineStore struct {
 	machine meta.Machine
 }
 
-func (s fakeMachineStore) FindMachine(ctx context.Context, summary project.Summary, projectName string, machineName string) (meta.Machine, error) {
+func (s fakeMachineStore) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, machineName string) (meta.Machine, error) {
 	return s.machine, nil
 }
 
-func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
-	plan, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTest(t), fakeMachineStore{machine: meta.Machine{
+func TestPlanCreatePinsCurrentMachineAppPort(t *testing.T) {
+	plan, err := PlanCreate(context.Background(), routeAdminForTest(), tenantStoreForTest(t), fakeMachineStore{machine: meta.Machine{
 		Tenant:    "acme",
 		Project:   "default",
 		Name:      "codex",
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",
-	}}, AddRequest{Hostname: "App.Example.COM", TargetReference: "acme/default/codex"})
+	}}, CreateRequest{Hostname: "App.Example.COM", TargetReference: "acme/default/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,17 +61,17 @@ func TestPlanAddPinsCurrentSandboxAppPort(t *testing.T) {
 	}
 }
 
-func TestPlanAddSupportsCurrentTenantAndProject(t *testing.T) {
+func TestPlanCreateSupportsCurrentTenantAndProject(t *testing.T) {
 	admin := routeAdminForTest()
 	admin.Tenant = "acme"
 	admin.Project = "website"
-	plan, err := PlanAdd(context.Background(), admin, projectStoreForTest(t), fakeMachineStore{machine: meta.Machine{
+	plan, err := PlanCreate(context.Background(), admin, tenantStoreForTest(t), fakeMachineStore{machine: meta.Machine{
 		Tenant:    "acme",
 		Project:   "website",
 		Name:      "codex",
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",
-	}}, AddRequest{Hostname: "app.example.com", TargetReference: "codex"})
+	}}, CreateRequest{Hostname: "app.example.com", TargetReference: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,14 +80,14 @@ func TestPlanAddSupportsCurrentTenantAndProject(t *testing.T) {
 	}
 }
 
-func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
-	plan, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTemplate(t, "ai"), fakeMachineStore{machine: meta.Machine{
+func TestPlanCreateFallsBackToDefaultAppPort(t *testing.T) {
+	plan, err := PlanCreate(context.Background(), routeAdminForTest(), tenantStoreForTemplate(t, "ai"), fakeMachineStore{machine: meta.Machine{
 		Tenant:    "acme",
 		Project:   "default",
 		Name:      "codex",
 		Template:  "base",
 		PrivateIP: "10.248.0.20",
-	}}, AddRequest{Hostname: "app.example.com", TargetReference: "acme/default/codex"})
+	}}, CreateRequest{Hostname: "app.example.com", TargetReference: "acme/default/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,21 +96,21 @@ func TestPlanAddFallsBackToDefaultAppPort(t *testing.T) {
 	}
 }
 
-func TestPlanAddRejectsUnknownTemplateAppPortFallback(t *testing.T) {
-	_, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTemplate(t, "ai"), fakeMachineStore{machine: meta.Machine{
+func TestPlanCreateRejectsUnknownTemplateAppPortFallback(t *testing.T) {
+	_, err := PlanCreate(context.Background(), routeAdminForTest(), tenantStoreForTemplate(t, "ai"), fakeMachineStore{machine: meta.Machine{
 		Tenant:    "acme",
 		Project:   "default",
 		Name:      "codex",
 		Template:  "unknown",
 		PrivateIP: "10.248.0.20",
-	}}, AddRequest{Hostname: "app.example.com", TargetReference: "acme/default/codex"})
+	}}, CreateRequest{Hostname: "app.example.com", TargetReference: "acme/default/codex"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
-func TestPlanAddRejectsWildcardRoute(t *testing.T) {
-	_, err := PlanAdd(context.Background(), routeAdminForTest(), projectStoreForTest(t), fakeMachineStore{}, AddRequest{
+func TestPlanCreateRejectsWildcardRoute(t *testing.T) {
+	_, err := PlanCreate(context.Background(), routeAdminForTest(), tenantStoreForTest(t), fakeMachineStore{}, CreateRequest{
 		Hostname:        "*.example.com",
 		TargetReference: "acme/default/codex",
 	})
@@ -119,8 +119,8 @@ func TestPlanAddRejectsWildcardRoute(t *testing.T) {
 	}
 }
 
-func TestPlanAddRequiresInfrastructureHost(t *testing.T) {
-	_, err := PlanAdd(context.Background(), scconfig.LoadAdminFromEnv(), projectStoreForTest(t), fakeMachineStore{}, AddRequest{
+func TestPlanCreateRequiresInfrastructureHost(t *testing.T) {
+	_, err := PlanCreate(context.Background(), scconfig.LoadAdminFromEnv(), tenantStoreForTest(t), fakeMachineStore{}, CreateRequest{
 		Hostname:        "app.example.com",
 		TargetReference: "acme/default/codex",
 	})
@@ -129,16 +129,16 @@ func TestPlanAddRequiresInfrastructureHost(t *testing.T) {
 	}
 }
 
-func TestPlanRemove(t *testing.T) {
-	plan, err := PlanRemove(scconfig.LoadAdminFromEnv(), RemoveRequest{Hostname: "App.Example.COM."})
+func TestPlanDelete(t *testing.T) {
+	plan, err := PlanDelete(scconfig.LoadAdminFromEnv(), DeleteRequest{Hostname: "App.Example.COM."})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Hostname != "app.example.com" {
 		t.Fatalf("Hostname = %q", plan.Hostname)
 	}
-	if plan.ProjectPrefix != "sc" {
-		t.Fatalf("ProjectPrefix = %q", plan.ProjectPrefix)
+	if plan.IncusProjectPrefix != "sc" {
+		t.Fatalf("IncusProjectPrefix = %q", plan.IncusProjectPrefix)
 	}
 	if !plan.RequiresBroker {
 		t.Fatal("expected broker requirement")
@@ -164,9 +164,9 @@ func TestProfileName(t *testing.T) {
 	}
 }
 
-func projectStoreForTest(t *testing.T) project.MemoryStore {
+func tenantStoreForTest(t *testing.T) tenant.MemoryStore {
 	t.Helper()
-	return projectStoreForTemplate(t, "ai")
+	return tenantStoreForTemplate(t, "ai")
 }
 
 func routeAdminForTest() scconfig.Admin {
@@ -175,7 +175,7 @@ func routeAdminForTest() scconfig.Admin {
 	return admin
 }
 
-func projectStoreForTemplate(t *testing.T, template string) project.MemoryStore {
+func tenantStoreForTemplate(t *testing.T, template string) tenant.MemoryStore {
 	t.Helper()
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -185,5 +185,5 @@ func projectStoreForTemplate(t *testing.T, template string) project.MemoryStore 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-acme", Config: configMap}}}
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{{Name: "sc-acme", Config: configMap}}}
 }

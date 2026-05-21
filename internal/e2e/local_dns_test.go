@@ -12,7 +12,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestLocalDNSInstallForwardRefreshUninstallE2E(t *testing.T) {
@@ -30,15 +30,15 @@ func TestLocalDNSInstallForwardRefreshUninstallE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	name := safeProjectName("dns-" + runID)
+	name := safeTenantResourceName("dns-" + runID)
 	domain := name
 	ref := name
-	store := localDNSProjectStore(t, name, name, domain)
+	store := localDNSTenantStore(t, name, name, domain)
 	adminConfig := config.Admin{
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: config.DefaultBaseImageAlias,
@@ -116,21 +116,21 @@ func TestLocalDNSInstallForwardRefreshUninstallE2E(t *testing.T) {
 	}
 }
 
-func localDNSProjectStore(t *testing.T, owner string, name string, domain string) project.MemoryStore {
+func localDNSTenantStore(t *testing.T, fallbackTenant string, name string, domain string) tenant.MemoryStore {
 	t.Helper()
-	tenant := name
-	if tenant == "" {
-		tenant = owner
+	tenantName := name
+	if tenantName == "" {
+		tenantName = fallbackTenant
 	}
 	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      tenant,
+		Tenant:      tenantName,
 		Projects:    []meta.Project{{Name: "default"}},
 		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-" + tenant, Config: configMap}}}
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{{Name: "sc-" + tenantName, Config: configMap}}}
 }
 
 func startE2EUDPResponder(t *testing.T, response []byte) string {
@@ -245,15 +245,15 @@ func TestLocalDNSServiceInstallReloadUninstallE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	name := safeProjectName("dns-service-" + runID)
+	name := safeTenantResourceName("dns-service-" + runID)
 	domain := name
 	ref := name
-	store := localDNSProjectStore(t, name, name, domain)
+	store := localDNSTenantStore(t, name, name, domain)
 	adminConfig := config.Admin{
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: config.DefaultBaseImageAlias,

@@ -14,15 +14,15 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-type SandboxCreateServer interface {
-	UseProject(name string) SandboxResourceServer
+type MachineCreateServer interface {
+	UseProject(name string) MachineResourceServer
 }
 
-type SandboxResourceServer interface {
+type MachineResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
@@ -33,31 +33,31 @@ type SandboxResourceServer interface {
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
-type SandboxCreator struct {
+type MachineCreator struct {
 	Remote     string
 	ConfigPath string
-	Server     SandboxCreateServer
+	Server     MachineCreateServer
 	Log        func(string)
 }
 
-func NewSandboxCreator(remote string) SandboxCreator {
-	return SandboxCreator{Remote: remote}
+func NewMachineCreator(remote string) MachineCreator {
+	return MachineCreator{Remote: remote}
 }
 
-func (c SandboxCreator) WithVerbose(enabled bool, w io.Writer) SandboxCreator {
+func (c MachineCreator) WithVerbose(enabled bool, w io.Writer) MachineCreator {
 	if enabled {
-		c.Log = func(msg string) { fmt.Fprintln(w, "[sandbox-create] "+msg) }
+		c.Log = func(msg string) { fmt.Fprintln(w, "[machine-create] "+msg) }
 	}
 	return c
 }
 
-func (c SandboxCreator) log(msg string) {
+func (c MachineCreator) log(msg string) {
 	if c.Log != nil {
 		c.Log(msg)
 	}
 }
 
-func (c SandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePlan) error {
+func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePlan) error {
 	server := c.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
@@ -73,7 +73,7 @@ func (c SandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePl
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkSandboxServer{inner: instanceServer}
+		server = sdkMachineServer{inner: instanceServer}
 	}
 	c.log("use project " + plan.Tenant.IncusName)
 	projectServer := server.UseProject(plan.Tenant.IncusName)
@@ -84,46 +84,46 @@ func (c SandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePl
 			c.log("start instance " + plan.InstanceName)
 			op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
 			if err != nil {
-				return fmt.Errorf("start sandbox %s: %w", plan.InstanceName, err)
+				return fmt.Errorf("start machine %s: %w", plan.InstanceName, err)
 			}
 			if err := op.Wait(); err != nil {
 				return err
 			}
 		}
-		c.log("ensure sandbox files for " + plan.InstanceName)
-		return ensureSandboxFiles(projectServer, plan)
+		c.log("ensure machine files for " + plan.InstanceName)
+		return ensureMachineFiles(projectServer, plan)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
-		return fmt.Errorf("get sandbox %s: %w", plan.InstanceName, err)
+		return fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
 	}
-	if err := ensureSandboxStorageDirs(projectServer, plan); err != nil {
+	if err := ensureMachineStorageDirs(projectServer, plan); err != nil {
 		return err
 	}
 	c.log("create instance " + plan.InstanceName + " (image: " + plan.ImageAlias + ")")
-	op, err := projectServer.CreateInstance(sandboxRequest(plan))
+	op, err := projectServer.CreateInstance(machineRequest(plan))
 	if err != nil {
-		return fmt.Errorf("create sandbox %s: %w", plan.InstanceName, err)
+		return fmt.Errorf("create machine %s: %w", plan.InstanceName, err)
 	}
 	if err := op.Wait(); err != nil {
 		return err
 	}
-	c.log("ensure sandbox files for " + plan.InstanceName)
-	return ensureSandboxFiles(projectServer, plan)
+	c.log("ensure machine files for " + plan.InstanceName)
+	return ensureMachineFiles(projectServer, plan)
 }
 
-func ensureSandboxStorageDirs(server SandboxResourceServer, plan sandbox.CreatePlan) error {
-	var helperDirs []sandboxStorageDir
-	for _, volumeDir := range []sandboxStorageDir{
-		{volume: project.HomeVolumeName, path: plan.HomeDir},
-		{volume: project.WorkspaceVolumeName, path: plan.WorkspaceDir},
+func ensureMachineStorageDirs(server MachineResourceServer, plan machine.CreatePlan) error {
+	var helperDirs []machineStorageDir
+	for _, volumeDir := range []machineStorageDir{
+		{volume: tenant.HomeVolumeName, path: plan.HomeDir},
+		{volume: tenant.WorkspaceVolumeName, path: plan.WorkspaceDir},
 	} {
 		if volumeDir.path == "" || volumeDir.path == "." {
 			continue
 		}
 		err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", volumeDir.volume, volumeDir.path, incus.InstanceFileArgs{
 			Type: "directory",
-			UID:  int64(sandbox.DefaultLinuxUID),
-			GID:  int64(sandbox.DefaultLinuxGID),
+			UID:  int64(machine.DefaultLinuxUID),
+			GID:  int64(machine.DefaultLinuxGID),
 			Mode: 0o755,
 		})
 		if api.StatusErrorCheck(err, http.StatusNotFound) {
@@ -131,33 +131,33 @@ func ensureSandboxStorageDirs(server SandboxResourceServer, plan sandbox.CreateP
 			continue
 		}
 		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
-			return fmt.Errorf("create sandbox storage directory %s/%s: %w", volumeDir.volume, volumeDir.path, err)
+			return fmt.Errorf("create machine storage directory %s/%s: %w", volumeDir.volume, volumeDir.path, err)
 		}
 	}
 	if len(helperDirs) > 0 {
-		return ensureSandboxStorageDirsWithHelper(server, plan, helperDirs)
+		return ensureMachineStorageDirsWithHelper(server, plan, helperDirs)
 	}
 	return nil
 }
 
-type sandboxStorageDir struct {
+type machineStorageDir struct {
 	volume string
 	path   string
 }
 
-func ensureSandboxStorageDirsWithHelper(server SandboxResourceServer, plan sandbox.CreatePlan, dirs []sandboxStorageDir) error {
-	name := sandboxStorageHelperName(plan.InstanceName)
-	_ = deleteSandboxStorageHelper(server, name)
-	helper := sandboxStorageHelperRequest(plan, name)
+func ensureMachineStorageDirsWithHelper(server MachineResourceServer, plan machine.CreatePlan, dirs []machineStorageDir) error {
+	name := machineStorageHelperName(plan.InstanceName)
+	_ = deleteMachineStorageHelper(server, name)
+	helper := machineStorageHelperRequest(plan, name)
 	op, err := server.CreateInstance(helper)
 	if err != nil {
-		return fmt.Errorf("create sandbox storage helper %s: %w", name, err)
+		return fmt.Errorf("create machine storage helper %s: %w", name, err)
 	}
 	if err := op.Wait(); err != nil {
-		_ = deleteSandboxStorageHelper(server, name)
-		return fmt.Errorf("wait for sandbox storage helper %s: %w", name, err)
+		_ = deleteMachineStorageHelper(server, name)
+		return fmt.Errorf("wait for machine storage helper %s: %w", name, err)
 	}
-	defer deleteSandboxStorageHelper(server, name)
+	defer deleteMachineStorageHelper(server, name)
 
 	var commands []string
 	for _, dir := range dirs {
@@ -173,16 +173,16 @@ func ensureSandboxStorageDirsWithHelper(server SandboxResourceServer, plan sandb
 		DataDone: dataDone,
 	})
 	if err != nil {
-		return fmt.Errorf("create sandbox storage directories with helper %s: %w", name, err)
+		return fmt.Errorf("create machine storage directories with helper %s: %w", name, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for sandbox storage helper %s directory creation: %w", name, err)
+		return fmt.Errorf("wait for machine storage helper %s directory creation: %w", name, err)
 	}
 	<-dataDone
 	return nil
 }
 
-func sandboxStorageHelperRequest(plan sandbox.CreatePlan, name string) api.InstancesPost {
+func machineStorageHelperRequest(plan machine.CreatePlan, name string) api.InstancesPost {
 	return api.InstancesPost{
 		Name:  name,
 		Type:  "container",
@@ -201,13 +201,13 @@ func sandboxStorageHelperRequest(plan sandbox.CreatePlan, name string) api.Insta
 				"home": {
 					"type":   "disk",
 					"pool":   plan.StoragePool,
-					"source": project.HomeVolumeName,
+					"source": tenant.HomeVolumeName,
 					"path":   "/mnt/home",
 				},
 				"workspace": {
 					"type":   "disk",
 					"pool":   plan.StoragePool,
-					"source": project.WorkspaceVolumeName,
+					"source": tenant.WorkspaceVolumeName,
 					"path":   "/mnt/workspace",
 				},
 			},
@@ -215,7 +215,7 @@ func sandboxStorageHelperRequest(plan sandbox.CreatePlan, name string) api.Insta
 	}
 }
 
-func deleteSandboxStorageHelper(server SandboxResourceServer, name string) error {
+func deleteMachineStorageHelper(server MachineResourceServer, name string) error {
 	stopOp, stopErr := server.UpdateInstanceState(name, api.InstanceStatePut{Action: "stop", Timeout: -1, Force: true}, "")
 	if stopErr == nil {
 		_ = stopOp.Wait()
@@ -224,19 +224,19 @@ func deleteSandboxStorageHelper(server SandboxResourceServer, name string) error
 	if api.StatusErrorCheck(err, http.StatusNotFound) {
 		return nil
 	}
-	return waitOperation(op, err, "delete sandbox storage helper "+name)
+	return waitOperation(op, err, "delete machine storage helper "+name)
 }
 
-func sandboxStorageHelperName(instanceName string) string {
+func machineStorageHelperName(instanceName string) string {
 	sum := sha256.Sum256([]byte(instanceName))
 	return fmt.Sprintf("sc-storage-init-%x", sum[:6])
 }
 
 func storageHelperMountName(volume string) string {
 	switch volume {
-	case project.HomeVolumeName:
+	case tenant.HomeVolumeName:
 		return "home"
-	case project.WorkspaceVolumeName:
+	case tenant.WorkspaceVolumeName:
 		return "workspace"
 	default:
 		return volume
@@ -247,19 +247,19 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
-func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) error {
-	if err := bootstrapSandboxUser(server, plan); err != nil {
+func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan) error {
+	if err := bootstrapMachineUser(server, plan); err != nil {
 		return err
 	}
 	if plan.Tenant.DNSAddress != "" {
-		if err := writeSandboxResolvConf(server, plan.InstanceName, plan.Tenant.DNSAddress); err != nil {
-			return fmt.Errorf("write sandbox resolv.conf: %w", err)
+		if err := writeMachineResolvConf(server, plan.InstanceName, plan.Tenant.DNSAddress); err != nil {
+			return fmt.Errorf("write machine resolv.conf: %w", err)
 		}
 	}
 	certificateFiles := plan.CertificateFiles
 	if len(certificateFiles) == 0 {
 		var err error
-		certificateFiles, err = issueSandboxCertificateFilesFromProjectCA(server, plan)
+		certificateFiles, err = issueMachineCertificateFilesFromProjectCA(server, plan)
 		if err != nil {
 			return err
 		}
@@ -274,10 +274,10 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 			Mode: 0o755,
 		})
 		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
-			return fmt.Errorf("create sandbox config directory %s: %w", directory, err)
+			return fmt.Errorf("create machine config directory %s: %w", directory, err)
 		}
 	}
-	if err := server.CreateInstanceFile(plan.InstanceName, "/etc/systemd/system/caddy.service.d/sandbox.conf", incus.InstanceFileArgs{
+	if err := server.CreateInstanceFile(plan.InstanceName, "/etc/systemd/system/caddy.service.d/machine.conf", incus.InstanceFileArgs{
 		Content:   strings.NewReader("[Service]\nUser=root\nGroup=root\n"),
 		Type:      "file",
 		Mode:      0o644,
@@ -291,7 +291,7 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 		Mode:      plan.CaddyFile.Mode,
 		WriteMode: "overwrite",
 	}); err != nil {
-		return fmt.Errorf("write sandbox Caddyfile %s: %w", plan.CaddyFile.Path, err)
+		return fmt.Errorf("write machine Caddyfile %s: %w", plan.CaddyFile.Path, err)
 	}
 	for _, file := range certificateFiles {
 		if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
@@ -300,17 +300,17 @@ func ensureSandboxFiles(server SandboxResourceServer, plan sandbox.CreatePlan) e
 			Mode:      file.Mode,
 			WriteMode: "overwrite",
 		}); err != nil {
-			return fmt.Errorf("write sandbox certificate file %s: %w", file.Path, err)
+			return fmt.Errorf("write machine certificate file %s: %w", file.Path, err)
 		}
 	}
-	ipWithPrefix, gateway, err := sandboxNetworkParams(plan)
+	ipWithPrefix, gateway, err := machineNetworkParams(plan)
 	if err != nil {
 		return err
 	}
-	return restartSandboxCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
+	return restartMachineCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
 }
 
-func writeSandboxResolvConf(server SandboxResourceServer, instanceName string, dnsAddress string) error {
+func writeMachineResolvConf(server MachineResourceServer, instanceName string, dnsAddress string) error {
 	content := "nameserver " + dnsAddress + "\n"
 	err := server.CreateInstanceFile(instanceName, "/etc/resolv.conf", incus.InstanceFileArgs{
 		Content:   strings.NewReader(content),
@@ -339,13 +339,13 @@ func writeSandboxResolvConf(server SandboxResourceServer, instanceName string, d
 	return nil
 }
 
-func sandboxNetworkParams(plan sandbox.CreatePlan) (string, string, error) {
+func machineNetworkParams(plan machine.CreatePlan) (string, string, error) {
 	if plan.PrivateIP == "" || plan.Tenant.PrivateCIDR == "" {
-		return "", "", fmt.Errorf("sandbox plan missing private IP or CIDR")
+		return "", "", fmt.Errorf("machine plan missing private IP or CIDR")
 	}
 	prefix, err := netip.ParsePrefix(plan.Tenant.PrivateCIDR)
 	if err != nil {
-		return "", "", fmt.Errorf("parse sandbox CIDR %s: %w", plan.Tenant.PrivateCIDR, err)
+		return "", "", fmt.Errorf("parse machine CIDR %s: %w", plan.Tenant.PrivateCIDR, err)
 	}
 	ipWithPrefix := plan.PrivateIP + fmt.Sprintf("/%d", prefix.Bits())
 	base := prefix.Masked().Addr().As4()
@@ -354,14 +354,14 @@ func sandboxNetworkParams(plan sandbox.CreatePlan) (string, string, error) {
 	return ipWithPrefix, gateway, nil
 }
 
-func bootstrapSandboxUser(server SandboxResourceServer, plan sandbox.CreatePlan) error {
+func bootstrapMachineUser(server MachineResourceServer, plan machine.CreatePlan) error {
 	dataDone := make(chan bool)
 	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
 		Command: []string{"/usr/local/bin/sandcastle-bootstrap"},
 		Environment: map[string]string{
 			"SANDCASTLE_USER":           plan.LinuxUser,
-			"SANDCASTLE_UID":            fmt.Sprintf("%d", sandbox.DefaultLinuxUID),
-			"SANDCASTLE_GID":            fmt.Sprintf("%d", sandbox.DefaultLinuxGID),
+			"SANDCASTLE_UID":            fmt.Sprintf("%d", machine.DefaultLinuxUID),
+			"SANDCASTLE_GID":            fmt.Sprintf("%d", machine.DefaultLinuxGID),
 			"SANDCASTLE_SSH_PUBLIC_KEY": plan.SSHPublicKey,
 		},
 		WaitForWS: true,
@@ -370,20 +370,20 @@ func bootstrapSandboxUser(server SandboxResourceServer, plan sandbox.CreatePlan)
 		DataDone: dataDone,
 	})
 	if err != nil {
-		return fmt.Errorf("bootstrap sandbox user %s in %s: %w", plan.LinuxUser, plan.InstanceName, err)
+		return fmt.Errorf("bootstrap machine user %s in %s: %w", plan.LinuxUser, plan.InstanceName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for sandbox user bootstrap in %s: %w", plan.InstanceName, err)
+		return fmt.Errorf("wait for machine user bootstrap in %s: %w", plan.InstanceName, err)
 	}
 	<-dataDone
 	return nil
 }
 
-type sandboxCaddyRestarter interface {
+type machineCaddyRestarter interface {
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
-func restartSandboxCaddy(server sandboxCaddyRestarter, instanceName string, privateIPWithPrefix string, gateway string) error {
+func restartMachineCaddy(server machineCaddyRestarter, instanceName string, privateIPWithPrefix string, gateway string) error {
 	var cmds []string
 	if privateIPWithPrefix != "" && gateway != "" {
 		cmds = append(cmds,
@@ -410,32 +410,32 @@ func restartSandboxCaddy(server sandboxCaddyRestarter, instanceName string, priv
 		DataDone: dataDone,
 	})
 	if err != nil {
-		return fmt.Errorf("restart sandbox Caddy in %s: %w", instanceName, err)
+		return fmt.Errorf("restart machine Caddy in %s: %w", instanceName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for sandbox Caddy restart in %s (stderr: %s): %w", instanceName, stderr.String(), err)
+		return fmt.Errorf("wait for machine Caddy restart in %s (stderr: %s): %w", instanceName, stderr.String(), err)
 	}
 	<-dataDone
 	return nil
 }
 
-func issueSandboxCertificateFilesFromProjectCA(server SandboxResourceServer, plan sandbox.CreatePlan) ([]sandbox.File, error) {
-	caCertPEM, err := readProjectCAFile(server, plan, project.TenantCACertPath)
+func issueMachineCertificateFilesFromProjectCA(server MachineResourceServer, plan machine.CreatePlan) ([]machine.File, error) {
+	caCertPEM, err := readProjectCAFile(server, plan, tenant.TenantCACertPath)
 	if err != nil {
-		return nil, fmt.Errorf("read project CA certificate: %w", err)
+		return nil, fmt.Errorf("read tenant CA certificate: %w", err)
 	}
-	caKeyPEM, err := readProjectCAFile(server, plan, project.TenantCAKeyPath)
+	caKeyPEM, err := readProjectCAFile(server, plan, tenant.TenantCAKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("read project CA private key: %w", err)
+		return nil, fmt.Errorf("read tenant CA private key: %w", err)
 	}
-	files, err := sandbox.IssueCertificateFiles(plan.Name, plan.Project, plan.Tenant.DNSSuffix, caCertPEM, caKeyPEM)
+	files, err := machine.IssueCertificateFiles(plan.Name, plan.Project, plan.Tenant.DNSSuffix, caCertPEM, caKeyPEM)
 	if err != nil {
 		return nil, err
 	}
 	return files, nil
 }
 
-func readProjectCAFile(server SandboxResourceServer, plan sandbox.CreatePlan, path string) ([]byte, error) {
+func readProjectCAFile(server MachineResourceServer, plan machine.CreatePlan, path string) ([]byte, error) {
 	content, _, err := server.GetStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, path)
 	if err != nil {
 		return nil, err
@@ -444,7 +444,7 @@ func readProjectCAFile(server SandboxResourceServer, plan sandbox.CreatePlan, pa
 	return io.ReadAll(content)
 }
 
-func sandboxRequest(plan sandbox.CreatePlan) api.InstancesPost {
+func machineRequest(plan machine.CreatePlan) api.InstancesPost {
 	config := map[string]string{}
 	for key, value := range plan.MetadataConfig {
 		config[key] = value
@@ -464,15 +464,15 @@ func sandboxRequest(plan sandbox.CreatePlan) api.InstancesPost {
 			Alias: plan.ImageAlias,
 		},
 		InstancePut: api.InstancePut{
-			Description: "Sandcastle sandbox " + plan.Reference,
+			Description: "Sandcastle machine " + plan.Reference,
 			Config:      api.ConfigMap(config),
-			Devices:     sandboxDevicesMap(plan.Devices),
+			Devices:     machineDevicesMap(plan.Devices),
 			Profiles:    []string{},
 		},
 	}
 }
 
-func sandboxDevicesMap(devices map[string]sandbox.Device) api.DevicesMap {
+func machineDevicesMap(devices map[string]machine.Device) api.DevicesMap {
 	output := make(api.DevicesMap, len(devices))
 	for name, device := range devices {
 		output[name] = map[string]string(device)
@@ -480,47 +480,47 @@ func sandboxDevicesMap(devices map[string]sandbox.Device) api.DevicesMap {
 	return output
 }
 
-type sdkSandboxServer struct {
+type sdkMachineServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkSandboxServer) UseProject(name string) SandboxResourceServer {
-	return sdkSandboxResourceServer{inner: s.inner.UseProject(name), projectName: name}
+func (s sdkMachineServer) UseProject(name string) MachineResourceServer {
+	return sdkMachineResourceServer{inner: s.inner.UseProject(name), projectName: name}
 }
 
-type sdkSandboxResourceServer struct {
+type sdkMachineResourceServer struct {
 	inner       incus.InstanceServer
 	projectName string
 }
 
-func (s sdkSandboxResourceServer) GetInstance(name string) (*api.Instance, string, error) {
+func (s sdkMachineResourceServer) GetInstance(name string) (*api.Instance, string, error) {
 	return s.inner.GetInstance(name)
 }
 
-func (s sdkSandboxResourceServer) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
+func (s sdkMachineResourceServer) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
 	return s.inner.CreateInstance(instance)
 }
 
-func (s sdkSandboxResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
+func (s sdkMachineResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {
 	return s.inner.UpdateInstanceState(name, state, etag)
 }
 
-func (s sdkSandboxResourceServer) DeleteInstance(name string) (incus.Operation, error) {
+func (s sdkMachineResourceServer) DeleteInstance(name string) (incus.Operation, error) {
 	return s.inner.DeleteInstance(name)
 }
 
-func (s sdkSandboxResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
+func (s sdkMachineResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
 	return s.inner.CreateInstanceFile(instanceName, path, args)
 }
 
-func (s sdkSandboxResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+func (s sdkMachineResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
 	return createStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath, args)
 }
 
-func (s sdkSandboxResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+func (s sdkMachineResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
 	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
 }
 
-func (s sdkSandboxResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+func (s sdkMachineResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	return s.inner.ExecInstance(instanceName, exec, args)
 }

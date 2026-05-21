@@ -5,25 +5,25 @@ import (
 	"net/netip"
 )
 
-const DefaultProjectPrefixBits = 24
+const DefaultTenantPrefixBits = 24
 
-func Allocate(pool string, projectPrefixBits int, occupied []string) (netip.Prefix, error) {
+func Allocate(pool string, tenantPrefixBits int, occupied []string) (netip.Prefix, error) {
 	poolPrefix, err := netip.ParsePrefix(pool)
 	if err != nil {
 		return netip.Prefix{}, fmt.Errorf("parse CIDR pool: %w", err)
 	}
 	poolPrefix = poolPrefix.Masked()
 	if !poolPrefix.Addr().Is4() {
-		return netip.Prefix{}, fmt.Errorf("only IPv4 project pools are supported")
+		return netip.Prefix{}, fmt.Errorf("only IPv4 tenant pools are supported")
 	}
-	if projectPrefixBits == 0 {
-		projectPrefixBits = DefaultProjectPrefixBits
+	if tenantPrefixBits == 0 {
+		tenantPrefixBits = DefaultTenantPrefixBits
 	}
-	if projectPrefixBits < poolPrefix.Bits() {
-		return netip.Prefix{}, fmt.Errorf("project prefix /%d is larger than pool %s", projectPrefixBits, poolPrefix)
+	if tenantPrefixBits < poolPrefix.Bits() {
+		return netip.Prefix{}, fmt.Errorf("tenant prefix /%d is larger than pool %s", tenantPrefixBits, poolPrefix)
 	}
-	if projectPrefixBits > 30 {
-		return netip.Prefix{}, fmt.Errorf("project prefix /%d leaves too few host addresses", projectPrefixBits)
+	if tenantPrefixBits > 30 {
+		return netip.Prefix{}, fmt.Errorf("tenant prefix /%d leaves too few host addresses", tenantPrefixBits)
 	}
 
 	occupiedPrefixes, err := parseOccupied(occupied)
@@ -31,11 +31,11 @@ func Allocate(pool string, projectPrefixBits int, occupied []string) (netip.Pref
 		return netip.Prefix{}, err
 	}
 
-	step := uint32(1) << (32 - projectPrefixBits)
+	step := uint32(1) << (32 - tenantPrefixBits)
 	start := addrToUint32(poolPrefix.Addr())
 	end := start + (uint32(1) << (32 - poolPrefix.Bits()))
 	for current := start; current < end; current += step {
-		candidate := netip.PrefixFrom(uint32ToAddr(current), projectPrefixBits).Masked()
+		candidate := netip.PrefixFrom(uint32ToAddr(current), tenantPrefixBits).Masked()
 		if !prefixContainsPrefix(poolPrefix, candidate) {
 			continue
 		}
@@ -44,17 +44,17 @@ func Allocate(pool string, projectPrefixBits int, occupied []string) (netip.Pref
 		}
 		return candidate, nil
 	}
-	return netip.Prefix{}, fmt.Errorf("CIDR pool %s is exhausted for /%d projects", poolPrefix, projectPrefixBits)
+	return netip.Prefix{}, fmt.Errorf("CIDR pool %s is exhausted for /%d tenants", poolPrefix, tenantPrefixBits)
 }
 
-func RoleAddress(project netip.Prefix, hostOctet byte) (netip.Addr, error) {
-	if !project.Addr().Is4() || project.Bits() > 24 {
-		return netip.Addr{}, fmt.Errorf("role addresses require an IPv4 project prefix of /24 or larger")
+func RoleAddress(tenant netip.Prefix, hostOctet byte) (netip.Addr, error) {
+	if !tenant.Addr().Is4() || tenant.Bits() > 24 {
+		return netip.Addr{}, fmt.Errorf("role addresses require an IPv4 tenant prefix of /24 or larger")
 	}
-	base := addrToUint32(project.Masked().Addr())
+	base := addrToUint32(tenant.Masked().Addr())
 	addr := uint32ToAddr(base + uint32(hostOctet))
-	if !project.Contains(addr) {
-		return netip.Addr{}, fmt.Errorf("host octet %d is outside %s", hostOctet, project)
+	if !tenant.Contains(addr) {
+		return netip.Addr{}, fmt.Errorf("host octet %d is outside %s", hostOctet, tenant)
 	}
 	return addr, nil
 }

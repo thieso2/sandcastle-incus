@@ -192,10 +192,10 @@ func ValidateMachineName(name string) error {
 
 func ValidateIncusProjectPrefix(prefix string) error {
 	if strings.TrimSpace(prefix) == "" {
-		return fmt.Errorf("project prefix is required")
+		return fmt.Errorf("incus project prefix is required")
 	}
 	if !safeNamePattern.MatchString(prefix) {
-		return fmt.Errorf("invalid project prefix %q", prefix)
+		return fmt.Errorf("invalid incus project prefix %q", prefix)
 	}
 	return nil
 }

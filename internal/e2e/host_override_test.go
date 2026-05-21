@@ -12,8 +12,8 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestHostOverrideE2E(t *testing.T) {
@@ -32,10 +32,10 @@ func TestHostOverrideE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	tenant := safeProjectName("tenant-" + runID)
-	sandboxName := safeProjectName("box-" + runID)
-	ref := tenant
-	sandboxRef := sandboxName
+	tenantName := safeTenantResourceName("tenant-" + runID)
+	machineName := safeTenantResourceName("box-" + runID)
+	ref := tenantName
+	machineRef := machineName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-host"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-host"
 	adminConfig := config.Admin{
@@ -43,7 +43,7 @@ func TestHostOverrideE2E(t *testing.T) {
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: baseAlias,
@@ -62,52 +62,52 @@ func TestHostOverrideE2E(t *testing.T) {
 	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
-	store := incusx.NewProjectStore(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
-	creator := incusx.NewProjectCreator(e2eConfig.Remote)
-	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	store := incusx.NewTenantStore(e2eConfig.Remote)
+	registerTenantDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
+	creator := incusx.NewTenantCreator(e2eConfig.Remote)
+	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
+	deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+		if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
 
-	existing, err := project.List(ctx, store)
+	existing, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createTenantPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createTenantPlan); err != nil {
 		t.Fatal(err)
 	}
 
-	sandboxStore := incusx.NewHostOverrideManager(e2eConfig.Remote)
-	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: sandboxRef})
+	machineStore := incusx.NewHostOverrideManager(e2eConfig.Remote)
+	createMachinePlan, err := machine.PlanCreate(ctx, adminConfig, store, machineStore, machine.CreateRequest{Reference: machineRef})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, createSandboxPlan); err != nil {
+	if err := incusx.NewMachineCreator(e2eConfig.Remote).CreateMachine(ctx, createMachinePlan); err != nil {
 		t.Fatal(err)
 	}
-	projectServer := server.UseProject(createProjectPlan.IncusProject)
+	projectServer := server.UseProject(createTenantPlan.IncusProject)
 	overrideHost := "app-" + safeToken(runID) + ".override.test"
-	hostname := sandboxName + ".default." + createProjectPlan.DNSSuffix
-	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-host-override")
-	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-host-override")
+	hostname := machineName + ".default." + createTenantPlan.DNSSuffix
+	startMachineHTTPApp(t, projectServer, createMachinePlan.InstanceName, createMachinePlan.AppPort, "sandcastle-host-override")
+	assertMachineCaddyProxy(t, projectServer, createMachinePlan.InstanceName, hostname, "sandcastle-host-override")
 
 	hostsPath := filepath.Join(t.TempDir(), "hosts")
 	if err := os.WriteFile(hostsPath, []byte("127.0.0.1 localhost\n"), 0o644); err != nil {
@@ -115,8 +115,8 @@ func TestHostOverrideE2E(t *testing.T) {
 	}
 	hostsManager := hostoverride.FileHostsManager{Path: hostsPath}
 	overrideManager := incusx.NewHostOverrideManager(e2eConfig.Remote)
-	addPlan, err := hostoverride.PlanAdd(ctx, adminConfig, store, sandboxStore, hostoverride.AddRequest{
-		Reference: sandboxRef,
+	addPlan, err := hostoverride.PlanAdd(ctx, adminConfig, store, machineStore, hostoverride.AddRequest{
+		Reference: machineRef,
 		Hostname:  overrideHost,
 	})
 	if err != nil {
@@ -129,10 +129,10 @@ func TestHostOverrideE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertHostsFileContains(t, hostsPath, overrideHost)
-	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, overrideHost, "sandcastle-host-override")
-	assertCertificateForHost(t, readInstanceFile(t, projectServer, createSandboxPlan.InstanceName, sandbox.MachineCertPath), overrideHost)
+	assertMachineCaddyProxy(t, projectServer, createMachinePlan.InstanceName, overrideHost, "sandcastle-host-override")
+	assertCertificateForHost(t, readInstanceFile(t, projectServer, createMachinePlan.InstanceName, machine.MachineCertPath), overrideHost)
 
-	listResult, err := hostoverride.PlanList(ctx, adminConfig, store, sandboxStore, hostoverride.ListRequest{Reference: ref})
+	listResult, err := hostoverride.PlanList(ctx, adminConfig, store, machineStore, hostoverride.ListRequest{Reference: ref})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,26 +140,26 @@ func TestHostOverrideE2E(t *testing.T) {
 		t.Fatalf("host override list missing %s: %#v", overrideHost, listResult.Overrides)
 	}
 
-	removePlan, err := hostoverride.PlanRemove(ctx, adminConfig, store, sandboxStore, hostoverride.RemoveRequest{
-		Reference: sandboxRef,
+	overrideDeletePlan, err := hostoverride.PlanDelete(ctx, adminConfig, store, machineStore, hostoverride.DeleteRequest{
+		Reference: machineRef,
 		Hostname:  overrideHost,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := overrideManager.Remove(ctx, removePlan); err != nil {
+	if err := overrideManager.Delete(ctx, overrideDeletePlan); err != nil {
 		t.Fatal(err)
 	}
-	if err := hostsManager.RemoveHostsEntry(ctx, removePlan); err != nil {
+	if err := hostsManager.RemoveHostsEntry(ctx, overrideDeletePlan); err != nil {
 		t.Fatal(err)
 	}
 	assertHostsFileMissing(t, hostsPath, overrideHost)
-	caddyfile := readInstanceFile(t, projectServer, createSandboxPlan.InstanceName, sandbox.CaddyfilePath)
+	caddyfile := readInstanceFile(t, projectServer, createMachinePlan.InstanceName, machine.CaddyfilePath)
 	if strings.Contains(caddyfile, overrideHost) {
-		t.Fatalf("sandbox Caddyfile still contains removed override %q: %q", overrideHost, caddyfile)
+		t.Fatalf("machine Caddyfile still contains deleted override %q: %q", overrideHost, caddyfile)
 	}
-	assertCertificateNotForHost(t, readInstanceFile(t, projectServer, createSandboxPlan.InstanceName, sandbox.MachineCertPath), overrideHost)
-	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-host-override")
+	assertCertificateNotForHost(t, readInstanceFile(t, projectServer, createMachinePlan.InstanceName, machine.MachineCertPath), overrideHost)
+	assertMachineCaddyProxy(t, projectServer, createMachinePlan.InstanceName, hostname, "sandcastle-host-override")
 }
 
 func TestHostOverrideHostsFileE2E(t *testing.T) {
@@ -181,14 +181,14 @@ func TestHostOverrideHostsFileE2E(t *testing.T) {
 	manager := hostoverride.NewFileHostsManager("")
 	ctx := context.Background()
 
-	removePlan := hostoverride.RemovePlan{HostsEntry: entry}
-	_ = manager.RemoveHostsEntry(ctx, removePlan)
+	deletePlan := hostoverride.DeletePlan{HostsEntry: entry}
+	_ = manager.RemoveHostsEntry(ctx, deletePlan)
 	added := false
 	t.Cleanup(func() {
 		if !added {
 			return
 		}
-		if err := manager.RemoveHostsEntry(context.Background(), removePlan); err != nil {
+		if err := manager.RemoveHostsEntry(context.Background(), deletePlan); err != nil {
 			t.Logf("hosts cleanup failed: %v", err)
 		}
 	})
@@ -201,7 +201,7 @@ func TestHostOverrideHostsFileE2E(t *testing.T) {
 	assertHostsFileContains(t, hostoverride.DefaultHostsPath, entry.BeginLine)
 	assertHostsFileContains(t, hostoverride.DefaultHostsPath, entry.EndLine)
 
-	if err := manager.RemoveHostsEntry(ctx, removePlan); err != nil {
+	if err := manager.RemoveHostsEntry(ctx, deletePlan); err != nil {
 		t.Fatal(err)
 	}
 	added = false
@@ -245,13 +245,13 @@ func assertCertificateNotForHost(t *testing.T, certPEM string, hostname string) 
 	t.Helper()
 	block, _ := pem.Decode([]byte(certPEM))
 	if block == nil || block.Type != "CERTIFICATE" {
-		t.Fatalf("sandbox certificate is not a CERTIFICATE PEM block")
+		t.Fatalf("machine certificate is not a CERTIFICATE PEM block")
 	}
 	certificate, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		t.Fatalf("parse sandbox certificate: %v", err)
+		t.Fatalf("parse machine certificate: %v", err)
 	}
 	if err := certificate.VerifyHostname(hostname); err == nil {
-		t.Fatalf("sandbox certificate still verifies removed hostname %q", hostname)
+		t.Fatalf("machine certificate still verifies deleted hostname %q", hostname)
 	}
 }

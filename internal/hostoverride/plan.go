@@ -9,7 +9,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type AddRequest struct {
@@ -17,7 +17,7 @@ type AddRequest struct {
 	Hostname  string
 }
 
-type RemoveRequest struct {
+type DeleteRequest struct {
 	Reference string
 	Hostname  string
 }
@@ -27,37 +27,37 @@ type ListRequest struct {
 }
 
 type AddPlan struct {
-	Reference         string          `json:"reference"`
-	Tenant            project.Summary `json:"tenant"`
-	Machine           meta.Machine    `json:"machine"`
-	InstanceName      string          `json:"instanceName"`
-	StoragePool       string          `json:"storagePool"`
-	CAVolume          string          `json:"caVolume"`
-	Hostname          string          `json:"hostname"`
-	IPAddress         string          `json:"ipAddress"`
-	ExtraSANs         []string        `json:"extraSANs"`
-	HostsEntry        HostsEntry      `json:"hostsEntry"`
-	TrustWarning      string          `json:"trustWarning"`
-	RequiresReissue   bool            `json:"requiresReissue"`
-	RequiresHostsEdit bool            `json:"requiresHostsEdit"`
+	Reference         string         `json:"reference"`
+	Tenant            tenant.Summary `json:"tenant"`
+	Machine           meta.Machine   `json:"machine"`
+	InstanceName      string         `json:"instanceName"`
+	StoragePool       string         `json:"storagePool"`
+	CAVolume          string         `json:"caVolume"`
+	Hostname          string         `json:"hostname"`
+	IPAddress         string         `json:"ipAddress"`
+	ExtraSANs         []string       `json:"extraSANs"`
+	HostsEntry        HostsEntry     `json:"hostsEntry"`
+	TrustWarning      string         `json:"trustWarning"`
+	RequiresReissue   bool           `json:"requiresReissue"`
+	RequiresHostsEdit bool           `json:"requiresHostsEdit"`
 }
 
-type RemovePlan struct {
-	Reference         string          `json:"reference"`
-	Tenant            project.Summary `json:"tenant"`
-	Machine           meta.Machine    `json:"machine"`
-	InstanceName      string          `json:"instanceName"`
-	StoragePool       string          `json:"storagePool"`
-	CAVolume          string          `json:"caVolume"`
-	Hostname          string          `json:"hostname"`
-	HostsEntry        HostsEntry      `json:"hostsEntry"`
-	RequiresReissue   bool            `json:"requiresReissue"`
-	RequiresHostsEdit bool            `json:"requiresHostsEdit"`
+type DeletePlan struct {
+	Reference         string         `json:"reference"`
+	Tenant            tenant.Summary `json:"tenant"`
+	Machine           meta.Machine   `json:"machine"`
+	InstanceName      string         `json:"instanceName"`
+	StoragePool       string         `json:"storagePool"`
+	CAVolume          string         `json:"caVolume"`
+	Hostname          string         `json:"hostname"`
+	HostsEntry        HostsEntry     `json:"hostsEntry"`
+	RequiresReissue   bool           `json:"requiresReissue"`
+	RequiresHostsEdit bool           `json:"requiresHostsEdit"`
 }
 
 type ListResult struct {
-	Tenant    project.Summary `json:"tenant"`
-	Overrides []Override      `json:"overrides"`
+	Tenant    tenant.Summary `json:"tenant"`
+	Overrides []Override     `json:"overrides"`
 }
 
 type Override struct {
@@ -74,16 +74,16 @@ type HostsEntry struct {
 }
 
 type MachineStore interface {
-	FindMachine(ctx context.Context, tenant project.Summary, projectName string, machineName string) (meta.Machine, error)
-	ListMachines(ctx context.Context, tenant project.Summary) ([]meta.Machine, error)
+	FindMachine(ctx context.Context, tenant tenant.Summary, projectName string, machineName string) (meta.Machine, error)
+	ListMachines(ctx context.Context, tenant tenant.Summary) ([]meta.Machine, error)
 }
 
 type Manager interface {
 	Add(context.Context, AddPlan) error
-	Remove(context.Context, RemovePlan) error
+	Delete(context.Context, DeletePlan) error
 }
 
-func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore MachineStore, request AddRequest) (AddPlan, error) {
+func PlanAdd(ctx context.Context, admin config.Admin, tenantStore tenant.IncusTenantStore, machineStore MachineStore, request AddRequest) (AddPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return AddPlan{}, err
 	}
@@ -95,7 +95,7 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	if err != nil {
 		return AddPlan{}, err
 	}
-	summary, err := findTenant(ctx, projectStore, machineRef.Tenant)
+	summary, err := findTenant(ctx, tenantStore, machineRef.Tenant)
 	if err != nil {
 		return AddPlan{}, err
 	}
@@ -123,7 +123,7 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		Machine:           machine,
 		InstanceName:      instanceName,
 		StoragePool:       summary.IncusName,
-		CAVolume:          project.CAVolumeName,
+		CAVolume:          tenant.CAVolumeName,
 		Hostname:          hostname,
 		IPAddress:         machine.PrivateIP,
 		ExtraSANs:         []string{hostname},
@@ -134,41 +134,41 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	}, nil
 }
 
-func PlanRemove(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore MachineStore, request RemoveRequest) (RemovePlan, error) {
+func PlanDelete(ctx context.Context, admin config.Admin, tenantStore tenant.IncusTenantStore, machineStore MachineStore, request DeleteRequest) (DeletePlan, error) {
 	if err := admin.Validate(); err != nil {
-		return RemovePlan{}, err
+		return DeletePlan{}, err
 	}
 	machineRef, err := parseMachineRef(request.Reference, admin.Tenant, admin.Project)
 	if err != nil {
-		return RemovePlan{}, err
+		return DeletePlan{}, err
 	}
 	hostname, err := normalizeExactHostname(request.Hostname)
 	if err != nil {
-		return RemovePlan{}, err
+		return DeletePlan{}, err
 	}
-	summary, err := findTenant(ctx, projectStore, machineRef.Tenant)
+	summary, err := findTenant(ctx, tenantStore, machineRef.Tenant)
 	if err != nil {
-		return RemovePlan{}, err
+		return DeletePlan{}, err
 	}
 	if machineStore == nil {
-		return RemovePlan{}, fmt.Errorf("machine metadata store is required")
+		return DeletePlan{}, fmt.Errorf("machine metadata store is required")
 	}
 	machine, err := machineStore.FindMachine(ctx, summary, machineRef.Project, machineRef.Machine)
 	if err != nil {
-		return RemovePlan{}, err
+		return DeletePlan{}, err
 	}
 	canonicalReference := naming.MachineRef{Tenant: summary.Tenant, Project: machine.Project, Machine: machine.Name}.String()
 	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: machine.Project, Machine: machine.Name})
 	if err != nil {
-		return RemovePlan{}, err
+		return DeletePlan{}, err
 	}
-	return RemovePlan{
+	return DeletePlan{
 		Reference:         canonicalReference,
 		Tenant:            summary,
 		Machine:           machine,
 		InstanceName:      instanceName,
 		StoragePool:       summary.IncusName,
-		CAVolume:          project.CAVolumeName,
+		CAVolume:          tenant.CAVolumeName,
 		Hostname:          hostname,
 		HostsEntry:        RenderHostsEntry(canonicalReference, hostname, machine.PrivateIP),
 		RequiresReissue:   true,
@@ -176,7 +176,7 @@ func PlanRemove(ctx context.Context, admin config.Admin, projectStore project.In
 	}, nil
 }
 
-func PlanList(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore MachineStore, request ListRequest) (ListResult, error) {
+func PlanList(ctx context.Context, admin config.Admin, tenantStore tenant.IncusTenantStore, machineStore MachineStore, request ListRequest) (ListResult, error) {
 	if err := admin.Validate(); err != nil {
 		return ListResult{}, err
 	}
@@ -184,7 +184,7 @@ func PlanList(ctx context.Context, admin config.Admin, projectStore project.Incu
 	if err != nil {
 		return ListResult{}, err
 	}
-	summary, err := findTenant(ctx, projectStore, tenantRef.Tenant)
+	summary, err := findTenant(ctx, tenantStore, tenantRef.Tenant)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -218,7 +218,7 @@ func RenderHostsEntry(reference string, hostname string, ipAddress string) Hosts
 	}
 }
 
-func validateHostnameAvailable(ctx context.Context, machineStore MachineStore, summary project.Summary, projectName string, machineName string, hostname string) error {
+func validateHostnameAvailable(ctx context.Context, machineStore MachineStore, summary tenant.Summary, projectName string, machineName string, hostname string) error {
 	machines, err := machineStore.ListMachines(ctx, summary)
 	if err != nil {
 		return err
@@ -291,15 +291,15 @@ func tenantRef(reference string, currentTenant string) (naming.TenantRef, error)
 	return naming.ParseTenantRef(value)
 }
 
-func findTenant(ctx context.Context, store project.IncusProjectStore, tenantName string) (project.Summary, error) {
-	tenants, err := project.List(ctx, store)
+func findTenant(ctx context.Context, store tenant.IncusTenantStore, tenantName string) (tenant.Summary, error) {
+	tenants, err := tenant.List(ctx, store)
 	if err != nil {
-		return project.Summary{}, err
+		return tenant.Summary{}, err
 	}
 	for _, summary := range tenants {
 		if summary.Tenant == tenantName {
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", tenantName)
+	return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", tenantName)
 }

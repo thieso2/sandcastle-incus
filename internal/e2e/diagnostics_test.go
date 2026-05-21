@@ -9,39 +9,39 @@ import (
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func TestLogProjectDiagnosticsDoesNotFailWithoutMatches(t *testing.T) {
-	logProjectDiagnostics(t, context.Background(), project.MemoryStore{}, "missing")
+func TestLogTenantDiagnosticsDoesNotFailWithoutMatches(t *testing.T) {
+	logTenantDiagnostics(t, context.Background(), tenant.MemoryStore{}, "missing")
 }
 
-func TestLogProjectDiagnosticsWithMatch(t *testing.T) {
-	store := diagnosticProjectStore(t)
-	logProjectDiagnostics(t, context.Background(), store, "e2e-test")
+func TestLogTenantDiagnosticsWithMatch(t *testing.T) {
+	store := diagnosticTenantStore(t)
+	logTenantDiagnostics(t, context.Background(), store, "e2e-test")
 }
 
-func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
-	store := diagnosticProjectStore(t)
-	summaries, err := project.List(context.Background(), store)
+func TestTenantDiagnosticLinesIncludeTopology(t *testing.T) {
+	store := diagnosticTenantStore(t)
+	summaries, err := tenant.List(context.Background(), store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, fakeDiagnosticTopologyStore{
-		topology: project.Topology{
+	lines := tenantDiagnosticLines(context.Background(), summaries, fakeDiagnosticTopologyStore{
+		topology: tenant.Topology{
 			PrivateNetworkPresent: true,
 			TailscaleInstance:     "sc-tenant-e2e-test",
 			DurableVolumes: map[string]bool{
-				project.HomeVolumeName: true,
-				project.CAVolumeName:   true,
+				tenant.HomeVolumeName: true,
+				tenant.CAVolumeName:   true,
 			},
-			Sidecars: map[string]project.SidecarStatus{
+			Sidecars: map[string]tenant.SidecarStatus{
 				"sc-tenant-e2e-test": {Present: true, Running: true, Status: "Running"},
-				project.DNSName:      {Present: true, Running: false, Status: "Stopped"},
+				tenant.DNSName:       {Present: true, Running: false, Status: "Stopped"},
 			},
-			DiagnosticFiles: []project.DiagnosticFile{
-				{Instance: project.DNSName, Path: "/etc/coredns/Corefile", Content: ".:53 {\n  errors\n}"},
-				{Instance: project.DNSName, Path: "/etc/coredns/zones/db.project.e2e.project-tld", Error: "missing"},
+			DiagnosticFiles: []tenant.DiagnosticFile{
+				{Instance: tenant.DNSName, Path: "/etc/coredns/Corefile", Content: ".:53 {\n  errors\n}"},
+				{Instance: tenant.DNSName, Path: "/etc/coredns/zones/db.tenant-e2e-test", Error: "missing"},
 			},
 		},
 	}, "e2e-test")
@@ -58,7 +58,7 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 		"files:",
 		"sc-dns:/etc/coredns/Corefile",
 		"  errors",
-		"sc-dns:/etc/coredns/zones/db.project.e2e.project-tld error=missing",
+		"sc-dns:/etc/coredns/zones/db.tenant-e2e-test error=missing",
 	} {
 		if !strings.Contains(lines[0], want) {
 			t.Fatalf("diagnostic line missing %q:\n%s", want, lines[0])
@@ -66,7 +66,7 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 	}
 }
 
-func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
+func TestTenantDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "tenant-e2e-test",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -74,7 +74,7 @@ func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
 		Tailscale: meta.Tailscale{
 			State:            "Running",
 			Tailnet:          "dev.example",
-			Hostname:         "sc-project.tailnet.example",
+			Hostname:         "sc-tenant.tailnet.example",
 			AdvertisedRoutes: []string{"10.248.0.0/24"},
 			TailscaleIPs:     []string{"100.80.12.34", "fd7a:115c:a1e0::1"},
 			LastCheckedAt:    "2026-05-20T12:00:00Z",
@@ -83,14 +83,14 @@ func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
+	summaries, err := tenant.List(context.Background(), tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-tenant-e2e-test",
 		Config: config,
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, nil, "e2e-test")
+	lines := tenantDiagnosticLines(context.Background(), summaries, nil, "e2e-test")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -98,7 +98,7 @@ func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
 		"tailscale:",
 		"state=Running",
 		"tailnet=dev.example",
-		"hostname=sc-project.tailnet.example",
+		"hostname=sc-tenant.tailnet.example",
 		"routes=10.248.0.0/24",
 		"ips=2",
 		"lastCheckedAt=2026-05-20T12:00:00Z",
@@ -109,7 +109,7 @@ func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
 	}
 }
 
-func TestProjectDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
+func TestTenantDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "tenant-e2e-test",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -123,14 +123,14 @@ func TestProjectDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
+	summaries, err := tenant.List(context.Background(), tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-tenant-e2e-test",
 		Config: config,
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, nil, "e2e-test")
+	lines := tenantDiagnosticLines(context.Background(), summaries, nil, "e2e-test")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -144,13 +144,13 @@ func TestProjectDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
 	}
 }
 
-func TestProjectDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
-	store := diagnosticProjectStore(t)
-	summaries, err := project.List(context.Background(), store)
+func TestTenantDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
+	store := diagnosticTenantStore(t)
+	summaries, err := tenant.List(context.Background(), store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, fakeDiagnosticTopologyStore{err: errors.New("boom")}, "e2e-test")
+	lines := tenantDiagnosticLines(context.Background(), summaries, fakeDiagnosticTopologyStore{err: errors.New("boom")}, "e2e-test")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -159,7 +159,7 @@ func TestProjectDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
 	}
 }
 
-func TestProjectDiagnosticLinesMatchRunIDInDNSSuffix(t *testing.T) {
+func TestTenantDiagnosticLinesMatchRunIDInDNSSuffix(t *testing.T) {
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "tenant-e2e-domain-only",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -168,14 +168,14 @@ func TestProjectDiagnosticLinesMatchRunIDInDNSSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
+	summaries, err := tenant.List(context.Background(), tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-tenant-e2e-domain-only",
 		Config: config,
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, nil, "e2e-domain-only")
+	lines := tenantDiagnosticLines(context.Background(), summaries, nil, "e2e-domain-only")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
@@ -184,17 +184,17 @@ func TestProjectDiagnosticLinesMatchRunIDInDNSSuffix(t *testing.T) {
 	}
 }
 
-func TestProjectDiagnosticLinesRequireRunID(t *testing.T) {
-	store := diagnosticProjectStore(t)
-	summaries, err := project.List(context.Background(), store)
+func TestTenantDiagnosticLinesRequireRunID(t *testing.T) {
+	store := diagnosticTenantStore(t)
+	summaries, err := tenant.List(context.Background(), store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := projectDiagnosticLines(context.Background(), summaries, nil, "")
+	lines := tenantDiagnosticLines(context.Background(), summaries, nil, "")
 	if len(lines) != 0 {
 		t.Fatalf("lines = %#v, want no diagnostics for empty run id", lines)
 	}
-	lines = projectDiagnosticLines(context.Background(), summaries, nil, "   ")
+	lines = tenantDiagnosticLines(context.Background(), summaries, nil, "   ")
 	if len(lines) != 0 {
 		t.Fatalf("lines = %#v, want no diagnostics for blank run id", lines)
 	}
@@ -241,7 +241,7 @@ func TestLocalDNSDiagnosticLinesIncludeMatchingState(t *testing.T) {
 	}
 }
 
-func diagnosticProjectStore(t *testing.T) project.MemoryStore {
+func diagnosticTenantStore(t *testing.T) tenant.MemoryStore {
 	t.Helper()
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "tenant-e2e-test",
@@ -251,20 +251,20 @@ func diagnosticProjectStore(t *testing.T) project.MemoryStore {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-tenant-e2e-test",
 		Config: config,
 	}}}
 }
 
 type fakeDiagnosticTopologyStore struct {
-	topology project.Topology
+	topology tenant.Topology
 	err      error
 }
 
-func (s fakeDiagnosticTopologyStore) GetTopology(ctx context.Context, request project.TopologyRequest) (project.Topology, error) {
+func (s fakeDiagnosticTopologyStore) GetTopology(ctx context.Context, request tenant.TopologyRequest) (tenant.Topology, error) {
 	if s.err != nil {
-		return project.Topology{}, s.err
+		return tenant.Topology{}, s.err
 	}
 	return s.topology, nil
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type StatusRequest struct {
@@ -17,16 +17,16 @@ type StatusRequest struct {
 }
 
 type StatusPlan struct {
-	Reference    string          `json:"reference"`
-	Tenant       project.Summary `json:"tenant"`
-	InstanceName string          `json:"instanceName"`
-	Command      []string        `json:"command"`
+	Reference    string         `json:"reference"`
+	Tenant       tenant.Summary `json:"tenant"`
+	InstanceName string         `json:"instanceName"`
+	Command      []string       `json:"command"`
 }
 
 type StatusResult struct {
-	Reference string          `json:"reference"`
-	Tenant    project.Summary `json:"tenant"`
-	Tailscale meta.Tailscale  `json:"tailscale"`
+	Reference string         `json:"reference"`
+	Tenant    tenant.Summary `json:"tenant"`
+	Tailscale meta.Tailscale `json:"tailscale"`
 }
 
 type DownRequest struct {
@@ -34,39 +34,39 @@ type DownRequest struct {
 }
 
 type DownPlan struct {
-	Reference    string          `json:"reference"`
-	Tenant       project.Summary `json:"tenant"`
-	InstanceName string          `json:"instanceName"`
-	Command      []string        `json:"command"`
+	Reference    string         `json:"reference"`
+	Tenant       tenant.Summary `json:"tenant"`
+	InstanceName string         `json:"instanceName"`
+	Command      []string       `json:"command"`
 }
 
-func PlanStatus(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request StatusRequest) (StatusPlan, error) {
-	summary, reference, err := projectSummary(ctx, admin, store, request.Reference)
+func PlanStatus(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request StatusRequest) (StatusPlan, error) {
+	summary, reference, err := tenantSummary(ctx, admin, store, request.Reference)
 	if err != nil {
 		return StatusPlan{}, err
 	}
 	return StatusPlan{
 		Reference:    reference,
 		Tenant:       summary,
-		InstanceName: project.TailscaleInstanceName(summary.IncusName),
+		InstanceName: tenant.TailscaleInstanceName(summary.IncusName),
 		Command:      []string{"tailscale", "status", "--json"},
 	}, nil
 }
 
-func PlanDown(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request DownRequest) (DownPlan, error) {
-	summary, reference, err := projectSummary(ctx, admin, store, request.Reference)
+func PlanDown(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request DownRequest) (DownPlan, error) {
+	summary, reference, err := tenantSummary(ctx, admin, store, request.Reference)
 	if err != nil {
 		return DownPlan{}, err
 	}
 	return DownPlan{
 		Reference:    reference,
 		Tenant:       summary,
-		InstanceName: project.TailscaleInstanceName(summary.IncusName),
+		InstanceName: tenant.TailscaleInstanceName(summary.IncusName),
 		Command:      []string{"tailscale", "down"},
 	}, nil
 }
 
-func ParseStatus(reference string, summary project.Summary, data []byte, now time.Time) (StatusResult, error) {
+func ParseStatus(reference string, summary tenant.Summary, data []byte, now time.Time) (StatusResult, error) {
 	var payload statusPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return StatusResult{}, fmt.Errorf("parse tailscale status JSON: %w", err)
@@ -107,17 +107,17 @@ func normalizeState(state string) string {
 	}
 }
 
-func projectSummary(ctx context.Context, admin config.Admin, store project.IncusProjectStore, reference string) (project.Summary, string, error) {
+func tenantSummary(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, reference string) (tenant.Summary, string, error) {
 	if err := admin.Validate(); err != nil {
-		return project.Summary{}, "", err
+		return tenant.Summary{}, "", err
 	}
 	ref, err := tenantRef(reference, admin.Tenant)
 	if err != nil {
-		return project.Summary{}, "", err
+		return tenant.Summary{}, "", err
 	}
 	summary, err := findTenant(ctx, store, ref)
 	if err != nil {
-		return project.Summary{}, "", err
+		return tenant.Summary{}, "", err
 	}
 	return summary, ref.String(), nil
 }

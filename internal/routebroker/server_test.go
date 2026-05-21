@@ -14,24 +14,24 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeBrokerRoutes struct {
-	added   *route.AddPlan
-	removed *route.RemovePlan
-	list    route.ListResult
-	addErr  error
-	rmErr   error
+	created   *route.CreatePlan
+	deleted   *route.DeletePlan
+	list      route.ListResult
+	createErr error
+	rmErr     error
 }
 
-func (r *fakeBrokerRoutes) Add(ctx context.Context, plan route.AddPlan) error {
-	r.added = &plan
-	return r.addErr
+func (r *fakeBrokerRoutes) Create(ctx context.Context, plan route.CreatePlan) error {
+	r.created = &plan
+	return r.createErr
 }
 
-func (r *fakeBrokerRoutes) Remove(ctx context.Context, plan route.RemovePlan) error {
-	r.removed = &plan
+func (r *fakeBrokerRoutes) Delete(ctx context.Context, plan route.DeletePlan) error {
+	r.deleted = &plan
 	return r.rmErr
 }
 
@@ -41,7 +41,7 @@ func (r *fakeBrokerRoutes) List(ctx context.Context, plan route.ListPlan) (route
 
 type fakeBrokerMachineStore struct{}
 
-func (s fakeBrokerMachineStore) FindMachine(ctx context.Context, summary project.Summary, projectName string, machineName string) (meta.Machine, error) {
+func (s fakeBrokerMachineStore) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, machineName string) (meta.Machine, error) {
 	return meta.Machine{
 		Tenant:    summary.Tenant,
 		Project:   projectName,
@@ -68,7 +68,7 @@ func (r fakeBrokerDNSResolver) LookupHost(ctx context.Context, hostname string) 
 	return r.hosts, r.err
 }
 
-func TestServerAddsAuthorizedRoute(t *testing.T) {
+func TestServerCreatesAuthorizedRoute(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
@@ -77,16 +77,16 @@ func TestServerAddsAuthorizedRoute(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.added == nil {
-		t.Fatal("expected route add")
+	if routes.created == nil {
+		t.Fatal("expected route create")
 	}
-	if routes.added.RoutePort != 5173 {
-		t.Fatalf("RoutePort = %d", routes.added.RoutePort)
+	if routes.created.RoutePort != 5173 {
+		t.Fatalf("RoutePort = %d", routes.created.RoutePort)
 	}
-	if len(routes.added.DNSProof.ResolvedTargets) != 1 || routes.added.DNSProof.ResolvedTargets[0] != "203.0.113.10" {
-		t.Fatalf("DNSProof.ResolvedTargets = %#v", routes.added.DNSProof.ResolvedTargets)
+	if len(routes.created.DNSProof.ResolvedTargets) != 1 || routes.created.DNSProof.ResolvedTargets[0] != "203.0.113.10" {
+		t.Fatalf("DNSProof.ResolvedTargets = %#v", routes.created.DNSProof.ResolvedTargets)
 	}
-	routeMetadata, err := meta.ParseRouteConfig(routes.added.MetadataConfig)
+	routeMetadata, err := meta.ParseRouteConfig(routes.created.MetadataConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestServerAddsAuthorizedRoute(t *testing.T) {
 	}
 }
 
-func TestServerRejectsRouteAddWhenDNSProofFails(t *testing.T) {
+func TestServerRejectsRouteCreateWhenDNSProofFails(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	server.Resolver = fakeBrokerDNSResolver{hosts: []string{"203.0.113.11"}}
@@ -105,46 +105,46 @@ func TestServerRejectsRouteAddWhenDNSProofFails(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.added != nil {
-		t.Fatal("route should not be added")
+	if routes.created != nil {
+		t.Fatal("route should not be created")
 	}
 	if errorText := decodeError(t, response); !strings.Contains(errorText, "want 203.0.113.10") {
 		t.Fatalf("error = %q", errorText)
 	}
 }
 
-func TestServerAllowsRouteAddForAnyUserGrantedTenant(t *testing.T) {
+func TestServerAllowsRouteCreateForAnyUserGrantedTenant(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
-	server.Trust = fakeTrustMapper{principal: Principal{Owner: "bob", Projects: []string{"sc-acme"}}}
+	server.Trust = fakeTrustMapper{principal: Principal{User: "bob", Projects: []string{"sc-acme"}}}
 	response := httptest.NewRecorder()
 	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.added == nil {
-		t.Fatal("expected route add")
+	if routes.created == nil {
+		t.Fatal("expected route create")
 	}
 }
 
-func TestServerRejectsRouteAddOutsideCertificateTenantScope(t *testing.T) {
+func TestServerRejectsRouteCreateOutsideCertificateTenantScope(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
-	server.Trust = fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-other"}}}
+	server.Trust = fakeTrustMapper{principal: Principal{User: "alice", Projects: []string{"sc-other"}}}
 	response := httptest.NewRecorder()
 	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.added != nil {
-		t.Fatal("route should not be added")
+	if routes.created != nil {
+		t.Fatal("route should not be created")
 	}
 }
 
-func TestServerReturnsConflictForClaimedRouteAdd(t *testing.T) {
-	routes := &fakeBrokerRoutes{addErr: route.NewConflictError("public route hostname app.example.com is already claimed by bob/other/web")}
+func TestServerReturnsConflictForClaimedRouteCreate(t *testing.T) {
+	routes := &fakeBrokerRoutes{createErr: route.NewConflictError("public route hostname app.example.com is already claimed by bob/other/web")}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
 	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"app.example.com","targetReference":"acme/default/codex"}`)
@@ -157,7 +157,7 @@ func TestServerReturnsConflictForClaimedRouteAdd(t *testing.T) {
 	}
 }
 
-func TestServerRejectsRouteAddWithUnknownFields(t *testing.T) {
+func TestServerRejectsRouteCreateWithUnknownFields(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
@@ -166,32 +166,32 @@ func TestServerRejectsRouteAddWithUnknownFields(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.added != nil {
-		t.Fatal("route should not be added")
+	if routes.created != nil {
+		t.Fatal("route should not be created")
 	}
 	if errorText := decodeError(t, response); !bytes.Contains([]byte(errorText), []byte("unknown field")) {
 		t.Fatalf("error = %q", errorText)
 	}
 }
 
-func TestServerRejectsOversizedRouteAddRequest(t *testing.T) {
+func TestServerRejectsOversizedRouteCreateRequest(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{})
 	response := httptest.NewRecorder()
-	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"`+strings.Repeat("x", maxAddRequestBytes)+`.example.com","targetReference":"acme/default/codex"}`)
+	request := brokerRequest(t, http.MethodPost, "/routes", `{"hostname":"`+strings.Repeat("x", maxCreateRequestBytes)+`.example.com","targetReference":"acme/default/codex"}`)
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.added != nil {
-		t.Fatal("route should not be added")
+	if routes.created != nil {
+		t.Fatal("route should not be created")
 	}
 	if errorText := decodeError(t, response); !strings.Contains(errorText, "too large") {
 		t.Fatalf("error = %q", errorText)
 	}
 }
 
-func TestServerRemovesAuthorizedRoute(t *testing.T) {
+func TestServerDeletesAuthorizedRoute(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{route: meta.Route{
 		Hostname:      "app.example.com",
@@ -205,12 +205,12 @@ func TestServerRemovesAuthorizedRoute(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.removed == nil || routes.removed.Hostname != "app.example.com" {
-		t.Fatalf("removed = %#v", routes.removed)
+	if routes.deleted == nil || routes.deleted.Hostname != "app.example.com" {
+		t.Fatalf("deleted = %#v", routes.deleted)
 	}
 }
 
-func TestServerRejectsRouteRemoveOutsideCertificateTenantScope(t *testing.T) {
+func TestServerRejectsRouteDeleteOutsideCertificateTenantScope(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	server := brokerServerForTest(t, routes, fakeBrokerMetadata{route: meta.Route{
 		Hostname:      "app.example.com",
@@ -218,19 +218,19 @@ func TestServerRejectsRouteRemoveOutsideCertificateTenantScope(t *testing.T) {
 		TargetProject: "default",
 		TargetMachine: "codex",
 	}})
-	server.Trust = fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-other"}}}
+	server.Trust = fakeTrustMapper{principal: Principal{User: "alice", Projects: []string{"sc-other"}}}
 	response := httptest.NewRecorder()
 	request := brokerRequest(t, http.MethodDelete, "/routes/app.example.com", "")
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if routes.removed != nil {
-		t.Fatal("route should not be removed")
+	if routes.deleted != nil {
+		t.Fatal("route should not be deleted")
 	}
 }
 
-func TestServerDecodesRemoveRouteHostname(t *testing.T) {
+func TestServerDecodesDeleteRouteHostname(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	metadata := &recordingBrokerMetadata{route: meta.Route{
 		Hostname:      "app-test.example.com",
@@ -248,12 +248,12 @@ func TestServerDecodesRemoveRouteHostname(t *testing.T) {
 	if metadata.hostname != "app-test.example.com" {
 		t.Fatalf("metadata lookup hostname = %q", metadata.hostname)
 	}
-	if routes.removed == nil || routes.removed.Hostname != "app-test.example.com" {
-		t.Fatalf("removed = %#v", routes.removed)
+	if routes.deleted == nil || routes.deleted.Hostname != "app-test.example.com" {
+		t.Fatalf("deleted = %#v", routes.deleted)
 	}
 }
 
-func TestServerNormalizesRemoveRouteHostnameBeforeLookup(t *testing.T) {
+func TestServerNormalizesDeleteRouteHostnameBeforeLookup(t *testing.T) {
 	routes := &fakeBrokerRoutes{}
 	metadata := &recordingBrokerMetadata{route: meta.Route{
 		Hostname:      "app.example.com",
@@ -271,15 +271,15 @@ func TestServerNormalizesRemoveRouteHostnameBeforeLookup(t *testing.T) {
 	if metadata.hostname != "app.example.com" {
 		t.Fatalf("metadata lookup hostname = %q", metadata.hostname)
 	}
-	if routes.removed == nil || routes.removed.Hostname != "app.example.com" {
-		t.Fatalf("removed = %#v", routes.removed)
+	if routes.deleted == nil || routes.deleted.Hostname != "app.example.com" {
+		t.Fatalf("deleted = %#v", routes.deleted)
 	}
 }
 
 func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
 	routes := &fakeBrokerRoutes{list: route.ListResult{Routes: []route.Route{
 		{Hostname: "app.example.com", TargetReference: "acme/default/codex", RoutePort: 3000},
-		{Hostname: "other-project.example.com", TargetReference: "acme/other/codex", RoutePort: 3000},
+		{Hostname: "other-tenant.example.com", TargetReference: "acme/other/codex", RoutePort: 3000},
 		{Hostname: "missing-machine.example.com", TargetReference: "acme/default", RoutePort: 3000},
 		{Hostname: "invalid-machine.example.com", TargetReference: "acme/default/bad_name", RoutePort: 3000},
 		{Hostname: "other.example.com", TargetReference: "other/default/codex", RoutePort: 3000},
@@ -295,7 +295,7 @@ func TestServerListsOnlyPrincipalRoutes(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Routes) != 2 || result.Routes[0].Hostname != "app.example.com" || result.Routes[1].Hostname != "other-project.example.com" {
+	if len(result.Routes) != 2 || result.Routes[0].Hostname != "app.example.com" || result.Routes[1].Hostname != "other-tenant.example.com" {
 		t.Fatalf("routes = %#v", result.Routes)
 	}
 }
@@ -316,12 +316,12 @@ func brokerServerForTest(t *testing.T, routes route.Manager, metadata RouteMetad
 	admin.InfrastructureHost = "203.0.113.10"
 	return Server{
 		Admin:         admin,
-		Projects:      projectStoreForBrokerTest(t),
+		Tenants:       tenantStoreForBrokerTest(t),
 		Machines:      fakeBrokerMachineStore{},
 		Routes:        routes,
 		RouteMetadata: metadata,
 		Resolver:      fakeBrokerDNSResolver{hosts: []string{"203.0.113.10"}},
-		Trust:         fakeTrustMapper{principal: Principal{Owner: "alice", Projects: []string{"sc-acme"}}},
+		Trust:         fakeTrustMapper{principal: Principal{User: "alice", Projects: []string{"sc-acme"}}},
 	}
 }
 
@@ -333,7 +333,7 @@ func brokerRequest(t *testing.T, method string, path string, body string) *http.
 	return request
 }
 
-func projectStoreForBrokerTest(t *testing.T) project.MemoryStore {
+func tenantStoreForBrokerTest(t *testing.T) tenant.MemoryStore {
 	t.Helper()
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -343,7 +343,7 @@ func projectStoreForBrokerTest(t *testing.T) project.MemoryStore {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-acme", Config: configMap}}}
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{{Name: "sc-acme", Config: configMap}}}
 }
 
 type recordingBrokerMetadata struct {

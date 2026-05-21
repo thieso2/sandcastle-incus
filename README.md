@@ -12,6 +12,8 @@ and can publish HTTP routes through shared infrastructure Caddy.
 - [Sandcastle v1 specification](docs/sandcastle-v1-spec.md)
 - [Implementation plan](docs/implementation-plan.md)
 - [End-to-end testing plan](docs/e2e-testing-plan.md)
+- [Usage guide](docs/usage.html)
+- [Admin and developer quickstart](docs/admin-developer-quickstart.html)
 
 ## Build And Install
 

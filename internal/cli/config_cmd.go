@@ -14,6 +14,7 @@ func newConfigCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 	}
 	cmd.AddCommand(newConfigShowCommand(config))
 	cmd.AddCommand(newConfigSetCommand(config))
+	cmd.AddCommand(newConfigUnsetCommand(config))
 	return cmd
 }
 
@@ -61,17 +62,8 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
-			switch key {
-			case "tenant":
-				cfg.Tenant = value
-			case "project":
-				cfg.Project = value
-			case "remote":
-				cfg.Remote = value
-			case "admin_remote":
-				cfg.AdminRemote = value
-			default:
-				return fmt.Errorf("unknown config key %q; supported keys: tenant, project, remote, admin_remote", key)
+			if err := setConfigValue(&cfg, key, value); err != nil {
+				return err
 			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save config: %w", err)
@@ -80,4 +72,49 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newConfigUnsetCommand(_ commandConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unset <key>",
+		Short: "Unset a value in ~/.config/sandcastle/config.yml",
+		Long: `Unset a configuration value. Supported keys:
+  tenant        default tenant name
+  project       default project name
+  remote        default Sandcastle user remote name
+  admin_remote  Incus remote for sc admin commands in global ~/.config/incus/`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key := args[0]
+			cfgPath := scconfig.DefaultConfigPath()
+			cfg, err := scconfig.LoadSandcastleConfig(cfgPath)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			if err := setConfigValue(&cfg, key, ""); err != nil {
+				return err
+			}
+			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
+				return fmt.Errorf("save config: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Unset %s in %s\n", key, cfgPath)
+			return nil
+		},
+	}
+}
+
+func setConfigValue(cfg *scconfig.SandcastleConfig, key string, value string) error {
+	switch key {
+	case "tenant":
+		cfg.Tenant = value
+	case "project":
+		cfg.Project = value
+	case "remote":
+		cfg.Remote = value
+	case "admin_remote":
+		cfg.AdminRemote = value
+	default:
+		return fmt.Errorf("unknown config key %q; supported keys: tenant, project, remote, admin_remote", key)
+	}
+	return nil
 }

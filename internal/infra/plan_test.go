@@ -59,7 +59,7 @@ func TestPlanCreate(t *testing.T) {
 		"SANDCASTLE_REMOTE='" + admin.Remote + "'",
 		"SANDCASTLE_STORAGE_POOL='" + admin.StoragePool + "'",
 		"SANDCASTLE_CIDR_POOL='" + admin.CIDRPool + "'",
-		"SANDCASTLE_PROJECT_PREFIX='" + admin.ProjectPrefix + "'",
+		"SANDCASTLE_INCUS_PROJECT_PREFIX='" + admin.IncusProjectPrefix + "'",
 		"SANDCASTLE_INFRA_PROJECT='" + admin.InfrastructureProject + "'",
 		"SANDCASTLE_LETSENCRYPT_EMAIL='ops@example.com'",
 		"SANDCASTLE_BASE_IMAGE='" + admin.Images.Base + "'",

@@ -27,7 +27,7 @@ type FileStore struct {
 
 func (s FileStore) InstallCA(ctx context.Context, plan Plan, certPEM []byte) (Result, error) {
 	if len(certPEM) == 0 {
-		return Result{}, fmt.Errorf("project CA certificate is empty")
+		return Result{}, fmt.Errorf("tenant CA certificate is empty")
 	}
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return Result{}, err
@@ -55,7 +55,7 @@ type CommandStore struct {
 
 func (s CommandStore) InstallCA(ctx context.Context, plan Plan, certPEM []byte) (Result, error) {
 	if len(certPEM) == 0 {
-		return Result{}, fmt.Errorf("project CA certificate is empty")
+		return Result{}, fmt.Errorf("tenant CA certificate is empty")
 	}
 	switch s.GOOS {
 	case "darwin":

@@ -16,7 +16,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/route"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type RouteMetadataStore interface {
@@ -25,7 +25,7 @@ type RouteMetadataStore interface {
 
 type Server struct {
 	Admin         config.Admin
-	Projects      project.IncusProjectStore
+	Tenants       tenant.IncusTenantStore
 	Machines      route.MachineStore
 	Routes        route.Manager
 	RouteMetadata RouteMetadataStore
@@ -33,38 +33,38 @@ type Server struct {
 	Trust         TrustMapper
 }
 
-type addRequest struct {
+type createRequest struct {
 	Hostname        string `json:"hostname"`
 	TargetReference string `json:"targetReference"`
 }
 
-const maxAddRequestBytes = 4096
+const maxCreateRequestBytes = 4096
 
 func (s Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/routes":
 		s.handleList(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/routes":
-		s.handleAdd(w, r)
+		s.handleCreate(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/routes/"):
-		s.handleRemove(w, r)
+		s.handleDelete(w, r)
 	default:
 		http.NotFound(w, r)
 	}
 }
 
-func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
+func (s Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	principal, err := s.principal(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err)
 		return
 	}
-	request, err := decodeAddRequest(w, r)
+	request, err := decodeCreateRequest(w, r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	plan, err := route.PlanAdd(r.Context(), s.Admin, s.Projects, s.Machines, route.AddRequest{
+	plan, err := route.PlanCreate(r.Context(), s.Admin, s.Tenants, s.Machines, route.CreateRequest{
 		Hostname:        request.Hostname,
 		TargetReference: request.TargetReference,
 	})
@@ -72,7 +72,7 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := AuthorizeAdd(principal, plan); err != nil {
+	if err := AuthorizeCreate(principal, plan); err != nil {
 		writeError(w, http.StatusForbidden, err)
 		return
 	}
@@ -82,7 +82,7 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plan.DNSProof = verifiedProof
-	plan, err = stampRouteCreator(plan, principal.Owner)
+	plan, err = stampRouteCreator(plan, principal.User)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -91,41 +91,41 @@ func (s Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("route manager is required"))
 		return
 	}
-	if err := s.Routes.Add(r.Context(), plan); err != nil {
+	if err := s.Routes.Create(r.Context(), plan); err != nil {
 		writeError(w, routeMutationErrorStatus(err), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, plan)
 }
 
-func decodeAddRequest(w http.ResponseWriter, r *http.Request) (addRequest, error) {
-	var request addRequest
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAddRequestBytes))
+func decodeCreateRequest(w http.ResponseWriter, r *http.Request) (createRequest, error) {
+	var request createRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxCreateRequestBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		return addRequest{}, err
+		return createRequest{}, err
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return addRequest{}, fmt.Errorf("route add request must contain a single JSON object")
+		return createRequest{}, fmt.Errorf("route create request must contain a single JSON object")
 	}
 	return request, nil
 }
 
-func stampRouteCreator(plan route.AddPlan, owner string) (route.AddPlan, error) {
+func stampRouteCreator(plan route.CreatePlan, user string) (route.CreatePlan, error) {
 	metadata, err := meta.ParseRouteConfig(plan.MetadataConfig)
 	if err != nil {
-		return route.AddPlan{}, fmt.Errorf("parse route metadata: %w", err)
+		return route.CreatePlan{}, fmt.Errorf("parse route metadata: %w", err)
 	}
-	metadata.CreatedBy = owner
+	metadata.CreatedBy = user
 	metadataConfig, err := meta.RouteConfig(metadata)
 	if err != nil {
-		return route.AddPlan{}, err
+		return route.CreatePlan{}, err
 	}
 	plan.MetadataConfig = metadataConfig
 	return plan, nil
 }
 
-func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
+func (s Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	principal, err := s.principal(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err)
@@ -140,7 +140,7 @@ func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("route hostname is required"))
 		return
 	}
-	plan, err := route.PlanRemove(s.Admin, route.RemoveRequest{Hostname: hostname})
+	plan, err := route.PlanDelete(s.Admin, route.DeleteRequest{Hostname: hostname})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -154,7 +154,7 @@ func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	if err := AuthorizeRemove(principal, routeMetadata, plan.ProjectPrefix); err != nil {
+	if err := AuthorizeDelete(principal, routeMetadata, plan.IncusProjectPrefix); err != nil {
 		writeError(w, http.StatusForbidden, err)
 		return
 	}
@@ -162,7 +162,7 @@ func (s Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("route manager is required"))
 		return
 	}
-	if err := s.Routes.Remove(r.Context(), plan); err != nil {
+	if err := s.Routes.Delete(r.Context(), plan); err != nil {
 		writeError(w, routeMutationErrorStatus(err), err)
 		return
 	}
@@ -189,13 +189,13 @@ func (s Server) handleList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, filterRoutesForPrincipal(result, principal, s.Admin.ProjectPrefix))
+	writeJSON(w, http.StatusOK, filterRoutesForPrincipal(result, principal, s.Admin.IncusProjectPrefix))
 }
 
-func filterRoutesForPrincipal(result route.ListResult, principal Principal, projectPrefix string) route.ListResult {
+func filterRoutesForPrincipal(result route.ListResult, principal Principal, incusProjectPrefix string) route.ListResult {
 	filtered := make([]route.Route, 0, len(result.Routes))
 	for _, publicRoute := range result.Routes {
-		incusProject := targetIncusProject(publicRoute.TargetReference, projectPrefix)
+		incusProject := targetIncusProject(publicRoute.TargetReference, incusProjectPrefix)
 		if incusProject != "" && principalCanAccessProject(principal, incusProject) {
 			filtered = append(filtered, publicRoute)
 		}
@@ -203,7 +203,7 @@ func filterRoutesForPrincipal(result route.ListResult, principal Principal, proj
 	return route.ListResult{Routes: filtered}
 }
 
-func targetIncusProject(targetReference string, projectPrefix string) string {
+func targetIncusProject(targetReference string, incusProjectPrefix string) string {
 	parts := strings.Split(targetReference, "/")
 	if len(parts) != 3 {
 		return ""
@@ -211,7 +211,7 @@ func targetIncusProject(targetReference string, projectPrefix string) string {
 	if err := naming.ValidateMachineName(parts[2]); err != nil {
 		return ""
 	}
-	incusProject, err := naming.TenantIncusProjectNameWithPrefix(projectPrefix, naming.TenantRef{Tenant: parts[0]})
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(incusProjectPrefix, naming.TenantRef{Tenant: parts[0]})
 	if err != nil {
 		return ""
 	}

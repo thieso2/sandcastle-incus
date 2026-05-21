@@ -7,7 +7,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/caddy"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type PortSetRequest struct {
@@ -16,20 +16,20 @@ type PortSetRequest struct {
 }
 
 type PortSetPlan struct {
-	Reference    string          `json:"reference"`
-	Tenant       project.Summary `json:"tenant"`
-	Project      string          `json:"project"`
-	Name         string          `json:"name"`
-	InstanceName string          `json:"instanceName"`
-	AppPort      int             `json:"appPort"`
-	CaddyFile    caddy.File      `json:"caddyFile"`
+	Reference    string         `json:"reference"`
+	Tenant       tenant.Summary `json:"tenant"`
+	Project      string         `json:"project"`
+	Name         string         `json:"name"`
+	InstanceName string         `json:"instanceName"`
+	AppPort      int            `json:"appPort"`
+	CaddyFile    caddy.File     `json:"caddyFile"`
 }
 
 type PortSetter interface {
 	SetAppPort(context.Context, PortSetPlan) error
 }
 
-func PlanSetPort(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request PortSetRequest) (PortSetPlan, error) {
+func PlanSetPort(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request PortSetRequest) (PortSetPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return PortSetPlan{}, err
 	}
@@ -62,6 +62,6 @@ func PlanSetPort(ctx context.Context, admin config.Admin, store project.IncusPro
 		Name:         machineName,
 		InstanceName: instanceName,
 		AppPort:      request.AppPort,
-		CaddyFile:    caddy.RenderSandbox(machineName+"."+projectRef.Project+"."+summary.DNSSuffix, request.AppPort, MachineCertPath, MachineCertKeyPath),
+		CaddyFile:    caddy.RenderMachine(machineName+"."+projectRef.Project+"."+summary.DNSSuffix, request.AppPort, MachineCertPath, MachineCertKeyPath),
 	}, nil
 }

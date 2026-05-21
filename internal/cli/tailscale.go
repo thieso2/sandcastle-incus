@@ -25,12 +25,16 @@ func newTailscaleUpCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 	var authKey string
 	var advertiseTags []string
 	command := &cobra.Command{
-		Use:   "up tenant",
+		Use:   "up [tenant]",
 		Short: "Attach a tenant Tailscale sidecar",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := tailscale.PlanUp(cmd.Context(), config.adminConfig, config.projectStore, tailscale.UpRequest{
-				Reference:     args[0],
+			var reference string
+			if len(args) > 0 {
+				reference = args[0]
+			}
+			plan, err := tailscale.PlanUp(cmd.Context(), config.adminConfig, config.tenantStore, tailscale.UpRequest{
+				Reference:     reference,
 				AuthKey:       authKey,
 				AdvertiseTags: advertiseTags,
 			})
@@ -60,11 +64,15 @@ func newTailscaleUpCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 
 func newTailscaleStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status tenant",
+		Use:   "status [tenant]",
 		Short: "Check tenant Tailscale sidecar status",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := tailscale.PlanStatus(cmd.Context(), config.adminConfig, config.projectStore, tailscale.StatusRequest{Reference: args[0]})
+			var reference string
+			if len(args) > 0 {
+				reference = args[0]
+			}
+			plan, err := tailscale.PlanStatus(cmd.Context(), config.adminConfig, config.tenantStore, tailscale.StatusRequest{Reference: reference})
 			if err != nil {
 				return err
 			}
@@ -87,11 +95,15 @@ func newTailscaleStatusCommand(config commandConfig, opts *rootOptions) *cobra.C
 func newTailscaleDownCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "down tenant",
+		Use:   "down [tenant]",
 		Short: "Detach a tenant Tailscale sidecar",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := tailscale.PlanDown(cmd.Context(), config.adminConfig, config.projectStore, tailscale.DownRequest{Reference: args[0]})
+			var reference string
+			if len(args) > 0 {
+				reference = args[0]
+			}
+			plan, err := tailscale.PlanDown(cmd.Context(), config.adminConfig, config.tenantStore, tailscale.DownRequest{Reference: reference})
 			if err != nil {
 				return err
 			}

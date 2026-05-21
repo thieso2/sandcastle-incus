@@ -1,365 +1,235 @@
 # Sandcastle Incus Implementation Plan
 
-This is the initial implementation plan for Sandcastle v1. It is intentionally
-ordered around vertical slices that can be verified against a real Incus host.
+This plan tracks the current Sandcastle v1 shape. Sandcastle models an Incus
+project as a tenant boundary, with lightweight Sandcastle projects inside that
+tenant and Incus containers as development machines. The older
+owner/project/sandbox command shape is historical only and is not a compatibility
+target.
 
 ## Principles
 
-- The Incus project is the Sandcastle project boundary.
-- Incus metadata is the authoritative source of truth.
-- Normal users operate through restricted Incus certificates.
-- Restricted user certificates are implemented in the first phase, with
-  admin-only mode only as a temporary bootstrap path.
-- Admin commands own privileged setup: users, projects, CIDR allocation, images,
-  and global infrastructure.
-- User commands own day-to-day sandbox lifecycle.
-- Containers ship first. VM support stays out of v1 implementation.
-- AI is a default template/image, not a separate resource type.
-- Management operations use the Incus Go SDK. Interactive `enter` may delegate
-  to `incus exec` for PTY quality.
-- Public routes are deferred until the private Tailscale/DNS/Caddy path works
-  end to end.
+- The tenant Incus project is the isolation and restricted-certificate boundary.
+- Sandcastle project names are lightweight metadata namespaces inside a tenant.
+- Machine metadata on Incus instances is the source of truth for lifecycle,
+  DNS, routes, app ports, local host overrides, and project membership.
+- Normal users operate through restricted Incus certificates granted to tenant
+  Incus projects.
+- Admin commands own privileged setup: tenants, restricted users, CIDR
+  allocation, image aliases, and shared route infrastructure.
+- User commands own day-to-day machine lifecycle.
+- Containers ship first. VM machine support stays outside v1.
+- AI is a default image template, not a separate resource type.
+- Management operations use the Incus Go SDK. Interactive `connect` delegates to
+  Incus exec semantics for PTY quality.
 
-## Initial Go Package Layout
+## Current Package Layout
 
 ```text
 cmd/sandcastle/
+cmd/sandcastle-admin/
+cmd/sc/
+internal/caddy/
+internal/certs/
+internal/cidr/
 internal/cli/
+internal/config/
+internal/dns/
+internal/domain/
+internal/e2e/
+internal/hostoverride/
+internal/images/
 internal/incusx/
+internal/infra/
+internal/localdns/
+internal/localtrust/
+internal/machine/
 internal/meta/
 internal/naming/
-internal/cidr/
-internal/project/
-internal/usertrust/
-internal/sandbox/
-internal/dns/
-internal/certs/
-internal/tailscale/
-internal/images/
+internal/route/
 internal/routebroker/
-internal/e2e/
+internal/tailscale/
+internal/tenant/
+internal/usertrust/
 ```
 
-Feature packages own use-case orchestration. Shared infrastructure packages
-such as `incusx`, `meta`, `naming`, and `cidr` stay small and stable.
+Feature packages own use-case orchestration. Shared infrastructure packages such
+as `incusx`, `meta`, `naming`, and `cidr` stay small and stable.
 
-## Milestone 0: Repository And Tooling
+## Command Surface
 
-Deliverables:
-
-- Go module.
-- Cobra CLI binary named `sandcastle`.
-- Install or build support for an `sc` alias.
-- Basic command structure with admin/user command groups.
-- Shared logging, output formatting, and `--output text|json`.
-- Incus remote loading from the existing Incus config directory.
-- Unit test harness and e2e test harness skeleton.
-
-Commands:
+User CLI:
 
 ```text
 sandcastle version
-sandcastle ls
-sandcastle admin version
-```
-
-Exit criteria:
-
-- CLI builds locally.
-- Unit tests run without Incus.
-- E2E harness can detect missing Incus/Tailscale configuration and skip/fail
-  clearly.
-
-## Milestone 1: Metadata, Naming, And Incus Access
-
-Deliverables:
-
-- Typed metadata model for projects, sandboxes, routes, templates, Tailscale
-  status, and local DNS state references.
-- Scalar metadata keys plus versioned JSON state blobs.
-- Naming package for owner/project to Incus project names.
-- Restricted user certificate discovery helpers.
-- Admin/user remote selection.
-- Read-only project and sandbox listing.
-
-Commands:
-
-```text
-sandcastle ls
-sandcastle status myproject
-sandcastle admin project list
-```
-
-Exit criteria:
-
-- Metadata round-trips through Incus project and instance config.
-- Existing unmanaged Incus resources are ignored or reported without mutation.
-
-## Milestone 2: Admin Project Creation
-
-Deliverables:
-
-- Admin config for storage pool, CIDR pool, image aliases, naming prefix, and
-  infrastructure project name.
-- CIDR allocator that scans existing Sandcastle metadata and live Incus networks.
-- Project creation:
-  - Incus project `sc-<owner>-<project>`;
-  - project metadata;
-  - dedicated `sc-private` managed bridge network;
-  - home and workspace volumes;
-  - CA volume and project CA generation;
-  - real `sc-tailscale` sidecar at `.2`, started but unauthenticated;
-  - real `sc-dns` CoreDNS sidecar at `.53`, started with a minimal zone;
-  - default templates, with `ai` as default.
-- Domain deny-list validation seeded by embedded IANA public TLD and
-  special-use snapshots.
-- Project deletion plan with data-preserving default and explicit purge.
-
-Commands:
-
-```text
-sandcastle admin project create alice/myproject --domain myproject.project-tld
-sandcastle admin project status alice/myproject
-sandcastle admin project delete alice/myproject --yes
-```
-
-Exit criteria:
-
-- Project create is idempotent.
-- A second project receives a non-conflicting CIDR.
-- Project metadata is sufficient for user commands without YAML.
-- Deletion preserves volumes unless purge is explicit.
-- `sandcastle admin tld refresh` or equivalent can refresh the deny-list
-  snapshot from IANA.
-
-## Milestone 3: User Certificates And Restrictions
-
-Deliverables:
-
-- Admin user creation and restricted Incus certificate/token management.
-- Restricted cert scoped to all projects owned by the user.
-- User remote bootstrap instructions or command.
-- Verification that restricted user access can manage owned project containers
-  but not global Incus state or other users' projects.
-
-Commands:
-
-```text
-sandcastle admin user create alice
-sandcastle admin user grant alice alice/myproject
-sandcastle admin user token alice
-```
-
-Exit criteria:
-
-- E2E test can create a user connection from a token/cert.
-- User commands fail against projects not in the restricted certificate scope.
-
-## Milestone 4: Container Sandbox Lifecycle
-
-Deliverables:
-
-- Container creation from project default template.
-- Sequential next-free static private IP allocation from `.20-.199`, persisted
-  in sandbox metadata.
-- Home/workspace volume mounts with independent subdir configuration.
-- Default Linux user creation.
-- App port metadata, defaulting to 3000.
-- Caddy config and project-CA leaf cert issuance.
-- Container start/stop/restart/remove.
-- Interactive `enter`, with `add` entering by default in TTY sessions and
-  `--detach` for background creation.
-
-Commands:
-
-```text
-sandcastle add myproject/codex
-sandcastle add myproject/claude --home-dir claude --workspace-dir .
-sandcastle inspect myproject/codex
-sandcastle enter myproject/codex
-sandcastle port set myproject/codex 5173
-sandcastle stop myproject/codex
-sandcastle start myproject/codex
-sandcastle rm myproject/codex --yes
-```
-
-The normal-user `project/sandbox` form resolves ownership from
-`SANDCASTLE_OWNER`; explicit `owner/project/sandbox` remains accepted for
-automation and admin-driven tests.
-
-Exit criteria:
-
-- New containers are reachable on the private bridge.
-- Sandbox Caddy proxies `https://<name>.<project-domain>` to the app port.
-- Home/workspace mount subdirs persist across container recreation.
-- Shared home conflicts require explicit confirmation when another running
-  container uses the same home subdir.
-
-## Milestone 5: Project DNS
-
-Deliverables:
-
-- CoreDNS zone renderer from Incus sandbox metadata.
-- Exact and per-sandbox wildcard records.
-- DNS apply/reconcile command.
-- DNS health checks.
-
-Commands:
-
-```text
-sandcastle dns apply myproject
-sandcastle dns status myproject
-```
-
-Exit criteria:
-
-- CoreDNS answers exact sandbox names.
-- CoreDNS answers per-sandbox wildcard names.
-- No project-wide wildcard is generated.
-- Removing a sandbox removes its records.
-
-## Milestone 6: Tailscale Attachment
-
-Deliverables:
-
-- Prepared Tailscale sidecar can run `tailscale up` from the user CLI.
-- Optional auth key input for e2e/automation.
-- Optional advertised tag input for e2e/automation, defaulting to
-  `tag:sandcastle`.
-- Tailscale status collection and metadata recording.
-- Route availability checks for the project private CIDR.
-
-Commands:
-
-```text
-sandcastle tailscale up myproject
-sandcastle tailscale status myproject
-sandcastle tailscale down myproject
-```
-
-Exit criteria:
-
-- With an auth key, e2e can connect the project sidecar unattended.
-- Automation connects the sidecar with `--advertise-tags=tag:sandcastle` so
-  tailnet route auto-approvers can approve the advertised project subnet.
-- The project private CIDR is advertised.
-- Tailscale status metadata records non-secret observed state.
-
-## Milestone 7: Local DNS Forwarder And Trust
-
-Deliverables:
-
-- Local DNS forwarder process that reads CLI-managed local state.
-- macOS resolver installation through `/etc/resolver/<domain>` pointing to
-  loopback and a stable local port.
-- Linux local DNS strategy, likely systemd-resolved first.
-- Local state refresh/uninstall.
-- Project CA trust install/uninstall.
-
-Commands:
-
-```text
-sandcastle dns install myproject
-sandcastle dns refresh myproject
-sandcastle dns uninstall myproject
-sandcastle trust install myproject
-sandcastle trust uninstall myproject
-```
-
-Exit criteria:
-
-- Developer machine resolves project names through the local forwarder.
-- DNS remains stable when project DNS endpoint is refreshed.
-- CA trust operations are explicit and reversible.
-
-## Milestone 8: Local Host Overrides
-
-Deliverables:
-
-- Exact hostname override metadata.
-- Project-CA cert reissue with extra SANs.
-- Managed `/etc/hosts` entries.
-- Override list/remove.
-
-Commands:
-
-```text
-sandcastle host override add myproject/codex example.com
-sandcastle host override list myproject
-sandcastle host override rm myproject/codex example.com
-```
-
-Exit criteria:
-
-- Local override masks an exact public hostname on the developer machine.
-- Sandbox Caddy serves a valid project-CA certificate for the overridden name.
-- Removing the override removes the hosts entry and extra SAN.
-
-## Milestone 9: Infrastructure Caddy And Route Broker
-
-This milestone is intentionally after the private developer path is working.
-
-Deliverables:
-
-- Infrastructure project creation.
-- Infrastructure Caddy setup with Let's Encrypt.
-- Route metadata model in infrastructure project.
-- Narrow route broker reachable on private/Tailscale network.
-- Broker mTLS authentication using user Incus client certificates.
-- Public hostname proof by DNS resolution to the infrastructure IP/name.
-- Per-route ingress NIC/IP attachment for target sandboxes.
-- Caddy route rendering and reload.
-
-Commands:
-
-```text
-sandcastle admin infra create
-sandcastle route add app.example.com myproject/codex
+sandcastle remote add <name> <join-token> [--tenant <tenant>]
+sandcastle config show
+sandcastle config set tenant <tenant>
+sandcastle config unset <key>
+sandcastle list [project] [--all-projects]
+sandcastle create [project/]machine [--detach]
+sandcastle connect [project/]machine [-- command...]
+sandcastle status [machine|tenant]
+sandcastle start [project/]machine
+sandcastle stop [project/]machine
+sandcastle restart [project/]machine
+sandcastle delete [project/]machine --yes
+sandcastle project list
+sandcastle project create <name>
+sandcastle project status <name>
+sandcastle project delete <name> --yes
+sandcastle port set [project/]machine <port>
+sandcastle dns apply|status|install|refresh|uninstall <tenant>
+sandcastle tailscale up|status|down [tenant]
+sandcastle trust install|uninstall <tenant>
+sandcastle host override create [project/]machine <hostname>
+sandcastle host override list [tenant]
+sandcastle host override delete [project/]machine <hostname>
+sandcastle route create <hostname> [project/]machine
 sandcastle route list
-sandcastle route rm app.example.com
+sandcastle route status <hostname>
+sandcastle route delete <hostname>
+sandcastle incus [args...]
 ```
 
-Exit criteria:
-
-- User can create a public HTTP/HTTPS route for an owned sandbox.
-- Infrastructure Caddy obtains a Let's Encrypt certificate.
-- Infrastructure Caddy proxies HTTP to the sandbox ingress IP and explicit route
-  port.
-- Route port is pinned at creation time.
-
-## Milestone 10: Image Build And Sync
-
-Deliverables:
-
-- Sandcastle base image definition.
-- Sandcastle AI image definition extending base.
-- Pinned versions for AI CLIs and developer tools.
-- Admin image sync command from OCI to Incus alias.
-
-Commands:
+Admin CLI:
 
 ```text
-sandcastle admin image sync sandcastle/base:debian-13
-sandcastle admin image sync sandcastle/ai:debian-13
+sandcastle-admin version
+sandcastle-admin tenant list
+sandcastle-admin tenant create <tenant>
+sandcastle-admin tenant status <tenant>
+sandcastle-admin tenant delete <tenant> --yes [--purge]
+sandcastle-admin tenant set-ssh-key <tenant> <key>
+sandcastle-admin tenant grant <tenant> <user>
+sandcastle-admin tenant revoke <tenant> <user>
+sandcastle-admin tenant users <tenant>
+sandcastle-admin list tenant[/project]
+sandcastle-admin create tenant[/project]/machine [--detach]
+sandcastle-admin connect tenant[/project]/machine [-- command...]
+sandcastle-admin status tenant[/project]/machine
+sandcastle-admin delete tenant[/project]/machine --yes
+sandcastle-admin infra create|delete
+sandcastle-admin image build base|ai
+sandcastle-admin image import base|ai <source-ref>
+sandcastle-admin image sync <image-ref>
+sandcastle-admin tld refresh
+sandcastle-admin user create <user>
+sandcastle-admin user token <user>
+sandcastle-admin route-broker serve
 ```
 
-Exit criteria:
+## Delivered Vertical Slices
 
-- The base image works first for lifecycle, DNS, Caddy, and certificate tests.
-- The AI image is then layered on top before the default template is considered
-  complete.
-- New projects default to template `ai` once the AI image exists.
-- Container creation does not require apt bootstrapping for Caddy or core
-  sandbox prerequisites.
-- Credentials are absent from images and stored only in mounted home state.
+### 1. Foundation
 
-## Cross-Cutting Work
+- Go module, Cobra CLIs, `sandcastle` product binary, `sc` alias, and
+  `sandcastle-admin` admin binary.
+- Text and JSON output helpers.
+- Local config file support with `tenant`, `project`, `remote`, and
+  `admin_remote`.
+- Incus config isolation per Sandcastle remote.
+- Unit and gated e2e harnesses.
 
-- Drift detection and repair.
-- Structured errors with clear remediation.
-- JSON output for automation.
-- Cleanup on partial failure.
-- Resource ownership tags on every managed Incus resource.
-- Defensive path handling for purge operations.
-- Documentation for admin setup, user setup, Tailscale auth, DNS install, and
-  trust install.
+### 2. Tenant Metadata And Admin Lifecycle
+
+- Tenant references map to Incus projects named `sc-<tenant>`.
+- Tenant creation initializes tenant metadata, tenant-local image aliases,
+  private bridge network, home/workspace/CA volumes, CoreDNS sidecar, Tailscale
+  sidecar, and default project metadata.
+- CIDR allocation scans managed tenant metadata and live Incus networks.
+- Tenant deletion preserves durable volumes by default and purges only with
+  explicit `--purge`.
+- Domain suffix validation uses embedded public TLD and special-use deny-list
+  snapshots.
+
+### 3. Restricted Users
+
+- Admin user creation issues restricted Incus certificate add tokens.
+- Tenant grants mutate Incus certificate project restrictions.
+- Human token output points developers at `sc remote add` and explicit tenant
+  configuration instead of treating a user name as a tenant.
+- Route broker authorization checks tenant grants, not user-name ownership.
+
+### 4. Machine Lifecycle
+
+- Machine refs are `[project/]machine` for users and
+  `tenant[/project]/machine` for admin operations.
+- Bare machine refs use the configured current project when set; otherwise they
+  resolve only when unambiguous across the tenant.
+- Instance names are `{project}-{machine}`.
+- Private hostnames are `{machine}.{project}.{tenant}` under the tenant DNS
+  suffix.
+- Machine creation supports `--template`, `--home-dir`, `--workspace-dir`, and
+  `--detach`.
+- Machine setup creates Linux user state, storage mounts, app-port metadata,
+  Caddy config, and tenant CA leaf certificates.
+- Lifecycle commands are `create`, `connect`, `start`, `stop`, `restart`, and
+  `delete`.
+
+### 5. Projects Inside A Tenant
+
+- User project management lives under `sandcastle project`.
+- Projects are metadata namespaces, not Incus projects.
+- Project status reports tenant, project, and machine count.
+- Project deletion rejects `default` and requires the project to be empty.
+
+### 6. Tenant DNS And Tailscale
+
+- Tenant CoreDNS records are rendered from machine metadata.
+- Exact and per-machine wildcard records are supported.
+- Tenant-wide wildcard records are intentionally not generated.
+- `sandcastle dns apply|status <tenant>` reconciles sidecar DNS.
+- `sandcastle dns install|refresh|uninstall <tenant>` manages local resolver
+  state for the local forwarder.
+- `sandcastle tailscale up|status|down [tenant]` manages the tenant Tailscale
+  sidecar and advertises the tenant private CIDR.
+
+### 7. Local Trust And Host Overrides
+
+- `sandcastle trust install|uninstall <tenant>` manages local trust for a
+  tenant CA.
+- Host overrides are exact hostnames only.
+- Override create/delete rewrites managed local host state and reissues the
+  machine certificate with the extra SAN.
+
+### 8. Public Routes
+
+- Route targets are machines.
+- Route metadata stores target tenant, project, machine, app port, route port,
+  and creator audit identity.
+- The route broker accepts mTLS clients, maps their certificate to restricted
+  Incus tenant grants, verifies DNS proof, and mutates route metadata.
+- Shared infrastructure Caddy serves public HTTP/HTTPS routes when public route
+  environment is configured.
+
+### 9. Images
+
+- Base and AI image aliases are tenant-local after tenant creation.
+- Admin image import/sync flows copy images into the target Incus project.
+- Local Unix-socket image propagation uses relay mode so project image copies do
+  not require a network-listening source server.
+- Image build e2e is gated by explicit image-build env and pinned AI CLI
+  versions.
+
+### 10. E2E And Disposable VM Harness
+
+- `scripts/e2e.sh` owns reproducible tiers: `unit`, `gated`, `local`, `incus`,
+  `restricted`, `tailscale`, `images`, `route-broker`, `public-routes`,
+  `local-vm`, and `cleanup`.
+- `scripts/e2e-local-vm.sh` creates a disposable local Incus VM, installs Go,
+  mise, and nested Incus, seeds nested image aliases, and runs local mutation
+  tests inside the VM.
+- Destructive tiers fail closed unless their required environment variables are
+  present.
+- Cleanup requires an explicit long run id.
+
+## Remaining Work
+
+- Continue reducing internal type-name drift where old names remain in private
+  adapters, provided the rename lowers future maintenance cost.
+- Run external e2e tiers when their environment dependencies are available:
+  HTTPS Incus remote for restricted-user flows, Tailscale auth key, Docker or
+  equivalent image build tooling with pinned AI CLI versions, and delegated
+  public route DNS plus Let's Encrypt contact email.
+- Keep `docs/usage.html`, `docs/admin-developer-quickstart.html`, and this plan
+  in sync with every CLI command or flag change.

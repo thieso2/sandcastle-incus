@@ -9,7 +9,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -33,7 +33,7 @@ func newDNSApplyCommand(config commandConfig, opts *rootOptions) *cobra.Command 
 		Short: "Render and apply tenant CoreDNS records",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], "")
+			summary, err := findTenantSummary(cmd.Context(), config.tenantStore, args[0])
 			if err != nil {
 				return err
 			}
@@ -55,7 +55,7 @@ func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command
 		Short: "Render tenant DNS status without applying it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findProjectSummary(cmd.Context(), config.projectStore, args[0], "")
+			summary, err := findTenantSummary(cmd.Context(), config.tenantStore, args[0])
 			if err != nil {
 				return err
 			}
@@ -75,7 +75,7 @@ func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 		Short: "Install local resolver state for a tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})
+			plan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: args[0]})
 			if err != nil {
 				return err
 			}
@@ -103,7 +103,7 @@ func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 		Short: "Refresh local resolver state for a tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})
+			plan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: args[0]})
 			if err != nil {
 				return err
 			}
@@ -131,7 +131,7 @@ func newDNSUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 		Short: "Remove local resolver state for a tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanUninstall(cmd.Context(), config.adminConfig, config.projectStore, localdns.Request{Reference: args[0]})
+			plan, err := localdns.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: args[0]})
 			if err != nil {
 				return err
 			}
@@ -241,7 +241,7 @@ func newDNSServiceUninstallCommand(config commandConfig, opts *rootOptions) *cob
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Stop and remove the local DNS forwarder service",
+		Short: "Uninstall the local DNS forwarder service",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := localdns.PlanServiceUninstall()
@@ -265,21 +265,21 @@ func newDNSServiceUninstallCommand(config commandConfig, opts *rootOptions) *cob
 	return command
 }
 
-func findProjectSummary(ctx context.Context, store project.IncusProjectStore, reference string, defaultOwner string) (project.Summary, error) {
+func findTenantSummary(ctx context.Context, store tenant.IncusTenantStore, reference string) (tenant.Summary, error) {
 	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
-		return project.Summary{}, err
+		return tenant.Summary{}, err
 	}
-	projects, err := project.List(ctx, store)
+	tenants, err := tenant.List(ctx, store)
 	if err != nil {
-		return project.Summary{}, err
+		return tenant.Summary{}, err
 	}
-	for _, summary := range projects {
+	for _, summary := range tenants {
 		if summary.Tenant == ref.Tenant {
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
+	return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
 }
 
 func formatDNSApply(result dns.ApplyResult) string {
@@ -309,7 +309,7 @@ func formatLocalDNSServiceResult(result localdns.ServiceResult) string {
 	return fmt.Sprintf("%s local DNS service\nStrategy: %s\nService: %s", result.Action, result.Strategy, result.ServicePath)
 }
 
-func dnsProject(summary project.Summary) dns.Tenant {
+func dnsProject(summary tenant.Summary) dns.Tenant {
 	return dns.Tenant{
 		IncusName:   summary.IncusName,
 		Tenant:      summary.Tenant,

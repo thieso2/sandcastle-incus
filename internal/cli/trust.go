@@ -10,7 +10,7 @@ import (
 func newTrustCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "trust",
-		Short: "Manage local project CA trust",
+		Short: "Manage local tenant CA trust",
 	}
 	command.AddCommand(newTrustInstallCommand(config, opts))
 	command.AddCommand(newTrustUninstallCommand(config, opts))
@@ -20,11 +20,11 @@ func newTrustCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "install project",
-		Short: "Install a project CA into local trust",
+		Use:   "install tenant",
+		Short: "Install a tenant CA into local trust",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localtrust.PlanInstall(cmd.Context(), config.adminConfig, config.projectStore, localtrust.Request{Reference: args[0]})
+			plan, err := localtrust.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: args[0]})
 			if err != nil {
 				return err
 			}
@@ -51,11 +51,11 @@ func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 func newTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "uninstall project",
-		Short: "Remove a project CA from local trust",
+		Use:   "uninstall tenant",
+		Short: "Remove a tenant CA from local trust",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localtrust.PlanUninstall(cmd.Context(), config.adminConfig, config.projectStore, localtrust.Request{Reference: args[0]})
+			plan, err := localtrust.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: args[0]})
 			if err != nil {
 				return err
 			}
@@ -77,14 +77,14 @@ func newTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Co
 }
 
 func formatTrustPlan(action string, plan localtrust.Plan) string {
-	return fmt.Sprintf("%s project CA trust: %s\nCA: %s:%s%s\nWarning: %s", action, plan.Reference, plan.IncusProject, plan.CAVolume, plan.CertificatePath, plan.Warning)
+	return fmt.Sprintf("%s tenant CA trust: %s\nCA: %s:%s%s\nWarning: %s", action, plan.Reference, plan.IncusProject, plan.CAVolume, plan.CertificatePath, plan.Warning)
 }
 
 func formatTrustResult(result localtrust.Result) string {
 	if result.Target == "" {
-		return fmt.Sprintf("%s project CA trust: %s", result.Action, result.Reference)
+		return fmt.Sprintf("%s tenant CA trust: %s", result.Action, result.Reference)
 	}
-	return fmt.Sprintf("%s project CA trust: %s\nTarget: %s", result.Action, result.Reference, result.Target)
+	return fmt.Sprintf("%s tenant CA trust: %s\nTarget: %s", result.Action, result.Reference, result.Target)
 }
 
 func writeTrustWarning(config commandConfig, opts *rootOptions, plan localtrust.Plan) error {

@@ -88,7 +88,7 @@ run_local_vm() {
 run_incus() {
   require_e2e incus
   ensure_run_id incus
-  run go test ./internal/e2e -run 'Test(IncusProjectListingSmoke|DisposableProjectCreateAndPurge|DisposableInfrastructureCreateAndDelete|RouteBrokerAuthorizedMutationE2E|ImageSync.*AliasE2E|ProjectDNSE2E|SandboxLifecycleE2E|HostOverrideE2E|LocalTrustInstallUninstallE2E|CLIAdd.*E2E|CLIEnterCommandE2E)' -count=1 -v
+  run go test ./internal/e2e -run 'Test(TenantListingSmoke|DisposableTenantCreateAndPurge|DisposableInfrastructureCreateAndDelete|RouteBrokerAuthorizedMutationE2E|ImageSync.*AliasE2E|TenantDNSE2E|MachineLifecycleE2E|HostOverrideE2E|LocalTrustInstallUninstallE2E|CLICreate.*E2E|CLIConnectCommandE2E)' -count=1 -v
 }
 
 run_restricted() {
@@ -101,7 +101,7 @@ run_restricted() {
   fi
   require_env restricted SANDCASTLE_E2E_BASE_IMAGE_SOURCE
   require_env restricted SANDCASTLE_E2E_AI_IMAGE_SOURCE
-  run go test ./internal/e2e -run 'TestRestrictedUser(Token|GrantAccess|SandboxLifecycle)E2E' -count=1 -v
+  run go test ./internal/e2e -run 'TestRestrictedUser(Token|GrantAccess|MachineLifecycle)E2E' -count=1 -v
 }
 
 run_images() {

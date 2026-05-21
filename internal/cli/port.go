@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"github.com/spf13/cobra"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
 func newPortCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -27,17 +27,17 @@ func newPortSetCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid app port %q", args[1])
 			}
-			plan, err := sandbox.PlanSetPort(cmd.Context(), config.adminConfig, config.projectStore, sandbox.PortSetRequest{
+			plan, err := machine.PlanSetPort(cmd.Context(), config.adminConfig, config.tenantStore, machine.PortSetRequest{
 				Reference: args[0],
 				AppPort:   appPort,
 			})
 			if err != nil {
 				return err
 			}
-			if config.sandboxPort == nil {
+			if config.machinePort == nil {
 				return fmt.Errorf("machine port executor is not configured")
 			}
-			if err := config.sandboxPort.SetAppPort(cmd.Context(), plan); err != nil {
+			if err := config.machinePort.SetAppPort(cmd.Context(), plan); err != nil {
 				return err
 			}
 			return writeOutput(config.stdout, opts.output, formatPortSetPlan(plan), plan)
@@ -45,6 +45,6 @@ func newPortSetCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 }
 
-func formatPortSetPlan(plan sandbox.PortSetPlan) string {
+func formatPortSetPlan(plan machine.PortSetPlan) string {
 	return fmt.Sprintf("Set %s app port to %d", plan.Reference, plan.AppPort)
 }

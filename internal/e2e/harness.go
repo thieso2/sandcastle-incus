@@ -16,7 +16,6 @@ type Config struct {
 	Remote        string
 	StoragePool   string
 	CIDRPool      string
-	DomainSuffix  string
 	RunID         string
 	Keep          bool
 	SandcastleBin string
@@ -60,7 +59,6 @@ func LoadConfig() Config {
 		Remote:        getenv("SANDCASTLE_E2E_REMOTE", "local"),
 		StoragePool:   getenv("SANDCASTLE_E2E_STORAGE_POOL", "default"),
 		CIDRPool:      getenv("SANDCASTLE_E2E_CIDR_POOL", "10.248.0.0/16"),
-		DomainSuffix:  strings.TrimPrefix(getenv("SANDCASTLE_E2E_DOMAIN_SUFFIX", "e2e.project-tld"), "."),
 		RunID:         os.Getenv("SANDCASTLE_E2E_RUN_ID"),
 		Keep:          os.Getenv("SANDCASTLE_E2E_KEEP") == "1",
 		SandcastleBin: os.Getenv("SANDCASTLE_E2E_SANDCASTLE_BIN"),
@@ -102,9 +100,6 @@ func (c Config) Validate() error {
 	}
 	if c.CIDRPool == "" {
 		return fmt.Errorf("SANDCASTLE_E2E_CIDR_POOL is required")
-	}
-	if c.DomainSuffix == "" {
-		return fmt.Errorf("SANDCASTLE_E2E_DOMAIN_SUFFIX is required")
 	}
 	if c.Tailscale.Tag == "" {
 		return fmt.Errorf("SANDCASTLE_E2E_TAILSCALE_TAG is required when e2e is enabled")

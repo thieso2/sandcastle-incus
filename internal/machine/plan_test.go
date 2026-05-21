@@ -7,7 +7,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestPlanCreateDefaultsToDefaultProject(t *testing.T) {
@@ -26,7 +26,7 @@ func TestPlanCreateDefaultsToDefaultProject(t *testing.T) {
 	if plan.CaddyFile.Content == "" || !strings.Contains(plan.CaddyFile.Content, "codex.default.acme") {
 		t.Fatalf("CaddyFile = %#v", plan.CaddyFile)
 	}
-	if plan.Devices["home"]["source"] != project.HomeVolumeName+"/default/codex" {
+	if plan.Devices["home"]["source"] != tenant.HomeVolumeName+"/default/codex" {
 		t.Fatalf("home source = %#v", plan.Devices["home"])
 	}
 	metadata, err := meta.ParseMachineConfig(plan.MetadataConfig)
@@ -103,10 +103,10 @@ func TestPlanCreateRequiresShareHomeForRunningMachineUsingSameHome(t *testing.T)
 	}
 }
 
-func TestPlanEnter(t *testing.T) {
+func TestPlanConnect(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	plan, err := PlanEnter(context.Background(), admin, tenantStoreForTest(t), nil, EnterRequest{Reference: "website/codex"})
+	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), nil, ConnectRequest{Reference: "website/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,11 +115,11 @@ func TestPlanEnter(t *testing.T) {
 	}
 }
 
-func TestPlanEnterSearchesBareMachineWhenUnique(t *testing.T) {
+func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
 	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex"}}}
-	plan, err := PlanEnter(context.Background(), admin, tenantStoreForTest(t), store, EnterRequest{Reference: "codex"})
+	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,11 +128,11 @@ func TestPlanEnterSearchesBareMachineWhenUnique(t *testing.T) {
 	}
 }
 
-func TestPlanEnterRejectsAmbiguousBareMachine(t *testing.T) {
+func TestPlanConnectRejectsAmbiguousBareMachine(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
 	store := fakeMachineStore{machines: []meta.Machine{{Project: "default", Name: "codex"}, {Project: "website", Name: "codex"}}}
-	_, err := PlanEnter(context.Background(), admin, tenantStoreForTest(t), store, EnterRequest{Reference: "codex"})
+	_, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -153,15 +153,15 @@ func TestPlanLifecycle(t *testing.T) {
 	}
 }
 
-func TestInspect(t *testing.T) {
+func TestMachineStatus(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	result, err := Inspect(context.Background(), admin, tenantStoreForTest(t), fakeMachineStore{machines: []meta.Machine{{
+	result, err := GetStatus(context.Background(), admin, tenantStoreForTest(t), fakeMachineStore{machines: []meta.Machine{{
 		Tenant:    "acme",
 		Project:   "default",
 		Name:      "codex",
 		PrivateIP: "10.248.0.20",
-	}}}, InspectRequest{Reference: "codex"})
+	}}}, StatusRequest{Reference: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestPlanSetPort(t *testing.T) {
 	}
 }
 
-func tenantStoreForTest(t *testing.T) project.MemoryStore {
+func tenantStoreForTest(t *testing.T) tenant.MemoryStore {
 	t.Helper()
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -196,13 +196,13 @@ func tenantStoreForTest(t *testing.T) project.MemoryStore {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-acme", Config: config}}}
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{{Name: "sc-acme", Config: config}}}
 }
 
 type fakeMachineStore struct {
 	machines []meta.Machine
 }
 
-func (s fakeMachineStore) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
+func (s fakeMachineStore) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
 	return s.machines, nil
 }

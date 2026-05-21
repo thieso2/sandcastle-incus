@@ -7,28 +7,28 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-type ProjectServer interface {
+type TenantListServer interface {
 	GetProjects() ([]api.Project, error)
 }
 
-type ProjectStore struct {
+type TenantStore struct {
 	Remote     string
 	ConfigPath string
-	Server     ProjectServer
+	Server     TenantListServer
 }
 
-func NewProjectStore(remote string) ProjectStore {
-	return ProjectStore{Remote: remote}
+func NewTenantStore(remote string) TenantStore {
+	return TenantStore{Remote: remote}
 }
 
-func NewProjectStoreForServer(server incus.InstanceServer) ProjectStore {
-	return ProjectStore{Server: server}
+func NewTenantStoreForServer(server incus.InstanceServer) TenantStore {
+	return TenantStore{Server: server}
 }
 
-func (s ProjectStore) ListProjects(ctx context.Context) ([]project.IncusProject, error) {
+func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, error) {
 	server := s.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(s.ConfigPath)
@@ -52,10 +52,10 @@ func (s ProjectStore) ListProjects(ctx context.Context) ([]project.IncusProject,
 	return FromAPIProjects(projects), nil
 }
 
-func FromAPIProjects(projects []api.Project) []project.IncusProject {
-	output := make([]project.IncusProject, 0, len(projects))
+func FromAPIProjects(projects []api.Project) []tenant.IncusProject {
+	output := make([]tenant.IncusProject, 0, len(projects))
 	for _, incusProject := range projects {
-		output = append(output, project.IncusProject{
+		output = append(output, tenant.IncusProject{
 			Name:   incusProject.Name,
 			Config: map[string]string(incusProject.Config),
 		})

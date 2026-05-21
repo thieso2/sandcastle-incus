@@ -15,7 +15,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/route"
 )
 
-func TestClientAddsRouteThroughBroker(t *testing.T) {
+func TestClientCreatesRouteThroughBroker(t *testing.T) {
 	var captured routeRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/routes" {
@@ -28,7 +28,7 @@ func TestClientAddsRouteThroughBroker(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Add(context.Background(), route.AddPlan{
+	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Create(context.Background(), route.CreatePlan{
 		Hostname:        "app.example.com",
 		TargetReference: "alice/myproject/codex",
 	})
@@ -40,7 +40,7 @@ func TestClientAddsRouteThroughBroker(t *testing.T) {
 	}
 }
 
-func TestClientRemovesRouteThroughBroker(t *testing.T) {
+func TestClientDeletesRouteThroughBroker(t *testing.T) {
 	var called bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete || r.URL.Path != "/routes/app.example.com" {
@@ -51,7 +51,7 @@ func TestClientRemovesRouteThroughBroker(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Remove(context.Background(), route.RemovePlan{
+	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Delete(context.Background(), route.DeletePlan{
 		Hostname: "app.example.com",
 	})
 	if err != nil {
@@ -140,7 +140,7 @@ func TestClientRejectsMultipleJSONListResponseValues(t *testing.T) {
 }
 
 func TestClientRequiresBrokerURL(t *testing.T) {
-	err := (Client{}).Add(context.Background(), route.AddPlan{})
+	err := (Client{}).Create(context.Background(), route.CreatePlan{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -177,17 +177,17 @@ func TestClientLoadsTrimmedCertificatePaths(t *testing.T) {
 func TestClientReportsBrokerJSONError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "route owner mismatch"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "route user grant mismatch"})
 	}))
 	defer server.Close()
 
-	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Remove(context.Background(), route.RemovePlan{
+	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Delete(context.Background(), route.DeletePlan{
 		Hostname: "app.example.com",
 	})
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "route owner mismatch") {
+	if !strings.Contains(err.Error(), "route user grant mismatch") {
 		t.Fatalf("error = %q", err.Error())
 	}
 	if strings.Contains(err.Error(), "{\"error\"") {
@@ -202,7 +202,7 @@ func TestClientReturnsTypedConflictForClaimedRoute(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Add(context.Background(), route.AddPlan{
+	err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Create(context.Background(), route.CreatePlan{
 		Hostname:        "app.example.com",
 		TargetReference: "alice/myproject/codex",
 	})

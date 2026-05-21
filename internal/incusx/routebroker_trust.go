@@ -56,36 +56,36 @@ func (m RouteBrokerTrustMapper) PrincipalForFingerprint(ctx context.Context, fin
 		if normalizeFingerprint(certificate.Fingerprint) != normalized {
 			continue
 		}
-		owner := ownerFromCertificate(certificate)
-		if owner == "" {
+		user := userFromCertificate(certificate)
+		if user == "" {
 			return routebroker.Principal{}, fmt.Errorf("certificate %s is not a Sandcastle restricted user certificate", fingerprint)
 		}
 		return routebroker.Principal{
 			Fingerprint: normalized,
-			Owner:       owner,
+			User:        user,
 			Projects:    append([]string{}, certificate.Projects...),
 		}, nil
 	}
 	return routebroker.Principal{}, fmt.Errorf("certificate fingerprint %s is not trusted", fingerprint)
 }
 
-func ownerFromCertificate(certificate api.Certificate) string {
+func userFromCertificate(certificate api.Certificate) string {
 	if certificate.Type != api.CertificateTypeClient || !certificate.Restricted {
 		return ""
 	}
-	return ownerFromCertificateName(certificate.CertificatePut.Name)
+	return userFromCertificateName(certificate.CertificatePut.Name)
 }
 
-func ownerFromCertificateName(name string) string {
+func userFromCertificateName(name string) string {
 	name = strings.TrimSpace(name)
 	if !strings.HasPrefix(name, "sandcastle-") {
 		return ""
 	}
-	owner := strings.TrimPrefix(name, "sandcastle-")
-	if _, err := naming.ParseProjectRef(owner + "/placeholder"); err != nil {
+	user := strings.TrimPrefix(name, "sandcastle-")
+	if err := naming.ValidateTenantName(user); err != nil {
 		return ""
 	}
-	return owner
+	return user
 }
 
 func normalizeFingerprint(value string) string {

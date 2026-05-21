@@ -8,7 +8,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeTrustMapper struct {
@@ -20,15 +20,15 @@ func (m fakeTrustMapper) PrincipalForFingerprint(ctx context.Context, fingerprin
 	return m.principal, m.err
 }
 
-func TestPrincipalFromFingerprintMapsOwner(t *testing.T) {
+func TestPrincipalFromFingerprintMapsUser(t *testing.T) {
 	principal, err := PrincipalFromFingerprint(context.Background(), fakeTrustMapper{principal: Principal{
-		Owner:    "alice",
+		User:     "alice",
 		Projects: []string{" sc-acme ", "", "sc-acme"},
 	}}, " abc123 ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if principal.Fingerprint != "abc123" || principal.Owner != "alice" {
+	if principal.Fingerprint != "abc123" || principal.User != "alice" {
 		t.Fatalf("principal = %#v", principal)
 	}
 	if len(principal.Projects) != 1 || principal.Projects[0] != "sc-acme" {
@@ -46,22 +46,22 @@ func TestPrincipalFromFingerprintWrapsUnmappedCertificate(t *testing.T) {
 	}
 }
 
-func TestPrincipalFromFingerprintRejectsInvalidOwner(t *testing.T) {
+func TestPrincipalFromFingerprintRejectsInvalidUser(t *testing.T) {
 	_, err := PrincipalFromFingerprint(context.Background(), fakeTrustMapper{principal: Principal{
-		Owner:    "bad_owner",
-		Projects: []string{"sc-bad-owner"},
+		User:     "bad_user",
+		Projects: []string{"sc-bad-user"},
 	}}, "abc123")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "invalid Sandcastle owner") {
+	if !strings.Contains(err.Error(), "invalid Sandcastle user") {
 		t.Fatalf("error = %q", err)
 	}
 }
 
 func TestPrincipalFromFingerprintRejectsInvalidProjectGrant(t *testing.T) {
 	_, err := PrincipalFromFingerprint(context.Background(), fakeTrustMapper{principal: Principal{
-		Owner:    "alice",
+		User:     "alice",
 		Projects: []string{"sc-acme", "bad_project"},
 	}}, "abc123")
 	if err == nil {
@@ -79,22 +79,22 @@ func TestPrincipalFromFingerprintReturnsMapperError(t *testing.T) {
 	}
 }
 
-func TestAuthorizeAddAllowsOwner(t *testing.T) {
-	err := AuthorizeAdd(Principal{Owner: "alice", Projects: []string{"sc-acme"}}, route.AddPlan{Tenant: project.Summary{Tenant: "acme", IncusName: "sc-acme"}})
+func TestAuthorizeCreateAllowsGrantedUser(t *testing.T) {
+	err := AuthorizeCreate(Principal{User: "alice", Projects: []string{"sc-acme"}}, route.CreatePlan{Tenant: tenant.Summary{Tenant: "acme", IncusName: "sc-acme"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestAuthorizeAddIgnoresPrincipalOwnerForTenantAccess(t *testing.T) {
-	err := AuthorizeAdd(Principal{Owner: "bob", Projects: []string{"sc-acme"}}, route.AddPlan{Tenant: project.Summary{Tenant: "acme", IncusName: "sc-acme"}})
+func TestAuthorizeCreateIgnoresPrincipalUserForTenantAccess(t *testing.T) {
+	err := AuthorizeCreate(Principal{User: "bob", Projects: []string{"sc-acme"}}, route.CreatePlan{Tenant: tenant.Summary{Tenant: "acme", IncusName: "sc-acme"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestAuthorizeAddRejectsTenantOutsideCertificateScope(t *testing.T) {
-	err := AuthorizeAdd(Principal{Owner: "alice", Projects: []string{"sc-other"}}, route.AddPlan{Tenant: project.Summary{Tenant: "acme", IncusName: "sc-acme"}})
+func TestAuthorizeCreateRejectsTenantOutsideCertificateScope(t *testing.T) {
+	err := AuthorizeCreate(Principal{User: "alice", Projects: []string{"sc-other"}}, route.CreatePlan{Tenant: tenant.Summary{Tenant: "acme", IncusName: "sc-acme"}})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -103,19 +103,19 @@ func TestAuthorizeAddRejectsTenantOutsideCertificateScope(t *testing.T) {
 	}
 }
 
-func TestAuthorizeRemoveUsesStoredRouteTenant(t *testing.T) {
-	err := AuthorizeRemove(Principal{Owner: "alice", Projects: []string{"sc-acme"}}, meta.Route{TargetTenant: "acme", TargetProject: "default"}, "sc")
+func TestAuthorizeDeleteUsesStoredRouteTenant(t *testing.T) {
+	err := AuthorizeDelete(Principal{User: "alice", Projects: []string{"sc-acme"}}, meta.Route{TargetTenant: "acme", TargetProject: "default"}, "sc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = AuthorizeRemove(Principal{Owner: "bob", Projects: []string{"sc-acme"}}, meta.Route{TargetTenant: "acme", TargetProject: "default"}, "sc")
+	err = AuthorizeDelete(Principal{User: "bob", Projects: []string{"sc-acme"}}, meta.Route{TargetTenant: "acme", TargetProject: "default"}, "sc")
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestAuthorizeRemoveRejectsTenantOutsideCertificateScope(t *testing.T) {
-	err := AuthorizeRemove(Principal{Owner: "alice", Projects: []string{"sc-other"}}, meta.Route{TargetTenant: "acme", TargetProject: "default"}, "sc")
+func TestAuthorizeDeleteRejectsTenantOutsideCertificateScope(t *testing.T) {
+	err := AuthorizeDelete(Principal{User: "alice", Projects: []string{"sc-other"}}, meta.Route{TargetTenant: "acme", TargetProject: "default"}, "sc")
 	if err == nil {
 		t.Fatal("expected error")
 	}

@@ -16,32 +16,32 @@ func TestResolverStrategyForPlatforms(t *testing.T) {
 
 func TestLinuxResolverCommandsUseSystemdResolved(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
-	commands := ResolverCommands("linux", "myproject.project-tld", "127.0.0.1:53541")
+	commands := ResolverCommands("linux", "acme.sandcastle.internal", "127.0.0.1:53541")
 	if len(commands) != 2 {
 		t.Fatalf("commands = %#v", commands)
 	}
 	if got := joinArgs(commands[0].Args); got != "resolvectl dns lo 127.0.0.1:53541" {
 		t.Fatalf("dns command = %q", got)
 	}
-	if got := joinArgs(commands[1].Args); got != "resolvectl domain lo ~myproject.project-tld" {
+	if got := joinArgs(commands[1].Args); got != "resolvectl domain lo ~acme.sandcastle.internal" {
 		t.Fatalf("domain command = %q", got)
 	}
 }
 
 func TestLinuxResolverCommandsSkippedWhenResolverDirIsOverridden(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", t.TempDir())
-	commands := ResolverCommands("linux", "myproject.project-tld", "127.0.0.1:53541")
+	commands := ResolverCommands("linux", "acme.sandcastle.internal", "127.0.0.1:53541")
 	if len(commands) != 0 {
 		t.Fatalf("commands = %#v, want none with resolver dir override", commands)
 	}
 }
 
-func TestResolverSyncCommandsUseInstalledProjectDomains(t *testing.T) {
+func TestResolverSyncCommandsUseInstalledTenantSuffixes(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
 	state := State{Tenants: []TenantState{
-		{DNSSuffix: "beta.project-tld", DNSEndpoint: EndpointState{IP: "10.248.0.53", Port: 53}},
-		{DNSSuffix: "alpha.project-tld.", DNSEndpoint: EndpointState{IP: "10.248.1.53", Port: 53}},
-		{DNSSuffix: "broken.project-tld", DNSEndpoint: EndpointState{IP: "not-an-ip", Port: 53}},
+		{DNSSuffix: "beta.sandcastle.internal", DNSEndpoint: EndpointState{IP: "10.248.0.53", Port: 53}},
+		{DNSSuffix: "alpha.sandcastle.internal.", DNSEndpoint: EndpointState{IP: "10.248.1.53", Port: 53}},
+		{DNSSuffix: "broken.sandcastle.internal", DNSEndpoint: EndpointState{IP: "not-an-ip", Port: 53}},
 	}}
 	commands := ResolverSyncCommands(StrategySystemdResolve, state, "127.0.0.1:53541")
 	if len(commands) != 2 {
@@ -50,7 +50,7 @@ func TestResolverSyncCommandsUseInstalledProjectDomains(t *testing.T) {
 	if got := joinArgs(commands[0].Args); got != "resolvectl dns lo 127.0.0.1:53541" {
 		t.Fatalf("dns command = %q", got)
 	}
-	if got := joinArgs(commands[1].Args); got != "resolvectl domain lo ~alpha.project-tld ~beta.project-tld" {
+	if got := joinArgs(commands[1].Args); got != "resolvectl domain lo ~alpha.sandcastle.internal ~beta.sandcastle.internal" {
 		t.Fatalf("domain command = %q", got)
 	}
 }

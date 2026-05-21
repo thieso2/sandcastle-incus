@@ -32,7 +32,7 @@ func TestRemoveHostsEntryRemovesManagedBlock(t *testing.T) {
 	existing := "127.0.0.1 localhost\n" + entry.BeginLine + "\n" + entry.Line + "\n" + entry.EndLine + "\n"
 	updated := RemoveHostsEntry(existing, entry)
 	if strings.Contains(updated, "example.com") {
-		t.Fatalf("managed entry was not removed: %q", updated)
+		t.Fatalf("managed entry was not deleted: %q", updated)
 	}
 	if !strings.Contains(updated, "127.0.0.1 localhost") {
 		t.Fatalf("unmanaged entry missing: %q", updated)
@@ -63,7 +63,7 @@ func TestFileHostsManagerRemoveHostsEntry(t *testing.T) {
 	if err := os.WriteFile(path, []byte(ApplyHostsEntry("127.0.0.1 localhost\n", entry)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan := RemovePlan{HostsEntry: entry}
+	plan := DeletePlan{HostsEntry: entry}
 	if err := (FileHostsManager{Path: path}).RemoveHostsEntry(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}

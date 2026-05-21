@@ -19,12 +19,12 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -135,6 +135,45 @@ func TestJSONFlagRejectsExplicitTextOutput(t *testing.T) {
 	}
 }
 
+func TestConfigUnsetClearsStoredValue(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant:      "acme",
+		Project:     "website",
+		Remote:      "sc-acme",
+		AdminRemote: "big",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, err := executeForTest(t, "sandcastle", "config", "unset", "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Unset project") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Project != "" {
+		t.Fatalf("Project = %q, want empty", cfg.Project)
+	}
+	if cfg.Tenant != "acme" || cfg.Remote != "sc-acme" || cfg.AdminRemote != "big" {
+		t.Fatalf("config = %#v, want other keys preserved", cfg)
+	}
+}
+
+func TestConfigUnsetRejectsUnknownKey(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_, err := executeForTest(t, "sandcastle", "config", "unset", "bad")
+	if err == nil || !strings.Contains(err.Error(), "supported keys: tenant, project, remote, admin_remote") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestListJSONStartsEmpty(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -146,11 +185,11 @@ func TestListJSONStartsEmpty(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{},
+		machineStore: fakeMachineStatusStore{},
 	}, "--output", "json", "list")
 	if err != nil {
 		t.Fatal(err)
@@ -175,11 +214,11 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant:    "acme",
 			Project:   "default",
 			Name:      "codex",
@@ -211,11 +250,11 @@ func TestListUsesProjectFromEnv(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant: "acme", Project: "default", Name: "builder", PrivateIP: "10.248.0.20", AppPort: 3000,
 		}, {
 			Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.21", AppPort: 3000,
@@ -243,11 +282,11 @@ func TestListShowsUnmanagedCountWithoutFlag(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
+		machineStore: fakeMachineStatusStore{unmanaged: []machine.UnmanagedMachine{{
 			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
 		}}},
 	}, "list")
@@ -273,11 +312,11 @@ func TestListIncludesUnmanagedWithFlagTenantWide(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
+		machineStore: fakeMachineStatusStore{unmanaged: []machine.UnmanagedMachine{{
 			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
 		}}},
 	}, "list", "-u")
@@ -300,11 +339,11 @@ func TestListProjectScopeHidesUnmanagedRowsButShowsCount(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
+		machineStore: fakeMachineStatusStore{unmanaged: []machine.UnmanagedMachine{{
 			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
 		}}},
 	}, "list", "default", "-u")
@@ -330,7 +369,7 @@ func TestProjectListShowsCurrentTenantProjects(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -354,11 +393,11 @@ func TestProjectStatusShowsMachineCount(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{
 			{Tenant: "acme", Project: "website", Name: "codex"},
 			{Tenant: "acme", Project: "default", Name: "shell"},
 		}},
@@ -382,11 +421,11 @@ func TestProjectStatusJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{
 			{Tenant: "acme", Project: "website", Name: "codex"},
 		}},
 	}, "--output", "json", "project", "status", "website")
@@ -413,7 +452,7 @@ func TestProjectCreateDryRunJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -421,7 +460,7 @@ func TestProjectCreateDryRunJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload project.ProjectMutationPlan
+	var payload tenant.ProjectMutationPlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -442,11 +481,11 @@ func TestProjectCreateCallsUpdater(t *testing.T) {
 	updater := &fakeProjectUpdater{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		projectUpdater: updater,
+		tenantUpdater: updater,
 	}, "project", "create", "website")
 	if err != nil {
 		t.Fatal(err)
@@ -467,11 +506,11 @@ func TestProjectDeleteRejectsNonEmptyProject(t *testing.T) {
 	}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex"}}},
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex"}}},
 	}, "project", "delete", "website", "--yes")
 	if err == nil {
 		t.Fatal("expected error")
@@ -493,12 +532,12 @@ func TestProjectDeleteCallsUpdater(t *testing.T) {
 	updater := &fakeProjectUpdater{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore:   fakeSandboxInspectStore{},
-		projectUpdater: updater,
+		machineStore:  fakeMachineStatusStore{},
+		tenantUpdater: updater,
 	}, "project", "delete", "website", "--yes")
 	if err != nil {
 		t.Fatal(err)
@@ -519,7 +558,7 @@ func TestStatusJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -527,7 +566,7 @@ func TestStatusJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload project.Status
+	var payload tenant.Status
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +586,7 @@ func TestStatusJSONUsesTenantRef(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -555,7 +594,7 @@ func TestStatusJSONUsesTenantRef(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload project.Status
+	var payload tenant.Status
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -564,7 +603,7 @@ func TestStatusJSONUsesTenantRef(t *testing.T) {
 	}
 }
 
-func TestInspectJSON(t *testing.T) {
+func TestMachineStatusJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -575,11 +614,11 @@ func TestInspectJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant:         "acme",
 			Project:        "default",
 			Name:           "codex",
@@ -595,7 +634,7 @@ func TestInspectJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload sandbox.InspectResult
+	var payload machine.StatusResult
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +649,7 @@ func TestInspectJSON(t *testing.T) {
 	}
 }
 
-func TestInspectText(t *testing.T) {
+func TestMachineStatusText(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -621,11 +660,11 @@ func TestInspectText(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant:         "acme",
 			Project:        "default",
 			Name:           "codex",
@@ -659,11 +698,11 @@ func TestStatusRejectsAmbiguousBareMachine(t *testing.T) {
 	}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{
 			{Tenant: "acme", Project: "default", Name: "codex"},
 			{Tenant: "acme", Project: "website", Name: "codex"},
 		}},
@@ -676,7 +715,7 @@ func TestStatusRejectsAmbiguousBareMachine(t *testing.T) {
 	}
 }
 
-func TestAddDryRunJSON(t *testing.T) {
+func TestCreateDryRunJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -687,7 +726,7 @@ func TestAddDryRunJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -695,7 +734,7 @@ func TestAddDryRunJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload sandbox.CreatePlan
+	var payload machine.CreatePlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -713,7 +752,7 @@ func TestAddDryRunJSON(t *testing.T) {
 	}
 }
 
-func TestAddDryRunUsesProjectFromEnv(t *testing.T) {
+func TestCreateDryRunUsesProjectFromEnv(t *testing.T) {
 	t.Setenv("SANDCASTLE_PROJECT", "website")
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -725,7 +764,7 @@ func TestAddDryRunUsesProjectFromEnv(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -733,7 +772,7 @@ func TestAddDryRunUsesProjectFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload sandbox.CreatePlan
+	var payload machine.CreatePlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +784,7 @@ func TestAddDryRunUsesProjectFromEnv(t *testing.T) {
 	}
 }
 
-func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
+func TestCreateDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -756,7 +795,7 @@ func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -764,7 +803,7 @@ func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload sandbox.CreatePlan
+	var payload machine.CreatePlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -779,7 +818,7 @@ func TestAddDryRunSupportsTemplateAndStorageFlags(t *testing.T) {
 	}
 }
 
-func TestAddDryRunSupportsContainerTools(t *testing.T) {
+func TestCreateDryRunSupportsContainerTools(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -790,7 +829,7 @@ func TestAddDryRunSupportsContainerTools(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -798,7 +837,7 @@ func TestAddDryRunSupportsContainerTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload sandbox.CreatePlan
+	var payload machine.CreatePlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -814,7 +853,7 @@ func TestAddDryRunSupportsContainerTools(t *testing.T) {
 	}
 }
 
-func TestAddDryRunRejectsUnsafeStorageFlags(t *testing.T) {
+func TestCreateDryRunRejectsUnsafeStorageFlags(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -825,7 +864,7 @@ func TestAddDryRunRejectsUnsafeStorageFlags(t *testing.T) {
 	}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -838,7 +877,7 @@ func TestAddDryRunRejectsUnsafeStorageFlags(t *testing.T) {
 	}
 }
 
-func TestAddDetachSkipsEnter(t *testing.T) {
+func TestCreateDetachSkipsConnect(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -847,16 +886,16 @@ func TestAddDetachSkipsEnter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	creator := &fakeSandboxCreator{}
-	enterer := &fakeSandboxEnterer{}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxCreator: creator,
-		sandboxEnterer: enterer,
+		machineCreator:   creator,
+		machineConnector: connector,
 	}, "create", "codex", "--detach")
 	if err != nil {
 		t.Fatal(err)
@@ -864,12 +903,12 @@ func TestAddDetachSkipsEnter(t *testing.T) {
 	if creator.plan.InstanceName != "default-codex" {
 		t.Fatalf("created instance = %q", creator.plan.InstanceName)
 	}
-	if enterer.called {
-		t.Fatal("expected add --detach to skip enter")
+	if connector.called {
+		t.Fatal("expected create --detach to skip connect")
 	}
 }
 
-func TestAddBackgroundSkipsEnter(t *testing.T) {
+func TestCreateBackgroundSkipsConnect(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -878,16 +917,16 @@ func TestAddBackgroundSkipsEnter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	creator := &fakeSandboxCreator{}
-	enterer := &fakeSandboxEnterer{}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxCreator: creator,
-		sandboxEnterer: enterer,
+		machineCreator:   creator,
+		machineConnector: connector,
 	}, "create", "codex", "--background")
 	if err != nil {
 		t.Fatal(err)
@@ -895,12 +934,12 @@ func TestAddBackgroundSkipsEnter(t *testing.T) {
 	if creator.plan.InstanceName != "default-codex" {
 		t.Fatalf("created instance = %q", creator.plan.InstanceName)
 	}
-	if enterer.called {
-		t.Fatal("expected add --background to skip enter")
+	if connector.called {
+		t.Fatal("expected create --background to skip connect")
 	}
 }
 
-func TestAddEntersAfterCreateByDefault(t *testing.T) {
+func TestCreateConnectsAfterCreateByDefault(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -909,16 +948,16 @@ func TestAddEntersAfterCreateByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	creator := &fakeSandboxCreator{}
-	enterer := &fakeSandboxEnterer{}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxCreator: creator,
-		sandboxEnterer: enterer,
+		machineCreator:   creator,
+		machineConnector: connector,
 	}, "create", "codex")
 	if err != nil {
 		t.Fatal(err)
@@ -926,15 +965,15 @@ func TestAddEntersAfterCreateByDefault(t *testing.T) {
 	if creator.plan.InstanceName != "default-codex" {
 		t.Fatalf("created instance = %q", creator.plan.InstanceName)
 	}
-	if !enterer.called {
-		t.Fatal("expected add to enter sandbox")
+	if !connector.called {
+		t.Fatal("expected create to connect to machine")
 	}
-	if enterer.plan.InstanceName != "default-codex" {
-		t.Fatalf("entered instance = %q", enterer.plan.InstanceName)
+	if connector.plan.InstanceName != "default-codex" {
+		t.Fatalf("connected instance = %q", connector.plan.InstanceName)
 	}
 }
 
-func TestEnterCommandUsesEnterer(t *testing.T) {
+func TestConnectCommandUsesConnector(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -943,30 +982,30 @@ func TestEnterCommandUsesEnterer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enterer := &fakeSandboxEnterer{}
+	connector := &fakeMachineConnector{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxEnterer: enterer,
+		machineConnector: connector,
 	}, "connect", "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !enterer.called {
-		t.Fatal("expected enterer call")
+	if !connector.called {
+		t.Fatal("expected machine connector call")
 	}
-	if enterer.plan.InstanceName != "default-codex" {
-		t.Fatalf("entered instance = %q", enterer.plan.InstanceName)
+	if connector.plan.InstanceName != "default-codex" {
+		t.Fatalf("connected instance = %q", connector.plan.InstanceName)
 	}
-	if !enterer.plan.Interactive {
-		t.Fatal("expected default enter to be interactive")
+	if !connector.plan.Interactive {
+		t.Fatal("expected default connect to be interactive")
 	}
 }
 
-func TestEnterCommandAcceptsExplicitCommand(t *testing.T) {
+func TestConnectCommandAcceptsExplicitCommand(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -975,27 +1014,27 @@ func TestEnterCommandAcceptsExplicitCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enterer := &fakeSandboxEnterer{}
+	connector := &fakeMachineConnector{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxEnterer: enterer,
+		machineConnector: connector,
 	}, "connect", "codex", "pwd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if enterer.plan.Interactive {
-		t.Fatal("expected explicit enter command to be non-interactive")
+	if connector.plan.Interactive {
+		t.Fatal("expected explicit connect command to be non-interactive")
 	}
-	if len(enterer.plan.Command) != 1 || enterer.plan.Command[0] != "pwd" {
-		t.Fatalf("Command = %#v", enterer.plan.Command)
+	if len(connector.plan.Command) != 1 || connector.plan.Command[0] != "pwd" {
+		t.Fatalf("Command = %#v", connector.plan.Command)
 	}
 }
 
-func TestEnterCommandSearchesBareMachineWhenUnique(t *testing.T) {
+func TestConnectCommandSearchesBareMachineWhenUnique(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
@@ -1004,25 +1043,25 @@ func TestEnterCommandSearchesBareMachineWhenUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enterer := &fakeSandboxEnterer{}
+	connector := &fakeMachineConnector{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore:   fakeSandboxInspectStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex"}}},
-		sandboxEnterer: enterer,
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex"}}},
+		machineConnector: connector,
 	}, "connect", "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if enterer.plan.Project != "website" || enterer.plan.InstanceName != "website-codex" {
-		t.Fatalf("enterer.plan = %#v", enterer.plan)
+	if connector.plan.Project != "website" || connector.plan.InstanceName != "website-codex" {
+		t.Fatalf("connector.plan = %#v", connector.plan)
 	}
 }
 
-func TestEnterCommandRejectsAmbiguousBareMachine(t *testing.T) {
+func TestConnectCommandRejectsAmbiguousBareMachine(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
@@ -1033,15 +1072,15 @@ func TestEnterCommandRejectsAmbiguousBareMachine(t *testing.T) {
 	}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{
 			{Tenant: "acme", Project: "default", Name: "codex"},
 			{Tenant: "acme", Project: "website", Name: "codex"},
 		}},
-		sandboxEnterer: &fakeSandboxEnterer{},
+		machineConnector: &fakeMachineConnector{},
 	}, "connect", "codex")
 	if err == nil {
 		t.Fatal("expected error")
@@ -1051,13 +1090,51 @@ func TestEnterCommandRejectsAmbiguousBareMachine(t *testing.T) {
 	}
 }
 
-func TestRemoveRequiresConfirmation(t *testing.T) {
+func TestMachineDeleteRequiresConfirmation(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "delete", "codex")
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	if !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("error = %q, want --yes hint", err.Error())
+	}
+}
+
+func TestMachineDeleteCallsExecutor(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeMachineController{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		adminConfig: scconfig.Admin{
+			Tenant:                "acme",
+			Remote:                scconfig.DefaultRemote,
+			StoragePool:           scconfig.DefaultStoragePool,
+			CIDRPool:              scconfig.DefaultCIDRPool,
+			IncusProjectPrefix:    scconfig.DefaultIncusProjectPrefix,
+			InfrastructureProject: scconfig.DefaultInfrastructureProject,
+			Images:                scconfig.Images{Base: scconfig.DefaultBaseImageAlias, AI: scconfig.DefaultAIImageAlias},
+		},
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore: fakeMachineStatusStore{
+			machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex"}},
+		},
+		machineControl: controller,
+	}, "delete", "codex", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !controller.called || controller.plan.Action != machine.ActionDelete {
+		t.Fatalf("controller.plan = %#v", controller.plan)
 	}
 }
 
@@ -1079,7 +1156,7 @@ func TestDNSStatusJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1107,7 +1184,7 @@ func TestDNSInstallDryRunJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1159,7 +1236,7 @@ func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
 	manager := &fakeLocalDNSManager{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1232,7 +1309,7 @@ func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1267,7 +1344,7 @@ func TestTailscaleUpDryRunUsesDefaultAdvertiseTag(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1287,6 +1364,34 @@ func TestTailscaleUpDryRunUsesDefaultAdvertiseTag(t *testing.T) {
 	}
 }
 
+func TestTailscaleUpUsesCurrentTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "tailscale", "up", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload tailscale.UpPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Reference != "acme" || payload.InstanceName != "sc-acme" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestTailscaleUpDryRunRejectsInvalidAdvertiseTag(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -1298,7 +1403,7 @@ func TestTailscaleUpDryRunRejectsInvalidAdvertiseTag(t *testing.T) {
 	}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1323,7 +1428,7 @@ func TestTailscaleUpRunsExecutor(t *testing.T) {
 	runner := &fakeTailscaleRunner{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1358,7 +1463,7 @@ func TestTailscaleStatusRunsExecutor(t *testing.T) {
 	}}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1379,6 +1484,35 @@ func TestTailscaleStatusRunsExecutor(t *testing.T) {
 	}
 }
 
+func TestTailscaleStatusUsesCurrentTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeTailscaleRunner{status: tailscale.StatusResult{
+		Reference: "acme",
+		Tailscale: meta.Tailscale{State: "Running"},
+	}}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		tailscale: runner,
+	}, "tailscale", "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.statusCalled || runner.statusPlan.Reference != "acme" {
+		t.Fatalf("runner = %#v", runner)
+	}
+}
+
 func TestTailscaleDownDryRunJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -1390,7 +1524,7 @@ func TestTailscaleDownDryRunJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1407,6 +1541,34 @@ func TestTailscaleDownDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestTailscaleDownUsesCurrentTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+	}, "--output", "json", "tailscale", "down", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload tailscale.DownPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Reference != "acme" || payload.InstanceName != "sc-acme" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestHostOverrideAddDryRunJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -1418,11 +1580,11 @@ func TestHostOverrideAddDryRunJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		hostSandbox: fakeHostSandboxStore{},
+		hostMachine: fakeHostMachineStore{},
 	}, "--output", "json", "host", "override", "create", "codex", "Example.COM", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -1439,7 +1601,7 @@ func TestHostOverrideAddDryRunJSON(t *testing.T) {
 	}
 }
 
-func TestHostOverrideAddAppliesSandboxAndHosts(t *testing.T) {
+func TestHostOverrideAddAppliesMachineAndHosts(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -1452,11 +1614,11 @@ func TestHostOverrideAddAppliesSandboxAndHosts(t *testing.T) {
 	files := &fakeHostFiles{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		hostSandbox:   fakeHostSandboxStore{},
+		hostMachine:   fakeHostMachineStore{},
 		hostOverrides: manager,
 		hostFiles:     files,
 	}, "host", "override", "create", "codex", "example.com")
@@ -1474,7 +1636,7 @@ func TestHostOverrideAddAppliesSandboxAndHosts(t *testing.T) {
 	}
 }
 
-func TestHostOverrideListJSON(t *testing.T) {
+func TestHostOverrideListUsesCurrentTenant(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -1485,11 +1647,40 @@ func TestHostOverrideListJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		hostSandbox: fakeHostSandboxStore{},
+		hostMachine: fakeHostMachineStore{},
+	}, "--output", "json", "host", "override", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload hostoverride.ListResult
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Overrides) != 1 || payload.Overrides[0].Hostname != "example.com" {
+		t.Fatalf("Overrides = %#v", payload.Overrides)
+	}
+}
+
+func TestHostOverrideListAcceptsExplicitTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		hostMachine: fakeHostMachineStore{},
 	}, "--output", "json", "host", "override", "list", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -1503,7 +1694,7 @@ func TestHostOverrideListJSON(t *testing.T) {
 	}
 }
 
-func TestHostOverrideRemoveAppliesSandboxAndHosts(t *testing.T) {
+func TestHostOverrideDeleteAppliesMachineAndHosts(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -1516,22 +1707,22 @@ func TestHostOverrideRemoveAppliesSandboxAndHosts(t *testing.T) {
 	files := &fakeHostFiles{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		hostSandbox:   fakeHostSandboxStore{},
+		hostMachine:   fakeHostMachineStore{},
 		hostOverrides: manager,
 		hostFiles:     files,
 	}, "host", "override", "delete", "codex", "example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !manager.removed {
-		t.Fatal("expected host override remove call")
+	if !manager.deleted {
+		t.Fatal("expected host override delete call")
 	}
-	if !files.removed {
-		t.Fatal("expected hosts file remove call")
+	if !files.deleted {
+		t.Fatal("expected hosts file delete call")
 	}
 }
 
@@ -1546,7 +1737,7 @@ func TestTrustInstallDryRunJSON(t *testing.T) {
 	}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1558,7 +1749,7 @@ func TestTrustInstallDryRunJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.CAVolume != project.CAVolumeName {
+	if payload.CAVolume != tenant.CAVolumeName {
 		t.Fatalf("CAVolume = %q", payload.CAVolume)
 	}
 	if !strings.Contains(payload.Warning, "mint certificates") {
@@ -1578,7 +1769,7 @@ func TestTrustInstallRunsExecutor(t *testing.T) {
 	manager := &fakeLocalTrustManager{}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1593,7 +1784,7 @@ func TestTrustInstallRunsExecutor(t *testing.T) {
 	if !strings.Contains(stdout, "Warning: Trusting this tenant CA") {
 		t.Fatalf("stdout missing pre-install trust warning: %q", stdout)
 	}
-	if !strings.Contains(stdout, "install project CA trust: acme") {
+	if !strings.Contains(stdout, "install tenant CA trust: acme") {
 		t.Fatalf("stdout missing trust result: %q", stdout)
 	}
 	if manager.plan.IncusProject != "sc-acme" {
@@ -1613,7 +1804,7 @@ func TestTrustUninstallRunsExecutor(t *testing.T) {
 	manager := &fakeLocalTrustManager{}
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1622,12 +1813,12 @@ func TestTrustUninstallRunsExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !manager.removed {
+	if !manager.deleted {
 		t.Fatal("expected local trust uninstall call")
 	}
 }
 
-func TestRouteAddDryRunJSON(t *testing.T) {
+func TestRouteCreateDryRunJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -1639,16 +1830,16 @@ func TestRouteAddDryRunJSON(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
 		adminConfig: routeAdminConfigForTest(),
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		routeSandbox: fakeRouteSandboxStore{},
+		routeMachine: fakeRouteMachineStore{},
 	}, "--output", "json", "route", "create", "App.Example.COM", "codex", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload route.AddPlan
+	var payload route.CreatePlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -1660,7 +1851,7 @@ func TestRouteAddDryRunJSON(t *testing.T) {
 	}
 }
 
-func TestRouteAddDryRunTextShowsDNSProofTarget(t *testing.T) {
+func TestRouteCreateDryRunTextShowsDNSProofTarget(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -1672,11 +1863,11 @@ func TestRouteAddDryRunTextShowsDNSProofTarget(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
 		adminConfig: routeAdminConfigForTest(),
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		routeSandbox: fakeRouteSandboxStore{},
+		routeMachine: fakeRouteMachineStore{},
 	}, "route", "create", "App.Example.COM", "codex", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -1689,7 +1880,7 @@ func TestRouteAddDryRunTextShowsDNSProofTarget(t *testing.T) {
 	}
 }
 
-func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
+func TestRouteCreateRequiresBrokerExecutor(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -1701,11 +1892,11 @@ func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
 	_, err = executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
 		adminConfig: routeAdminConfigForTest(),
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		routeSandbox: fakeRouteSandboxStore{},
+		routeMachine: fakeRouteMachineStore{},
 	}, "route", "create", "app.example.com", "codex")
 	if err == nil {
 		t.Fatal("expected error")
@@ -1810,7 +2001,17 @@ func TestAdminVersion(t *testing.T) {
 	}
 }
 
-func TestAdminProjectListJSON(t *testing.T) {
+func TestAdminVersionHelpUsesAdminWording(t *testing.T) {
+	stdout, err := executeAdminForTest(t, "sandcastle-admin", "version", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Print the Sandcastle admin command version") {
+		t.Fatalf("admin version help = %q", stdout)
+	}
+}
+
+func TestAdminTenantListJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -1821,7 +2022,7 @@ func TestAdminProjectListJSON(t *testing.T) {
 	}
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1841,7 +2042,7 @@ func TestAdminProjectListJSON(t *testing.T) {
 	}
 }
 
-func TestAdminProjectCreateDryRunJSON(t *testing.T) {
+func TestAdminTenantCreateDryRunJSON(t *testing.T) {
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
@@ -1849,7 +2050,7 @@ func TestAdminProjectCreateDryRunJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload project.CreatePlan
+	var payload tenant.CreatePlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -1861,7 +2062,7 @@ func TestAdminProjectCreateDryRunJSON(t *testing.T) {
 	}
 }
 
-func TestAdminProjectCreateRequiresExecutor(t *testing.T) {
+func TestAdminTenantCreateRequiresExecutor(t *testing.T) {
 	_, err := executeAdminForTest(t, "sandcastle-admin", "tenant", "create", "acme")
 	if err == nil {
 		t.Fatal("expected error")
@@ -1871,11 +2072,11 @@ func TestAdminProjectCreateRequiresExecutor(t *testing.T) {
 	}
 }
 
-func TestAdminProjectCreateRejectsKnownTLD(t *testing.T) {
-	creator := &fakeProjectCreator{}
+func TestAdminTenantCreateRejectsKnownTLD(t *testing.T) {
+	creator := &fakeTenantCreator{}
 	_, err := executeAdminForTestWithConfig(t, commandConfig{
-		name:           "sandcastle-admin",
-		projectCreator: creator,
+		name:          "sandcastle-admin",
+		tenantCreator: creator,
 	}, "tenant", "create", "test")
 	if err == nil {
 		t.Fatal("expected known TLD error")
@@ -1899,11 +2100,11 @@ func TestAdminMachineListJSON(t *testing.T) {
 	}
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", AppPort: 3000,
 		}, {
 			Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.21", AppPort: 3000,
@@ -1932,11 +2133,11 @@ func TestAdminMachineListProjectFilters(t *testing.T) {
 	}
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxStore: fakeSandboxInspectStore{machines: []meta.Machine{{
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant: "acme", Project: "default", Name: "builder", PrivateIP: "10.248.0.20", AppPort: 3000,
 		}, {
 			Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.21", AppPort: 3000,
@@ -1964,7 +2165,7 @@ func TestAdminMachineCreateDryRunJSON(t *testing.T) {
 	}
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -1972,7 +2173,7 @@ func TestAdminMachineCreateDryRunJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload sandbox.CreatePlan
+	var payload machine.CreatePlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -1995,7 +2196,7 @@ func TestAdminMachineCreateExplicitProjectDryRunJSON(t *testing.T) {
 	}
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
@@ -2003,7 +2204,7 @@ func TestAdminMachineCreateExplicitProjectDryRunJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload sandbox.CreatePlan
+	var payload machine.CreatePlan
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -2021,20 +2222,20 @@ func TestAdminMachineConnectUsesTenantRef(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enterer := &fakeSandboxEnterer{}
+	connector := &fakeMachineConnector{}
 	_, err = executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxEnterer: enterer,
+		machineConnector: connector,
 	}, "connect", "acme/codex", "pwd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !enterer.called || enterer.plan.Reference != "acme/default/codex" || enterer.plan.InstanceName != "default-codex" {
-		t.Fatalf("enterer.plan = %#v", enterer.plan)
+	if !connector.called || connector.plan.Reference != "acme/default/codex" || connector.plan.InstanceName != "default-codex" {
+		t.Fatalf("connector.plan = %#v", connector.plan)
 	}
 }
 
@@ -2057,19 +2258,19 @@ func TestAdminMachineDeleteCallsExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controller := &fakeSandboxController{}
+	controller := &fakeMachineController{}
 	_, err = executeAdminForTestWithConfig(t, commandConfig{
 		name: "sandcastle-admin",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		sandboxControl: controller,
+		machineControl: controller,
 	}, "delete", "acme/codex", "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !controller.called || controller.plan.Reference != "acme/default/codex" || controller.plan.InstanceName != "default-codex" {
+	if !controller.called || controller.plan.Reference != "acme/default/codex" || controller.plan.InstanceName != "default-codex" || controller.plan.Action != machine.ActionDelete {
 		t.Fatalf("controller.plan = %#v", controller.plan)
 	}
 }
@@ -2148,7 +2349,7 @@ func TestAdminTLDRefreshDryRunJSON(t *testing.T) {
 	}
 }
 
-func TestAdminProjectDeleteRequiresConfirmation(t *testing.T) {
+func TestAdminTenantDeleteRequiresConfirmation(t *testing.T) {
 	_, err := executeAdminForTest(t, "sandcastle-admin", "tenant", "delete", "acme")
 	if err == nil {
 		t.Fatal("expected error")
@@ -2364,11 +2565,11 @@ func TestAdminImageSyncCallsExecutor(t *testing.T) {
 	}
 }
 
-func TestAdminUserGrantDryRunJSON(t *testing.T) {
+func TestAdminTenantGrantDryRunJSON(t *testing.T) {
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "--output", "json", "user", "grant", "alice", "acme", "--dry-run")
+	}, "--output", "json", "tenant", "grant", "acme", "alice", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2446,11 +2647,11 @@ func TestAdminUserCreateDryRunShowsRemoteName(t *testing.T) {
 	}
 }
 
-func TestAdminUserGrantRejectsInvalidTenantRef(t *testing.T) {
+func TestAdminTenantGrantRejectsInvalidTenantRef(t *testing.T) {
 	_, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "user", "grant", "alice", "bob/default", "--dry-run")
+	}, "tenant", "grant", "bob/default", "alice", "--dry-run")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -2473,9 +2674,8 @@ func TestAdminUserTokenShowsBootstrapCommands(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Remote: sandcastle-alice",
-		"incus remote add sandcastle-alice certificate-add-token",
-		"export SANDCASTLE_REMOTE=sandcastle-alice",
-		"export SANDCASTLE_TENANT=alice",
+		"sc remote add sandcastle-alice certificate-add-token",
+		"sc config set tenant <tenant>",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
@@ -2538,43 +2738,43 @@ func TestRejectsUnknownOutputFormat(t *testing.T) {
 	}
 }
 
-type fakeSandboxCreator struct {
-	plan sandbox.CreatePlan
+type fakeMachineCreator struct {
+	plan machine.CreatePlan
 }
 
-func (f *fakeSandboxCreator) CreateMachine(ctx context.Context, plan sandbox.CreatePlan) error {
+func (f *fakeMachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePlan) error {
 	f.plan = plan
 	return nil
 }
 
-type fakeSandboxEnterer struct {
+type fakeMachineConnector struct {
 	called bool
-	plan   sandbox.EnterPlan
+	plan   machine.ConnectPlan
 }
 
-func (f *fakeSandboxEnterer) ConnectMachine(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
+func (f *fakeMachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	f.called = true
 	f.plan = plan
 	return nil
 }
 
-type fakeSandboxController struct {
+type fakeMachineController struct {
 	called bool
-	plan   sandbox.LifecyclePlan
+	plan   machine.LifecyclePlan
 }
 
-func (f *fakeSandboxController) ApplyLifecycle(ctx context.Context, plan sandbox.LifecyclePlan) error {
+func (f *fakeMachineController) ApplyLifecycle(ctx context.Context, plan machine.LifecyclePlan) error {
 	f.called = true
 	f.plan = plan
 	return nil
 }
 
-type fakeProjectCreator struct {
+type fakeTenantCreator struct {
 	called bool
-	plan   project.CreatePlan
+	plan   tenant.CreatePlan
 }
 
-func (f *fakeProjectCreator) CreateTenant(ctx context.Context, plan project.CreatePlan) error {
+func (f *fakeTenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan) error {
 	f.called = true
 	f.plan = plan
 	return nil
@@ -2655,6 +2855,8 @@ type fakeTailscaleRunner struct {
 	statusCalled bool
 	downCalled   bool
 	plan         tailscale.UpPlan
+	statusPlan   tailscale.StatusPlan
+	downPlan     tailscale.DownPlan
 	status       tailscale.StatusResult
 }
 
@@ -2716,17 +2918,19 @@ func (f *fakeTailscaleRunner) RunUp(ctx context.Context, plan tailscale.UpPlan, 
 
 func (f *fakeTailscaleRunner) RunStatus(ctx context.Context, plan tailscale.StatusPlan, session tailscale.RunSession) (tailscale.StatusResult, error) {
 	f.statusCalled = true
+	f.statusPlan = plan
 	return f.status, nil
 }
 
 func (f *fakeTailscaleRunner) RunDown(ctx context.Context, plan tailscale.DownPlan, session tailscale.RunSession) error {
 	f.downCalled = true
+	f.downPlan = plan
 	return nil
 }
 
-type fakeHostSandboxStore struct{}
+type fakeHostMachineStore struct{}
 
-func (f fakeHostSandboxStore) FindMachine(ctx context.Context, summary project.Summary, projectName string, name string) (meta.Machine, error) {
+func (f fakeHostMachineStore) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, name string) (meta.Machine, error) {
 	return meta.Machine{
 		Tenant:    summary.Tenant,
 		Project:   projectName,
@@ -2737,30 +2941,30 @@ func (f fakeHostSandboxStore) FindMachine(ctx context.Context, summary project.S
 	}, nil
 }
 
-func (f fakeHostSandboxStore) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
-	sandbox, err := f.FindMachine(ctx, summary, "default", "codex")
+func (f fakeHostMachineStore) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
+	machine, err := f.FindMachine(ctx, summary, "default", "codex")
 	if err != nil {
 		return nil, err
 	}
-	return []meta.Machine{sandbox}, nil
+	return []meta.Machine{machine}, nil
 }
 
-type fakeSandboxInspectStore struct {
+type fakeMachineStatusStore struct {
 	machines  []meta.Machine
-	unmanaged []sandbox.UnmanagedMachine
+	unmanaged []machine.UnmanagedMachine
 }
 
-func (f fakeSandboxInspectStore) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
+func (f fakeMachineStatusStore) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
 	return f.machines, nil
 }
 
-func (f fakeSandboxInspectStore) ListUnmanagedMachines(ctx context.Context, summary project.Summary) ([]sandbox.UnmanagedMachine, error) {
+func (f fakeMachineStatusStore) ListUnmanagedMachines(ctx context.Context, summary tenant.Summary) ([]machine.UnmanagedMachine, error) {
 	return f.unmanaged, nil
 }
 
 type fakeHostOverrideManager struct {
 	called  bool
-	removed bool
+	deleted bool
 	plan    hostoverride.AddPlan
 }
 
@@ -2770,14 +2974,14 @@ func (f *fakeHostOverrideManager) Add(ctx context.Context, plan hostoverride.Add
 	return nil
 }
 
-func (f *fakeHostOverrideManager) Remove(ctx context.Context, plan hostoverride.RemovePlan) error {
-	f.removed = true
+func (f *fakeHostOverrideManager) Delete(ctx context.Context, plan hostoverride.DeletePlan) error {
+	f.deleted = true
 	return nil
 }
 
-type fakeRouteSandboxStore struct{}
+type fakeRouteMachineStore struct{}
 
-func (f fakeRouteSandboxStore) FindMachine(ctx context.Context, summary project.Summary, projectName string, name string) (meta.Machine, error) {
+func (f fakeRouteMachineStore) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, name string) (meta.Machine, error) {
 	return meta.Machine{
 		Tenant:    summary.Tenant,
 		Project:   projectName,
@@ -2791,11 +2995,11 @@ type fakeRouteManager struct {
 	list route.ListResult
 }
 
-func (f *fakeRouteManager) Add(ctx context.Context, plan route.AddPlan) error {
+func (f *fakeRouteManager) Create(ctx context.Context, plan route.CreatePlan) error {
 	return nil
 }
 
-func (f *fakeRouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
+func (f *fakeRouteManager) Delete(ctx context.Context, plan route.DeletePlan) error {
 	return nil
 }
 
@@ -2861,7 +3065,7 @@ func (f *fakeTrustManager) CreateToken(ctx context.Context, plan usertrust.UserP
 
 type fakeHostFiles struct {
 	called  bool
-	removed bool
+	deleted bool
 	plan    hostoverride.AddPlan
 }
 
@@ -2871,14 +3075,14 @@ func (f *fakeHostFiles) AddHostsEntry(ctx context.Context, plan hostoverride.Add
 	return nil
 }
 
-func (f *fakeHostFiles) RemoveHostsEntry(ctx context.Context, plan hostoverride.RemovePlan) error {
-	f.removed = true
+func (f *fakeHostFiles) RemoveHostsEntry(ctx context.Context, plan hostoverride.DeletePlan) error {
+	f.deleted = true
 	return nil
 }
 
 type fakeLocalTrustManager struct {
 	installed bool
-	removed   bool
+	deleted   bool
 	plan      localtrust.Plan
 }
 
@@ -2889,7 +3093,7 @@ func (f *fakeLocalTrustManager) Install(ctx context.Context, plan localtrust.Pla
 }
 
 func (f *fakeLocalTrustManager) Uninstall(ctx context.Context, plan localtrust.Plan) (localtrust.Result, error) {
-	f.removed = true
+	f.deleted = true
 	f.plan = plan
 	return localtrust.Result{Reference: plan.Reference, TrustName: plan.TrustName, Action: "uninstall", Platform: "fake"}, nil
 }

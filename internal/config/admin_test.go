@@ -13,8 +13,8 @@ func TestLoadAdminFromEnvDefaults(t *testing.T) {
 	if config.CIDRPool != DefaultCIDRPool {
 		t.Fatalf("CIDRPool = %q, want %q", config.CIDRPool, DefaultCIDRPool)
 	}
-	if config.ProjectPrefix != DefaultProjectPrefix {
-		t.Fatalf("ProjectPrefix = %q, want %q", config.ProjectPrefix, DefaultProjectPrefix)
+	if config.IncusProjectPrefix != DefaultIncusProjectPrefix {
+		t.Fatalf("IncusProjectPrefix = %q, want %q", config.IncusProjectPrefix, DefaultIncusProjectPrefix)
 	}
 	if config.InfrastructureProject != DefaultInfrastructureProject {
 		t.Fatalf("InfrastructureProject = %q, want %q", config.InfrastructureProject, DefaultInfrastructureProject)
@@ -29,7 +29,7 @@ func TestLoadAdminFromEnvOverridesTrimScalars(t *testing.T) {
 	t.Setenv("SANDCASTLE_REMOTE", " prod ")
 	t.Setenv("SANDCASTLE_STORAGE_POOL", "fast")
 	t.Setenv("SANDCASTLE_CIDR_POOL", "10.99.0.0/16")
-	t.Setenv("SANDCASTLE_PROJECT_PREFIX", "dev")
+	t.Setenv("SANDCASTLE_INCUS_PROJECT_PREFIX", "dev")
 	t.Setenv("SANDCASTLE_INFRA_PROJECT", "dev-infra")
 	t.Setenv("SANDCASTLE_INFRA_HOST", " 203.0.113.10 ")
 	t.Setenv("SANDCASTLE_LETSENCRYPT_EMAIL", " ops@example.com ")
@@ -66,6 +66,25 @@ func TestLoadAdminFromEnvOverridesTrimScalars(t *testing.T) {
 	}
 }
 
+func TestLoadAdminFromEnvPrefersIncusProjectPrefix(t *testing.T) {
+	t.Setenv("SANDCASTLE_PROJECT_PREFIX", "legacy")
+	t.Setenv("SANDCASTLE_INCUS_PROJECT_PREFIX", "incus")
+
+	config := LoadAdminFromEnv()
+	if config.IncusProjectPrefix != "incus" {
+		t.Fatalf("IncusProjectPrefix = %q, want incus", config.IncusProjectPrefix)
+	}
+}
+
+func TestLoadAdminFromEnvUsesLegacyProjectPrefixFallback(t *testing.T) {
+	t.Setenv("SANDCASTLE_PROJECT_PREFIX", "legacy")
+
+	config := LoadAdminFromEnv()
+	if config.IncusProjectPrefix != "legacy" {
+		t.Fatalf("IncusProjectPrefix = %q, want legacy", config.IncusProjectPrefix)
+	}
+}
+
 func TestAdminValidateRejectsMissingRequiredValues(t *testing.T) {
 	config := LoadAdminFromEnv()
 	config.StoragePool = ""
@@ -74,9 +93,9 @@ func TestAdminValidateRejectsMissingRequiredValues(t *testing.T) {
 	}
 }
 
-func TestAdminValidateRejectsInvalidProjectPrefix(t *testing.T) {
+func TestAdminValidateRejectsInvalidIncusProjectPrefix(t *testing.T) {
 	config := LoadAdminFromEnv()
-	config.ProjectPrefix = "bad_prefix"
+	config.IncusProjectPrefix = "bad_prefix"
 	if err := config.Validate(); err == nil {
 		t.Fatal("expected error")
 	}

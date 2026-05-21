@@ -14,7 +14,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type HostOverrideServer interface {
@@ -44,7 +44,7 @@ func NewHostOverrideManagerForServer(server incus.InstanceServer) HostOverrideMa
 	return HostOverrideManager{Server: sdkHostOverrideServer{inner: server}}
 }
 
-func (m HostOverrideManager) FindMachine(ctx context.Context, summary project.Summary, projectName string, machineName string) (meta.Machine, error) {
+func (m HostOverrideManager) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, machineName string) (meta.Machine, error) {
 	machines, err := m.ListMachines(ctx, summary)
 	if err != nil {
 		return meta.Machine{}, err
@@ -57,7 +57,7 @@ func (m HostOverrideManager) FindMachine(ctx context.Context, summary project.Su
 	return meta.Machine{}, fmt.Errorf("Sandcastle machine %s/%s/%s not found", summary.Tenant, projectName, machineName)
 }
 
-func (m HostOverrideManager) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
+func (m HostOverrideManager) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
 	instances, err := m.listTenantInstances(summary)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (m HostOverrideManager) ListMachines(ctx context.Context, summary project.S
 	return machines, nil
 }
 
-func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary project.Summary) ([]machine.UnmanagedMachine, error) {
+func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary tenant.Summary) ([]machine.UnmanagedMachine, error) {
 	instances, err := m.listTenantInstances(summary)
 	if err != nil {
 		return nil, err
@@ -99,7 +99,7 @@ func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary 
 	return unmanaged, nil
 }
 
-func (m HostOverrideManager) listTenantInstances(summary project.Summary) ([]api.Instance, error) {
+func (m HostOverrideManager) listTenantInstances(summary tenant.Summary) ([]api.Instance, error) {
 	server := m.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
@@ -149,7 +149,7 @@ func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan)
 	return writeHostOverrideMachineFiles(projectServer, plan, updatedMachine)
 }
 
-func (m HostOverrideManager) Remove(ctx context.Context, plan hostoverride.RemovePlan) error {
+func (m HostOverrideManager) Delete(ctx context.Context, plan hostoverride.DeletePlan) error {
 	server := m.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
@@ -171,14 +171,14 @@ func (m HostOverrideManager) Remove(ctx context.Context, plan hostoverride.Remov
 	if err != nil {
 		return err
 	}
-	return writeHostOverrideMachineFiles(projectServer, addPlanFromRemove(plan), updatedMachine)
+	return writeHostOverrideMachineFiles(projectServer, addPlanFromDelete(plan), updatedMachine)
 }
 
 type sdkHostOverrideServer struct {
 	inner incus.InstanceServer
 }
 
-func removeMachineExtraSAN(server HostOverrideResourceServer, plan hostoverride.RemovePlan) (meta.Machine, error) {
+func removeMachineExtraSAN(server HostOverrideResourceServer, plan hostoverride.DeletePlan) (meta.Machine, error) {
 	instance, etag, err := server.GetInstance(plan.InstanceName)
 	if err != nil {
 		return meta.Machine{}, fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
@@ -208,7 +208,7 @@ func removeMachineExtraSAN(server HostOverrideResourceServer, plan hostoverride.
 	return state, nil
 }
 
-func addPlanFromRemove(plan hostoverride.RemovePlan) hostoverride.AddPlan {
+func addPlanFromDelete(plan hostoverride.DeletePlan) hostoverride.AddPlan {
 	return hostoverride.AddPlan{
 		Reference:    plan.Reference,
 		Tenant:       plan.Tenant,
@@ -295,7 +295,7 @@ func writeHostOverrideMachineFiles(server HostOverrideResourceServer, plan hosto
 		}
 	}
 	hosts := append([]string{state.Name + "." + state.Project + "." + plan.Tenant.DNSSuffix}, state.ExtraSANs...)
-	caddyFile := caddy.RenderSandboxHosts(hosts, state.AppPort, machine.MachineCertPath, machine.MachineCertKeyPath)
+	caddyFile := caddy.RenderMachineHosts(hosts, state.AppPort, machine.MachineCertPath, machine.MachineCertKeyPath)
 	if err := server.CreateInstanceFile(plan.InstanceName, caddyFile.Path, incus.InstanceFileArgs{
 		Content:   strings.NewReader(caddyFile.Content),
 		Type:      "file",
@@ -314,17 +314,17 @@ func writeHostOverrideMachineFiles(server HostOverrideResourceServer, plan hosto
 			return fmt.Errorf("write machine certificate file %s: %w", file.Path, err)
 		}
 	}
-	return restartSandboxCaddy(server, plan.InstanceName, "", "")
+	return restartMachineCaddy(server, plan.InstanceName, "", "")
 }
 
 func issueHostOverrideCertificateFiles(server HostOverrideResourceServer, plan hostoverride.AddPlan, extraSANs []string) ([]machine.File, error) {
-	caCertPEM, err := readHostOverrideCAFile(server, plan, project.TenantCACertPath)
+	caCertPEM, err := readHostOverrideCAFile(server, plan, tenant.TenantCACertPath)
 	if err != nil {
-		return nil, fmt.Errorf("read project CA certificate: %w", err)
+		return nil, fmt.Errorf("read tenant CA certificate: %w", err)
 	}
-	caKeyPEM, err := readHostOverrideCAFile(server, plan, project.TenantCAKeyPath)
+	caKeyPEM, err := readHostOverrideCAFile(server, plan, tenant.TenantCAKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("read project CA private key: %w", err)
+		return nil, fmt.Errorf("read tenant CA private key: %w", err)
 	}
 	files, err := machine.IssueCertificateFilesWithExtraSANs(plan.Machine.Name, plan.Machine.Project, plan.Tenant.DNSSuffix, extraSANs, caCertPEM, caKeyPEM)
 	if err != nil {

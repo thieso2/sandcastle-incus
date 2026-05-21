@@ -10,7 +10,7 @@ import (
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestPlanInstallFindsManagedTenant(t *testing.T) {
@@ -22,7 +22,7 @@ func TestPlanInstallFindsManagedTenant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), project.MemoryStore{Projects: []project.IncusProject{{
+	plan, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-acme",
 		Config: configMap,
 	}}}, Request{Reference: "acme"})
@@ -32,7 +32,7 @@ func TestPlanInstallFindsManagedTenant(t *testing.T) {
 	if plan.IncusProject != "sc-acme" {
 		t.Fatalf("IncusProject = %q", plan.IncusProject)
 	}
-	if plan.CAVolume != project.CAVolumeName || plan.CertificatePath != project.TenantCACertPath {
+	if plan.CAVolume != tenant.CAVolumeName || plan.CertificatePath != tenant.TenantCACertPath {
 		t.Fatalf("CA location = %s:%s", plan.CAVolume, plan.CertificatePath)
 	}
 	if !strings.Contains(plan.Warning, "mint certificates") {
@@ -51,7 +51,7 @@ func TestPlanInstallSupportsCurrentTenant(t *testing.T) {
 	}
 	admin := scconfig.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	plan, err := PlanInstall(context.Background(), admin, project.MemoryStore{Projects: []project.IncusProject{{
+	plan, err := PlanInstall(context.Background(), admin, tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-acme",
 		Config: configMap,
 	}}}, Request{})
@@ -64,7 +64,7 @@ func TestPlanInstallSupportsCurrentTenant(t *testing.T) {
 }
 
 func TestPlanInstallRejectsMissingTenant(t *testing.T) {
-	_, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), project.MemoryStore{}, Request{Reference: "missing"})
+	_, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), tenant.MemoryStore{}, Request{Reference: "missing"})
 	if err == nil {
 		t.Fatal("expected error")
 	}

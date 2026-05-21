@@ -8,29 +8,29 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"golang.org/x/term"
 )
 
-type SandboxEnterServer interface {
-	UseProject(name string) SandboxEnterResourceServer
+type MachineConnectServer interface {
+	UseProject(name string) MachineConnectResourceServer
 }
 
-type SandboxEnterResourceServer interface {
+type MachineConnectResourceServer interface {
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
-type SandboxEnterer struct {
+type MachineConnector struct {
 	Remote     string
 	ConfigPath string
-	Server     SandboxEnterServer
+	Server     MachineConnectServer
 }
 
-func NewSandboxEnterer(remote string) SandboxEnterer {
-	return SandboxEnterer{Remote: remote}
+func NewMachineConnector(remote string) MachineConnector {
+	return MachineConnector{Remote: remote}
 }
 
-func (e SandboxEnterer) ConnectMachine(ctx context.Context, plan sandbox.EnterPlan, session sandbox.EnterSession) error {
+func (e MachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	server := e.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(e.ConfigPath)
@@ -45,14 +45,14 @@ func (e SandboxEnterer) ConnectMachine(ctx context.Context, plan sandbox.EnterPl
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkSandboxEnterServer{inner: instanceServer}
+		server = sdkMachineConnectServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(plan.Tenant.IncusName)
 	exec := api.InstanceExecPost{
 		Command:     plan.Command,
 		Cwd:         plan.WorkingDir,
-		User:        sandbox.DefaultLinuxUID,
-		Group:       sandbox.DefaultLinuxGID,
+		User:        machine.DefaultLinuxUID,
+		Group:       machine.DefaultLinuxGID,
 		Interactive: plan.Interactive,
 		WaitForWS:   true,
 		Environment: map[string]string{
@@ -82,27 +82,27 @@ func (e SandboxEnterer) ConnectMachine(ctx context.Context, plan sandbox.EnterPl
 		DataDone: dataDone,
 	})
 	if err != nil {
-		return fmt.Errorf("enter sandbox %s: %w", plan.InstanceName, err)
+		return fmt.Errorf("connect to machine %s: %w", plan.InstanceName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for sandbox %s session: %w", plan.InstanceName, err)
+		return fmt.Errorf("wait for machine %s session: %w", plan.InstanceName, err)
 	}
 	<-dataDone
 	return nil
 }
 
-type sdkSandboxEnterServer struct {
+type sdkMachineConnectServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkSandboxEnterServer) UseProject(name string) SandboxEnterResourceServer {
-	return sdkSandboxEnterResourceServer{inner: s.inner.UseProject(name)}
+func (s sdkMachineConnectServer) UseProject(name string) MachineConnectResourceServer {
+	return sdkMachineConnectResourceServer{inner: s.inner.UseProject(name)}
 }
 
-type sdkSandboxEnterResourceServer struct {
+type sdkMachineConnectResourceServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkSandboxEnterResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+func (s sdkMachineConnectResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	return s.inner.ExecInstance(instanceName, exec, args)
 }

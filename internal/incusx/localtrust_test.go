@@ -11,20 +11,20 @@ import (
 )
 
 type fakeLocalTrustServer struct {
-	project *fakeLocalTrustProjectServer
+	project *fakeLocalTrustTenantResourceServer
 }
 
-func (s *fakeLocalTrustServer) UseProject(name string) LocalTrustProjectServer {
+func (s *fakeLocalTrustServer) UseProject(name string) LocalTrustTenantResourceServer {
 	s.project.project = name
 	return s.project
 }
 
-type fakeLocalTrustProjectServer struct {
+type fakeLocalTrustTenantResourceServer struct {
 	project string
 	files   map[string]string
 }
 
-func (s *fakeLocalTrustProjectServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+func (s *fakeLocalTrustTenantResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
 	return io.NopCloser(strings.NewReader(s.files[volumeName+":"+filePath])), nil, nil
 }
 
@@ -46,7 +46,7 @@ func (s *fakeLocalTrustStore) UninstallCA(ctx context.Context, plan localtrust.P
 }
 
 func TestLocalTrustManagerReadsProjectCAForInstall(t *testing.T) {
-	projectServer := &fakeLocalTrustProjectServer{files: map[string]string{"sc-ca:/ca.crt": "CERT"}}
+	projectServer := &fakeLocalTrustTenantResourceServer{files: map[string]string{"sc-ca:/ca.crt": "CERT"}}
 	store := &fakeLocalTrustStore{}
 	manager := LocalTrustManager{
 		Server: &fakeLocalTrustServer{project: projectServer},
@@ -58,7 +58,7 @@ func TestLocalTrustManagerReadsProjectCAForInstall(t *testing.T) {
 		StoragePool:     "default",
 		CAVolume:        "sc-ca",
 		CertificatePath: "/ca.crt",
-		TrustName:       "Sandcastle alice/myproject project CA",
+		TrustName:       "Sandcastle alice/myproject tenant CA",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestLocalTrustManagerUninstallSkipsIncusRead(t *testing.T) {
 	manager := LocalTrustManager{Store: store}
 	result, err := manager.Uninstall(context.Background(), localtrust.Plan{
 		Reference: "alice/myproject",
-		TrustName: "Sandcastle alice/myproject project CA",
+		TrustName: "Sandcastle alice/myproject tenant CA",
 	})
 	if err != nil {
 		t.Fatal(err)

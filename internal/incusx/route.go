@@ -51,7 +51,7 @@ func NewRouteManagerForServer(server incus.InstanceServer) RouteManager {
 	return RouteManager{Server: sdkRouteServer{inner: server}}
 }
 
-func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
+func (m RouteManager) Create(ctx context.Context, plan route.CreatePlan) error {
 	server, err := m.server()
 	if err != nil {
 		return err
@@ -75,8 +75,8 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 	if _, err := route.VerifyDNSProof(ctx, m.Resolver, plan.DNSProof); err != nil {
 		return err
 	}
-	targetProjectServer := server.UseProject(plan.Tenant.IncusName)
-	if err := ensureRouteIngressAttachment(targetProjectServer, plan); err != nil {
+	targetTenantServer := server.UseProject(plan.Tenant.IncusName)
+	if err := ensureRouteIngressAttachment(targetTenantServer, plan); err != nil {
 		return err
 	}
 	if err := projectServer.CreateProfile(api.ProfilesPost{
@@ -88,13 +88,13 @@ func (m RouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 	}); err != nil {
 		return err
 	}
-	if err := addRouteBacklink(server, plan); err != nil {
+	if err := createRouteBacklink(server, plan); err != nil {
 		return err
 	}
 	return refreshInfrastructureCaddy(projectServer, m.LetsEncryptEmail)
 }
 
-func ensureRouteIngressAttachment(server RouteResourceServer, plan route.AddPlan) error {
+func ensureRouteIngressAttachment(server RouteResourceServer, plan route.CreatePlan) error {
 	instance, etag, err := server.GetInstance(plan.TargetInstanceName)
 	if err != nil {
 		return fmt.Errorf("get route target machine %s: %w", plan.TargetReference, err)
@@ -149,8 +149,8 @@ func instanceHasNICOnNetwork(instance *api.Instance, networkName string) bool {
 	return false
 }
 
-func removeRouteIngressAttachment(server RouteServer, plan route.RemovePlan, routeMetadata meta.Route) error {
-	incusProject, err := naming.TenantIncusProjectNameWithPrefix(plan.ProjectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
+func removeRouteIngressAttachment(server RouteServer, plan route.DeletePlan, routeMetadata meta.Route) error {
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(plan.IncusProjectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
 	if err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func routeMetadataByHostname(server RouteResourceServer, hostname string) (meta.
 	return routeMetadata, nil
 }
 
-func (m RouteManager) Remove(ctx context.Context, plan route.RemovePlan) error {
+func (m RouteManager) Delete(ctx context.Context, plan route.DeletePlan) error {
 	server, err := m.server()
 	if err != nil {
 		return err
@@ -265,7 +265,7 @@ func (m RouteManager) FindRoute(ctx context.Context, hostname string) (meta.Rout
 	return routeMetadataByHostname(server.UseProject(infrastructureProject), hostname)
 }
 
-func addRouteBacklink(server RouteServer, plan route.AddPlan) error {
+func createRouteBacklink(server RouteServer, plan route.CreatePlan) error {
 	return updateProjectRoutes(server, plan.Tenant.IncusName, false, func(routes []meta.PublicRoute) []meta.PublicRoute {
 		next := make([]meta.PublicRoute, 0, len(routes)+1)
 		for _, existing := range routes {
@@ -287,8 +287,8 @@ func addRouteBacklink(server RouteServer, plan route.AddPlan) error {
 	})
 }
 
-func removeRouteBacklink(server RouteServer, plan route.RemovePlan, routeMetadata meta.Route) error {
-	incusProject, err := naming.TenantIncusProjectNameWithPrefix(plan.ProjectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
+func removeRouteBacklink(server RouteServer, plan route.DeletePlan, routeMetadata meta.Route) error {
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(plan.IncusProjectPrefix, naming.TenantRef{Tenant: routeMetadata.TargetTenant})
 	if err != nil {
 		return err
 	}

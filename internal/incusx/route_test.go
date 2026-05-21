@@ -11,7 +11,7 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeRouteServer struct {
@@ -143,7 +143,7 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 		LetsEncryptEmail: "ops@example.com",
 	}
 	plan := routePlanForTest(t)
-	if err := manager.Add(context.Background(), plan); err != nil {
+	if err := manager.Create(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if resource.createdProfile == nil {
@@ -173,7 +173,7 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 		t.Fatalf("reload command = %q", got)
 	}
 	if target.updated == nil {
-		t.Fatal("expected target sandbox ingress device update")
+		t.Fatal("expected target machine ingress device update")
 	}
 	if device := target.updated.Devices["sc-route-app-example-com"]; device["parent"] != "sc-private" || device["user.sandcastle.hostname"] != "app.example.com" {
 		t.Fatalf("ingress device = %#v", device)
@@ -212,7 +212,7 @@ func TestRouteManagerDoesNotAddDuplicateIngressNIC(t *testing.T) {
 		projectMetadata: metadata,
 	}
 	manager := RouteManager{Server: server, Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}}}
-	if err := manager.Add(context.Background(), routePlanForTest(t)); err != nil {
+	if err := manager.Create(context.Background(), routePlanForTest(t)); err != nil {
 		t.Fatal(err)
 	}
 	if target.updated != nil {
@@ -230,11 +230,11 @@ func TestRouteManagerRejectsRouteWhenDNSProofFails(t *testing.T) {
 		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
 		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.11"}},
 	}
-	if err := manager.Add(context.Background(), routePlanForTest(t)); err == nil {
+	if err := manager.Create(context.Background(), routePlanForTest(t)); err == nil {
 		t.Fatal("expected DNS proof error")
 	}
 	if target.updated != nil {
-		t.Fatal("target sandbox should not be mutated when DNS proof fails")
+		t.Fatal("target machine should not be mutated when DNS proof fails")
 	}
 	if resource.createdProfile != nil {
 		t.Fatal("route metadata should not be created when DNS proof fails")
@@ -261,7 +261,7 @@ func TestRouteManagerRejectsClaimedHostname(t *testing.T) {
 		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
 		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
 	}
-	err = manager.Add(context.Background(), routePlanForTest(t))
+	err = manager.Create(context.Background(), routePlanForTest(t))
 	if err == nil {
 		t.Fatal("expected claimed hostname error")
 	}
@@ -269,7 +269,7 @@ func TestRouteManagerRejectsClaimedHostname(t *testing.T) {
 		t.Fatalf("error = %q", err.Error())
 	}
 	if target.updated != nil {
-		t.Fatal("target sandbox should not be mutated when route hostname is claimed")
+		t.Fatal("target machine should not be mutated when route hostname is claimed")
 	}
 	if resource.updatedProfile != nil {
 		t.Fatal("existing route metadata should not be updated")
@@ -285,7 +285,7 @@ func TestRouteManagerRejectsInfrastructureProfileConflict(t *testing.T) {
 		Server:   &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"},
 		Resolver: fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
 	}
-	err := manager.Add(context.Background(), routePlanForTest(t))
+	err := manager.Create(context.Background(), routePlanForTest(t))
 	if err == nil {
 		t.Fatal("expected profile conflict error")
 	}
@@ -293,7 +293,7 @@ func TestRouteManagerRejectsInfrastructureProfileConflict(t *testing.T) {
 		t.Fatalf("error = %q", err.Error())
 	}
 	if target.updated != nil {
-		t.Fatal("target sandbox should not be mutated when profile conflicts")
+		t.Fatal("target machine should not be mutated when profile conflicts")
 	}
 }
 
@@ -380,7 +380,7 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 		projectMetadata: projectMetadataForRouteTest(t, []meta.PublicRoute{{Hostname: "app.example.com", Project: "default", Machine: "codex", RoutePort: 5173}}),
 	}
 	manager := RouteManager{Server: server}
-	if err := manager.Remove(context.Background(), route.RemovePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra", ProjectPrefix: "sc"}); err != nil {
+	if err := manager.Delete(context.Background(), route.DeletePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra", IncusProjectPrefix: "sc"}); err != nil {
 		t.Fatal(err)
 	}
 	if resource.deletedProfile != "sc-route-app-example-com" {
@@ -390,7 +390,7 @@ func TestRouteManagerRemovesRouteProfile(t *testing.T) {
 		t.Fatal("expected infrastructure Caddyfile rewrite")
 	}
 	if target.updated == nil {
-		t.Fatal("expected target sandbox ingress device removal")
+		t.Fatal("expected target machine ingress device removal")
 	}
 	if target.updated.Devices["sc-route-app-example-com"] != nil {
 		t.Fatalf("devices = %#v", target.updated.Devices)
@@ -424,21 +424,21 @@ func TestRouteManagerRemovesRouteProfileWhenTargetMachineIsGone(t *testing.T) {
 	}}
 	target := &fakeRouteResourceServer{}
 	manager := RouteManager{Server: &fakeRouteServer{resource: resource, targetResource: target, infrastructure: "sc-infra"}}
-	if err := manager.Remove(context.Background(), route.RemovePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra", ProjectPrefix: "sc"}); err != nil {
+	if err := manager.Delete(context.Background(), route.DeletePlan{Hostname: "app.example.com", InfrastructureProject: "sc-infra", IncusProjectPrefix: "sc"}); err != nil {
 		t.Fatal(err)
 	}
 	if resource.deletedProfile != "sc-route-app-example-com" {
 		t.Fatalf("deleted profile = %q", resource.deletedProfile)
 	}
 	if target.updated != nil {
-		t.Fatalf("target sandbox should not be updated when missing: %#v", target.updated)
+		t.Fatalf("target machine should not be updated when missing: %#v", target.updated)
 	}
 	if _, ok := resource.createdFiles["sc-caddy:/etc/caddy/Caddyfile"]; !ok {
 		t.Fatal("expected infrastructure Caddyfile rewrite")
 	}
 }
 
-func routePlanForTest(t *testing.T) route.AddPlan {
+func routePlanForTest(t *testing.T) route.CreatePlan {
 	t.Helper()
 	metadata, err := meta.RouteConfig(meta.Route{
 		Hostname:      "app.example.com",
@@ -451,10 +451,10 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return route.AddPlan{
+	return route.CreatePlan{
 		Hostname:              "app.example.com",
 		TargetReference:       "acme/default/codex",
-		Tenant:                projectSummaryForRouteTest(),
+		Tenant:                tenantSummaryForRouteTest(),
 		Machine:               meta.Machine{Tenant: "acme", Project: "default", Name: "codex"},
 		TargetInstanceName:    "default-codex",
 		InfrastructureProject: "sc-infra",
@@ -470,8 +470,8 @@ func routePlanForTest(t *testing.T) route.AddPlan {
 	}
 }
 
-func projectSummaryForRouteTest() project.Summary {
-	return project.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"}
+func tenantSummaryForRouteTest() tenant.Summary {
+	return tenant.Summary{IncusName: "sc-acme", Tenant: "acme", DNSSuffix: "acme"}
 }
 
 func projectMetadataForRouteTest(t *testing.T, publicRoutes []meta.PublicRoute) *api.Project {

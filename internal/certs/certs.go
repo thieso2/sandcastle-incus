@@ -62,7 +62,7 @@ func GenerateSelfSignedServer(commonName string, dnsNames []string, now time.Tim
 	return createCertificate(template, template, key, key)
 }
 
-func IssueSandboxLeaf(caCertPEM []byte, caKeyPEM []byte, commonName string, dnsNames []string, now time.Time) (KeyPair, error) {
+func IssueMachineLeaf(caCertPEM []byte, caKeyPEM []byte, commonName string, dnsNames []string, now time.Time) (KeyPair, error) {
 	caCert, err := parseCertificate(caCertPEM)
 	if err != nil {
 		return KeyPair{}, err
@@ -94,12 +94,12 @@ func IssueSandboxLeaf(caCertPEM []byte, caKeyPEM []byte, commonName string, dnsN
 	return createCertificate(template, caCert, leafKey, caKey)
 }
 
-func SandboxDNSNames(name string, domain string, extra []string) []string {
+func MachineDNSNames(name string, domain string, extra []string) []string {
 	base := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
-	sandbox := strings.ToLower(strings.TrimSpace(name))
+	machine := strings.ToLower(strings.TrimSpace(name))
 	names := []string{
-		sandbox + "." + base,
-		"*." + sandbox + "." + base,
+		machine + "." + base,
+		"*." + machine + "." + base,
 	}
 	return append(names, normalizeNames(extra)...)
 }

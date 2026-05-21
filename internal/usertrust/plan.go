@@ -85,7 +85,7 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 		if err != nil {
 			return UserPlan{}, err
 		}
-		name, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+		name, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
 		if err != nil {
 			return UserPlan{}, err
 		}
@@ -118,7 +118,7 @@ func PlanTenantUsers(admin config.Admin, tenant string) (TenantUsersPlan, error)
 	if err != nil {
 		return TenantUsersPlan{}, err
 	}
-	incusProject, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
 	if err != nil {
 		return TenantUsersPlan{}, err
 	}

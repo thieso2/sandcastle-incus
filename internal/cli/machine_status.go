@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
-func formatSandboxInspect(result sandbox.InspectResult) string {
+func formatMachineStatus(result machine.StatusResult) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "Machine: %s/%s/%s\n", result.Tenant.Tenant, result.Project, result.Name)
 	fmt.Fprintf(&builder, "Incus project: %s\n", result.Tenant.IncusName)

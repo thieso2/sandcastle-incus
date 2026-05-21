@@ -1,36 +1,42 @@
 # Sandcastle Incus End-To-End Testing Plan
 
-The e2e suite validates Sandcastle against a real Incus instance. It should be
-explicitly enabled and destructive only inside disposable resource prefixes.
+The e2e suite validates Sandcastle against real Incus resources. Destructive
+tiers are explicitly enabled, use disposable run IDs, and fail closed when the
+required environment is not present.
 
 ## Test Environment
 
-Required:
+Required for destructive Incus tiers:
 
 - A working Incus instance reachable by the admin Incus config.
 - A storage pool suitable for disposable custom volumes.
-- Ability to create Incus projects, networks, containers, and trusted client
-  certificates.
-- Sandcastle base and AI images synced or buildable for the test.
+- Permission to create Incus projects, networks, containers, images, and trusted
+  client certificates.
+- Sandcastle base and AI images synced, imported, or buildable for the test.
 
-Optional but required for full network tests:
+Required only for specific external tiers:
 
-- `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`, an ephemeral or reusable auth key for a
-  test tailnet.
-- `SANDCASTLE_E2E_TAILSCALE_TAG`, defaulting to `tag:sandcastle`.
-- A tailnet policy that auto-approves the advertised test subnet route for
-  `tag:sandcastle`, or a documented manual approval step for non-CI runs.
-- A public test domain or delegated subdomain for infrastructure Caddy tests.
+- `restricted`: a non-local HTTPS Incus remote, plus disposable base and AI image
+  sources.
+- `tailscale`: `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`, and optionally
+  `SANDCASTLE_E2E_TAILSCALE_TAG` defaulting to `tag:sandcastle`.
+- `images`: Docker or equivalent image build tooling, image build enabled, and
+  pinned AI CLI versions.
+- `route-broker`: host Incus socket mount path plus disposable image sources.
+- `public-routes`: route broker inputs plus a delegated public route domain,
+  infrastructure DNS proof target, and Let's Encrypt contact email.
+- `local-vm`: local Incus VM support for the host-side disposable VM harness.
 
 Safety:
 
 - Every e2e run uses a unique run id.
-- Every owner/project/domain/resource name includes that run id.
-- Tests refuse to run unless `SANDCASTLE_E2E=1`.
+- Every tenant, project, domain, image alias, certificate, and resource name
+  includes that run id where the resource can escape the process.
+- Destructive tests refuse to run unless `SANDCASTLE_E2E=1`.
 - Tests refuse unsafe names that do not include the disposable prefix.
-- Cleanup runs at the end and can also be invoked as a standalone command.
+- Cleanup runs at the end and can also be invoked as a standalone tier.
 - Tests that mutate local DNS, trust stores, launch services, or `/etc/hosts`
-  must run inside disposable test VMs, not on the developer workstation.
+  run only inside disposable test VMs.
 
 Suggested environment:
 
@@ -41,7 +47,6 @@ SANDCASTLE_E2E_STORAGE_POOL=default
 SANDCASTLE_E2E_CIDR_POOL=10.248.0.0/16
 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-...
 SANDCASTLE_E2E_TAILSCALE_TAG=tag:sandcastle
-SANDCASTLE_E2E_DOMAIN_SUFFIX=e2e.project-tld
 SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13
 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13
 SANDCASTLE_E2E_IMAGE_BUILD=1
@@ -52,31 +57,10 @@ SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com
 SANDCASTLE_E2E_INFRA_HOST=203.0.113.10
 SANDCASTLE_E2E_LETSENCRYPT_EMAIL=ops@example.com
 SANDCASTLE_E2E_SANDCASTLE_BIN=/path/to/sandcastle
+SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
 ```
 
-## Harness Shape
-
-Use Go integration tests with explicit build tags or environment gates:
-
-```bash
-SANDCASTLE_E2E=1 go test ./internal/e2e -run TestProjectLifecycle -count=1
-```
-
-The checked-in `scripts/e2e.sh public-routes` tier fails closed unless the
-broker socket, disposable image sources, delegated public route domain,
-infrastructure DNS proof target, and Let's Encrypt contact email are all set.
-The checked-in `scripts/e2e.sh local-vm` tier fails closed unless
-`SANDCASTLE_E2E_LOCAL_VM=1` is set, keeping local resolver, trust, and hosts
-mutation coverage opt-in for disposable VM runs.
-The checked-in `scripts/e2e-local-vm.sh` harness is the host-side way to run
-that tier: it creates a disposable local Incus VM, installs Go, mise, and nested
-Incus, seeds nested `sandcastle/base:latest` and `sandcastle/ai:latest` aliases
-from host image aliases, starts root's systemd user service manager for
-`systemctl --user` coverage, copies the checkout, and runs
-`scripts/e2e.sh local-vm` inside the VM.
-The checked-in `scripts/e2e.sh restricted` tier fails closed unless a non-local
-`SANDCASTLE_E2E_REMOTE` and disposable image sources are set, keeping
-restricted certificate lifecycle checks on an HTTPS Incus remote.
+## Runner Tiers
 
 The checked-in runner keeps common tiers reproducible:
 
@@ -84,7 +68,7 @@ The checked-in runner keeps common tiers reproducible:
 scripts/e2e.sh unit
 scripts/e2e.sh gated
 scripts/e2e.sh local
-SANDCASTLE_E2E=1 scripts/e2e.sh incus
+SANDCASTLE_E2E=1 SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh incus
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_LOCAL_VM=1 scripts/e2e.sh local-vm
 scripts/e2e-local-vm.sh
 SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=remote-incus SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh restricted
@@ -100,190 +84,148 @@ Tier meanings:
 - `unit`: all Incus-free Go tests.
 - `gated`: the e2e package with default environment gates, useful for compile
   and skip behavior.
-- `local`: unprivileged local e2e flows, currently local DNS
-  install/forward/refresh/uninstall with temporary state.
-- `local-vm`: disposable-VM local mutation flows for local DNS resolver state,
-  the platform DNS forwarder service, local CA trust, and host override
-  coverage. Requires `SANDCASTLE_E2E_LOCAL_VM=1`.
-- `scripts/e2e-local-vm.sh`: host-side convenience harness for the `local-vm`
-  tier. Tunables include `SANDCASTLE_E2E_VM_NAME`,
-  `SANDCASTLE_E2E_VM_IMAGE`, `SANDCASTLE_E2E_VM_DISK_SIZE`,
-  `SANDCASTLE_E2E_VM_CPUS`, `SANDCASTLE_E2E_VM_MEMORY`,
-  `SANDCASTLE_E2E_VM_KEEP`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, and
-  `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
-- `incus`: destructive real-Incus flows, requiring `SANDCASTLE_E2E=1`.
-- `restricted`: restricted-client token, grant, and sandbox lifecycle flows
-  through an HTTPS Incus remote, requiring `SANDCASTLE_E2E=1`, a non-local
-  `SANDCASTLE_E2E_REMOTE`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, and
-  `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
-- `tailscale`: destructive real-Incus plus real-tailnet flow, requiring
-  `SANDCASTLE_E2E=1`, `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`,
-  `SANDCASTLE_E2E_AI_IMAGE_SOURCE`, and `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
-- `images`: real image build flows, requiring `SANDCASTLE_E2E=1`,
-  `SANDCASTLE_E2E_IMAGE_BUILD=1`, and pinned AI CLI versions for the AI image.
-- `route-broker`: route broker mTLS mutation flow, requiring
-  `SANDCASTLE_E2E=1`, `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET`,
-  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, and `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
-  Public route env is optional in this tier.
-- `public-routes`: public route broker mutation flow, requiring
-  `SANDCASTLE_E2E=1`, `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET`,
-  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, `SANDCASTLE_E2E_AI_IMAGE_SOURCE`,
-  `SANDCASTLE_E2E_PUBLIC_DOMAIN`, `SANDCASTLE_E2E_INFRA_HOST`, and
-  `SANDCASTLE_E2E_LETSENCRYPT_EMAIL`.
-- `cleanup`: standalone cleanup for managed disposable project and
-  infrastructure projects, restricted certificates, and image aliases matching
-  an explicit `SANDCASTLE_E2E_RUN_ID`, requiring `SANDCASTLE_E2E=1`. Short or
-  missing run IDs are rejected.
+- `local`: unprivileged local flows with temporary local DNS state.
+- `local-vm`: disposable-VM local mutation flows for resolver state, user
+  services, platform trust, and host overrides.
+- `scripts/e2e-local-vm.sh`: host-side harness that creates a disposable local
+  Incus VM, installs Go, mise, and nested Incus, seeds nested
+  `sandcastle/base:latest` and `sandcastle/ai:latest`, starts root's systemd
+  user service manager, copies the checkout, and runs `scripts/e2e.sh local-vm`
+  inside the VM.
+- `incus`: destructive real-Incus tenant, machine, DNS, trust, image sync, host
+  override, and infrastructure smoke flows.
+- `restricted`: restricted-client token, tenant grant, and machine lifecycle
+  flows through an HTTPS Incus remote.
+- `tailscale`: destructive real-Incus plus real-tailnet flow.
+- `images`: real image build flows.
+- `route-broker`: route broker mTLS mutation flow. Public route env is optional
+  in this tier.
+- `public-routes`: public route broker mutation plus public ingress validation.
+- `cleanup`: standalone cleanup for managed disposable tenant projects,
+  infrastructure projects, restricted certificates, image aliases, local image
+  tags, and local mutation state matching an explicit run id.
 
 For the `local` tier and destructive non-cleanup tiers, `scripts/e2e.sh`
 preserves an explicit `SANDCASTLE_E2E_RUN_ID` when set and otherwise generates
 one run id for the script invocation. The cleanup tier never generates a run id
 because cleanup must target a known failed run explicitly.
 
-GitHub Actions:
+## GitHub Actions
 
 - `.github/workflows/ci.yml` runs only safe tiers on push and pull request:
   `unit`, `gated`, and unprivileged `local`.
 - `.github/workflows/e2e-gates.yml` is manual (`workflow_dispatch`) for real
   environment gates: `incus`, `restricted`, `tailscale`, `images`,
-  `route-broker`, `local-vm`, `public-routes`, and `cleanup`. It sets
-  `SANDCASTLE_E2E=1` and relies on
+  `route-broker`, `local-vm`, `public-routes`, and `cleanup`.
+- The destructive workflow sets `SANDCASTLE_E2E=1` and relies on
   `scripts/e2e.sh` to fail closed when a selected tier's required variables are
-  missing. Use the optional `run_id` input to set `SANDCASTLE_E2E_RUN_ID` for
-  cleanup or for correlated disposable runs. Non-cleanup workflow runs generate
-  a job-scoped run id from the GitHub run id and attempt when neither `run_id`
-  nor repository variable `SANDCASTLE_E2E_RUN_ID` is set; cleanup still requires
-  an explicit run id from the input or repository variable.
-- When a non-cleanup destructive workflow tier fails and `SANDCASTLE_E2E_KEEP`
-  is not `1`, the workflow runs `scripts/e2e.sh cleanup` as a best-effort
-  follow-up using the selected run id. Cleanup errors are reported in logs but
-  do not replace the original tier failure.
+  missing.
+- Use the optional `run_id` input to set `SANDCASTLE_E2E_RUN_ID` for cleanup or
+  correlated disposable runs. Cleanup always requires an explicit run id.
+- When a non-cleanup destructive workflow tier fails and
+  `SANDCASTLE_E2E_KEEP` is not `1`, the workflow runs cleanup as a best-effort
+  follow-up using the selected run id.
 - Configure non-secret values as repository or environment variables using the
-  same names as the local shell environment, such as
-  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE`, `SANDCASTLE_E2E_AI_IMAGE_SOURCE`,
-  `SANDCASTLE_E2E_PUBLIC_DOMAIN`, and
-  `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET`.
+  same names as the local shell environment.
 - Configure `SANDCASTLE_E2E_TAILSCALE_AUTHKEY` as a repository or environment
   secret.
 - Use the `runner` workflow input to target a self-hosted runner when Incus,
   host resolver mutation, or public ingress is not available on GitHub-hosted
   runners.
 
+## Harness Contract
+
 The harness should:
 
-- create a run context with owner, project, domain, and CIDR names;
+- create a run context with tenant, project, machine, domain, CIDR, certificate,
+  route, and image names derived from the run id;
 - call the same CLI or command-layer code users call;
 - collect Incus diagnostics on failure;
 - clean up even after partial failures;
 - leave resources only when `SANDCASTLE_E2E_KEEP=1`.
 
-Use two e2e tiers:
-
-- Core Incus-only e2e: does not require Tailscale, validates project topology,
-  metadata, bridge networking, CoreDNS from inside Incus, sandbox lifecycle, and
-  sandbox Caddy.
-- Full network e2e: gated by `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`, validates real
-  Tailscale route advertisement and access through the routed private CIDR.
-
-## Phase 1: Admin Project Lifecycle
+## Phase 1: Tenant Lifecycle
 
 Test:
 
-1. Create disposable owner.
-2. Create disposable project.
-3. Verify Incus project exists.
-4. Verify project metadata.
-5. Verify private bridge network and CIDR.
-6. Verify home, workspace, CA, DNS, and Tailscale state resources.
+1. Create a disposable tenant.
+2. Verify the Incus project exists.
+3. Verify tenant metadata.
+4. Verify private bridge network and CIDR.
+5. Verify home, workspace, CA, DNS, and Tailscale resources.
+6. Verify tenant-local base and AI image aliases.
 7. Re-run create and verify idempotence.
 8. Delete without purge and verify durable data is preserved.
 9. Delete with purge and verify durable data is removed.
 
 Primary assertions:
 
-- Project name is `sc-<owner>-<project>`.
+- Tenant Incus project name is `sc-<tenant>`.
 - CIDR is allocated from the configured pool and does not collide.
-- Metadata alone can reconstruct project state.
+- Tenant metadata can reconstruct tenant state.
 
 ## Phase 2: Restricted User Access
 
 Test:
 
-1. Create restricted user certificate/token for the owner.
-2. Configure a user remote for the test.
-3. Verify user can list owned project metadata.
-4. Verify user cannot access another test project.
-5. Verify user cannot mutate global Incus state.
-   The checked-in `TestRestrictedUserGrantAccessE2E` covers these access
-   checks against an HTTPS Incus remote.
-6. Create, verify, stop, start, and remove a sandbox through the restricted
-   user remote.
-   The checked-in `TestRestrictedUserSandboxLifecycleE2E` creates a full
-   disposable project with real image aliases, grants a restricted certificate,
-   and runs sandbox lifecycle plus private Caddy checks through that restricted
-   Incus client.
+1. Create a restricted user certificate/token.
+2. Configure a user remote for the test with `sc remote add`.
+3. Grant the user access to a disposable tenant.
+4. Verify the user can list tenant metadata and machines.
+5. Verify the user cannot access another disposable tenant.
+6. Verify the user cannot mutate global Incus state.
+7. Create, verify, stop, start, connect to, and delete a machine through the
+   restricted user remote.
 
 Primary assertions:
 
-- Project scoping is enforced by Incus trust restrictions.
+- Tenant scoping is enforced by Incus trust restrictions.
 - Sandcastle user commands work with the restricted remote.
-- The normal e2e path reruns sandbox lifecycle through a restricted user remote.
+- Authorization is based on restricted certificate project grants, not on the
+  user name matching the tenant name.
 
-## Phase 3: Container Lifecycle
+## Phase 3: Machine Lifecycle
 
 Test:
 
-1. Create `project/codex` from the default AI template.
-2. Verify container starts.
-3. Verify metadata, app port, user, home mount, and workspace mount.
-   The checked-in CLI `add --detach` e2e path now exercises `--template base`,
-   `--home-dir`, and `--workspace-dir` and verifies the resulting mount
-   sources on the Incus instance, the `/home/<owner>` mount target, the
-   default Linux user bootstrap, and the inspect metadata user field.
-   The checked-in CLI default `add` e2e path runs a real Sandcastle subprocess,
-   feeds a marker command plus `exit` to the default login shell over stdin, and
-   verifies the sandbox was created.
+1. Create `website/codex` from the default AI template.
+2. Verify the container starts.
+3. Verify metadata, app port, Linux user, home mount, and workspace mount.
 4. Verify Caddy files and leaf certificate exist.
 5. Start a small HTTP app on port 3000.
 6. Verify private Caddy proxies to the app.
 7. Change app port to 5173 and verify Caddy reconfiguration.
-   The checked-in `TestSandboxLifecycleE2E` covers Caddy startup, HTTPS
-   proxying to a sandbox-local app, and proxy retargeting after `port set`.
-8. Stop, start, enter/check command execution, and remove.
+8. Stop, start, connect, run a command, and delete.
 
 Primary assertions:
 
-- New containers start by default.
+- New machines start by default.
 - `--detach` avoids interactive attach.
-- Default `add` enters the sandbox shell and can exit cleanly under automation.
-- Home/workspace subdirs persist.
-- Caddy uses project CA leaf certs.
+- Default `create` connects to the machine shell and can exit cleanly under
+  automation.
+- Home/workspace subdirectories persist.
+- Machine Caddy uses tenant CA leaf certificates.
 
-## Phase 4: Project DNS
+## Phase 4: Tenant DNS
 
 Test:
 
-1. Create two containers: `codex` and `claude`.
-2. Apply DNS.
+1. Create two machines in one project: `codex` and `claude`.
+2. Apply tenant DNS.
 3. Query CoreDNS directly on the private network.
-   The checked-in `TestProjectDNSE2E` covers two sandbox exact records,
-   per-sandbox wildcard records, distinct sandbox private IPs, and project-wide
-   wildcard denial by querying `sc-dns` from inside the sandbox network
-   namespace. It also removes one sandbox, reapplies DNS, and verifies the
-   removed sandbox's record is gone.
 4. Verify exact records:
-   - `codex.<domain>`
-   - `claude.<domain>`
-5. Verify per-sandbox wildcard:
-   - `test.codex.<domain>`
-6. Verify project-wide wildcard does not resolve:
-   - `anything.<domain>`
-7. Remove one container and verify records update.
+   - `codex.<project>.<tenant-suffix>`
+   - `claude.<project>.<tenant-suffix>`
+5. Verify per-machine wildcard:
+   - `test.codex.<project>.<tenant-suffix>`
+6. Verify tenant-wide wildcard does not resolve.
+7. Delete one machine, reapply DNS, and verify its records are gone.
 
 Primary assertions:
 
-- DNS is rendered from Incus metadata.
+- DNS is rendered from Incus machine metadata.
 - CoreDNS does not need Incus API access.
+- Tenant-wide wildcards are not generated.
 
 ## Phase 5: Tailscale Routed Access
 
@@ -291,20 +233,13 @@ Requires `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
 
 Test:
 
-1. Run `sandcastle tailscale up <project>` with the auth key and
-   `tag:sandcastle` advertised.
-2. Verify sidecar reaches connected state.
-3. Verify project private CIDR is advertised.
-   The checked-in `TestTailscaleAttachmentE2E` covers route attachment against
-   a real Incus project and real Tailscale auth key when the `tailscale` tier is
-   enabled.
+1. Run `sandcastle tailscale up` with the auth key and `tag:sandcastle`
+   advertised, or `sandcastle tailscale up <tenant>` for an explicit tenant.
+2. Verify the sidecar reaches connected state.
+3. Verify the tenant private CIDR is advertised.
 4. From the test runner, query CoreDNS through the Tailscale-routed private IP.
-5. Curl sandbox private Caddy through the Tailscale route.
-   `TestTailscaleAttachmentE2E` creates a disposable sandbox, applies project
-   DNS, starts a sandbox-local HTTP app, then verifies both CoreDNS A-record
-   resolution and HTTPS Caddy proxying from the test runner over the routed
-   private CIDR.
-6. Record observed Tailscale status in project metadata.
+5. Curl machine private Caddy through the Tailscale route.
+6. Record observed Tailscale status in tenant metadata.
 
 Primary assertions:
 
@@ -319,14 +254,14 @@ provided.
 ## Phase 6: Local DNS Forwarder
 
 Run only inside a disposable VM. Linux is the first target, using Debian 13 or
-Ubuntu 24.04 with systemd-resolved. macOS resolver and Keychain tests come later.
+Ubuntu 24.04 with systemd-resolved. macOS resolver tests come later.
 
 Test:
 
-1. Install local DNS state for the test project.
+1. Install local DNS state for the test tenant.
 2. Start or reload the local forwarder.
-3. Verify resolver config points to loopback and stable port.
-4. Resolve `codex.<domain>` through the OS resolver.
+3. Verify resolver config points to loopback and a stable port.
+4. Resolve a machine hostname through the OS resolver.
 5. Refresh endpoint state and verify the forwarder reloads.
 6. Uninstall and verify resolver state is removed.
 
@@ -341,25 +276,13 @@ Run only inside a disposable VM.
 
 Test:
 
-1. Install project CA trust.
-   The checked-in `TestLocalTrustInstallUninstallE2E` reads the real project CA
-   from a disposable Incus project and installs/uninstalls it through a
-   file-backed trust store, avoiding host OS trust mutation.
-   The checked-in `TestLocalTrustPlatformInstallUninstallE2E` uses the same
-   disposable project CA but installs/uninstalls it through the real platform
-   trust backend under the explicit `local-vm` gate.
-2. Add exact host override for a disposable FQDN.
-   The checked-in `TestHostOverrideE2E` redirects `/etc/hosts` writes to a
-   disposable file, adds an exact override, verifies the host entry, sandbox
-   Caddy routing, and the extra certificate SAN, then removes the override.
-   The checked-in `TestHostOverrideHostsFileE2E` uses the default hosts manager
-   against `/etc/hosts` under the explicit `local-vm` gate and verifies the
-   managed block is added and removed.
+1. Install tenant CA trust.
+2. Add an exact host override for a disposable FQDN.
 3. Verify `/etc/hosts` contains a managed entry.
-4. Verify sandbox certificate includes the extra SAN.
+4. Verify the machine certificate includes the extra SAN.
 5. Curl `https://<override-host>` successfully.
-6. Remove override.
-7. Verify hosts entry and extra SAN are removed.
+6. Delete the override.
+7. Verify the hosts entry and extra SAN are removed.
 8. Uninstall CA trust.
 
 Primary assertions:
@@ -379,46 +302,24 @@ to infrastructure Caddy as `SANDCASTLE_LETSENCRYPT_EMAIL`.
 Test:
 
 1. Create infrastructure project and Caddy.
-2. Start route broker on the private/Tailscale network.
-   The checked-in infrastructure creator uploads the local `sandcastle-admin`
-   binary from `SANDCASTLE_ADMIN_BIN`, falling back to `SANDCASTLE_BIN` for older
-   local setups. Infrastructure e2e builds `./cmd/sandcastle-admin`
-   automatically.
-   `TestDisposableInfrastructureCreateAndDelete` verifies the route broker
-   runtime process accepts an mTLS client certificate inside the disposable
-   infrastructure container.
-   For local Unix-socket Incus remotes, set
-   `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` to the host Incus socket path to
-   mount it into `sc-route-broker` at `/var/lib/incus/unix.socket`; leave it
-   unset when the broker should not receive host Incus access.
-   When that socket is configured, `TestDisposableInfrastructureCreateAndDelete`
-   also creates a disposable restricted user certificate and verifies the
-   containerized route broker can map that mTLS identity through Incus and list
-   routes.
-   `TestRouteBrokerAuthorizedMutationE2E` goes further when the socket and base
-   image sources are configured: it creates disposable infrastructure, a project,
-   a sandbox, a trusted broker client certificate, and a temporary DNS proof in
-   the broker container before adding, listing, and removing a route through the
-   running broker. When the delegated public route env is configured, it also
-   verifies a normal trusted HTTPS client can reach the sandbox app through the
-   public hostname and infrastructure Caddy.
-3. Create a sandbox app on port 3000.
+2. Start route broker with mTLS enabled.
+3. Create a machine app on port 3000.
 4. Point a disposable public hostname at infrastructure.
-5. As restricted user, call route broker with Incus client certificate mTLS.
-6. Verify broker accepts only owned project targets.
-7. Verify broker rejects unowned project targets.
+5. As a restricted user, call route broker with Incus client certificate mTLS.
+6. Verify broker accepts only tenant targets granted to that certificate.
+7. Verify broker rejects targets outside the certificate grant set.
 8. Verify broker creates route metadata and ingress attachment.
-9. Verify infrastructure Caddy obtains/serves Let's Encrypt cert.
-10. Curl public hostname and verify response from sandbox app.
-11. Change sandbox appPort and verify public route remains pinned to original
+9. Verify infrastructure Caddy obtains or serves the expected certificate.
+10. Curl public hostname and verify response from the machine app.
+11. Change machine app port and verify public route remains pinned to original
     route port.
-12. Remove route and verify Caddy no longer serves it.
+12. Delete route and verify Caddy no longer serves it.
 
 Primary assertions:
 
 - Users do not need direct access to the infrastructure Incus project.
 - Route hostnames are globally unique in route metadata.
-- Public routes are HTTP/HTTPS only and proxy HTTP to the sandbox route port.
+- Public routes are HTTP/HTTPS only and proxy HTTP to the machine route port.
 
 ## Cleanup And Diagnostics
 
@@ -426,7 +327,8 @@ Every e2e test should capture on failure:
 
 - Sandcastle command logs.
 - Incus project list filtered by run id.
-- Incus instance/network/volume config for disposable projects.
+- Incus instance/network/volume config for disposable tenant and infrastructure
+  projects.
 - CoreDNS rendered zone.
 - Caddy rendered configs.
 - Tailscale status output with secrets redacted.
@@ -437,16 +339,18 @@ Cleanup should remove:
 - disposable containers;
 - disposable networks;
 - disposable volumes when purge is enabled;
-- disposable Incus projects;
+- disposable Incus tenant projects;
+- disposable infrastructure projects;
 - disposable restricted certificates;
+- disposable image aliases;
 - disposable local image-build tags;
 - local resolver files;
 - local hosts entries;
 - local trust entries;
 - route metadata and Caddy routes.
 
-`scripts/e2e.sh cleanup` can be run after a failed destructive job when the
-run used an explicit `SANDCASTLE_E2E_RUN_ID`. It removes matching managed
-Sandcastle project and infrastructure projects with purge semantics, deletes
-matching Sandcastle restricted certificates, disposable image aliases, and
-local image-build tags, and refuses to run without a long explicit run id.
+`scripts/e2e.sh cleanup` can be run after a failed destructive job when the run
+used an explicit `SANDCASTLE_E2E_RUN_ID`. It removes matching managed
+Sandcastle tenant and infrastructure projects with purge semantics, deletes
+matching restricted certificates, disposable image aliases, and local
+image-build tags, and refuses to run without a long explicit run id.

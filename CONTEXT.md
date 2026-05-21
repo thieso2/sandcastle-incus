@@ -115,7 +115,7 @@ _Avoid_: Projectless mode
 - Admin tenant creation requires only the **Tenant** name; infrastructure details are derived from admin configuration.
 - Admin tenant deletion refuses non-empty tenants unless explicitly purged.
 - The admin CLI manages **Tenants** with `tenant list`, `tenant create`, `tenant status`, `tenant delete`, `tenant grant`, `tenant revoke`, and `tenant users`.
-- The admin CLI manages **Users** with `user list`, `user create`, `user status`, and `user delete`.
+- The admin CLI manages **Users** with `user create` and `user token`; **Tenant Access** is managed with `tenant grant`, `tenant revoke`, and `tenant users`.
 - Default machine storage paths include the **Project** and **Machine** names.
 - Trust installation is tenant-scoped and trusts the **Tenant CA** for private machine hostnames in that **Tenant**.
 - A **Project** belongs to exactly one **Tenant**.
@@ -153,7 +153,7 @@ _Avoid_: Projectless mode
 - Any **User** with **Tenant Access** can delete **Public Routes** targeting that **Tenant**.
 - The admin CLI manages **Machines** for any tenant with the same verbs as the user CLI.
 - `sandcastle-admin` is the canonical admin CLI.
-- Bare admin `status` reports global admin and infrastructure status.
+- Admin `status` takes a machine reference and reports machine status in the explicit **Tenant**.
 - An admin machine reference is `tenant/machine` or `tenant/project/machine`; omitted project means the **Default Project**.
 - Admin machine lookup references use the same unique-search behavior as user lookup references, scoped to the explicit **Tenant**.
 - Admin `list` takes `tenant` for all projects or `tenant/project` for one project.

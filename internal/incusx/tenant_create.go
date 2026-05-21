@@ -12,14 +12,14 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-type ProjectCreateServer interface {
+type TenantCreateServer interface {
 	GetProject(name string) (*api.Project, string, error)
 	CreateProject(project api.ProjectsPost) error
 	UpdateProject(name string, project api.ProjectPut, ETag string) error
-	UseProject(name string) ProjectResourceServer
+	UseProject(name string) TenantResourceServer
 	GetStoragePool(name string) (*api.StoragePool, string, error)
 	CreateStoragePool(pool api.StoragePoolsPost) error
 	GetImage(ref string) (*api.Image, string, error)
@@ -27,7 +27,7 @@ type ProjectCreateServer interface {
 	imageServer() incus.ImageServer
 }
 
-type ProjectResourceServer interface {
+type TenantResourceServer interface {
 	GetNetwork(name string) (*api.Network, string, error)
 	CreateNetwork(network api.NetworksPost) error
 	GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error)
@@ -44,34 +44,34 @@ type ProjectResourceServer interface {
 	GetImage(ref string) (*api.Image, string, error)
 	GetImageAlias(name string) (*api.ImageAliasesEntry, string, error)
 	CreateImageAlias(alias api.ImageAliasesPost) error
-	CopyImageFrom(source ProjectCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error)
+	CopyImageFrom(source TenantCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error)
 }
 
-type ProjectCreator struct {
+type TenantCreator struct {
 	Remote     string
 	ConfigPath string
-	Server     ProjectCreateServer
+	Server     TenantCreateServer
 	Log        func(string)
 }
 
-func NewProjectCreator(remote string) ProjectCreator {
-	return ProjectCreator{Remote: remote}
+func NewTenantCreator(remote string) TenantCreator {
+	return TenantCreator{Remote: remote}
 }
 
-func (c ProjectCreator) WithVerbose(enabled bool, w io.Writer) ProjectCreator {
+func (c TenantCreator) WithVerbose(enabled bool, w io.Writer) TenantCreator {
 	if enabled {
 		c.Log = func(msg string) { fmt.Fprintln(w, "[tenant-create] "+msg) }
 	}
 	return c
 }
 
-func (c ProjectCreator) log(msg string) {
+func (c TenantCreator) log(msg string) {
 	if c.Log != nil {
 		c.Log(msg)
 	}
 }
 
-func (c ProjectCreator) CreateTenant(ctx context.Context, plan project.CreatePlan) error {
+func (c TenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan) error {
 	server := c.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
@@ -86,7 +86,7 @@ func (c ProjectCreator) CreateTenant(ctx context.Context, plan project.CreatePla
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkProjectServer{inner: instanceServer}
+		server = sdkTenantCreateServer{inner: instanceServer}
 	}
 
 	c.log("ensure project " + plan.IncusProject)
@@ -142,7 +142,7 @@ func (c ProjectCreator) CreateTenant(ctx context.Context, plan project.CreatePla
 	return nil
 }
 
-func ensureProject(server ProjectCreateServer, plan project.CreatePlan) error {
+func ensureProject(server TenantCreateServer, plan tenant.CreatePlan) error {
 	existing, etag, err := server.GetProject(plan.IncusProject)
 	if err != nil {
 		// 404 = project doesn't exist.
@@ -180,7 +180,7 @@ func isolatedProjectFeatureConfig() map[string]string {
 	}
 }
 
-func ensureProjectImages(source ProjectCreateServer, target ProjectResourceServer, aliases []string) error {
+func ensureProjectImages(source TenantCreateServer, target TenantResourceServer, aliases []string) error {
 	for _, aliasName := range aliases {
 		if err := ensureProjectImage(source, target, aliasName); err != nil {
 			return err
@@ -189,7 +189,7 @@ func ensureProjectImages(source ProjectCreateServer, target ProjectResourceServe
 	return nil
 }
 
-func ensureProjectImage(source ProjectCreateServer, target ProjectResourceServer, aliasName string) error {
+func ensureProjectImage(source TenantCreateServer, target TenantResourceServer, aliasName string) error {
 	sourceAlias, _, err := source.GetImageAlias(aliasName)
 	if err != nil {
 		return fmt.Errorf("get source image alias %s: %w", aliasName, err)
@@ -245,7 +245,7 @@ func imageAliasType(alias *api.ImageAliasesEntry) string {
 	return "container"
 }
 
-func ensurePrivateNetwork(server ProjectResourceServer, plan project.CreatePlan) error {
+func ensurePrivateNetwork(server TenantResourceServer, plan tenant.CreatePlan) error {
 	_, _, err := server.GetNetwork(plan.PrivateNetwork)
 	if err == nil {
 		return nil
@@ -256,7 +256,7 @@ func ensurePrivateNetwork(server ProjectResourceServer, plan project.CreatePlan)
 	return server.CreateNetwork(networkRequest(plan))
 }
 
-func ensureStorageVolume(server ProjectResourceServer, pool string, volume api.StorageVolumesPost) error {
+func ensureStorageVolume(server TenantResourceServer, pool string, volume api.StorageVolumesPost) error {
 	_, _, err := server.GetStoragePoolVolume(pool, volume.Type, volume.Name)
 	if err == nil {
 		return nil
@@ -267,7 +267,7 @@ func ensureStorageVolume(server ProjectResourceServer, pool string, volume api.S
 	return server.CreateStoragePoolVolume(pool, volume)
 }
 
-func ensureTenantCA(server ProjectResourceServer, plan project.CreatePlan) error {
+func ensureTenantCA(server TenantResourceServer, plan tenant.CreatePlan) error {
 	if len(plan.TenantCA.CertificatePEM) == 0 || len(plan.TenantCA.PrivateKeyPEM) == 0 {
 		return fmt.Errorf("tenant CA material is missing")
 	}
@@ -290,7 +290,7 @@ func ensureTenantCA(server ProjectResourceServer, plan project.CreatePlan) error
 	return nil
 }
 
-func ensureSidecar(server ProjectResourceServer, sidecar project.SidecarPlan) error {
+func ensureSidecar(server TenantResourceServer, sidecar tenant.SidecarPlan) error {
 	instance, _, err := server.GetInstance(sidecar.Name)
 	if err == nil {
 		if sidecar.Start && !instance.IsActive() {
@@ -320,7 +320,7 @@ func ensureSidecar(server ProjectResourceServer, sidecar project.SidecarPlan) er
 	return nil
 }
 
-func ensureDNSFiles(server ProjectResourceServer, plan project.CreatePlan) error {
+func ensureDNSFiles(server TenantResourceServer, plan tenant.CreatePlan) error {
 	for _, directory := range []string{"/etc/coredns", "/etc/coredns/zones"} {
 		err := server.CreateInstanceFile(plan.DNSInstance, directory, incus.InstanceFileArgs{
 			Type: "directory",
@@ -351,7 +351,7 @@ type coreDNSRestarter interface {
 func restartCoreDNS(server coreDNSRestarter) error {
 	var stderr strings.Builder
 	dataDone := make(chan bool)
-	op, err := server.ExecInstance(project.DNSName, api.InstanceExecPost{
+	op, err := server.ExecInstance(tenant.DNSName, api.InstanceExecPost{
 		Command: []string{"/bin/sh", "-c", strings.Join([]string{
 			"pkill -x coredns >/dev/null 2>&1 || true",
 			"systemctl stop systemd-resolved.service 2>/dev/null || true",
@@ -367,16 +367,16 @@ func restartCoreDNS(server coreDNSRestarter) error {
 		DataDone: dataDone,
 	})
 	if err != nil {
-		return fmt.Errorf("restart CoreDNS in %s: %w", project.DNSName, err)
+		return fmt.Errorf("restart CoreDNS in %s: %w", tenant.DNSName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for CoreDNS restart in %s (stderr: %s): %w", project.DNSName, stderr.String(), err)
+		return fmt.Errorf("wait for CoreDNS restart in %s (stderr: %s): %w", tenant.DNSName, stderr.String(), err)
 	}
 	<-dataDone
 	return nil
 }
 
-func configureSidecarNetwork(server ProjectResourceServer, sidecar project.SidecarPlan, privateCIDR string) error {
+func configureSidecarNetwork(server TenantResourceServer, sidecar tenant.SidecarPlan, privateCIDR string) error {
 	if sidecar.Address == "" || privateCIDR == "" {
 		return nil
 	}
@@ -420,7 +420,7 @@ func configureSidecarNetwork(server ProjectResourceServer, sidecar project.Sidec
 	return nil
 }
 
-func ensureStoragePool(server ProjectCreateServer, plan project.CreatePlan) error {
+func ensureStoragePool(server TenantCreateServer, plan tenant.CreatePlan) error {
 	_, _, err := server.GetStoragePool(plan.StoragePool)
 	if err == nil {
 		return nil
@@ -450,7 +450,7 @@ func ensureStoragePool(server ProjectCreateServer, plan project.CreatePlan) erro
 	})
 }
 
-func ensureContainerProfile(server ProjectResourceServer, plan project.CreatePlan) error {
+func ensureContainerProfile(server TenantResourceServer, plan tenant.CreatePlan) error {
 	profilePut := api.ProfilePut{
 		Description: "Sandcastle container defaults for " + plan.Reference,
 		Config: api.ConfigMap{
@@ -484,7 +484,7 @@ func ensureContainerProfile(server ProjectResourceServer, plan project.CreatePla
 	})
 }
 
-func networkRequest(plan project.CreatePlan) api.NetworksPost {
+func networkRequest(plan tenant.CreatePlan) api.NetworksPost {
 	return api.NetworksPost{
 		Name: plan.PrivateNetwork,
 		Type: "bridge",
@@ -503,7 +503,7 @@ func networkRequest(plan project.CreatePlan) api.NetworksPost {
 	}
 }
 
-func volumeRequests(plan project.CreatePlan) []api.StorageVolumesPost {
+func volumeRequests(plan tenant.CreatePlan) []api.StorageVolumesPost {
 	return []api.StorageVolumesPost{
 		volumeRequest(plan, plan.HomeVolume, "Sandcastle home state for "+plan.Reference),
 		volumeRequest(plan, plan.WorkspaceVolume, "Sandcastle workspace state for "+plan.Reference),
@@ -511,7 +511,7 @@ func volumeRequests(plan project.CreatePlan) []api.StorageVolumesPost {
 	}
 }
 
-func volumeRequest(plan project.CreatePlan, name string, description string) api.StorageVolumesPost {
+func volumeRequest(plan tenant.CreatePlan, name string, description string) api.StorageVolumesPost {
 	return api.StorageVolumesPost{
 		Name:        name,
 		Type:        "custom",
@@ -527,7 +527,7 @@ func volumeRequest(plan project.CreatePlan, name string, description string) api
 	}
 }
 
-func sidecarRequest(sidecar project.SidecarPlan) api.InstancesPost {
+func sidecarRequest(sidecar tenant.SidecarPlan) api.InstancesPost {
 	return api.InstancesPost{
 		Name:  sidecar.Name,
 		Type:  "container",
@@ -545,7 +545,7 @@ func sidecarRequest(sidecar project.SidecarPlan) api.InstancesPost {
 	}
 }
 
-func devicesMap(devices map[string]project.Device) api.DevicesMap {
+func devicesMap(devices map[string]tenant.Device) api.DevicesMap {
 	output := make(api.DevicesMap, len(devices))
 	for name, device := range devices {
 		output[name] = map[string]string(device)
@@ -584,43 +584,43 @@ func mergeConfig(existing map[string]string, managed map[string]string) map[stri
 	return output
 }
 
-type sdkProjectServer struct {
+type sdkTenantCreateServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkProjectServer) GetProject(name string) (*api.Project, string, error) {
+func (s sdkTenantCreateServer) GetProject(name string) (*api.Project, string, error) {
 	return s.inner.GetProject(name)
 }
 
-func (s sdkProjectServer) CreateProject(project api.ProjectsPost) error {
+func (s sdkTenantCreateServer) CreateProject(project api.ProjectsPost) error {
 	return s.inner.CreateProject(project)
 }
 
-func (s sdkProjectServer) GetImage(ref string) (*api.Image, string, error) {
+func (s sdkTenantCreateServer) GetImage(ref string) (*api.Image, string, error) {
 	return s.inner.GetImage(ref)
 }
 
-func (s sdkProjectServer) GetImageAlias(name string) (*api.ImageAliasesEntry, string, error) {
+func (s sdkTenantCreateServer) GetImageAlias(name string) (*api.ImageAliasesEntry, string, error) {
 	return s.inner.GetImageAlias(name)
 }
 
-func (s sdkProjectServer) imageServer() incus.ImageServer {
+func (s sdkTenantCreateServer) imageServer() incus.ImageServer {
 	return s.inner
 }
 
-func (s sdkProjectServer) UpdateProject(name string, project api.ProjectPut, etag string) error {
+func (s sdkTenantCreateServer) UpdateProject(name string, project api.ProjectPut, etag string) error {
 	return s.inner.UpdateProject(name, project, etag)
 }
 
-func (s sdkProjectServer) UseProject(name string) ProjectResourceServer {
+func (s sdkTenantCreateServer) UseProject(name string) TenantResourceServer {
 	return sdkResourceServer{inner: s.inner.UseProject(name), projectName: name}
 }
 
-func (s sdkProjectServer) GetStoragePool(name string) (*api.StoragePool, string, error) {
+func (s sdkTenantCreateServer) GetStoragePool(name string) (*api.StoragePool, string, error) {
 	return s.inner.GetStoragePool(name)
 }
 
-func (s sdkProjectServer) CreateStoragePool(pool api.StoragePoolsPost) error {
+func (s sdkTenantCreateServer) CreateStoragePool(pool api.StoragePoolsPost) error {
 	return s.inner.CreateStoragePool(pool)
 }
 
@@ -693,6 +693,6 @@ func (s sdkResourceServer) CreateImageAlias(alias api.ImageAliasesPost) error {
 	return s.inner.CreateImageAlias(alias)
 }
 
-func (s sdkResourceServer) CopyImageFrom(source ProjectCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error) {
+func (s sdkResourceServer) CopyImageFrom(source TenantCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error) {
 	return s.inner.CopyImage(source.imageServer(), image, &incus.ImageCopyArgs{Aliases: aliases, Mode: "relay"})
 }

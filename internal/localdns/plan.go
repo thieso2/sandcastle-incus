@@ -13,7 +13,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 const (
@@ -52,19 +52,19 @@ type Manager interface {
 	Uninstall(context.Context, Plan) (Result, error)
 }
 
-func PlanInstall(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request Request) (Plan, error) {
+func PlanInstall(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request Request) (Plan, error) {
 	return plan(ctx, admin, store, request)
 }
 
-func PlanRefresh(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request Request) (Plan, error) {
+func PlanRefresh(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request Request) (Plan, error) {
 	return plan(ctx, admin, store, request)
 }
 
-func PlanUninstall(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request Request) (Plan, error) {
+func PlanUninstall(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request Request) (Plan, error) {
 	return plan(ctx, admin, store, request)
 }
 
-func plan(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request Request) (Plan, error) {
+func plan(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request Request) (Plan, error) {
 	if err := admin.Validate(); err != nil {
 		return Plan{}, err
 	}
@@ -72,7 +72,7 @@ func plan(ctx context.Context, admin config.Admin, store project.IncusProjectSto
 	if err != nil {
 		return Plan{}, err
 	}
-	summaries, err := project.List(ctx, store)
+	summaries, err := tenant.List(ctx, store)
 	if err != nil {
 		return Plan{}, err
 	}

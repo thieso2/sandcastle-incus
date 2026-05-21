@@ -29,7 +29,7 @@ type routeRequest struct {
 
 const maxListResponseBytes = 1 << 20
 
-func (c Client) Add(ctx context.Context, plan route.AddPlan) error {
+func (c Client) Create(ctx context.Context, plan route.CreatePlan) error {
 	client, baseURL, err := c.client()
 	if err != nil {
 		return err
@@ -49,7 +49,7 @@ func (c Client) Add(ctx context.Context, plan route.AddPlan) error {
 	return doRouteBrokerRequest(client, request, http.StatusCreated)
 }
 
-func (c Client) Remove(ctx context.Context, plan route.RemovePlan) error {
+func (c Client) Delete(ctx context.Context, plan route.DeletePlan) error {
 	client, baseURL, err := c.client()
 	if err != nil {
 		return err

@@ -157,7 +157,7 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 				envLine("SANDCASTLE_REMOTE", admin.Remote),
 				envLine("SANDCASTLE_STORAGE_POOL", admin.StoragePool),
 				envLine("SANDCASTLE_CIDR_POOL", admin.CIDRPool),
-				envLine("SANDCASTLE_PROJECT_PREFIX", admin.ProjectPrefix),
+				envLine("SANDCASTLE_INCUS_PROJECT_PREFIX", admin.IncusProjectPrefix),
 				envLine("SANDCASTLE_INFRA_PROJECT", admin.InfrastructureProject),
 				envLine("SANDCASTLE_INFRA_HOST", admin.InfrastructureHost),
 				envLine("SANDCASTLE_LETSENCRYPT_EMAIL", admin.LetsEncryptEmail),

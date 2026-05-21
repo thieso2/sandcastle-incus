@@ -12,10 +12,10 @@ import (
 	sharedtls "github.com/lxc/incus/v6/shared/tls"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -28,7 +28,7 @@ func TestRestrictedUserTokenE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	user := safeProjectName("user-" + e2eConfig.DisposableRunID())
+	user := safeTenantResourceName("user-" + e2eConfig.DisposableRunID())
 	plan, err := usertrust.PlanToken(user)
 	if err != nil {
 		t.Fatal(err)
@@ -71,9 +71,9 @@ func TestRestrictedUserGrantAccessE2E(t *testing.T) {
 	}
 
 	runID := e2eConfig.DisposableRunID()
-	user := safeProjectName("owner-" + runID)
-	ownedName := safeProjectName("owned-" + runID)
-	deniedName := safeProjectName("denied-" + runID)
+	user := safeTenantResourceName("user-" + runID)
+	ownedName := safeTenantResourceName("owned-" + runID)
+	deniedName := safeTenantResourceName("denied-" + runID)
 	ownedRef := ownedName
 	deniedRef := deniedName
 	adminConfig := config.Admin{
@@ -81,15 +81,15 @@ func TestRestrictedUserGrantAccessE2E(t *testing.T) {
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: config.DefaultBaseImageAlias,
 			AI:   config.DefaultAIImageAlias,
 		},
 	}
-	ownedProject := createRestrictedAccessProject(t, e2eConfig, adminConfig, ownedRef, ownedName+"."+e2eConfig.DomainSuffix, "10.248.220.0/24")
-	deniedProject := createRestrictedAccessProject(t, e2eConfig, adminConfig, deniedRef, deniedName+"."+e2eConfig.DomainSuffix, "10.248.221.0/24")
+	ownedProject := createRestrictedAccessProject(t, e2eConfig, adminConfig, ownedRef, "10.248.220.0/24")
+	deniedProject := createRestrictedAccessProject(t, e2eConfig, adminConfig, deniedRef, "10.248.221.0/24")
 
 	adminServer, err := e2eInstanceServer(e2eConfig.Remote)
 	if err != nil {
@@ -109,11 +109,11 @@ func TestRestrictedUserGrantAccessE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownedProjectServer := restricted.UseProject(ownedProject)
-	if _, _, err := ownedProjectServer.GetProject(ownedProject); err != nil {
+	ownedTenantListServer := restricted.UseProject(ownedProject)
+	if _, _, err := ownedTenantListServer.GetProject(ownedProject); err != nil {
 		t.Fatalf("restricted user cannot access owned project %s: %v", ownedProject, err)
 	}
-	summaries, err := project.List(ctx, incusx.ProjectStore{Server: restricted})
+	summaries, err := tenant.List(ctx, incusx.TenantStore{Server: restricted})
 	if err != nil {
 		t.Fatalf("restricted user cannot list project metadata: %v", err)
 	}
@@ -126,14 +126,14 @@ func TestRestrictedUserGrantAccessE2E(t *testing.T) {
 	if _, _, err := restricted.UseProject(deniedProject).GetProject(deniedProject); err == nil {
 		t.Fatalf("restricted user unexpectedly accessed denied project %s", deniedProject)
 	}
-	globalProjectName := safeProjectName("global-" + runID)
+	globalProjectName := safeTenantResourceName("global-" + runID)
 	if err := restricted.CreateProject(api.ProjectsPost{Name: globalProjectName}); err == nil {
 		_ = adminServer.DeleteProject(globalProjectName)
 		t.Fatalf("restricted user unexpectedly created global project %s", globalProjectName)
 	}
 }
 
-func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
+func TestRestrictedUserMachineLifecycleE2E(t *testing.T) {
 	e2eConfig := LoadConfig()
 	if !e2eConfig.Enabled {
 		t.Skip("set SANDCASTLE_E2E=1 to run real Incus e2e tests")
@@ -153,22 +153,22 @@ func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.HasPrefix(remote.Addr, "unix:") {
-		t.Skip("restricted sandbox lifecycle e2e requires an HTTPS Incus remote, not a local Unix socket remote")
+		t.Skip("restricted machine lifecycle e2e requires an HTTPS Incus remote, not a local Unix socket remote")
 	}
 
 	runID := e2eConfig.DisposableRunID()
-	user := safeProjectName("owner-" + runID)
-	name := safeProjectName("restricted-" + runID)
-	sandboxName := safeProjectName("box-" + runID)
+	user := safeTenantResourceName("user-" + runID)
+	name := safeTenantResourceName("restricted-" + runID)
+	machineName := safeTenantResourceName("box-" + runID)
 	ref := user + "/" + name
-	sandboxRef := sandboxName
+	machineRef := machineName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-restricted"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-restricted"
 	adminConfig := config.Admin{
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: baseAlias,
@@ -187,36 +187,36 @@ func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
 	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
-	store := incusx.NewProjectStore(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
-	creator := incusx.NewProjectCreator(e2eConfig.Remote)
-	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	store := incusx.NewTenantStore(e2eConfig.Remote)
+	registerTenantDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
+	creator := incusx.NewTenantCreator(e2eConfig.Remote)
+	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
+	deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+		if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
 
-	existing, err := project.List(ctx, store)
+	existing, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createTenantPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createTenantPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -233,38 +233,38 @@ func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restrictedStore := incusx.ProjectStore{Server: restricted}
-	restrictedSandboxes := incusx.HostOverrideManager{Server: e2eHostOverrideServer{inner: restricted}}
-	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, restrictedStore, restrictedSandboxes, sandbox.CreateRequest{Reference: sandboxRef})
+	restrictedStore := incusx.TenantStore{Server: restricted}
+	restrictedMachines := incusx.HostOverrideManager{Server: e2eHostOverrideServer{inner: restricted}}
+	createMachinePlan, err := machine.PlanCreate(ctx, adminConfig, restrictedStore, restrictedMachines, machine.CreateRequest{Reference: machineRef})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (incusx.SandboxCreator{Server: e2eSandboxCreateServer{inner: restricted}}).CreateMachine(ctx, createSandboxPlan); err != nil {
+	if err := (incusx.MachineCreator{Server: e2eMachineCreateServer{inner: restricted}}).CreateMachine(ctx, createMachinePlan); err != nil {
 		t.Fatal(err)
 	}
 
-	projectServer := restricted.UseProject(createProjectPlan.IncusProject)
-	assertInstanceExists(t, projectServer, createSandboxPlan.InstanceName)
-	hostname := sandboxName + "." + createProjectPlan.DNSSuffix
-	assertSandboxIngressFiles(t, projectServer, createSandboxPlan.InstanceName, hostname, createSandboxPlan.AppPort)
-	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-restricted")
-	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-restricted")
+	projectServer := restricted.UseProject(createTenantPlan.IncusProject)
+	assertInstanceExists(t, projectServer, createMachinePlan.InstanceName)
+	hostname := machineName + "." + createTenantPlan.DNSSuffix
+	assertMachineIngressFiles(t, projectServer, createMachinePlan.InstanceName, hostname, createMachinePlan.AppPort)
+	startMachineHTTPApp(t, projectServer, createMachinePlan.InstanceName, createMachinePlan.AppPort, "sandcastle-restricted")
+	assertMachineCaddyProxy(t, projectServer, createMachinePlan.InstanceName, hostname, "sandcastle-restricted")
 
-	controller := incusx.SandboxController{Server: e2eSandboxLifecycleServer{inner: restricted}}
-	for _, action := range []sandbox.Action{sandbox.ActionStop, sandbox.ActionStart, sandbox.ActionRemove} {
-		plan, err := sandbox.PlanLifecycle(ctx, adminConfig, restrictedStore, restrictedSandboxes, sandbox.LifecycleRequest{
-			Reference: sandboxRef,
+	controller := incusx.MachineController{Server: e2eMachineLifecycleServer{inner: restricted}}
+	for _, action := range []machine.Action{machine.ActionStop, machine.ActionStart, machine.ActionDelete} {
+		plan, err := machine.PlanLifecycle(ctx, adminConfig, restrictedStore, restrictedMachines, machine.LifecycleRequest{
+			Reference: machineRef,
 			Action:    action,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := controller.ApplyLifecycle(ctx, plan); err != nil {
-			t.Fatalf("%s sandbox as restricted user: %v", action, err)
+			t.Fatalf("%s machine as restricted user: %v", action, err)
 		}
 	}
-	if _, _, err := projectServer.GetInstance(createSandboxPlan.InstanceName); !api.StatusErrorCheck(err, 404) {
-		t.Fatalf("expected restricted sandbox %s to be removed, err = %v", createSandboxPlan.InstanceName, err)
+	if _, _, err := projectServer.GetInstance(createMachinePlan.InstanceName); !api.StatusErrorCheck(err, 404) {
+		t.Fatalf("expected restricted machine %s to be deleted, err = %v", createMachinePlan.InstanceName, err)
 	}
 }
 
@@ -309,19 +309,19 @@ func (s e2eHostOverrideServer) UseProject(name string) incusx.HostOverrideResour
 	return e2eIncusResource{InstanceServer: s.inner.UseProject(name)}
 }
 
-type e2eSandboxCreateServer struct {
+type e2eMachineCreateServer struct {
 	inner incus.InstanceServer
 }
 
-func (s e2eSandboxCreateServer) UseProject(name string) incusx.SandboxResourceServer {
+func (s e2eMachineCreateServer) UseProject(name string) incusx.MachineResourceServer {
 	return e2eIncusResource{InstanceServer: s.inner.UseProject(name)}
 }
 
-type e2eSandboxLifecycleServer struct {
+type e2eMachineLifecycleServer struct {
 	inner incus.InstanceServer
 }
 
-func (s e2eSandboxLifecycleServer) UseProject(name string) incusx.SandboxLifecycleResourceServer {
+func (s e2eMachineLifecycleServer) UseProject(name string) incusx.MachineLifecycleResourceServer {
 	return e2eIncusResource{InstanceServer: s.inner.UseProject(name)}
 }
 
@@ -355,13 +355,13 @@ func restrictedInstanceServer(loaded *cliconfig.Config, remoteName string, remot
 	return incus.ConnectIncus(remote.Addr, &args)
 }
 
-func createRestrictedAccessProject(t *testing.T, e2eConfig Config, adminConfig config.Admin, ref string, domain string, privateCIDR string) string {
+func createRestrictedAccessProject(t *testing.T, e2eConfig Config, adminConfig config.Admin, ref string, privateCIDR string) string {
 	t.Helper()
 	tenantRef, err := naming.ParseTenantRef(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	incusName, err := naming.TenantIncusProjectNameWithPrefix(adminConfig.ProjectPrefix, tenantRef)
+	incusName, err := naming.TenantIncusProjectNameWithPrefix(adminConfig.IncusProjectPrefix, tenantRef)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +379,7 @@ func createRestrictedAccessProject(t *testing.T, e2eConfig Config, adminConfig c
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", incusName)
+			t.Logf("keeping disposable tenant %s", incusName)
 			return
 		}
 		if err := server.DeleteProject(incusName); err != nil && !api.StatusErrorCheck(err, 404) {
@@ -398,10 +398,10 @@ func createRestrictedAccessProject(t *testing.T, e2eConfig Config, adminConfig c
 	return incusName
 }
 
-func hasProjectSummary(summaries []project.Summary, owner string, name string) bool {
+func hasProjectSummary(summaries []tenant.Summary, fallbackTenant string, name string) bool {
 	tenant := name
 	if tenant == "" {
-		tenant = owner
+		tenant = fallbackTenant
 	}
 	for _, summary := range summaries {
 		if summary.Tenant == tenant {

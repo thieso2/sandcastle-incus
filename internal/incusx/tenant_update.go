@@ -14,7 +14,7 @@ type TenantSSHKeyManager struct {
 	ConfigPath string
 }
 
-func NewProjectSSHKeyManager(remote string) TenantSSHKeyManager {
+func NewTenantSSHKeyManager(remote string) TenantSSHKeyManager {
 	return TenantSSHKeyManager{Remote: remote}
 }
 

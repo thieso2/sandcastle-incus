@@ -8,7 +8,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 const DefaultAdvertiseTag = "tag:sandcastle"
@@ -20,14 +20,14 @@ type UpRequest struct {
 }
 
 type UpPlan struct {
-	Reference       string          `json:"reference"`
-	Tenant          project.Summary `json:"tenant"`
-	InstanceName    string          `json:"instanceName"`
-	AdvertiseRoutes []string        `json:"advertiseRoutes"`
-	AdvertiseTags   []string        `json:"advertiseTags,omitempty"`
-	HasAuthKey      bool            `json:"hasAuthKey"`
-	AuthKey         string          `json:"-"`
-	Command         []string        `json:"command"`
+	Reference       string         `json:"reference"`
+	Tenant          tenant.Summary `json:"tenant"`
+	InstanceName    string         `json:"instanceName"`
+	AdvertiseRoutes []string       `json:"advertiseRoutes"`
+	AdvertiseTags   []string       `json:"advertiseTags,omitempty"`
+	HasAuthKey      bool           `json:"hasAuthKey"`
+	AuthKey         string         `json:"-"`
+	Command         []string       `json:"command"`
 }
 
 type RunSession struct {
@@ -42,7 +42,7 @@ type Runner interface {
 	RunDown(context.Context, DownPlan, RunSession) error
 }
 
-func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectStore, request UpRequest) (UpPlan, error) {
+func PlanUp(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request UpRequest) (UpPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return UpPlan{}, err
 	}
@@ -61,7 +61,7 @@ func PlanUp(ctx context.Context, admin config.Admin, store project.IncusProjectS
 	plan := UpPlan{
 		Reference:       ref.String(),
 		Tenant:          summary,
-		InstanceName:    project.TailscaleInstanceName(summary.IncusName),
+		InstanceName:    tenant.TailscaleInstanceName(summary.IncusName),
 		AdvertiseRoutes: []string{summary.PrivateCIDR},
 		AdvertiseTags:   tags,
 		HasAuthKey:      strings.TrimSpace(request.AuthKey) != "",
@@ -153,18 +153,18 @@ func tenantRef(reference string, currentTenant string) (naming.TenantRef, error)
 	return naming.ParseTenantRef(value)
 }
 
-func findTenant(ctx context.Context, store project.IncusProjectStore, ref naming.TenantRef) (project.Summary, error) {
-	tenants, err := project.List(ctx, store)
+func findTenant(ctx context.Context, store tenant.IncusTenantStore, ref naming.TenantRef) (tenant.Summary, error) {
+	tenants, err := tenant.List(ctx, store)
 	if err != nil {
-		return project.Summary{}, err
+		return tenant.Summary{}, err
 	}
 	for _, summary := range tenants {
 		if summary.Tenant == ref.Tenant {
 			if summary.PrivateCIDR == "" {
-				return project.Summary{}, fmt.Errorf("Sandcastle tenant %s has no private CIDR", ref.String())
+				return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s has no private CIDR", ref.String())
 			}
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
+	return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
 }

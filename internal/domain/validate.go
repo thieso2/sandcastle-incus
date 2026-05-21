@@ -10,12 +10,15 @@ type Policy struct {
 	DeniedSuffixes  []string
 }
 
-func ValidateProjectDomain(value string, policy Policy) (string, error) {
-	domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
-	if domain == "" {
-		return "", fmt.Errorf("domain is required")
+func ValidateTenantDNSSuffix(value string, policy Policy) (string, error) {
+	suffix := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
+	if suffix == "" {
+		return "", fmt.Errorf("tenant DNS suffix is required")
 	}
-	if err := validateDomainLabels(domain, value, "project domain"); err != nil {
+	if strings.Contains(suffix, ".") {
+		return "", fmt.Errorf("tenant DNS suffix %q must be a single DNS label", suffix)
+	}
+	if err := validateDomainLabels(suffix, value, "tenant DNS suffix"); err != nil {
 		return "", err
 	}
 	allowedSuffixes, err := normalizePolicySuffixes("allowed", policy.AllowedSuffixes)
@@ -26,31 +29,18 @@ func ValidateProjectDomain(value string, policy Policy) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	labels := strings.Split(domain, ".")
-	finalLabel := labels[len(labels)-1]
-	if !suffixAllowed(domain, allowedSuffixes) {
-		if specialUseName := deniedSpecialUseDomain(domain); specialUseName != "" {
-			return "", fmt.Errorf("project domain %q uses denied special-use suffix %q", domain, specialUseName)
+	if !suffixAllowed(suffix, allowedSuffixes) {
+		if specialUseName := deniedSpecialUseDomain(suffix); specialUseName != "" {
+			return "", fmt.Errorf("tenant DNS suffix %q uses denied special-use suffix %q", suffix, specialUseName)
 		}
-		if publicTLDs[finalLabel] {
-			return "", fmt.Errorf("project domain %q uses denied public TLD %q", domain, finalLabel)
+		if publicTLDs[suffix] {
+			return "", fmt.Errorf("tenant DNS suffix %q uses denied public TLD %q", suffix, suffix)
 		}
 	}
-	for _, suffix := range deniedSuffixes {
-		if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
-			return "", fmt.Errorf("project domain %q uses admin-denied suffix %q", domain, suffix)
+	for _, deniedSuffix := range deniedSuffixes {
+		if suffix == deniedSuffix || strings.HasSuffix(suffix, "."+deniedSuffix) {
+			return "", fmt.Errorf("tenant DNS suffix %q uses admin-denied suffix %q", suffix, deniedSuffix)
 		}
-	}
-	return domain, nil
-}
-
-func ValidateTenantDNSSuffix(value string, policy Policy) (string, error) {
-	suffix, err := ValidateProjectDomain(value, policy)
-	if err != nil {
-		return "", fmt.Errorf("%s", strings.ReplaceAll(err.Error(), "project domain", "tenant DNS suffix"))
-	}
-	if strings.Contains(suffix, ".") {
-		return "", fmt.Errorf("tenant DNS suffix %q must be a single DNS label", suffix)
 	}
 	return suffix, nil
 }

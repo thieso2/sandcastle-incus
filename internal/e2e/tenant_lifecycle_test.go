@@ -9,10 +9,10 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func TestDisposableProjectCreateAndPurge(t *testing.T) {
+func TestDisposableTenantCreateAndPurge(t *testing.T) {
 	e2eConfig := LoadConfig()
 	if !e2eConfig.Enabled {
 		t.Skip("set SANDCASTLE_E2E=1 to run destructive real Incus e2e tests")
@@ -23,27 +23,27 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	tenant := safeProjectName("tenant-" + runID)
-	ref := tenant
+	tenantName := safeTenantResourceName("tenant-" + runID)
+	ref := tenantName
 	adminConfig := config.Admin{
 		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: config.DefaultBaseImageAlias,
 			AI:   config.DefaultAIImageAlias,
 		},
 	}
-	store := incusx.NewProjectStore(e2eConfig.Remote)
+	store := incusx.NewTenantStore(e2eConfig.Remote)
 	topologyStore := incusx.NewTopologyStore(e2eConfig.Remote)
-	creator := incusx.NewProjectCreator(e2eConfig.Remote)
-	deleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, topologyStore, runID)
+	creator := incusx.NewTenantCreator(e2eConfig.Remote)
+	deleter := incusx.NewTenantDeleter(e2eConfig.Remote)
+	registerTenantDiagnostics(t, ctx, store, topologyStore, runID)
 
-	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
 		if err := deleter.DeleteTenant(ctx, deletePlan); err != nil {
@@ -61,14 +61,14 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 		}
 	})
 
-	existing, err := project.List(ctx, store)
+	existing, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
 		SSHPublicKey:  e2eConfig.SSHPublicKey,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -77,29 +77,29 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify project appears in listing.
-	afterCreate, err := project.List(ctx, store)
+	// Verify tenant appears in listing.
+	afterCreate, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsProject(afterCreate, tenant) {
-		t.Fatalf("created project %s was not listed in %#v", ref, afterCreate)
+	if !containsTenant(afterCreate, tenantName) {
+		t.Fatalf("created tenant %s was not listed in %#v", ref, afterCreate)
 	}
 
-	// Verify per-project storage pool was created.
+	// Verify per-tenant storage pool was created.
 	server, err := e2eInstanceServer(e2eConfig.Remote)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pool, _, err := server.GetStoragePool(createPlan.StoragePool)
 	if err != nil {
-		t.Fatalf("expected per-project storage pool %q to exist: %v", createPlan.StoragePool, err)
+		t.Fatalf("expected per-tenant storage pool %q to exist: %v", createPlan.StoragePool, err)
 	}
 	if pool.Driver != "zfs" && pool.Driver != "btrfs" && pool.Driver != "dir" {
 		t.Logf("storage pool driver = %q (expected zfs for production)", pool.Driver)
 	}
 
-	// Verify per-project container profile was created with the right devices.
+	// Verify per-tenant container profile was created with the right devices.
 	projectServer := server.UseProject(createPlan.IncusProject)
 	profile, _, err := projectServer.GetProfile("container")
 	if err != nil {
@@ -118,7 +118,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 
 	// Verify idempotent create — calling CreateProject a second time must not fail.
 	if err := creator.CreateTenant(ctx, createPlan); err != nil {
-		t.Fatalf("idempotent project create failed: %v", err)
+		t.Fatalf("idempotent tenant create failed: %v", err)
 	}
 
 	// Purge and confirm all resources are gone.
@@ -130,7 +130,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	}
 }
 
-func safeProjectName(value string) string {
+func safeTenantResourceName(value string) string {
 	value = safeToken(value)
 	if len(value) > 27 {
 		value = value[:27]
@@ -138,9 +138,9 @@ func safeProjectName(value string) string {
 	return strings.Trim(value, "-")
 }
 
-func containsProject(projects []project.Summary, tenant string) bool {
-	for _, summary := range projects {
-		if summary.Tenant == tenant {
+func containsTenant(tenants []tenant.Summary, tenantName string) bool {
+	for _, summary := range tenants {
+		if summary.Tenant == tenantName {
 			return true
 		}
 	}

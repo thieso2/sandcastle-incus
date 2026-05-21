@@ -15,9 +15,9 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestTailscaleAttachmentE2E(t *testing.T) {
@@ -40,12 +40,12 @@ func TestTailscaleAttachmentE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
-	name := safeProjectName("project-" + runID)
+	tenantName := safeTenantResourceName("tenant-" + runID)
+	name := safeTenantResourceName("project-" + runID)
 	_ = name
-	sandboxName := safeProjectName("box-" + runID)
-	ref := owner
-	sandboxRef := sandboxName
+	machineName := safeTenantResourceName("box-" + runID)
+	ref := tenantName
+	machineRef := machineName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-tailscale"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-tailscale"
 	adminConfig := config.Admin{
@@ -53,7 +53,7 @@ func TestTailscaleAttachmentE2E(t *testing.T) {
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
-		ProjectPrefix:         config.DefaultProjectPrefix,
+		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
 		InfrastructureProject: config.DefaultInfrastructureProject,
 		Images: config.Images{
 			Base: baseAlias,
@@ -72,31 +72,31 @@ func TestTailscaleAttachmentE2E(t *testing.T) {
 	syncImageAlias(t, ctx, imageManager, adminConfig, baseSource)
 	syncImageAlias(t, ctx, imageManager, adminConfig, aiSource)
 
-	store := incusx.NewProjectStore(e2eConfig.Remote)
-	registerProjectDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
-	creator := incusx.NewProjectCreator(e2eConfig.Remote)
-	projectDeleter := incusx.NewProjectDeleter(e2eConfig.Remote)
-	deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{Reference: ref, Purge: true})
+	store := incusx.NewTenantStore(e2eConfig.Remote)
+	registerTenantDiagnostics(t, ctx, store, incusx.NewTopologyStore(e2eConfig.Remote), runID)
+	creator := incusx.NewTenantCreator(e2eConfig.Remote)
+	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
+	deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{Reference: ref, Purge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		if e2eConfig.Keep {
-			t.Logf("keeping disposable project %s", ref)
+			t.Logf("keeping disposable tenant %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
+		if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
 
-	existing, err := project.List(ctx, store)
+	existing, err := tenant.List(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	createPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
+	createPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
-		OccupiedCIDRs: project.OccupiedCIDRs(existing),
+		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -105,17 +105,17 @@ func TestTailscaleAttachmentE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sandboxStore := incusx.NewHostOverrideManager(e2eConfig.Remote)
-	createSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: sandboxRef})
+	machineStore := incusx.NewHostOverrideManager(e2eConfig.Remote)
+	createMachinePlan, err := machine.PlanCreate(ctx, adminConfig, store, machineStore, machine.CreateRequest{Reference: machineRef})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, createSandboxPlan); err != nil {
+	if err := incusx.NewMachineCreator(e2eConfig.Remote).CreateMachine(ctx, createMachinePlan); err != nil {
 		t.Fatal(err)
 	}
 	projectServer := server.UseProject(createPlan.IncusProject)
-	hostname := sandboxName + "." + createPlan.DNSSuffix
-	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-tailscale")
+	hostname := machineName + "." + createPlan.DNSSuffix
+	startMachineHTTPApp(t, projectServer, createMachinePlan.InstanceName, createMachinePlan.AppPort, "sandcastle-tailscale")
 
 	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Tenant{
 		IncusName:   createPlan.IncusProject,
@@ -163,8 +163,8 @@ func TestTailscaleAttachmentE2E(t *testing.T) {
 		t.Fatalf("expected tailscale IPs in status: %#v", result.Tailscale)
 	}
 
-	waitForProjectDNSOverTailscale(t, net.JoinHostPort(createPlan.DNSAddress, "53"), hostname, createSandboxPlan.PrivateIP)
-	waitForSandboxHTTPSOverTailscale(t, hostname, createSandboxPlan.PrivateIP, "sandcastle-tailscale")
+	waitForTenantDNSOverTailscale(t, net.JoinHostPort(createPlan.DNSAddress, "53"), hostname, createMachinePlan.PrivateIP)
+	waitForMachineHTTPSOverTailscale(t, hostname, createMachinePlan.PrivateIP, "sandcastle-tailscale")
 }
 
 func waitForTailscaleRunning(t *testing.T, ctx context.Context, manager incusx.TailscaleManager, plan tailscale.StatusPlan) tailscale.StatusResult {
@@ -195,7 +195,7 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
-func waitForProjectDNSOverTailscale(t *testing.T, dnsAddr string, hostname string, wantIP string) {
+func waitForTenantDNSOverTailscale(t *testing.T, dnsAddr string, hostname string, wantIP string) {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
 	var last string
@@ -307,7 +307,7 @@ func skipE2EDNSName(data []byte, offset int) (int, error) {
 	}
 }
 
-func waitForSandboxHTTPSOverTailscale(t *testing.T, hostname string, privateIP string, want string) {
+func waitForMachineHTTPSOverTailscale(t *testing.T, hostname string, privateIP string, want string) {
 	t.Helper()
 	client := &http.Client{
 		Timeout: 5 * time.Second,

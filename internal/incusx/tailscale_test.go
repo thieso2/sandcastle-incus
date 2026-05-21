@@ -11,7 +11,7 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeTailscaleServer struct {
@@ -55,7 +55,7 @@ func TestTailscaleManagerRunsUpInSidecar(t *testing.T) {
 	resource := &fakeTailscaleResource{}
 	manager := TailscaleManager{Server: &fakeTailscaleServer{resource: resource}}
 	err := manager.RunUp(context.Background(), tailscale.UpPlan{
-		Tenant:          project.Summary{IncusName: "sc-acme"},
+		Tenant:          tenant.Summary{IncusName: "sc-acme"},
 		InstanceName:    "sc-acme",
 		AdvertiseRoutes: []string{"10.248.0.0/24"},
 		AdvertiseTags:   []string{"tag:sandcastle"},
@@ -99,7 +99,7 @@ func TestTailscaleManagerRunsStatusAndUpdatesMetadata(t *testing.T) {
 	manager := TailscaleManager{Server: server}
 	result, err := manager.RunStatus(context.Background(), tailscale.StatusPlan{
 		Reference:    "acme",
-		Tenant:       project.Summary{IncusName: "sc-acme", Tenant: "acme"},
+		Tenant:       tenant.Summary{IncusName: "sc-acme", Tenant: "acme"},
 		InstanceName: "sc-acme",
 		Command:      []string{"tailscale", "status", "--json"},
 	}, tailscale.RunSession{Stderr: io.Discard})
@@ -138,7 +138,7 @@ func TestTailscaleManagerRunsDownAndUpdatesMetadata(t *testing.T) {
 	}
 	manager := TailscaleManager{Server: server}
 	err := manager.RunDown(context.Background(), tailscale.DownPlan{
-		Tenant:       project.Summary{IncusName: "sc-acme"},
+		Tenant:       tenant.Summary{IncusName: "sc-acme"},
 		InstanceName: "sc-acme",
 		Command:      []string{"tailscale", "down"},
 	}, tailscale.RunSession{Stdout: io.Discard, Stderr: io.Discard})

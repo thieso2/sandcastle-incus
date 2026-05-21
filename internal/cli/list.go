@@ -9,11 +9,11 @@ import (
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type listPayload struct {
-	Tenant           project.Summary            `json:"tenant"`
+	Tenant           tenant.Summary             `json:"tenant"`
 	Project          string                     `json:"project,omitempty"`
 	AllProjects      bool                       `json:"allProjects"`
 	IncludeUnmanaged bool                       `json:"includeUnmanaged"`
@@ -23,7 +23,7 @@ type listPayload struct {
 }
 
 type tenantListPayload struct {
-	Tenants []project.Summary `json:"tenants"`
+	Tenants []tenant.Summary `json:"tenants"`
 }
 
 func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -50,11 +50,11 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return command
 }
 
-func listProjects(ctx context.Context, store project.IncusProjectStore) ([]project.Summary, error) {
-	return project.List(ctx, store)
+func listTenants(ctx context.Context, store tenant.IncusTenantStore) ([]tenant.Summary, error) {
+	return tenant.List(ctx, store)
 }
 
-func formatTenantList(tenants []project.Summary) string {
+func formatTenantList(tenants []tenant.Summary) string {
 	if len(tenants) == 0 {
 		return "No Sandcastle tenants found."
 	}
@@ -83,11 +83,11 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	if err != nil {
 		return listPayload{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
 	}
-	tenants, err := listProjects(ctx, config.projectStore)
+	tenants, err := listTenants(ctx, config.tenantStore)
 	if err != nil {
 		return listPayload{}, err
 	}
-	var tenant project.Summary
+	var tenant tenant.Summary
 	found := false
 	for _, candidate := range tenants {
 		if candidate.Tenant == ref.Tenant {
@@ -99,7 +99,7 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	if !found {
 		return listPayload{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
 	}
-	if config.sandboxStore == nil {
+	if config.machineStore == nil {
 		return listPayload{}, fmt.Errorf("machine metadata store is not configured")
 	}
 	projectFilter := strings.TrimSpace(request.Project)
@@ -113,7 +113,7 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	} else if strings.TrimSpace(config.adminConfig.Project) != "" && !request.AllProjects {
 		projectFilter = strings.TrimSpace(config.adminConfig.Project)
 	}
-	machines, err := config.sandboxStore.ListMachines(ctx, tenant)
+	machines, err := config.machineStore.ListMachines(ctx, tenant)
 	if err != nil {
 		return listPayload{}, err
 	}
@@ -124,7 +124,7 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 		}
 		filtered = append(filtered, machine)
 	}
-	unmanaged, err := listUnmanagedMachines(ctx, config.sandboxStore, tenant)
+	unmanaged, err := listUnmanagedMachines(ctx, config.machineStore, tenant)
 	if err != nil {
 		return listPayload{}, err
 	}
@@ -143,7 +143,7 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	}, nil
 }
 
-func listUnmanagedMachines(ctx context.Context, store machine.Store, tenant project.Summary) ([]machine.UnmanagedMachine, error) {
+func listUnmanagedMachines(ctx context.Context, store machine.Store, tenant tenant.Summary) ([]machine.UnmanagedMachine, error) {
 	unmanagedStore, ok := store.(machine.UnmanagedStore)
 	if !ok {
 		return nil, nil
@@ -155,7 +155,7 @@ func listUnmanagedMachines(ctx context.Context, store machine.Store, tenant proj
 	return machines, nil
 }
 
-func summaryHasProject(summary project.Summary, name string) bool {
+func summaryHasProject(summary tenant.Summary, name string) bool {
 	for _, candidate := range summary.Projects {
 		if candidate.Name == name {
 			return true

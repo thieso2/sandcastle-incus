@@ -9,21 +9,21 @@ import (
 	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
-func assertSandboxIngressFiles(t *testing.T, server incus.InstanceServer, instanceName string, hostname string, appPort int) {
+func assertMachineIngressFiles(t *testing.T, server incus.InstanceServer, instanceName string, hostname string, appPort int) {
 	t.Helper()
-	caddyfile := readInstanceFile(t, server, instanceName, sandbox.CaddyfilePath)
+	caddyfile := readInstanceFile(t, server, instanceName, machine.CaddyfilePath)
 	if !strings.Contains(caddyfile, hostname) {
-		t.Fatalf("sandbox Caddyfile missing hostname %q: %q", hostname, caddyfile)
+		t.Fatalf("machine Caddyfile missing hostname %q: %q", hostname, caddyfile)
 	}
 	expectedProxy := "reverse_proxy 127.0.0.1:" + strconv.Itoa(appPort)
 	if !strings.Contains(caddyfile, expectedProxy) {
-		t.Fatalf("sandbox Caddyfile missing proxy %q: %q", expectedProxy, caddyfile)
+		t.Fatalf("machine Caddyfile missing proxy %q: %q", expectedProxy, caddyfile)
 	}
-	certPEM := readInstanceFile(t, server, instanceName, sandbox.MachineCertPath)
-	keyPEM := readInstanceFile(t, server, instanceName, sandbox.MachineCertKeyPath)
+	certPEM := readInstanceFile(t, server, instanceName, machine.MachineCertPath)
+	keyPEM := readInstanceFile(t, server, instanceName, machine.MachineCertKeyPath)
 	assertCertificateForHost(t, certPEM, hostname)
 	assertPrivateKeyPEM(t, keyPEM)
 }
@@ -52,14 +52,14 @@ func assertCertificateForHost(t *testing.T, certPEM string, hostname string) {
 	t.Helper()
 	block, _ := pem.Decode([]byte(certPEM))
 	if block == nil || block.Type != "CERTIFICATE" {
-		t.Fatalf("sandbox certificate is not a CERTIFICATE PEM block")
+		t.Fatalf("machine certificate is not a CERTIFICATE PEM block")
 	}
 	certificate, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		t.Fatalf("parse sandbox certificate: %v", err)
+		t.Fatalf("parse machine certificate: %v", err)
 	}
 	if err := certificate.VerifyHostname(hostname); err != nil {
-		t.Fatalf("sandbox certificate does not verify hostname %q: %v", hostname, err)
+		t.Fatalf("machine certificate does not verify hostname %q: %v", hostname, err)
 	}
 }
 
@@ -67,6 +67,6 @@ func assertPrivateKeyPEM(t *testing.T, keyPEM string) {
 	t.Helper()
 	block, _ := pem.Decode([]byte(keyPEM))
 	if block == nil || !strings.Contains(block.Type, "PRIVATE KEY") {
-		t.Fatalf("sandbox private key is not a private key PEM block")
+		t.Fatalf("machine private key is not a private key PEM block")
 	}
 }

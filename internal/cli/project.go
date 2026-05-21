@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func newProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -29,11 +29,11 @@ func newProjectListCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 		Short: "List projects in the current tenant",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			tenant, err := currentTenantSummary(cmd.Context(), config)
+			tenantSummary, err := currentTenantSummary(cmd.Context(), config)
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatProjectNamespaceList(tenant), tenant)
+			return writeOutput(config.stdout, opts.output, formatProjectNamespaceList(tenantSummary), tenantSummary)
 		},
 	}
 }
@@ -45,15 +45,15 @@ func newProjectCreateCommand(config commandConfig, opts *rootOptions) *cobra.Com
 		Short: "Create a project namespace in the current tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := project.PlanCreateProject(cmd.Context(), config.adminConfig, config.projectStore, project.ProjectMutationRequest{Name: args[0]})
+			plan, err := tenant.PlanCreateProject(cmd.Context(), config.adminConfig, config.tenantStore, tenant.ProjectMutationRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
 			if !dryRun {
-				if config.projectUpdater == nil {
+				if config.tenantUpdater == nil {
 					return fmt.Errorf("project metadata updater is not configured")
 				}
-				if err := config.projectUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
+				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
 					return err
 				}
 			}
@@ -65,9 +65,9 @@ func newProjectCreateCommand(config commandConfig, opts *rootOptions) *cobra.Com
 }
 
 type projectStatusPayload struct {
-	Tenant       project.Summary `json:"tenant"`
-	Project      meta.Project    `json:"project"`
-	MachineCount int             `json:"machineCount"`
+	Tenant       tenant.Summary `json:"tenant"`
+	Project      meta.Project   `json:"project"`
+	MachineCount int            `json:"machineCount"`
 }
 
 func newProjectStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -79,13 +79,13 @@ func newProjectStatusCommand(config commandConfig, opts *rootOptions) *cobra.Com
 			if err := naming.ValidateProjectName(args[0]); err != nil {
 				return err
 			}
-			tenant, machines, err := currentTenantMachines(cmd, config)
+			tenantSummary, machines, err := currentTenantMachines(cmd, config)
 			if err != nil {
 				return err
 			}
-			project, ok := findProject(tenant, args[0])
+			project, ok := findProject(tenantSummary, args[0])
 			if !ok {
-				return fmt.Errorf("Sandcastle project %s not found in tenant %s", args[0], tenant.Tenant)
+				return fmt.Errorf("Sandcastle project %s not found in tenant %s", args[0], tenantSummary.Tenant)
 			}
 			count := 0
 			for _, machine := range machines {
@@ -94,7 +94,7 @@ func newProjectStatusCommand(config commandConfig, opts *rootOptions) *cobra.Com
 				}
 			}
 			payload := projectStatusPayload{
-				Tenant:       tenant,
+				Tenant:       tenantSummary,
 				Project:      project,
 				MachineCount: count,
 			}
@@ -114,23 +114,23 @@ func newProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Com
 			if !yes {
 				return fmt.Errorf("refusing to delete project without --yes")
 			}
-			tenant, machines, err := currentTenantMachines(cmd, config)
+			tenantSummary, machines, err := currentTenantMachines(cmd, config)
 			if err != nil {
 				return err
 			}
-			plan, err := project.PlanDeleteProject(cmd.Context(), config.adminConfig, config.projectStore, project.ProjectMutationRequest{
+			plan, err := tenant.PlanDeleteProject(cmd.Context(), config.adminConfig, config.tenantStore, tenant.ProjectMutationRequest{
 				Name:     args[0],
 				Machines: machines,
 			})
 			if err != nil {
 				return err
 			}
-			plan.Tenant = tenant
+			plan.Tenant = tenantSummary
 			if !dryRun {
-				if config.projectUpdater == nil {
+				if config.tenantUpdater == nil {
 					return fmt.Errorf("project metadata updater is not configured")
 				}
-				if err := config.projectUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
+				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
 					return err
 				}
 			}
@@ -142,32 +142,32 @@ func newProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Com
 	return command
 }
 
-func currentTenantMachines(cmd *cobra.Command, config commandConfig) (project.Summary, []meta.Machine, error) {
+func currentTenantMachines(cmd *cobra.Command, config commandConfig) (tenant.Summary, []meta.Machine, error) {
 	result, err := listMachines(cmd.Context(), config, listMachinesRequest{AllProjects: true})
 	if err != nil {
-		return project.Summary{}, nil, err
+		return tenant.Summary{}, nil, err
 	}
 	return result.Tenant, result.Machines, nil
 }
 
-func currentTenantSummary(ctx context.Context, config commandConfig) (project.Summary, error) {
+func currentTenantSummary(ctx context.Context, config commandConfig) (tenant.Summary, error) {
 	ref, err := naming.ParseTenantRef(config.adminConfig.Tenant)
 	if err != nil {
-		return project.Summary{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
+		return tenant.Summary{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
 	}
-	tenants, err := listProjects(ctx, config.projectStore)
+	tenants, err := listTenants(ctx, config.tenantStore)
 	if err != nil {
-		return project.Summary{}, err
+		return tenant.Summary{}, err
 	}
 	for _, tenant := range tenants {
 		if tenant.Tenant == ref.Tenant {
 			return tenant, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.Tenant)
+	return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.Tenant)
 }
 
-func formatProjectNamespaceList(tenant project.Summary) string {
+func formatProjectNamespaceList(tenant tenant.Summary) string {
 	if len(tenant.Projects) == 0 {
 		return "No Sandcastle projects found."
 	}
@@ -182,11 +182,11 @@ func formatProjectNamespaceStatus(status projectStatusPayload) string {
 	return fmt.Sprintf("Project: %s\nTenant: %s\nMachines: %d", status.Project.Name, status.Tenant.Tenant, status.MachineCount)
 }
 
-func formatProjectMutationPlan(plan project.ProjectMutationPlan) string {
+func formatProjectMutationPlan(plan tenant.ProjectMutationPlan) string {
 	return fmt.Sprintf("%s project %s in tenant %s", plan.Action, plan.Project.Name, plan.Tenant.Tenant)
 }
 
-func findProject(summary project.Summary, name string) (meta.Project, bool) {
+func findProject(summary tenant.Summary, name string) (meta.Project, bool) {
 	for _, project := range summary.Projects {
 		if project.Name == name {
 			return project, true

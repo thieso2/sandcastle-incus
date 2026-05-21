@@ -5,10 +5,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
-func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	var detach bool
 	var template string
@@ -22,7 +22,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Create a Sandcastle container machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := sandbox.PlanCreate(cmd.Context(), config.adminConfig, config.projectStore, config.sandboxStore, sandbox.CreateRequest{
+			plan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, config.tenantStore, config.machineStore, machine.CreateRequest{
 				Reference:      args[0],
 				Template:       template,
 				AppPort:        appPort,
@@ -35,21 +35,21 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			if !dryRun {
-				if config.sandboxCreator == nil {
+				if config.machineCreator == nil {
 					return fmt.Errorf("machine creation executor is not configured")
 				}
-				if err := config.sandboxCreator.CreateMachine(cmd.Context(), plan); err != nil {
+				if err := config.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
 					return err
 				}
 				if !detach {
-					if config.sandboxEnterer == nil {
+					if config.machineConnector == nil {
 						return fmt.Errorf("machine connect executor is not configured")
 					}
-					enterPlan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, config.sandboxStore, sandbox.EnterRequest{Reference: args[0]})
+					connectPlan, err := machine.PlanConnect(cmd.Context(), config.adminConfig, config.tenantStore, config.machineStore, machine.ConnectRequest{Reference: args[0]})
 					if err != nil {
 						return err
 					}
-					if err := config.sandboxEnterer.ConnectMachine(cmd.Context(), enterPlan, sandbox.EnterSession{
+					if err := config.machineConnector.ConnectMachine(cmd.Context(), connectPlan, machine.ConnectSession{
 						Stdin:  config.stdin,
 						Stdout: config.stdout,
 						Stderr: config.stderr,
@@ -58,7 +58,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					}
 				}
 			}
-			return writeOutput(config.stdout, opts.output, formatSandboxPlan(plan), plan)
+			return writeOutput(config.stdout, opts.output, formatMachinePlan(plan), plan)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the machine creation plan without creating a container")
@@ -73,7 +73,7 @@ func newAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return command
 }
 
-func formatSandboxPlan(plan sandbox.CreatePlan) string {
+func formatMachinePlan(plan machine.CreatePlan) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "Machine: %s\n", plan.Reference)
 	fmt.Fprintf(&builder, "Instance: %s\n", plan.InstanceName)

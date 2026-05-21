@@ -81,17 +81,17 @@ func TestPlanCreate(t *testing.T) {
 	}
 }
 
-func TestPrivateNetworkNameUsesStableHashForLongProjectNames(t *testing.T) {
+func TestPrivateNetworkNameUsesStableHashForLongTenantIncusProjectNames(t *testing.T) {
 	first := PrivateNetworkName("sc-tenant-e2e-local-vm-20260521-1038")
 	second := PrivateNetworkName("sc-tenant-e2e-local-vm-20260521-1039")
 	if len(first) > 15 || len(second) > 15 {
 		t.Fatalf("network names too long: %q %q", first, second)
 	}
 	if first == second {
-		t.Fatalf("long project network names collided: %q", first)
+		t.Fatalf("long tenant network names collided: %q", first)
 	}
 	if PrivateNetworkName("sc-acme") != "sc-acme" {
-		t.Fatalf("short project network name changed")
+		t.Fatalf("short tenant network name changed")
 	}
 }
 

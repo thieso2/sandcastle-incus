@@ -7,20 +7,20 @@ import (
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
-	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	project "github.com/thieso2/sandcastle-incus/internal/tenant"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 const InfrastructureCaddyName = "sc-caddy"
 
-type AddRequest struct {
+type CreateRequest struct {
 	Hostname        string
 	TargetReference string
 }
 
-type RemoveRequest struct {
+type DeleteRequest struct {
 	Hostname string
 }
 
@@ -28,10 +28,10 @@ type StatusRequest struct {
 	Hostname string
 }
 
-type AddPlan struct {
+type CreatePlan struct {
 	Hostname              string            `json:"hostname"`
 	TargetReference       string            `json:"targetReference"`
-	Tenant                project.Summary   `json:"tenant"`
+	Tenant                tenant.Summary    `json:"tenant"`
 	Machine               meta.Machine      `json:"machine"`
 	TargetInstanceName    string            `json:"targetInstanceName"`
 	InfrastructureProject string            `json:"infrastructureProject"`
@@ -52,10 +52,10 @@ type DNSProof struct {
 	Message         string   `json:"message"`
 }
 
-type RemovePlan struct {
+type DeletePlan struct {
 	Hostname              string `json:"hostname"`
 	InfrastructureProject string `json:"infrastructureProject"`
-	ProjectPrefix         string `json:"projectPrefix"`
+	IncusProjectPrefix    string `json:"incusProjectPrefix"`
 	RequiresBroker        bool   `json:"requiresBroker"`
 }
 
@@ -81,44 +81,44 @@ type ListResult struct {
 }
 
 type MachineStore interface {
-	FindMachine(ctx context.Context, tenant project.Summary, projectName string, machineName string) (meta.Machine, error)
+	FindMachine(ctx context.Context, tenant tenant.Summary, projectName string, machineName string) (meta.Machine, error)
 }
 
 type Manager interface {
-	Add(context.Context, AddPlan) error
-	Remove(context.Context, RemovePlan) error
+	Create(context.Context, CreatePlan) error
+	Delete(context.Context, DeletePlan) error
 	List(context.Context, ListPlan) (ListResult, error)
 }
 
-func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.IncusProjectStore, machineStore MachineStore, request AddRequest) (AddPlan, error) {
+func PlanCreate(ctx context.Context, admin config.Admin, tenantStore tenant.IncusTenantStore, machineStore MachineStore, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
-		return AddPlan{}, err
+		return CreatePlan{}, err
 	}
 	infrastructureHost := strings.TrimSpace(admin.InfrastructureHost)
 	if infrastructureHost == "" {
-		return AddPlan{}, fmt.Errorf("infrastructure host is required for public route DNS proof")
+		return CreatePlan{}, fmt.Errorf("infrastructure host is required for public route DNS proof")
 	}
 	hostname, err := normalizePublicHostname(request.Hostname)
 	if err != nil {
-		return AddPlan{}, err
+		return CreatePlan{}, err
 	}
 	machineRef, err := parseMachineRef(request.TargetReference, admin.Tenant, admin.Project)
 	if err != nil {
-		return AddPlan{}, err
+		return CreatePlan{}, err
 	}
-	summary, err := findTenant(ctx, projectStore, machineRef.Tenant)
+	summary, err := findTenant(ctx, tenantStore, machineRef.Tenant)
 	if err != nil {
-		return AddPlan{}, err
+		return CreatePlan{}, err
 	}
 	if machineStore == nil {
-		return AddPlan{}, fmt.Errorf("machine metadata store is required")
+		return CreatePlan{}, fmt.Errorf("machine metadata store is required")
 	}
 	target, err := machineStore.FindMachine(ctx, summary, machineRef.Project, machineRef.Machine)
 	if err != nil {
-		return AddPlan{}, err
+		return CreatePlan{}, err
 	}
 	if target.PrivateIP == "" {
-		return AddPlan{}, fmt.Errorf("machine %s has no private IP", request.TargetReference)
+		return CreatePlan{}, fmt.Errorf("machine %s has no private IP", request.TargetReference)
 	}
 	routePort := target.AppPort
 	if routePort == 0 {
@@ -126,9 +126,9 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		if template == "" {
 			template = summary.DefaultTemplate
 		}
-		routePort, err = sandbox.DefaultAppPortForTemplate(template)
+		routePort, err = machine.DefaultAppPortForTemplate(template)
 		if err != nil {
-			return AddPlan{}, err
+			return CreatePlan{}, err
 		}
 	}
 	routeMetadata := meta.Route{
@@ -141,14 +141,14 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	}
 	metadataConfig, err := meta.RouteConfig(routeMetadata)
 	if err != nil {
-		return AddPlan{}, err
+		return CreatePlan{}, err
 	}
 	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{Tenant: summary.Tenant, Project: target.Project, Machine: target.Name})
 	if err != nil {
-		return AddPlan{}, err
+		return CreatePlan{}, err
 	}
 	canonicalReference := naming.MachineRef{Tenant: summary.Tenant, Project: target.Project, Machine: target.Name}.String()
-	return AddPlan{
+	return CreatePlan{
 		Hostname:              hostname,
 		TargetReference:       canonicalReference,
 		Tenant:                summary,
@@ -158,7 +158,7 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 		RoutePort:             routePort,
 		TargetIP:              target.PrivateIP,
 		IngressDevice:         ProfileName(hostname),
-		IngressNetwork:        project.PrivateNetworkName(summary.IncusName),
+		IngressNetwork:        tenant.PrivateNetworkName(summary.IncusName),
 		MetadataConfig:        metadataConfig,
 		RequiresBroker:        true,
 		DNSProof: DNSProof{
@@ -170,18 +170,18 @@ func PlanAdd(ctx context.Context, admin config.Admin, projectStore project.Incus
 	}, nil
 }
 
-func PlanRemove(admin config.Admin, request RemoveRequest) (RemovePlan, error) {
+func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 	if err := admin.Validate(); err != nil {
-		return RemovePlan{}, err
+		return DeletePlan{}, err
 	}
 	hostname, err := normalizePublicHostname(request.Hostname)
 	if err != nil {
-		return RemovePlan{}, err
+		return DeletePlan{}, err
 	}
-	return RemovePlan{
+	return DeletePlan{
 		Hostname:              hostname,
 		InfrastructureProject: admin.InfrastructureProject,
-		ProjectPrefix:         admin.ProjectPrefix,
+		IncusProjectPrefix:    admin.IncusProjectPrefix,
 		RequiresBroker:        true,
 	}, nil
 }
@@ -257,15 +257,15 @@ func parseMachineRef(value string, currentTenant string, currentProject string) 
 	return naming.MachineRef{}, fmt.Errorf("route target must be machine, project/machine, tenant/machine, or tenant/project/machine")
 }
 
-func findTenant(ctx context.Context, store project.IncusProjectStore, tenantName string) (project.Summary, error) {
-	projects, err := project.List(ctx, store)
+func findTenant(ctx context.Context, store tenant.IncusTenantStore, tenantName string) (tenant.Summary, error) {
+	projects, err := tenant.List(ctx, store)
 	if err != nil {
-		return project.Summary{}, err
+		return tenant.Summary{}, err
 	}
 	for _, summary := range projects {
 		if summary.Tenant == tenantName {
 			return summary, nil
 		}
 	}
-	return project.Summary{}, fmt.Errorf("tenant %q not found", tenantName)
+	return tenant.Summary{}, fmt.Errorf("tenant %q not found", tenantName)
 }
