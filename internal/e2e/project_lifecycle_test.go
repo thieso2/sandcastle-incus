@@ -25,8 +25,9 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("project-" + runID)
-	ref := owner + "/" + name
+	ref := owner
 	adminConfig := config.Admin{
+		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
@@ -48,7 +49,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Pre-cleanup: remove any leaked project with the same name from a previous run.
-	if err := deleter.DeleteProject(ctx, deletePlan); err != nil {
+	if err := deleter.DeleteTenant(ctx, deletePlan); err != nil {
 		t.Logf("pre-cleanup for %s: %v", ref, err)
 	}
 	t.Cleanup(func() {
@@ -56,7 +57,7 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := deleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := deleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -67,14 +68,13 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	}
 	createPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		SSHPublicKey:  e2eConfig.SSHPublicKey,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateProject(ctx, createPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -118,12 +118,12 @@ func TestDisposableProjectCreateAndPurge(t *testing.T) {
 	}
 
 	// Verify idempotent create — calling CreateProject a second time must not fail.
-	if err := creator.CreateProject(ctx, createPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createPlan); err != nil {
 		t.Fatalf("idempotent project create failed: %v", err)
 	}
 
 	// Purge and confirm all resources are gone.
-	if err := deleter.DeleteProject(ctx, deletePlan); err != nil {
+	if err := deleter.DeleteTenant(ctx, deletePlan); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := server.GetStoragePool(createPlan.StoragePool); !api.StatusErrorCheck(err, http.StatusNotFound) {
@@ -140,8 +140,12 @@ func safeProjectName(value string) string {
 }
 
 func containsProject(projects []project.Summary, owner string, name string) bool {
+	tenant := name
+	if tenant == "" {
+		tenant = owner
+	}
 	for _, summary := range projects {
-		if summary.Owner == owner && summary.Name == name {
+		if summary.Tenant == tenant {
 			return true
 		}
 	}

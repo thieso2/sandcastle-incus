@@ -34,12 +34,14 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("project-" + runID)
+	_ = name
 	sandboxName := safeProjectName("box-" + runID)
-	ref := owner + "/" + name
-	sandboxRef := ref + "/" + sandboxName
+	ref := owner
+	sandboxRef := sandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-sandbox"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-sandbox"
 	adminConfig := config.Admin{
+		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
@@ -71,7 +73,7 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Pre-cleanup: remove any leaked project with the same name from a previous run.
-	if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+	if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 		t.Logf("pre-cleanup for %s: %v", ref, err)
 	}
 	t.Cleanup(func() {
@@ -79,7 +81,7 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -90,14 +92,13 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	}
 	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		SSHPublicKey:  e2eConfig.SSHPublicKey,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateProject(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,13 +109,13 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxCreator.CreateSandbox(ctx, createSandboxPlan); err != nil {
+	if err := sandboxCreator.CreateMachine(ctx, createSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
 	assertInstanceExists(t, projectServer, createSandboxPlan.InstanceName)
-	hostname := sandboxName + "." + createProjectPlan.Domain
+	hostname := sandboxName + "." + createProjectPlan.DNSSuffix
 	assertSandboxIngressFiles(t, projectServer, createSandboxPlan.InstanceName, hostname, createSandboxPlan.AppPort)
 	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-app-3000")
 	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-app-3000")
@@ -164,7 +165,7 @@ func TestSandboxLifecycleE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxCreator.CreateSandbox(ctx, createSandboxPlan2); err != nil {
+	if err := sandboxCreator.CreateMachine(ctx, createSandboxPlan2); err != nil {
 		t.Fatalf("recreate sandbox: %v", err)
 	}
 	assertInstanceExists(t, projectServer, createSandboxPlan2.InstanceName)

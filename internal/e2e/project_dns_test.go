@@ -33,14 +33,16 @@ func TestProjectDNSE2E(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("dns-" + runID)
+	_ = name
 	firstSandboxName := safeProjectName("codex-" + runID)
 	secondSandboxName := safeProjectName("claude-" + runID)
-	ref := owner + "/" + name
+	ref := owner
 	firstSandboxRef := ref + "/" + firstSandboxName
 	secondSandboxRef := ref + "/" + secondSandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-dns"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-dns"
 	adminConfig := config.Admin{
+		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
@@ -71,7 +73,7 @@ func TestProjectDNSE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+	if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 		t.Logf("pre-cleanup for %s: %v", ref, err)
 	}
 	t.Cleanup(func() {
@@ -79,7 +81,7 @@ func TestProjectDNSE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -90,13 +92,12 @@ func TestProjectDNSE2E(t *testing.T) {
 	}
 	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateProject(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,7 +107,7 @@ func TestProjectDNSE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	sandboxCreator := incusx.NewSandboxCreator(e2eConfig.Remote)
-	if err := sandboxCreator.CreateSandbox(ctx, createFirstSandboxPlan); err != nil {
+	if err := sandboxCreator.CreateMachine(ctx, createFirstSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
 	createSecondSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, sandboxStore, sandbox.CreateRequest{Reference: secondSandboxRef, ShareHome: true})
@@ -116,25 +117,24 @@ func TestProjectDNSE2E(t *testing.T) {
 	if createSecondSandboxPlan.PrivateIP == createFirstSandboxPlan.PrivateIP {
 		t.Fatalf("second sandbox reused private IP %s", createSecondSandboxPlan.PrivateIP)
 	}
-	if err := sandboxCreator.CreateSandbox(ctx, createSecondSandboxPlan); err != nil {
+	if err := sandboxCreator.CreateMachine(ctx, createSecondSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Project{
+	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Tenant{
 		IncusName:   createProjectPlan.IncusProject,
-		Owner:       owner,
-		Name:        name,
-		Domain:      createProjectPlan.Domain,
+		Tenant:      createProjectPlan.Reference,
+		DNSSuffix:   createProjectPlan.DNSSuffix,
 		PrivateCIDR: createProjectPlan.PrivateCIDR,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
-	firstExact := firstSandboxName + "." + createProjectPlan.Domain
+	firstExact := firstSandboxName + "." + createProjectPlan.DNSSuffix
 	firstWildcard := "app." + firstExact
-	secondExact := secondSandboxName + "." + createProjectPlan.Domain
-	absent := "app." + createProjectPlan.Domain
+	secondExact := secondSandboxName + "." + createProjectPlan.DNSSuffix
+	absent := "app." + createProjectPlan.DNSSuffix
 	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstExact, createFirstSandboxPlan.PrivateIP)
 	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, firstWildcard, createFirstSandboxPlan.PrivateIP)
 	assertCoreDNSAnswer(t, projectServer, createFirstSandboxPlan.InstanceName, createProjectPlan.DNSAddress, secondExact, createSecondSandboxPlan.PrivateIP)
@@ -150,11 +150,10 @@ func TestProjectDNSE2E(t *testing.T) {
 	if err := incusx.NewSandboxController(e2eConfig.Remote).ApplyLifecycle(ctx, removeSecondPlan); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Project{
+	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Tenant{
 		IncusName:   createProjectPlan.IncusProject,
-		Owner:       owner,
-		Name:        name,
-		Domain:      createProjectPlan.Domain,
+		Tenant:      createProjectPlan.Reference,
+		DNSSuffix:   createProjectPlan.DNSSuffix,
 		PrivateCIDR: createProjectPlan.PrivateCIDR,
 	}); err != nil {
 		t.Fatal(err)

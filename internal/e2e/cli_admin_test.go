@@ -15,7 +15,7 @@ import (
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-// TestCLIAdminProjectCreateE2E verifies that the sc admin project create / delete commands
+// TestCLIAdminProjectCreateE2E verifies that the sc admin tenant create / delete commands
 // work end-to-end, including the admin remote detection that uses the global ~/.config/incus/
 // config (admin TLS certificates) rather than the per-user Sandcastle config directory.
 func TestCLIAdminProjectCreateE2E(t *testing.T) {
@@ -33,10 +33,7 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 	}
 
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("cadmin-" + runID)
-	name := safeProjectName("proj-" + runID)
-	ref := owner + "/" + name
-	domain := name + "." + e2eConfig.DomainSuffix
+	ref := safeProjectName("cadmin-" + runID)
 
 	adminConfig := config.Admin{
 		Remote:                e2eConfig.Remote,
@@ -57,7 +54,7 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 	deleter := incusx.NewProjectDeleter(e2eConfig.Remote)
 
 	// Pre-cleanup: remove any leaked project from a previous run.
-	if err := deleter.DeleteProject(ctx, deletePlan); err != nil {
+	if err := deleter.DeleteTenant(ctx, deletePlan); err != nil {
 		t.Logf("pre-cleanup for %s: %v", ref, err)
 	}
 	t.Cleanup(func() {
@@ -65,7 +62,7 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := deleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := deleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -75,7 +72,6 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 	// do its own plan with the real list.
 	createPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference: ref,
-		Domain:    domain,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -86,18 +82,18 @@ func TestCLIAdminProjectCreateE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Run: sc-adm project create via the native admin CLI binary.
+	// Run: sc-adm tenant create via the native admin CLI binary.
 	runAdminCLI(t, e2eConfig, sandcastleBin, 2*time.Minute,
-		"project", "create", ref, "--domain", domain)
+		"tenant", "create", ref)
 
 	// Verify the Incus project was created.
 	if _, _, err := server.GetProject(createPlan.IncusProject); err != nil {
-		t.Fatalf("expected Incus project %s to exist after sc admin project create: %v", createPlan.IncusProject, err)
+		t.Fatalf("expected Incus project %s to exist after sc admin tenant create: %v", createPlan.IncusProject, err)
 	}
 
-	// Run: sc-adm project delete --yes --purge.
+	// Run: sc-adm tenant delete --yes --purge.
 	runAdminCLI(t, e2eConfig, sandcastleBin, 2*time.Minute,
-		"project", "delete", ref, "--yes", "--purge")
+		"tenant", "delete", ref, "--yes", "--purge")
 
 	// Verify the Incus project is gone.
 	if _, _, err := server.GetProject(createPlan.IncusProject); !api.StatusErrorCheck(err, http.StatusNotFound) {

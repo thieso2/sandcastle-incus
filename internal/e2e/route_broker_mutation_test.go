@@ -52,12 +52,13 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	owner := safeProjectName("owner-" + runID)
 	otherOwner := safeProjectName("other-" + runID)
 	name := safeProjectName("broker-" + runID)
+	_ = name
 	otherName := safeProjectName("other-broker-" + runID)
 	sandboxName := safeProjectName("box-" + runID)
 	otherSandboxName := safeProjectName("other-box-" + runID)
-	ref := owner + "/" + name
+	ref := owner
 	otherRef := otherOwner + "/" + otherName
-	sandboxRef := ref + "/" + sandboxName
+	sandboxRef := sandboxName
 	otherSandboxRef := otherRef + "/" + otherSandboxName
 	publicDomain := strings.Trim(strings.TrimSpace(e2eConfig.PublicRoutes.Domain), ".")
 	if publicDomain == "" {
@@ -74,6 +75,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-broker"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-broker"
 	adminConfig := config.Admin{
+		Tenant:                 ref,
 		Remote:                 e2eConfig.Remote,
 		StoragePool:            e2eConfig.StoragePool,
 		CIDRPool:               e2eConfig.CIDRPool,
@@ -137,7 +139,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, projectDeletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, projectDeletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -147,13 +149,12 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	}
 	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := projectCreator.CreateProject(ctx, createProjectPlan); err != nil {
+	if err := projectCreator.CreateTenant(ctx, createProjectPlan); err != nil {
 		t.Fatal(err)
 	}
 	existing, err = project.List(ctx, store)
@@ -162,7 +163,6 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	}
 	createOtherProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     otherRef,
-		Domain:        otherName + "." + e2eConfig.DomainSuffix,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
@@ -177,11 +177,11 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", otherRef)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, otherProjectDeletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, otherProjectDeletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", otherRef, err)
 		}
 	})
-	if err := projectCreator.CreateProject(ctx, createOtherProjectPlan); err != nil {
+	if err := projectCreator.CreateTenant(ctx, createOtherProjectPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -192,7 +192,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateSandbox(ctx, sandboxPlan); err != nil {
+	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, sandboxPlan); err != nil {
 		t.Fatal(err)
 	}
 	otherSandboxPlan, err := sandbox.PlanCreate(ctx, adminConfig, store, incusx.NewHostOverrideManager(e2eConfig.Remote), sandbox.CreateRequest{
@@ -202,7 +202,7 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateSandbox(ctx, otherSandboxPlan); err != nil {
+	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, otherSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
 	targetServer := server.UseProject(createProjectPlan.IncusProject)

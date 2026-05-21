@@ -9,8 +9,8 @@ import (
 
 func newEnterCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "enter project/name [-- command...]",
-		Short: "Enter a Sandcastle sandbox",
+		Use:   "connect [project/]machine [-- command...]",
+		Short: "Connect to a Sandcastle machine",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := sandbox.PlanEnter(cmd.Context(), config.adminConfig, config.projectStore, sandbox.EnterRequest{
@@ -21,7 +21,7 @@ func newEnterCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			if config.sandboxEnterer == nil {
-				return fmt.Errorf("sandbox enter executor is not configured")
+				return fmt.Errorf("machine connect executor is not configured")
 			}
 			if err := config.sandboxEnterer.ConnectMachine(cmd.Context(), plan, sandbox.EnterSession{
 				Stdin:  config.stdin,

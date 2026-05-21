@@ -42,8 +42,8 @@ func newAdminVersionCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 
 func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	project := &cobra.Command{
-		Use:   "project",
-		Short: "Manage Sandcastle projects",
+		Use:   "tenant",
+		Short: "Manage Sandcastle tenants",
 	}
 	project.AddCommand(newAdminProjectListCommand(config, opts))
 	project.AddCommand(newAdminProjectStatusCommand(config, opts))
@@ -55,25 +55,24 @@ func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 
 func newAdminProjectListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:     "list",
-		Aliases: []string{"ls"},
-		Short:   "List Sandcastle-managed Incus projects",
-		Args:    cobra.NoArgs,
+		Use:   "list",
+		Short: "List Sandcastle tenants",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projects, err := listProjects(cmd.Context(), config.projectStore)
 			if err != nil {
 				return err
 			}
-			payload := listPayload{Projects: projects}
-			return writeOutput(config.stdout, opts.output, formatProjectList(projects), payload)
+			payload := tenantListPayload{Tenants: projects}
+			return writeOutput(config.stdout, opts.output, formatTenantList(projects), payload)
 		},
 	}
 }
 
 func newAdminProjectStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status owner/project",
-		Short: "Show Sandcastle-managed Incus project status",
+		Use:   "status tenant",
+		Short: "Show Sandcastle tenant status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			status, err := project.GetStatusWithTopology(
@@ -95,8 +94,8 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 	var dryRun bool
 	var sshKey string
 	command := &cobra.Command{
-		Use:   "create owner/project",
-		Short: "Create a Sandcastle project",
+		Use:   "create tenant",
+		Short: "Create a Sandcastle tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var occupiedCIDRs []string
@@ -117,7 +116,7 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 			}
 			if !dryRun {
 				if config.projectCreator == nil {
-					return fmt.Errorf("project creation executor is not configured")
+					return fmt.Errorf("tenant creation executor is not configured")
 				}
 				if err := config.projectCreator.CreateTenant(cmd.Context(), plan); err != nil {
 					return err
@@ -126,7 +125,7 @@ func newAdminProjectCreateCommand(config commandConfig, opts *rootOptions) *cobr
 			return writeOutput(config.stdout, opts.output, formatCreatePlan(plan), plan)
 		},
 	}
-	command.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key to inject into all sandbox containers")
+	command.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key to inject into all tenant machines")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the Incus creation plan without mutating resources")
 	return command
 }
@@ -147,8 +146,8 @@ func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 	var yes bool
 	var purge bool
 	command := &cobra.Command{
-		Use:   "delete owner/project",
-		Short: "Delete a Sandcastle project",
+		Use:   "delete tenant",
+		Short: "Delete a Sandcastle tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !yes {
@@ -162,7 +161,7 @@ func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 				return err
 			}
 			if config.projectDeleter == nil {
-				return fmt.Errorf("project deletion executor is not configured")
+				return fmt.Errorf("tenant deletion executor is not configured")
 			}
 			if err := config.projectDeleter.DeleteTenant(cmd.Context(), plan); err != nil {
 				return err
@@ -171,14 +170,14 @@ func newAdminProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 		},
 	}
 	command.Flags().BoolVar(&yes, "yes", false, "confirm project deletion")
-	command.Flags().BoolVar(&purge, "purge", false, "delete durable project volumes and the Incus project")
+	command.Flags().BoolVar(&purge, "purge", false, "delete durable tenant volumes and the Incus project")
 	return command
 }
 
 func newAdminProjectSetSSHKeyCommand(config commandConfig) *cobra.Command {
 	return &cobra.Command{
-		Use:   "set-ssh-key owner/project key",
-		Short: "Set or update the SSH public key for a Sandcastle project",
+		Use:   "set-ssh-key tenant key",
+		Short: "Set or update the SSH public key for a Sandcastle tenant",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if config.projectSSHKeyUpdater == nil {
@@ -587,7 +586,7 @@ func formatTokenResult(result usertrust.TokenResult) string {
 		remoteName = usertrust.RestrictedName(result.User)
 	}
 	return fmt.Sprintf(
-		"User: %s\nCertificate: %s\nRemote: %s\nToken: %s\nBootstrap:\n  incus remote add %s %s\n  export SANDCASTLE_REMOTE=%s\n  export SANDCASTLE_OWNER=%s",
+		"User: %s\nCertificate: %s\nRemote: %s\nToken: %s\nBootstrap:\n  incus remote add %s %s\n  export SANDCASTLE_REMOTE=%s\n  export SANDCASTLE_TENANT=%s",
 		result.User,
 		result.CertificateName,
 		remoteName,

@@ -86,6 +86,19 @@ type Store interface {
 	ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error)
 }
 
+type UnmanagedMachine struct {
+	Tenant       string `json:"tenant"`
+	Name         string `json:"name"`
+	InstanceName string `json:"instanceName"`
+	Type         string `json:"type,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Running      bool   `json:"running"`
+}
+
+type UnmanagedStore interface {
+	ListUnmanagedMachines(ctx context.Context, summary project.Summary) ([]UnmanagedMachine, error)
+}
+
 func PlanCreate(ctx context.Context, admin config.Admin, store project.IncusProjectStore, machineStore Store, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err

@@ -21,7 +21,7 @@ func newRouteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 func newRouteAddCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "add hostname project/name",
+		Use:   "create hostname [project/]machine",
 		Short: "Plan a public HTTP route",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -73,7 +73,7 @@ func newRouteListCommand(config commandConfig, opts *rootOptions) *cobra.Command
 func newRouteRemoveCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "rm hostname",
+		Use:   "delete hostname",
 		Short: "Remove a public HTTP route",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

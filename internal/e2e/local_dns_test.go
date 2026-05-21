@@ -30,11 +30,10 @@ func TestLocalDNSInstallForwardRefreshUninstallE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("dns-" + runID)
-	domain := name + "." + e2eConfig.DomainSuffix
-	ref := owner + "/" + name
-	store := localDNSProjectStore(t, owner, name, domain)
+	domain := name
+	ref := name
+	store := localDNSProjectStore(t, name, name, domain)
 	adminConfig := config.Admin{
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
@@ -119,17 +118,19 @@ func TestLocalDNSInstallForwardRefreshUninstallE2E(t *testing.T) {
 
 func localDNSProjectStore(t *testing.T, owner string, name string, domain string) project.MemoryStore {
 	t.Helper()
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           owner,
-		Project:         name,
-		Domain:          domain,
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	tenant := name
+	if tenant == "" {
+		tenant = owner
+	}
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      tenant,
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-" + owner + "-" + name, Config: configMap}}}
+	return project.MemoryStore{Projects: []project.IncusProject{{Name: "sc-" + tenant, Config: configMap}}}
 }
 
 func startE2EUDPResponder(t *testing.T, response []byte) string {
@@ -244,11 +245,10 @@ func TestLocalDNSServiceInstallReloadUninstallE2E(t *testing.T) {
 
 	ctx := context.Background()
 	runID := e2eConfig.DisposableRunID()
-	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("dns-service-" + runID)
-	domain := name + "." + e2eConfig.DomainSuffix
-	ref := owner + "/" + name
-	store := localDNSProjectStore(t, owner, name, domain)
+	domain := name
+	ref := name
+	store := localDNSProjectStore(t, name, name, domain)
 	adminConfig := config.Admin{
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,

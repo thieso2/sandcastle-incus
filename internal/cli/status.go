@@ -5,21 +5,38 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	project "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status project",
-		Short: "Show Sandcastle project status",
-		Args:  cobra.ExactArgs(1),
+		Use:   "status [machine|tenant]",
+		Short: "Show Sandcastle tenant or machine status",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && args[0] != config.adminConfig.Tenant {
+				result, err := machine.Inspect(
+					cmd.Context(),
+					config.adminConfig,
+					config.projectStore,
+					config.sandboxStore,
+					machine.InspectRequest{Reference: args[0]},
+				)
+				if err == nil {
+					return writeOutput(config.stdout, opts.output, formatSandboxInspect(result), result)
+				}
+			}
+			reference := config.adminConfig.Tenant
+			if len(args) == 1 {
+				reference = args[0]
+			}
 			status, err := project.GetStatusWithTopology(
 				cmd.Context(),
 				config.projectStore,
 				config.topologyStore,
 				project.TopologyRequest{},
-				args[0],
+				reference,
 			)
 			if err != nil {
 				return err

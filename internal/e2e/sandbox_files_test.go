@@ -22,8 +22,8 @@ func assertSandboxIngressFiles(t *testing.T, server incus.InstanceServer, instan
 	if !strings.Contains(caddyfile, expectedProxy) {
 		t.Fatalf("sandbox Caddyfile missing proxy %q: %q", expectedProxy, caddyfile)
 	}
-	certPEM := readInstanceFile(t, server, instanceName, sandbox.SandboxCertPath)
-	keyPEM := readInstanceFile(t, server, instanceName, sandbox.SandboxCertKeyPath)
+	certPEM := readInstanceFile(t, server, instanceName, sandbox.MachineCertPath)
+	keyPEM := readInstanceFile(t, server, instanceName, sandbox.MachineCertKeyPath)
 	assertCertificateForHost(t, certPEM, hostname)
 	assertPrivateKeyPEM(t, keyPEM)
 }

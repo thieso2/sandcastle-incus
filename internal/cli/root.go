@@ -191,7 +191,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	var jsonOutput bool
 	root := &cobra.Command{
 		Use:           config.name,
-		Short:         "Manage Incus-backed Sandcastle development sandboxes",
+		Short:         "Manage Incus-backed Sandcastle development machines",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -211,13 +211,12 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newVersionCommand(config, opts))
 	root.AddCommand(newListCommand(config, opts))
 	root.AddCommand(newStatusCommand(config, opts))
-	root.AddCommand(newInspectCommand(config, opts))
 	root.AddCommand(newAddCommand(config, opts))
 	root.AddCommand(newEnterCommand(config, opts))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "start", sandbox.ActionStart, false))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "stop", sandbox.ActionStop, false))
 	root.AddCommand(newSandboxLifecycleCommand(config, opts, "restart", sandbox.ActionRestart, false))
-	root.AddCommand(newSandboxLifecycleCommand(config, opts, "rm", sandbox.ActionRemove, true))
+	root.AddCommand(newSandboxLifecycleCommand(config, opts, "delete", sandbox.ActionRemove, true))
 	root.AddCommand(newPortCommand(config, opts))
 	root.AddCommand(newDNSCommand(config, opts))
 	root.AddCommand(newTailscaleCommand(config, opts))

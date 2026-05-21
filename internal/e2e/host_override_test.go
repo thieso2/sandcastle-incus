@@ -34,12 +34,14 @@ func TestHostOverrideE2E(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("project-" + runID)
+	_ = name
 	sandboxName := safeProjectName("box-" + runID)
-	ref := owner + "/" + name
-	sandboxRef := ref + "/" + sandboxName
+	ref := owner
+	sandboxRef := sandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-host"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-host"
 	adminConfig := config.Admin{
+		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
@@ -75,7 +77,7 @@ func TestHostOverrideE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -86,13 +88,12 @@ func TestHostOverrideE2E(t *testing.T) {
 	}
 	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateProject(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,12 +102,12 @@ func TestHostOverrideE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateSandbox(ctx, createSandboxPlan); err != nil {
+	if err := incusx.NewSandboxCreator(e2eConfig.Remote).CreateMachine(ctx, createSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
 	projectServer := server.UseProject(createProjectPlan.IncusProject)
 	overrideHost := "app-" + safeToken(runID) + ".override.test"
-	hostname := sandboxName + "." + createProjectPlan.Domain
+	hostname := sandboxName + "." + createProjectPlan.DNSSuffix
 	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-host-override")
 	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-host-override")
 
@@ -131,7 +132,7 @@ func TestHostOverrideE2E(t *testing.T) {
 	}
 	assertHostsFileContains(t, hostsPath, overrideHost)
 	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, overrideHost, "sandcastle-host-override")
-	assertCertificateForHost(t, readInstanceFile(t, projectServer, createSandboxPlan.InstanceName, sandbox.SandboxCertPath), overrideHost)
+	assertCertificateForHost(t, readInstanceFile(t, projectServer, createSandboxPlan.InstanceName, sandbox.MachineCertPath), overrideHost)
 
 	listResult, err := hostoverride.PlanList(ctx, adminConfig, store, sandboxStore, hostoverride.ListRequest{Reference: ref})
 	if err != nil {
@@ -159,7 +160,7 @@ func TestHostOverrideE2E(t *testing.T) {
 	if strings.Contains(caddyfile, overrideHost) {
 		t.Fatalf("sandbox Caddyfile still contains removed override %q: %q", overrideHost, caddyfile)
 	}
-	assertCertificateNotForHost(t, readInstanceFile(t, projectServer, createSandboxPlan.InstanceName, sandbox.SandboxCertPath), overrideHost)
+	assertCertificateNotForHost(t, readInstanceFile(t, projectServer, createSandboxPlan.InstanceName, sandbox.MachineCertPath), overrideHost)
 	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-host-override")
 }
 

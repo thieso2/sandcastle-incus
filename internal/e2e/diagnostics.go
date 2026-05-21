@@ -30,7 +30,7 @@ func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store 
 	t.Helper()
 	projects, err := project.List(ctx, store)
 	if err != nil {
-		t.Logf("diagnostics: list projects failed: %v", err)
+		t.Logf("diagnostics: list tenants failed: %v", err)
 		return
 	}
 	lines := projectDiagnosticLines(ctx, projects, topologyStore, runID)
@@ -40,10 +40,10 @@ func logProjectDiagnosticsWithTopology(t *testing.T, ctx context.Context, store 
 	}
 	lines = append(lines, localDNSLines...)
 	if len(lines) == 0 {
-		t.Logf("diagnostics: no Sandcastle projects matched run id %q", runID)
+		t.Logf("diagnostics: no Sandcastle tenants matched run id %q", runID)
 		return
 	}
-	t.Logf("diagnostics: matching Sandcastle projects:\n%s", strings.Join(lines, "\n"))
+	t.Logf("diagnostics: matching Sandcastle tenants:\n%s", strings.Join(lines, "\n"))
 }
 
 func projectDiagnosticLines(ctx context.Context, projects []project.Summary, topologyStore project.TopologyStore, runID string) []string {
@@ -53,11 +53,10 @@ func projectDiagnosticLines(ctx context.Context, projects []project.Summary, top
 			continue
 		}
 		line := fmt.Sprintf(
-			"%s/%s incus=%s domain=%s cidr=%s status=%s",
-			summary.Owner,
-			summary.Name,
+			"%s incus=%s dnsSuffix=%s cidr=%s status=%s",
+			summary.Tenant,
 			summary.IncusName,
-			summary.Domain,
+			summary.DNSSuffix,
 			summary.PrivateCIDR,
 			summary.Status,
 		)
@@ -76,16 +75,15 @@ func matchesProjectRun(summary project.Summary, runID string) bool {
 	if strings.TrimSpace(runID) == "" {
 		return false
 	}
-	return strings.Contains(summary.Owner, runID) ||
-		strings.Contains(summary.Name, runID) ||
+	return strings.Contains(summary.Tenant, runID) ||
 		strings.Contains(summary.IncusName, runID) ||
-		strings.Contains(summary.Domain, runID)
+		strings.Contains(summary.DNSSuffix, runID)
 }
 
 func projectTopologyDiagnostics(ctx context.Context, topologyStore project.TopologyStore, summary project.Summary) string {
 	topology, err := topologyStore.GetTopology(ctx, project.TopologyRequest{
 		IncusProject: summary.IncusName,
-		Domain:       summary.Domain,
+		DNSSuffix:    summary.DNSSuffix,
 	})
 	if err != nil {
 		return "error=" + err.Error()
@@ -182,7 +180,7 @@ func localDNSDiagnosticLines(statePath string, runID string) ([]string, error) {
 		return nil, err
 	}
 	var lines []string
-	for _, entry := range state.Projects {
+	for _, entry := range state.Tenants {
 		if !matchesLocalDNSRun(entry, runID) {
 			continue
 		}
@@ -191,10 +189,9 @@ func localDNSDiagnosticLines(statePath string, runID string) ([]string, error) {
 			endpoint = net.JoinHostPort(entry.DNSEndpoint.IP, fmt.Sprint(entry.DNSEndpoint.Port))
 		}
 		lines = append(lines, fmt.Sprintf(
-			"local-dns: %s/%s domain=%s endpoint=%s resolver=%s",
-			entry.Owner,
-			entry.Project,
-			entry.Domain,
+			"local-dns: %s dnsSuffix=%s endpoint=%s resolver=%s",
+			entry.Tenant,
+			entry.DNSSuffix,
 			endpoint,
 			entry.Resolver.Listen,
 		))
@@ -202,10 +199,9 @@ func localDNSDiagnosticLines(statePath string, runID string) ([]string, error) {
 	return lines, nil
 }
 
-func matchesLocalDNSRun(entry localdns.ProjectState, runID string) bool {
-	return strings.Contains(entry.Owner, runID) ||
-		strings.Contains(entry.Project, runID) ||
-		strings.Contains(entry.Domain, runID)
+func matchesLocalDNSRun(entry localdns.TenantState, runID string) bool {
+	return strings.Contains(entry.Tenant, runID) ||
+		strings.Contains(entry.DNSSuffix, runID)
 }
 
 func redactDiagnosticValue(value string) string {

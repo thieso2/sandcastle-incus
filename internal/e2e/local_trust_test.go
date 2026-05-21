@@ -28,8 +28,10 @@ func TestLocalTrustInstallUninstallE2E(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("trust-" + runID)
-	ref := owner + "/" + name
+	_ = name
+	ref := owner
 	adminConfig := config.Admin{
+		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
@@ -54,7 +56,7 @@ func TestLocalTrustInstallUninstallE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -65,13 +67,12 @@ func TestLocalTrustInstallUninstallE2E(t *testing.T) {
 	}
 	createPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateProject(ctx, createPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,7 +133,8 @@ func TestLocalTrustPlatformInstallUninstallE2E(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("trust-platform-" + runID)
-	ref := owner + "/" + name
+	_ = name
+	ref := owner
 	adminConfig := config.Admin{
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
@@ -158,7 +160,7 @@ func TestLocalTrustPlatformInstallUninstallE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -169,13 +171,12 @@ func TestLocalTrustPlatformInstallUninstallE2E(t *testing.T) {
 	}
 	createPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateProject(ctx, createPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createPlan); err != nil {
 		t.Fatal(err)
 	}
 

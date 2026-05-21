@@ -73,11 +73,11 @@ func TestRestrictedUserGrantAccessE2E(t *testing.T) {
 	runID := e2eConfig.DisposableRunID()
 	user := safeProjectName("owner-" + runID)
 	ownedName := safeProjectName("owned-" + runID)
-	deniedOwner := safeProjectName("other-" + runID)
 	deniedName := safeProjectName("denied-" + runID)
-	ownedRef := user + "/" + ownedName
-	deniedRef := deniedOwner + "/" + deniedName
+	ownedRef := ownedName
+	deniedRef := deniedName
 	adminConfig := config.Admin{
+		Tenant:                ownedRef,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
@@ -120,7 +120,7 @@ func TestRestrictedUserGrantAccessE2E(t *testing.T) {
 	if !hasProjectSummary(summaries, user, ownedName) {
 		t.Fatalf("restricted project list missing owned project %s: %#v", ownedRef, summaries)
 	}
-	if hasProjectSummary(summaries, deniedOwner, deniedName) {
+	if hasProjectSummary(summaries, "", deniedName) {
 		t.Fatalf("restricted project list included denied project %s: %#v", deniedRef, summaries)
 	}
 	if _, _, err := restricted.UseProject(deniedProject).GetProject(deniedProject); err == nil {
@@ -161,7 +161,7 @@ func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
 	name := safeProjectName("restricted-" + runID)
 	sandboxName := safeProjectName("box-" + runID)
 	ref := user + "/" + name
-	sandboxRef := ref + "/" + sandboxName
+	sandboxRef := sandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-restricted"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-restricted"
 	adminConfig := config.Admin{
@@ -200,7 +200,7 @@ func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -211,13 +211,12 @@ func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
 	}
 	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateProject(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -240,13 +239,13 @@ func TestRestrictedUserSandboxLifecycleE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (incusx.SandboxCreator{Server: e2eSandboxCreateServer{inner: restricted}}).CreateSandbox(ctx, createSandboxPlan); err != nil {
+	if err := (incusx.SandboxCreator{Server: e2eSandboxCreateServer{inner: restricted}}).CreateMachine(ctx, createSandboxPlan); err != nil {
 		t.Fatal(err)
 	}
 
 	projectServer := restricted.UseProject(createProjectPlan.IncusProject)
 	assertInstanceExists(t, projectServer, createSandboxPlan.InstanceName)
-	hostname := sandboxName + "." + createProjectPlan.Domain
+	hostname := sandboxName + "." + createProjectPlan.DNSSuffix
 	assertSandboxIngressFiles(t, projectServer, createSandboxPlan.InstanceName, hostname, createSandboxPlan.AppPort)
 	startSandboxHTTPApp(t, projectServer, createSandboxPlan.InstanceName, createSandboxPlan.AppPort, "sandcastle-restricted")
 	assertSandboxCaddyProxy(t, projectServer, createSandboxPlan.InstanceName, hostname, "sandcastle-restricted")
@@ -358,20 +357,18 @@ func restrictedInstanceServer(loaded *cliconfig.Config, remoteName string, remot
 
 func createRestrictedAccessProject(t *testing.T, e2eConfig Config, adminConfig config.Admin, ref string, domain string, privateCIDR string) string {
 	t.Helper()
-	projectRef, err := naming.ParseProjectRef(ref)
+	tenantRef, err := naming.ParseTenantRef(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	incusName, err := naming.IncusProjectNameWithPrefix(adminConfig.ProjectPrefix, projectRef)
+	incusName, err := naming.TenantIncusProjectNameWithPrefix(adminConfig.ProjectPrefix, tenantRef)
 	if err != nil {
 		t.Fatal(err)
 	}
-	configMap, err := meta.ProjectConfig(meta.Project{
-		Owner:           projectRef.Owner,
-		Project:         projectRef.Project,
-		Domain:          domain,
-		PrivateCIDR:     privateCIDR,
-		DefaultTemplate: "ai",
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      tenantRef.Tenant,
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: privateCIDR,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -402,8 +399,12 @@ func createRestrictedAccessProject(t *testing.T, e2eConfig Config, adminConfig c
 }
 
 func hasProjectSummary(summaries []project.Summary, owner string, name string) bool {
+	tenant := name
+	if tenant == "" {
+		tenant = owner
+	}
 	for _, summary := range summaries {
-		if summary.Owner == owner && summary.Name == name {
+		if summary.Tenant == tenant {
 			return true
 		}
 	}

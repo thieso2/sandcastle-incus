@@ -54,6 +54,48 @@ func (m HostOverrideManager) FindMachine(ctx context.Context, summary project.Su
 }
 
 func (m HostOverrideManager) ListMachines(ctx context.Context, summary project.Summary) ([]meta.Machine, error) {
+	instances, err := m.listTenantInstances(summary)
+	if err != nil {
+		return nil, err
+	}
+	machines := []meta.Machine{}
+	for _, instance := range instances {
+		if instance.Config[meta.KeyKind] != meta.KindMachine {
+			continue
+		}
+		machine, err := meta.ParseMachineConfig(map[string]string(instance.Config))
+		if err != nil {
+			return nil, fmt.Errorf("parse machine metadata for %s: %w", instance.Name, err)
+		}
+		machine.Running = instance.IsActive()
+		machines = append(machines, machine)
+	}
+	return machines, nil
+}
+
+func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary project.Summary) ([]machine.UnmanagedMachine, error) {
+	instances, err := m.listTenantInstances(summary)
+	if err != nil {
+		return nil, err
+	}
+	unmanaged := []machine.UnmanagedMachine{}
+	for _, instance := range instances {
+		if instance.Config[meta.KeyKind] == meta.KindMachine {
+			continue
+		}
+		unmanaged = append(unmanaged, machine.UnmanagedMachine{
+			Tenant:       summary.Tenant,
+			Name:         instance.Name,
+			InstanceName: instance.Name,
+			Type:         string(instance.Type),
+			Status:       instance.Status,
+			Running:      instance.IsActive(),
+		})
+	}
+	return unmanaged, nil
+}
+
+func (m HostOverrideManager) listTenantInstances(summary project.Summary) ([]api.Instance, error) {
 	server := m.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
@@ -75,19 +117,7 @@ func (m HostOverrideManager) ListMachines(ctx context.Context, summary project.S
 	if err != nil {
 		return nil, fmt.Errorf("list project instances: %w", err)
 	}
-	machines := []meta.Machine{}
-	for _, instance := range instances {
-		if instance.Config[meta.KeyKind] != meta.KindMachine {
-			continue
-		}
-		machine, err := meta.ParseMachineConfig(map[string]string(instance.Config))
-		if err != nil {
-			return nil, fmt.Errorf("parse machine metadata for %s: %w", instance.Name, err)
-		}
-		machine.Running = instance.IsActive()
-		machines = append(machines, machine)
-	}
-	return machines, nil
+	return instances, nil
 }
 
 func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan) error {

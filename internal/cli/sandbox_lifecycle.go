@@ -10,12 +10,12 @@ import (
 func newSandboxLifecycleCommand(config commandConfig, opts *rootOptions, use string, action sandbox.Action, requireYes bool) *cobra.Command {
 	var yes bool
 	command := &cobra.Command{
-		Use:   use + " project/name",
-		Short: string(action) + " a Sandcastle sandbox",
+		Use:   use + " [project/]machine",
+		Short: string(action) + " a Sandcastle machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if requireYes && !yes {
-				return fmt.Errorf("refusing to remove sandbox without --yes")
+				return fmt.Errorf("refusing to delete machine without --yes")
 			}
 			plan, err := sandbox.PlanLifecycle(cmd.Context(), config.adminConfig, config.projectStore, sandbox.LifecycleRequest{
 				Reference: args[0],
@@ -25,7 +25,7 @@ func newSandboxLifecycleCommand(config commandConfig, opts *rootOptions, use str
 				return err
 			}
 			if config.sandboxControl == nil {
-				return fmt.Errorf("sandbox lifecycle executor is not configured")
+				return fmt.Errorf("machine lifecycle executor is not configured")
 			}
 			if err := config.sandboxControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
 				return err
@@ -34,7 +34,7 @@ func newSandboxLifecycleCommand(config commandConfig, opts *rootOptions, use str
 		},
 	}
 	if requireYes {
-		command.Flags().BoolVar(&yes, "yes", false, "confirm sandbox removal")
+		command.Flags().BoolVar(&yes, "yes", false, "confirm machine deletion")
 	}
 	return command
 }

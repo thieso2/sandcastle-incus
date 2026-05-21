@@ -30,14 +30,14 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 	lines := projectDiagnosticLines(context.Background(), summaries, fakeDiagnosticTopologyStore{
 		topology: project.Topology{
 			PrivateNetworkPresent: true,
-			TailscaleInstance:     "sc-owner-e2e-test-project-e2e-test",
+			TailscaleInstance:     "sc-tenant-e2e-test",
 			DurableVolumes: map[string]bool{
 				project.HomeVolumeName: true,
 				project.CAVolumeName:   true,
 			},
 			Sidecars: map[string]project.SidecarStatus{
-				"sc-owner-e2e-test-project-e2e-test": {Present: true, Running: true, Status: "Running"},
-				project.DNSName:                      {Present: true, Running: false, Status: "Stopped"},
+				"sc-tenant-e2e-test": {Present: true, Running: true, Status: "Running"},
+				project.DNSName:      {Present: true, Running: false, Status: "Stopped"},
 			},
 			DiagnosticFiles: []project.DiagnosticFile{
 				{Instance: project.DNSName, Path: "/etc/coredns/Corefile", Content: ".:53 {\n  errors\n}"},
@@ -53,7 +53,7 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 		"network:sc-private=ok",
 		"volume:sc-home=ok",
 		"volume:sc-workspace=missing",
-		"sidecar:sc-owner-e2e-test-project-e2e-test=ok(Running)",
+		"sidecar:sc-tenant-e2e-test=ok(Running)",
 		"sidecar:sc-dns=stopped(Stopped)",
 		"files:",
 		"sc-dns:/etc/coredns/Corefile",
@@ -67,12 +67,10 @@ func TestProjectDiagnosticLinesIncludeTopology(t *testing.T) {
 }
 
 func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "owner-e2e-test",
-		Project:         "project-e2e-test",
-		Domain:          "project.e2e.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "tenant-e2e-test",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 		Tailscale: meta.Tailscale{
 			State:            "Running",
 			Tailnet:          "dev.example",
@@ -86,7 +84,7 @@ func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
 		t.Fatal(err)
 	}
 	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-owner-e2e-test-project-e2e-test",
+		Name:   "sc-tenant-e2e-test",
 		Config: config,
 	}}})
 	if err != nil {
@@ -112,12 +110,10 @@ func TestProjectDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
 }
 
 func TestProjectDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "owner-e2e-test",
-		Project:         "project-e2e-test",
-		Domain:          "project.e2e.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "tenant-e2e-test",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 		Tailscale: meta.Tailscale{
 			State:    "NeedsLogin",
 			Tailnet:  "https://login.tailscale.com/a/secret-token",
@@ -128,7 +124,7 @@ func TestProjectDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-owner-e2e-test-project-e2e-test",
+		Name:   "sc-tenant-e2e-test",
 		Config: config,
 	}}})
 	if err != nil {
@@ -163,19 +159,17 @@ func TestProjectDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
 	}
 }
 
-func TestProjectDiagnosticLinesMatchRunIDInDomain(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "owner",
-		Project:         "project",
-		Domain:          "project.e2e-domain-only.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+func TestProjectDiagnosticLinesMatchRunIDInDNSSuffix(t *testing.T) {
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "tenant-e2e-domain-only",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	summaries, err := project.List(context.Background(), project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-owner-project",
+		Name:   "sc-tenant-e2e-domain-only",
 		Config: config,
 	}}})
 	if err != nil {
@@ -185,8 +179,8 @@ func TestProjectDiagnosticLinesMatchRunIDInDomain(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("lines = %#v, want one diagnostic line", lines)
 	}
-	if !strings.Contains(lines[0], "project.e2e-domain-only.project-tld") {
-		t.Fatalf("diagnostic line missing domain:\n%s", lines[0])
+	if !strings.Contains(lines[0], "dnsSuffix=tenant-e2e-domain-only") {
+		t.Fatalf("diagnostic line missing DNS suffix:\n%s", lines[0])
 	}
 }
 
@@ -208,18 +202,16 @@ func TestProjectDiagnosticLinesRequireRunID(t *testing.T) {
 
 func TestLocalDNSDiagnosticLinesIncludeMatchingState(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "dns.yaml")
-	content := "projects:\n" +
-		"- owner: owner-e2e-test\n" +
-		"  project: project-e2e-test\n" +
-		"  domain: project.e2e.project-tld\n" +
+	content := "tenants:\n" +
+		"- tenant: tenant-e2e-test\n" +
+		"  dnsSuffix: tenant-e2e-test\n" +
 		"  dnsEndpoint:\n" +
 		"    ip: 127.0.0.1\n" +
 		"    port: 53541\n" +
 		"  resolver:\n" +
 		"    listen: 127.0.0.1:53540\n" +
-		"- owner: other\n" +
-		"  project: project\n" +
-		"  domain: other.project-tld\n" +
+		"- tenant: other\n" +
+		"  dnsSuffix: other\n" +
 		"  dnsEndpoint:\n" +
 		"    ip: 127.0.0.1\n" +
 		"    port: 53542\n" +
@@ -238,8 +230,8 @@ func TestLocalDNSDiagnosticLinesIncludeMatchingState(t *testing.T) {
 	}
 	for _, want := range []string{
 		"local-dns:",
-		"owner-e2e-test/project-e2e-test",
-		"domain=project.e2e.project-tld",
+		"tenant-e2e-test",
+		"dnsSuffix=tenant-e2e-test",
 		"endpoint=127.0.0.1:53541",
 		"resolver=127.0.0.1:53540",
 	} {
@@ -251,18 +243,16 @@ func TestLocalDNSDiagnosticLinesIncludeMatchingState(t *testing.T) {
 
 func diagnosticProjectStore(t *testing.T) project.MemoryStore {
 	t.Helper()
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "owner-e2e-test",
-		Project:         "project-e2e-test",
-		Domain:          "project.e2e.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "tenant-e2e-test",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return project.MemoryStore{Projects: []project.IncusProject{{
-		Name:   "sc-owner-e2e-test-project-e2e-test",
+		Name:   "sc-tenant-e2e-test",
 		Config: config,
 	}}}
 }

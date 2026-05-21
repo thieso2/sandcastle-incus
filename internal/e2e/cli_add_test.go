@@ -23,14 +23,14 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	shorthandRef := fixture.ProjectName + "/" + fixture.SandboxName
 
 	if exitCode := cli.Execute("sandcastle", []string{
-		"add", shorthandRef,
+		"create", shorthandRef,
 		"--detach",
 		"--template", "base",
 		"--home-dir", "shared-home",
 		"--workspace-dir", ".",
 		"--container-tools",
 	}); exitCode != 0 {
-		t.Fatalf("sandcastle add --detach --template base --container-tools exit code = %d", exitCode)
+		t.Fatalf("sandcastle create --detach --template base --container-tools exit code = %d", exitCode)
 	}
 
 	projectServer := fixture.Server.UseProject(fixture.Project.IncusProject)
@@ -58,34 +58,34 @@ func TestCLIAddDetachE2E(t *testing.T) {
 	if instance.Devices["workspace"]["source"] != project.WorkspaceVolumeName+"/." {
 		t.Fatalf("workspace source = %q", instance.Devices["workspace"]["source"])
 	}
-	assertSandboxIngressFiles(t, projectServer, instanceName, fixture.SandboxName+"."+fixture.Project.Domain, sandbox.DefaultAppPort)
+	assertSandboxIngressFiles(t, projectServer, instanceName, fixture.SandboxName+"."+fixture.Project.DNSSuffix, sandbox.DefaultAppPort)
 	sandcastleBin := strings.TrimSpace(fixture.Config.SandcastleBin)
 	if sandcastleBin == "" {
 		sandcastleBin = buildSandcastleForE2E(t)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	command := exec.CommandContext(ctx, sandcastleBin, "--output", "json", "inspect", shorthandRef)
+	command := exec.CommandContext(ctx, sandcastleBin, "--output", "json", "status", shorthandRef)
 	command.Env = append(os.Environ(), sandcastleCLIEnv(fixture)...)
 	output, err := command.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		t.Fatalf("sandcastle inspect timed out\n%s", strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle status timed out\n%s", strings.TrimSpace(string(output)))
 	}
 	if err != nil {
-		t.Fatalf("sandcastle inspect: %v\n%s", err, strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle status: %v\n%s", err, strings.TrimSpace(string(output)))
 	}
-	var inspect sandbox.InspectResult
-	if err := json.Unmarshal(output, &inspect); err != nil {
-		t.Fatalf("decode inspect output: %v\n%s", err, strings.TrimSpace(string(output)))
+	var status sandbox.InspectResult
+	if err := json.Unmarshal(output, &status); err != nil {
+		t.Fatalf("decode status output: %v\n%s", err, strings.TrimSpace(string(output)))
 	}
-	if inspect.InstanceName != instanceName {
-		t.Fatalf("inspect instance = %q, want %q", inspect.InstanceName, instanceName)
+	if status.InstanceName != instanceName {
+		t.Fatalf("status instance = %q, want %q", status.InstanceName, instanceName)
 	}
-	if inspect.Sandbox.PrivateIP == "" || inspect.Sandbox.AppPort != sandbox.DefaultAppPort || inspect.Sandbox.LinuxUser != fixture.Owner || !inspect.Sandbox.Running {
-		t.Fatalf("inspect sandbox = %#v", inspect.Sandbox)
+	if status.Machine.PrivateIP == "" || status.Machine.AppPort != sandbox.DefaultAppPort || status.Machine.LinuxUser != fixture.Owner || !status.Machine.Running {
+		t.Fatalf("status machine = %#v", status.Machine)
 	}
-	if !inspect.Sandbox.ContainerTools {
-		t.Fatalf("inspect sandbox ContainerTools = false, want true")
+	if !status.Machine.ContainerTools {
+		t.Fatalf("status machine ContainerTools = false, want true")
 	}
 	if sshKey := fixture.Config.SSHPublicKey; sshKey != "" {
 		authKeys := strings.TrimSpace(execInstanceOutput(t, projectServer, instanceName, []string{"cat", "/home/" + fixture.Owner + "/.ssh/authorized_keys"}))
@@ -96,7 +96,7 @@ func TestCLIAddDetachE2E(t *testing.T) {
 }
 
 func TestCLIAddDefaultEnterE2E(t *testing.T) {
-	fixture := setupCLIAddProjectE2E(t, "add")
+	fixture := setupCLIAddProjectE2E(t, "create")
 	sandcastleBin := strings.TrimSpace(fixture.Config.SandcastleBin)
 	if sandcastleBin == "" {
 		sandcastleBin = buildSandcastleForE2E(t)
@@ -105,7 +105,7 @@ func TestCLIAddDefaultEnterE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, sandcastleBin,
-		"add", fixture.SandboxRef,
+		"create", fixture.SandboxRef,
 		"--template", "base",
 		"--home-dir", "interactive-home",
 		"--workspace-dir", ".",
@@ -114,16 +114,16 @@ func TestCLIAddDefaultEnterE2E(t *testing.T) {
 	command.Env = append(os.Environ(), sandcastleCLIEnv(fixture)...)
 	output, err := command.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		t.Fatalf("sandcastle add default enter timed out\n%s", strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle create default enter timed out\n%s", strings.TrimSpace(string(output)))
 	}
 	if err != nil {
-		t.Fatalf("sandcastle add default enter: %v\n%s", err, strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle create default enter: %v\n%s", err, strings.TrimSpace(string(output)))
 	}
 	if !strings.Contains(string(output), "sandcastle-add-interactive-ok") {
-		t.Fatalf("sandcastle add default enter output missing marker:\n%s", strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle create default enter output missing marker:\n%s", strings.TrimSpace(string(output)))
 	}
 	if !strings.Contains(string(output), fixture.Owner) {
-		t.Fatalf("sandcastle add default enter output missing Linux user %q:\n%s", fixture.Owner, strings.TrimSpace(string(output)))
+		t.Fatalf("sandcastle create default enter output missing Linux user %q:\n%s", fixture.Owner, strings.TrimSpace(string(output)))
 	}
 
 	projectServer := fixture.Server.UseProject(fixture.Project.IncusProject)
@@ -139,7 +139,7 @@ func TestCLIAddDefaultEnterE2E(t *testing.T) {
 	if instance.Devices["home"]["path"] != "/home/"+fixture.Owner {
 		t.Fatalf("home path = %q", instance.Devices["home"]["path"])
 	}
-	assertSandboxIngressFiles(t, projectServer, instanceName, fixture.SandboxName+"."+fixture.Project.Domain, sandbox.DefaultAppPort)
+	assertSandboxIngressFiles(t, projectServer, instanceName, fixture.SandboxName+"."+fixture.Project.DNSSuffix, sandbox.DefaultAppPort)
 }
 
 type cliAddFixture struct {
@@ -174,11 +174,12 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 	owner := safeProjectName("owner-" + runID)
 	name := safeProjectName("project-" + runID)
 	sandboxName := safeProjectName(suffix + "-" + runID)
-	ref := owner + "/" + name
-	sandboxRef := ref + "/" + sandboxName
+	ref := owner
+	sandboxRef := sandboxName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-" + suffix
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-" + suffix
 	adminConfig := config.Admin{
+		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
@@ -214,7 +215,7 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 			t.Logf("keeping disposable project %s", ref)
 			return
 		}
-		if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+		if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 			t.Logf("cleanup failed for %s: %v", ref, err)
 		}
 	})
@@ -225,14 +226,13 @@ func setupCLIAddProjectE2E(t *testing.T, suffix string) cliAddFixture {
 	}
 	createProjectPlan, err := project.PlanCreate(adminConfig, project.CreateRequest{
 		Reference:     ref,
-		Domain:        name + "." + e2eConfig.DomainSuffix,
 		SSHPublicKey:  e2eConfig.SSHPublicKey,
 		OccupiedCIDRs: project.OccupiedCIDRs(existing),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.CreateProject(ctx, createProjectPlan); err != nil {
+	if err := creator.CreateTenant(ctx, createProjectPlan); err != nil {
 		t.Fatal(err)
 	}
 
@@ -263,7 +263,7 @@ func setSandcastleCLIEnv(t *testing.T, fixture cliAddFixture) {
 func sandcastleCLIEnv(fixture cliAddFixture) []string {
 	return []string{
 		"SANDCASTLE_REMOTE=" + fixture.Config.Remote,
-		"SANDCASTLE_OWNER=" + fixture.Owner,
+		"SANDCASTLE_TENANT=" + fixture.Owner,
 		"SANDCASTLE_STORAGE_POOL=" + fixture.Config.StoragePool,
 		"SANDCASTLE_CIDR_POOL=" + fixture.Config.CIDRPool,
 		"SANDCASTLE_PROJECT_PREFIX=" + config.DefaultProjectPrefix,

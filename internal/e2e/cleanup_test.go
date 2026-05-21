@@ -61,23 +61,23 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 	deletedInfrastructure := 0
 	for _, incusProject := range projects {
 		switch incusProject.Config[meta.KeyKind] {
-		case meta.KindProject:
+		case meta.KindTenant:
 			if !managedProjectMatchesRun(incusProject, runToken) {
 				continue
 			}
 			t.Logf("cleanup matched project %s", incusProject.Name)
-			managed, err := meta.ParseProjectConfig(incusProject.Config)
+			managed, err := meta.ParseTenantConfig(incusProject.Config)
 			if err != nil {
 				t.Fatalf("parse project metadata for cleanup target %s: %v", incusProject.Name, err)
 			}
 			deletePlan, err := project.PlanDelete(adminConfig, project.DeleteRequest{
-				Reference: managed.Owner + "/" + managed.Project,
+				Reference: managed.Tenant,
 				Purge:     true,
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := projectDeleter.DeleteProject(ctx, deletePlan); err != nil {
+			if err := projectDeleter.DeleteTenant(ctx, deletePlan); err != nil {
 				t.Fatalf("cleanup project %s: %v", deletePlan.Reference, err)
 			}
 			deletedProjects++
@@ -123,11 +123,11 @@ func managedProjectMatchesRun(incusProject project.IncusProject, runToken string
 	if strings.Contains(incusProject.Name, runToken) {
 		return true
 	}
-	managed, err := meta.ParseProjectConfig(incusProject.Config)
+	managed, err := meta.ParseTenantConfig(incusProject.Config)
 	if err != nil {
 		return false
 	}
-	for _, value := range []string{managed.Owner, managed.Project, managed.Domain} {
+	for _, value := range []string{managed.Tenant, managed.PrivateCIDR} {
 		if strings.Contains(value, runToken) {
 			return true
 		}
@@ -139,7 +139,7 @@ func managedInfrastructureMatchesRun(incusProject project.IncusProject, runToken
 	if strings.Contains(incusProject.Name, runToken) {
 		return true
 	}
-	return strings.Contains(incusProject.Config[meta.KeyName], runToken)
+	return strings.Contains(incusProject.Config[meta.Prefix+"name"], runToken)
 }
 
 type cleanupResourceServer interface {
@@ -263,20 +263,18 @@ func TestCleanupRunTokenRequiresExplicitLongRunID(t *testing.T) {
 }
 
 func TestCleanupProjectSelectionMatchesOnlyRunID(t *testing.T) {
-	config, err := meta.ProjectConfig(meta.Project{
-		Owner:           "owner-e2e-20260520-120000",
-		Project:         "project-e2e-20260520-120000",
-		Domain:          "project-e2e-20260520-120000.e2e.project-tld",
-		PrivateCIDR:     "10.248.0.0/24",
-		DefaultTemplate: "ai",
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "tenant-e2e-20260520-120000",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !managedProjectMatchesRun(project.IncusProject{Name: "sc-owner-e2e-20260520-120000-project", Config: config}, "e2e-20260520-120000") {
+	if !managedProjectMatchesRun(project.IncusProject{Name: "sc-tenant-e2e-20260520-120000", Config: config}, "e2e-20260520-120000") {
 		t.Fatal("expected project cleanup match")
 	}
-	if managedProjectMatchesRun(project.IncusProject{Name: "sc-owner-other-project", Config: config}, "e2e-19990101-000000") {
+	if managedProjectMatchesRun(project.IncusProject{Name: "sc-tenant-other", Config: config}, "e2e-19990101-000000") {
 		t.Fatal("unexpected project cleanup match")
 	}
 }
@@ -285,9 +283,9 @@ func TestCleanupInfrastructureSelectionMatchesOnlyRunID(t *testing.T) {
 	project := project.IncusProject{
 		Name: "sc-infra-e2e-20260520-120000",
 		Config: map[string]string{
-			meta.KeyKind:    infrastructureKind,
-			meta.KeyVersion: "1",
-			meta.KeyName:    "sc-infra-e2e-20260520-120000",
+			meta.KeyKind:         infrastructureKind,
+			meta.KeyVersion:      "1",
+			meta.Prefix + "name": "sc-infra-e2e-20260520-120000",
 		},
 	}
 	if !managedInfrastructureMatchesRun(project, "e2e-20260520-120000") {

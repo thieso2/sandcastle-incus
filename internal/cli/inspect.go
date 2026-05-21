@@ -4,30 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/spf13/cobra"
 	sandbox "github.com/thieso2/sandcastle-incus/internal/machine"
 )
-
-func newInspectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	return &cobra.Command{
-		Use:   "inspect project/name",
-		Short: "Inspect a Sandcastle sandbox",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := sandbox.Inspect(
-				cmd.Context(),
-				config.adminConfig,
-				config.projectStore,
-				config.sandboxStore,
-				sandbox.InspectRequest{Reference: args[0]},
-			)
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatSandboxInspect(result), result)
-		},
-	}
-}
 
 func formatSandboxInspect(result sandbox.InspectResult) string {
 	var builder strings.Builder

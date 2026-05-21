@@ -50,3 +50,24 @@
   `internal/incusx` are still old (`ProjectCreator`, `SandboxCreator`) because
   the surrounding CLI has not been renamed yet, but their metadata behavior now
   writes and reads tenant/machine state.
+- User CLI command names now expose the new no-alias surface for the main
+  machine lifecycle: `list`, `create`, `connect`, and `delete`. I removed the
+  old `ls`, `add`, `enter`, and `rm` registrations from the root command rather
+  than keeping compatibility aliases. `status <machine>` currently reuses the
+  machine inspect payload so existing status/detail tests have one canonical
+  command while the old `inspect` command is no longer registered.
+- `sandcastle list` now lists machines in the current tenant instead of listing
+  tenant summaries. It scopes to `SANDCASTLE_PROJECT` unless `--all-projects/-a`
+  is supplied or no current project is configured. The `--include-unmanaged/-u`
+  flag shows non-Sandcastle Incus instances for tenant-wide lists, while the
+  unmanaged count is always printed even when unmanaged rows are hidden.
+- The admin tenant lifecycle group is now `sandcastle-admin tenant ...` instead
+  of `project ...`. I have not yet finished the top-level admin machine shape
+  (`sandcastle-admin list/create/connect/delete tenant/...`); that remains a
+  real gap against the final spec.
+- E2E fixtures and diagnostics now use tenant references and tenant local-DNS
+  state. Safe e2e tiers pass (`scripts/e2e.sh unit`, `gated`, `local`). The
+  destructive `incus` tier was attempted with `SANDCASTLE_E2E=1` and currently
+  cannot complete in this environment because Incus `local` cannot connect on
+  this non-Linux host; image-dependent tests also skip without
+  `SANDCASTLE_E2E_BASE_IMAGE_SOURCE` and `SANDCASTLE_E2E_AI_IMAGE_SOURCE`.
