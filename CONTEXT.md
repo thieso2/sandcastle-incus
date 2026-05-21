@@ -9,13 +9,93 @@ project, with simple CLI management for containers and later VMs.
 An admin-created top-level namespace that owns projects, DNS naming, and access boundaries.
 _Avoid_: Owner, account
 
+**Personal Tenant**:
+An automatically created Tenant scoped to one allowlisted User.
+_Avoid_: User-owned tenant, GitHub tenant
+
 **Tenant DNS Suffix**:
 The tenant name used as the final label of Sandcastle private hostnames.
 _Avoid_: Tenant TLD, tenant domain
 
+**Personal Tenant DNS Suffix**:
+The Tenant DNS Suffix initially derived from the allowlisted GitHub Username for a Personal Tenant.
+_Avoid_: Numeric GitHub account ID suffix, auto-updated GitHub username
+
+**GitHub Username Tenant Name**:
+The normalized GitHub username form allowed for Personal Tenant names.
+_Avoid_: Generic tenant name validation
+
 **User**:
 An identity that can manage Sandcastle resources within one or more tenants.
 _Avoid_: Owner
+
+**Sandcastle User Key**:
+The Sandcastle identifier for a User, derived from the allowlisted GitHub Username in v1.
+_Avoid_: Numeric GitHub account ID as user-facing identity, email as identity key
+
+**GitHub Username**:
+The GitHub login name used as the Sandcastle User Key, Personal Tenant name, and Personal Tenant DNS Suffix in v1.
+_Avoid_: Display-only metadata
+
+**Normalized GitHub Username**:
+The lowercase form of a GitHub Username used for Sandcastle identifiers.
+_Avoid_: GitHub display casing
+
+**GitHub Email**:
+The email address collected from GitHub OAuth and stored as inactive User metadata in v1.
+_Avoid_: User identity, notification channel in v1
+
+**Login Allowlist**:
+The admin-managed set of GitHub accounts allowed to authenticate to Sandcastle.
+_Avoid_: Tenant Access, user registry
+
+**Sandcastle Admin**:
+A User allowed to manage login allowlisting and tenant access delegation.
+_Avoid_: Tenant owner, infrastructure user
+
+**GitHub OAuth Login**:
+The browser sign-in flow that maps a GitHub identity to a Sandcastle User.
+_Avoid_: GitHub OpenID login, GitHub OIDC login
+
+**Sandcastle OIDC Provider**:
+The public issuer that signs Sandcastle workload identity tokens for external cloud trust.
+_Avoid_: GitHub OIDC provider, OAuth login provider
+
+**Workload Identity Token**:
+A short-lived OIDC token that identifies both the User and the Machine for external cloud trust.
+_Avoid_: Sandbox token, cloud key
+
+**OIDC Signing Key**:
+The Auth App private key used to sign Workload Identity Tokens.
+_Avoid_: OAuth client secret, GitHub secret
+
+**Machine Runtime Secret**:
+A per-Machine secret used by the Machine to request Workload Identity Tokens from the Auth App.
+_Avoid_: User token, Incus certificate, cloud credential
+
+**Cloud Identity Config**:
+A User-owned external cloud trust configuration that a Machine can use for workload identity.
+_Avoid_: Tenant cloud config, project cloud setting
+
+**Auth App**:
+The infrastructure service that handles GitHub login, CLI device login, user registry, and workload identity issuing.
+_Avoid_: Route Broker, Incus metadata app
+
+**Auth Hostname**:
+The public HTTPS hostname for the Auth App and Sandcastle OIDC Provider issuer.
+_Avoid_: Route hostname, tenant hostname
+
+**Auth Database**:
+The Auth App's persistent SQLite store for login identities, device login state, token records, and audit state.
+_Avoid_: Tenant Metadata, Incus project config
+
+**CLI Device Login**:
+The browser-assisted CLI sign-in flow that lets a User authorize a local CLI without pasting long-lived credentials.
+_Avoid_: API token login, password login
+
+**Incus Certificate Add Token**:
+A one-time Incus token that lets the CLI add its locally generated client certificate as the User's restricted Incus credential.
+_Avoid_: Incus auth token, Sandcastle API token, private key
 
 **Created By**:
 Audit metadata recording which user created a resource.
@@ -113,6 +193,13 @@ _Avoid_: Projectless mode
 - A **Tenant** has one **Tenant Infrastructure** set shared by all its **Projects**.
 - A **Tenant** has **Tenant Storage** shared by all its **Projects**.
 - Admin tenant creation requires only the **Tenant** name; infrastructure details are derived from admin configuration.
+- Admin-created non-personal **Tenants** keep the existing Sandcastle tenant naming rule.
+- The Auth App creates a **Personal Tenant** for an allowlisted **User** during first CLI Device Login.
+- A **Personal Tenant** uses the **Normalized GitHub Username** as its Tenant identity in v1.
+- A **Personal Tenant** name follows **GitHub Username Tenant Name** rules in v1.
+- A **Personal Tenant DNS Suffix** is initialized from the allowlisted **Normalized GitHub Username**.
+- A **Personal Tenant DNS Suffix** does not automatically change when the **GitHub Username** changes.
+- Only a **Sandcastle Admin** may delete a **Personal Tenant** in v1.
 - Admin tenant deletion refuses non-empty tenants unless explicitly purged.
 - The admin CLI manages **Tenants** with `tenant list`, `tenant create`, `tenant status`, `tenant delete`, `tenant grant`, `tenant revoke`, and `tenant users`.
 - The admin CLI manages **Users** with `user create` and `user token`; **Tenant Access** is managed with `tenant grant`, `tenant revoke`, and `tenant users`.
@@ -125,6 +212,7 @@ _Avoid_: Projectless mode
 - Users with tenant access may delete named **Projects** only when they contain no **Machines**.
 - The **Default Project** cannot be deleted.
 - **Project** names are DNS-safe lowercase labels.
+- **GitHub Username Tenant Name** may start with a digit.
 - Infrastructure words such as `default`, `dns`, `tailscale`, `ca`, `route`, `admin`, and `infra` are reserved **Project** names; `default` is created only by tenant creation.
 - A **Project** has zero or more **Machines**.
 - A **Machine** belongs to exactly one **Project**.
@@ -144,6 +232,7 @@ _Avoid_: Projectless mode
 - The user CLI manages **Projects** with `project list`, `project create`, `project status`, and `project delete`.
 - User **Public Route** mutations go through the **Route Broker**.
 - All user **Public Route** operations go through the **Route Broker**.
+- Users cannot claim the **Auth Hostname** as a **Public Route**.
 - The **Route Broker** authenticates users with their Sandcastle Incus client certificate.
 - **Public Routes** are globally registered in infrastructure metadata with tenant, project, and machine target identity.
 - A **Public Route** hostname is any unclaimed public DNS name that proves it points at Sandcastle ingress.
@@ -191,6 +280,65 @@ _Avoid_: Projectless mode
 - Machine lookup commands may search across projects when no project is supplied and no `SANDCASTLE_PROJECT` is set, but only act when the machine name is unique.
 - Destructive machine lookup commands require confirmation when the **Project** was inferred, unless the user supplies an explicit confirmation flag.
 - A **User** may have **Tenant Access** to one or more **Tenants**.
+- A **User** has one **Sandcastle User Key**.
+- A **Sandcastle User Key** is the allowlisted **Normalized GitHub Username** in v1.
+- A **GitHub Username** rename requires explicit future migration code.
+- GitHub is the only external login provider in v1.
+- Sandcastle v1 has no password login for the Auth App.
+- **GitHub Email** may be stored but is not used for notifications in v1.
+- **GitHub Email** is not used for identity, allowlisting, tenant names, or OIDC subject claims.
+- Admins manage the **Login Allowlist** by entering **GitHub Usernames**.
+- The **Login Allowlist** authorizes by **Normalized GitHub Username** in v1.
+- The **Login Allowlist** contains explicit GitHub users only in v1, not GitHub organizations or teams.
+- The Auth App verifies a **GitHub Username** with GitHub before adding it to the **Login Allowlist**.
+- The **Login Allowlist** stores the numeric GitHub account ID as metadata for audit and future migration.
+- A GitHub account rename blocks **GitHub OAuth Login** until a **Sandcastle Admin** performs a migration or allowlist repair.
+- Adding a GitHub account to the **Login Allowlist** is enough to provision that user's **Personal Tenant** during CLI Device Login.
+- Adding a GitHub account to the **Login Allowlist** does not immediately create a **Personal Tenant**.
+- Removing a GitHub account from the **Login Allowlist** blocks new **GitHub OAuth Login** and **CLI Device Login**.
+- Removing a GitHub account from the **Login Allowlist** revokes that User's active **Tenant Access** and restricted Incus certificate grants by default.
+- Removing a GitHub account from the **Login Allowlist** does not delete the User's **Personal Tenant** or Machines.
+- The Auth App creates a **Personal Tenant** lazily during the user's first successful **CLI Device Login**.
+- Browser-only **GitHub OAuth Login** creates a web session but does not create a **Personal Tenant**.
+- Only a **Sandcastle Admin** may manage the **Login Allowlist**.
+- Only a **Sandcastle Admin** may grant or revoke **Tenant Access** through the Auth App.
+- The first **Sandcastle Admin** is bootstrapped from deployment configuration.
+- Initial **Sandcastle Admins** are bootstrapped from configured **GitHub Usernames**.
+- The **Auth App** manages **Tenant Access** by applying the same restricted Incus certificate grants as `sandcastle-admin`.
+- A **User** may authenticate to Sandcastle through **GitHub OAuth Login**.
+- The **Sandcastle OIDC Provider** issues workload identity tokens for **Machines**, not browser login sessions.
+- A **Workload Identity Token** identifies both the **User** and the **Machine**.
+- A **Workload Identity Token** may expose **Tenant**, **Project**, **Machine**, **Sandcastle User Key**, and **GitHub Username** claims.
+- A **Workload Identity Token** does not use the legacy `sandbox` vocabulary.
+- A **Workload Identity Token** expires after 15 minutes in v1.
+- An **OIDC Signing Key** is stored encrypted in the **Auth Database**.
+- The **Sandcastle OIDC Provider** publishes public signing keys through JWKS.
+- The Auth App deployment secret protects encrypted sensitive state and web sessions.
+- A **Machine** uses a **Machine Runtime Secret** to request **Workload Identity Tokens**.
+- A **Machine Runtime Secret** is rotated when workload identity is enabled, re-enabled, or the **Machine** is rebuilt.
+- The **Auth App** stores only a verifier for a **Machine Runtime Secret**, not the raw secret.
+- A **User** may define one or more **Cloud Identity Configs**.
+- **Cloud Identity Configs** are selected per **Machine** when workload identity is enabled.
+- Sandcastle v1 does not apply **Cloud Identity Configs** automatically at the **Tenant** or **Project** level.
+- The **Auth App** is implemented as part of the Go Sandcastle codebase.
+- The **Auth App** runs as its own infrastructure service, separate from the **Route Broker**.
+- The **Auth App** uses minimal server-rendered HTML for its user and admin workflows.
+- The **Auth App** is served publicly at the configured **Auth Hostname**.
+- The **Auth Hostname** is the issuer host for the **Sandcastle OIDC Provider**.
+- The **Auth Hostname** is reserved infrastructure routing, not a user-created **Public Route**.
+- The **Auth App** stores login and device authorization state in the **Auth Database**.
+- The **Auth Database** lives on persistent infrastructure storage and is scoped to a single Auth App instance in v1.
+- **Tenant Metadata** remains the authoritative Sandcastle state for tenant runtime resources, not the Auth App's session or login store.
+- **CLI Device Login** returns an **Incus Certificate Add Token**, not a generated client private key.
+- During **CLI Device Login**, the CLI generates and stores its own Incus client private key locally.
+- Users start **CLI Device Login** with `sandcastle login <auth-host>`.
+- **CLI Device Login** shows Personal Tenant provisioning progress in the terminal.
+- **CLI Device Login** reports provisioning progress through polling status messages in v1.
+- **CLI Device Login** provisioning is idempotent and safe to retry after partial failure.
+- **CLI Device Login** sets the current tenant only when the User has exactly one accessible **Tenant**.
+- **CLI Device Login** may succeed for a **User** with no **Tenant Access**.
+- A **User** with no **Tenant Access** cannot manage Sandcastle resources until a **Sandcastle Admin** grants access.
+- A **User** receives **Tenant Access** to their **Personal Tenant** when it is created.
 - **Tenant Access** grants access to every **Project** and **Machine** in that **Tenant**.
 - **Tenant Access** grants management rights over **Projects**, **Machines**, and **Public Routes** in that **Tenant**.
 - User CLI commands operate in exactly one **Current Tenant**.
@@ -213,6 +361,14 @@ _Avoid_: Projectless mode
 ## Flagged Ambiguities
 
 - "owner" was previously used as the top-level namespace in code and specs; resolved: the canonical domain term is **Tenant**, and **User** is only an access identity.
+- "GitHub username as UID" makes Sandcastle identity mutable; resolved: accepted for v1, with future migration code needed if a GitHub account is renamed.
+- "Whitelisted GitHub username" is both admin-facing input and the v1 authorization key; resolved: **Login Allowlist** entries are keyed by **GitHub Username**.
+- "Admins create all tenants" is not true for allowlisted users; resolved: the Auth App creates a **Personal Tenant** during first **CLI Device Login** for each allowlisted GitHub account.
+- "GitHub OpenID login" conflated GitHub browser authentication with Sandcastle workload identity; resolved: use **GitHub OAuth Login** for browser sign-in and **Sandcastle OIDC Provider** for external cloud trust.
+- The older Rails app used `sandbox` in OIDC claims; resolved: Incus Sandcastle **Workload Identity Tokens** use **Tenant**, **Project**, and **Machine** vocabulary.
+- "Store everything in Incus metadata" would mix login/session state with tenant runtime metadata; resolved: the **Auth App** uses an **Auth Database**, while **Tenant Metadata** remains the tenant runtime source of truth.
+- "Token for Incus auth" could mean a private credential or an enrollment token; resolved: **CLI Device Login** returns an **Incus Certificate Add Token** and never exposes a client private key to the **Auth App**.
+- "containers" can mean user-facing runtime environments or the Incus implementation type; resolved: use **Machine** for the product concept and **Container** only for the Incus-backed Machine type.
 - "default" could mean CLI shorthand or a real project; resolved: **Default Project** is a real **Project** named `default`.
 - "tenant-tld" suggested that the tenant name is a public DNS top-level domain; resolved: use **Tenant DNS Suffix** for the private final hostname label.
 - A bare machine name in the CLI could imply a projectless resource; resolved: it means the machine in the **Current Project**, which defaults to the **Default Project**.
