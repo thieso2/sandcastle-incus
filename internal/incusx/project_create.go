@@ -435,7 +435,7 @@ func ensureStoragePool(server ProjectCreateServer, plan project.CreatePlan) erro
 		meta.KeyTenant:  plan.Reference,
 		meta.KeyVersion: "1",
 	}
-	if source := adminPool.Config["source"]; source != "" {
+	if source := adminPool.Config["source"]; source != "" && adminPool.Driver != "dir" {
 		poolConfig["source"] = source + "/" + plan.StoragePool
 	}
 	return server.CreateStoragePool(api.StoragePoolsPost{

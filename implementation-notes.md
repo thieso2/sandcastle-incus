@@ -102,6 +102,11 @@
   `inspect`/`ls`, and sandbox wording toward tenant/project/machine command
   shape. Some deeper planning and e2e design docs still use historical
   milestone language and need a separate documentation pass.
+- Disposable VM e2e with Debian 13's Incus 6.0.4 exposed that tenant storage
+  pool creation cannot pass a derived `source` path for `dir` pools: Incus does
+  not create that nested path before volume file upload. The creator now omits
+  `source` for `dir` pools and lets Incus manage the pool path; non-dir pools
+  still derive a per-tenant source from the admin pool.
 - E2E fixtures and diagnostics now use tenant references and tenant local-DNS
   state. Safe e2e tiers pass after the latest CLI-shape work:
   `go test ./...`, `scripts/e2e.sh unit`, `scripts/e2e.sh gated`, and

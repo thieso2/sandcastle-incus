@@ -18,6 +18,7 @@ import (
 type fakeCreateServer struct {
 	project        *api.Project
 	pool           *api.StoragePool
+	adminPool      *api.StoragePool
 	images         map[string]*api.Image
 	imageAliases   map[string]*api.ImageAliasesEntry
 	createdProject *api.ProjectsPost
@@ -50,6 +51,12 @@ func (s *fakeCreateServer) UseProject(name string) ProjectResourceServer {
 func (s *fakeCreateServer) GetStoragePool(name string) (*api.StoragePool, string, error) {
 	if s.pool != nil && s.pool.Name == name {
 		return s.pool, "etag", nil
+	}
+	if s.adminPool != nil && s.adminPool.Name == name {
+		return s.adminPool, "etag", nil
+	}
+	if name != config.DefaultStoragePool {
+		return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
 	}
 	return &api.StoragePool{
 		Name:   name,
@@ -306,6 +313,9 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if server.createdProject.Name != "sc-acme" {
 		t.Fatalf("created project = %q", server.createdProject.Name)
 	}
+	if got := server.createdPool.Config["source"]; got != "default/sc-acme" {
+		t.Fatalf("created pool source = %q", got)
+	}
 	for _, key := range []string{
 		"features.images",
 		"features.profiles",
@@ -373,6 +383,33 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	}
 	if got := strings.Join(resourceServer.execCommands[2], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") {
 		t.Fatalf("exec[2] command = %q", got)
+	}
+}
+
+func TestProjectCreatorOmitsSourceForDirStoragePool(t *testing.T) {
+	plan := createPlanForTest(t)
+	resourceServer := &fakeResourceServer{
+		networks:           map[string]*api.Network{},
+		volumes:            map[string]*api.StorageVolume{},
+		instances:          map[string]*api.Instance{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
+	}
+	server := fakeCreateServerForPlan(plan, resourceServer)
+	server.adminPool = &api.StoragePool{
+		Name:   plan.AdminStoragePool,
+		Driver: "dir",
+		StoragePoolPut: api.StoragePoolPut{
+			Config: api.ConfigMap{"source": "/var/lib/incus/storage-pools/default"},
+		},
+	}
+	creator := ProjectCreator{Server: server}
+
+	if err := creator.CreateTenant(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := server.createdPool.Config["source"]; ok {
+		t.Fatalf("created dir pool config = %#v, want no source", server.createdPool.Config)
 	}
 }
 
