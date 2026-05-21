@@ -10,7 +10,6 @@ import (
 )
 
 func newAdminMachineListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var includeUnmanaged bool
 	command := &cobra.Command{
 		Use:   "list tenant[/project]",
 		Short: "List Sandcastle machines in a tenant",
@@ -21,9 +20,8 @@ func newAdminMachineListCommand(config commandConfig, opts *rootOptions) *cobra.
 				return err
 			}
 			result, err := listMachines(cmd.Context(), cfg, listMachinesRequest{
-				Project:          projectName,
-				AllProjects:      projectName == "",
-				IncludeUnmanaged: includeUnmanaged,
+				Project:     projectName,
+				AllProjects: projectName == "",
 			})
 			if err != nil {
 				return err
@@ -31,7 +29,6 @@ func newAdminMachineListCommand(config commandConfig, opts *rootOptions) *cobra.
 			return writeOutput(cfg.stdout, opts.output, formatMachineList(result), result)
 		},
 	}
-	command.Flags().BoolVarP(&includeUnmanaged, "include-unmanaged", "u", false, "include unmanaged Incus instances when tenant-wide")
 	return command
 }
 

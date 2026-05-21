@@ -463,13 +463,11 @@ sandcastle list                  # current project if configured, otherwise all 
 sandcastle list default          # default project only
 sandcastle list --all-projects   # all projects
 sandcastle list -a               # short for --all-projects
-sandcastle list -u               # include unmanaged Incus instances when tenant-wide
-sandcastle list -a -u            # all projects plus unmanaged Incus instances
 ```
 
 Machine list output always includes the project. Machine list shows only a
 compact public route indicator. Machine status may show public route details.
-Status output always reports unmanaged Incus instance counts.
+List and status output always report unmanaged Incus resources.
 
 Project commands:
 
@@ -556,7 +554,6 @@ Admin list behavior:
 
 ```bash
 sandcastle-admin list acme       # all projects in tenant
-sandcastle-admin list acme -u    # all projects plus unmanaged instances
 sandcastle-admin list acme/site  # project only
 ```
 
@@ -568,15 +565,9 @@ sandcastle-admin status
 
 ## Unmanaged Incus Resources
 
-Normal Sandcastle operations ignore unmanaged Incus instances. List commands may
-show unmanaged Incus instances when explicitly requested with
-`--include-unmanaged` or `-u`.
-
-Unmanaged rows appear only when the effective list scope is tenant-wide. Project
-scoped list output does not show unmanaged instances, because unmanaged
-instances do not belong to a Sandcastle project.
-
-Status output always reports unmanaged instance counts.
+Normal Sandcastle operations ignore unmanaged Incus instances. List commands show
+unmanaged instances by default, and status output always reports unmanaged
+instance counts.
 
 Tenant purge may remove unmanaged instances because it is explicitly destructive
 and removes the tenant Incus project.

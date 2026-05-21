@@ -302,7 +302,7 @@ func TestListUsesProjectFromEnv(t *testing.T) {
 	}
 }
 
-func TestListShowsUnmanagedCountWithoutFlag(t *testing.T) {
+func TestListShowsUnmanagedRowsByDefault(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -327,39 +327,12 @@ func TestListShowsUnmanagedCountWithoutFlag(t *testing.T) {
 	if !strings.Contains(stdout, "Unmanaged: 1") {
 		t.Fatalf("stdout = %q, want unmanaged count", stdout)
 	}
-	if strings.Contains(stdout, "manual") {
-		t.Fatalf("stdout = %q, unmanaged row should be hidden without -u", stdout)
-	}
-}
-
-func TestListIncludesUnmanagedWithFlagTenantWide(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		projectStore: project.MemoryStore{Projects: []project.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
-			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
-		}}},
-	}, "list", "-u")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "unmanaged:Running") || !strings.Contains(stdout, "Unmanaged: 1") {
 		t.Fatalf("stdout = %q, want unmanaged row and count", stdout)
 	}
 }
 
-func TestListProjectScopeHidesUnmanagedRowsButShowsCount(t *testing.T) {
+func TestListProjectScopeAlsoShowsUnmanagedRows(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -377,15 +350,25 @@ func TestListProjectScopeHidesUnmanagedRowsButShowsCount(t *testing.T) {
 		sandboxStore: fakeSandboxInspectStore{unmanaged: []sandbox.UnmanagedMachine{{
 			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
 		}}},
-	}, "list", "default", "-u")
+	}, "list", "default")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout, "Unmanaged: 1") {
 		t.Fatalf("stdout = %q, want unmanaged count", stdout)
 	}
-	if strings.Contains(stdout, "manual") {
-		t.Fatalf("stdout = %q, unmanaged row should be hidden for project-scoped list", stdout)
+	if !strings.Contains(stdout, "manual") || !strings.Contains(stdout, "unmanaged:Running") {
+		t.Fatalf("stdout = %q, want unmanaged row", stdout)
+	}
+}
+
+func TestListRejectsRemovedUnmanagedFlag(t *testing.T) {
+	_, err := executeForTest(t, "sandcastle", "list", "-u")
+	if err == nil {
+		t.Fatal("expected removed -u flag to be rejected")
+	}
+	if !strings.Contains(err.Error(), "unknown shorthand flag") {
+		t.Fatalf("error = %q", err)
 	}
 }
 

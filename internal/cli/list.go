@@ -15,13 +15,12 @@ import (
 )
 
 type listPayload struct {
-	Tenant           project.Summary            `json:"tenant"`
-	Project          string                     `json:"project,omitempty"`
-	AllProjects      bool                       `json:"allProjects"`
-	IncludeUnmanaged bool                       `json:"includeUnmanaged"`
-	Machines         []meta.Machine             `json:"machines"`
-	Unmanaged        []machine.UnmanagedMachine `json:"unmanaged,omitempty"`
-	UnmanagedCount   int                        `json:"unmanagedCount"`
+	Tenant         project.Summary            `json:"tenant"`
+	Project        string                     `json:"project,omitempty"`
+	AllProjects    bool                       `json:"allProjects"`
+	Machines       []meta.Machine             `json:"machines"`
+	Unmanaged      []machine.UnmanagedMachine `json:"unmanaged,omitempty"`
+	UnmanagedCount int                        `json:"unmanagedCount"`
 }
 
 type tenantListPayload struct {
@@ -30,7 +29,6 @@ type tenantListPayload struct {
 
 func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var allProjects bool
-	var includeUnmanaged bool
 	command := &cobra.Command{
 		Use:     "list [project]",
 		Aliases: []string{"ls"},
@@ -38,9 +36,8 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := listMachines(cmd.Context(), config, listMachinesRequest{
-				Project:          optionalArg(args),
-				AllProjects:      allProjects,
-				IncludeUnmanaged: includeUnmanaged,
+				Project:     optionalArg(args),
+				AllProjects: allProjects,
 			})
 			if err != nil {
 				return err
@@ -49,7 +46,6 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVarP(&allProjects, "all-projects", "a", false, "list machines across all projects")
-	command.Flags().BoolVarP(&includeUnmanaged, "include-unmanaged", "u", false, "include unmanaged Incus instances when tenant-wide")
 	return command
 }
 
@@ -69,9 +65,8 @@ func formatTenantList(tenants []project.Summary) string {
 }
 
 type listMachinesRequest struct {
-	Project          string
-	AllProjects      bool
-	IncludeUnmanaged bool
+	Project     string
+	AllProjects bool
 }
 
 func optionalArg(args []string) string {
@@ -131,18 +126,13 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	if err != nil {
 		return listPayload{}, err
 	}
-	includedUnmanaged := []machine.UnmanagedMachine(nil)
-	if request.IncludeUnmanaged && projectFilter == "" {
-		includedUnmanaged = unmanaged
-	}
 	return listPayload{
-		Tenant:           tenant,
-		Project:          projectFilter,
-		AllProjects:      projectFilter == "",
-		IncludeUnmanaged: request.IncludeUnmanaged,
-		Machines:         filtered,
-		Unmanaged:        includedUnmanaged,
-		UnmanagedCount:   len(unmanaged),
+		Tenant:         tenant,
+		Project:        projectFilter,
+		AllProjects:    projectFilter == "",
+		Machines:       filtered,
+		Unmanaged:      unmanaged,
+		UnmanagedCount: len(unmanaged),
 	}, nil
 }
 
