@@ -15,6 +15,11 @@ type File struct {
 	Mode    int    `json:"mode"`
 }
 
+const (
+	UpstreamResolverPath    = "/etc/resolv.conf"
+	UpstreamResolverContent = "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
+)
+
 func RenderInitial(suffix string, dnsAddress string) ([]File, error) {
 	return RenderTenant(suffix, dnsAddress, nil)
 }
@@ -45,7 +50,7 @@ ns IN A %s
 		if machine.Project == "" || machine.Name == "" || machine.PrivateIP == "" {
 			continue
 		}
-		record := machine.Name + "." + machine.Project
+		record := machine.Name + "." + machine.Project + "." + domain + "."
 		zone += fmt.Sprintf("%s IN A %s\n*.%s IN A %s\n", record, machine.PrivateIP, record, machine.PrivateIP)
 	}
 	return []File{
@@ -56,12 +61,23 @@ ns IN A %s
     errors
     file %s %s
 }
-`, domain, zonePath, domain),
+.:53 {
+    errors
+    forward . %s {
+        force_tcp
+    }
+}
+`, domain, zonePath, domain, UpstreamResolverPath),
 		},
 		{
 			Path:    zonePath,
 			Mode:    0o644,
 			Content: zone,
+		},
+		{
+			Path:    UpstreamResolverPath,
+			Mode:    0o644,
+			Content: UpstreamResolverContent,
 		},
 	}, nil
 }

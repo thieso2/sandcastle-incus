@@ -365,6 +365,9 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 	if got := resourceServer.createdFiles[project.DNSName+":/etc/coredns/zones/db.acme"]; got == "" {
 		t.Fatal("expected CoreDNS zone to be written")
 	}
+	if got := resourceServer.createdFiles[project.DNSName+":/etc/resolv.conf"]; !strings.Contains(got, "nameserver 1.1.1.1") {
+		t.Fatalf("DNS resolver file = %q", got)
+	}
 	if len(resourceServer.execCommands) != 3 {
 		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
 	}

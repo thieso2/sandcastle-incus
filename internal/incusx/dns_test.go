@@ -87,6 +87,9 @@ func TestDNSManagerApply(t *testing.T) {
 	if resource.files["/etc/coredns/zones/db.acme"] == "" {
 		t.Fatal("expected zone file to be written")
 	}
+	if got := resource.files["/etc/resolv.conf"]; !strings.Contains(got, "nameserver 1.1.1.1") {
+		t.Fatalf("DNS resolver file = %q", got)
+	}
 	if len(resource.execCommands) != 1 {
 		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
