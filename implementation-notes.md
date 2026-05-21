@@ -160,3 +160,8 @@
   host `incus` failures from run `e2e-incus-20260521-1051`: infrastructure route
   broker mTLS probe gets connection refused, and project DNS lookup from one
   sandbox times out.
+- Project DNS timeout was caused by Debian Incus images running
+  `systemd-resolved`, which binds port 53 on loopback and prevents CoreDNS from
+  binding `:53`. DNS sidecar CoreDNS restart now stops and masks
+  `systemd-resolved` before launching CoreDNS. Verified with
+  `TestProjectDNSE2E` on host Incus run `e2e-dns-fix-20260521-1100`.

@@ -354,6 +354,8 @@ func restartCoreDNS(server coreDNSRestarter) error {
 	op, err := server.ExecInstance(project.DNSName, api.InstanceExecPost{
 		Command: []string{"/bin/sh", "-c", strings.Join([]string{
 			"pkill -x coredns >/dev/null 2>&1 || true",
+			"systemctl stop systemd-resolved.service 2>/dev/null || true",
+			"systemctl mask systemd-resolved.service 2>/dev/null || true",
 			"systemd-run --unit=coredns --collect -- /usr/local/bin/coredns -conf /etc/coredns/Corefile",
 			"sleep 0.2",
 			"pgrep -x coredns >/dev/null 2>&1",
