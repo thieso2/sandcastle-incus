@@ -462,10 +462,10 @@ Bootstrap:
   <h2>7. Publish public routes</h2>
 
   <div class="step">
-    <h3>Add a public HTTP route <span class="badge badge-user">user</span></h3>
-    <p>Routes external HTTPS traffic for <code>myapp.example.com</code> to the sandbox's app port through the shared Caddy infrastructure.</p>
+    <h3>Create a public HTTP route <span class="badge badge-user">user</span></h3>
+    <p>Routes external HTTPS traffic for <code>myapp.example.com</code> to the machine's app port through the shared Caddy infrastructure.</p>
     <pre><code><span class="comment"># Requires SANDCASTLE_ROUTE_BROKER_URL to be set</span>
-<span class="cmd">sandcastle route add</span> <span class="arg">myapp.example.com alice/myproject/webapp</span></code></pre>
+<span class="cmd">sandcastle route create</span> <span class="arg">myapp.example.com website/webapp</span></code></pre>
     <div class="note"><strong>DNS proof required:</strong> The route broker will tell you which DNS record to create before the route is activated.</div>
   </div>
 
@@ -475,8 +475,13 @@ Bootstrap:
   </div>
 
   <div class="step">
+    <h3>Show a route <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle route status</span> <span class="arg">myapp.example.com</span></code></pre>
+  </div>
+
+  <div class="step">
     <h3>Remove a route <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle route rm</span> <span class="arg">myapp.example.com</span></code></pre>
+    <pre><code><span class="cmd">sandcastle route delete</span> <span class="arg">myapp.example.com</span></code></pre>
   </div>
 </section>
 
@@ -588,9 +593,10 @@ Bootstrap:
         <tr><td>sandcastle tailscale up &lt;proj&gt;</td><td>Attach Tailscale to project</td></tr>
         <tr><td>sandcastle tailscale status &lt;proj&gt;</td><td>Check Tailscale state</td></tr>
         <tr><td>sandcastle tailscale down &lt;proj&gt;</td><td>Detach Tailscale</td></tr>
-        <tr><td>sandcastle route add &lt;host&gt; &lt;ref&gt;</td><td>Publish public HTTP route</td></tr>
+        <tr><td>sandcastle route create &lt;host&gt; &lt;ref&gt;</td><td>Publish public HTTP route</td></tr>
         <tr><td>sandcastle route list</td><td>List published routes</td></tr>
-        <tr><td>sandcastle route rm &lt;host&gt;</td><td>Remove a public route</td></tr>
+        <tr><td>sandcastle route status &lt;host&gt;</td><td>Show a public route</td></tr>
+        <tr><td>sandcastle route delete &lt;host&gt;</td><td>Remove a public route</td></tr>
         <tr><td>sandcastle-admin project create</td><td>Create a new project</td></tr>
         <tr><td>sandcastle-admin project set-ssh-key</td><td>Set or update project SSH public key</td></tr>
         <tr><td>sandcastle-admin project delete</td><td>Delete a project</td></tr>

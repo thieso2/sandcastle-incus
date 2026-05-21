@@ -145,6 +145,19 @@ func TestPlanRemove(t *testing.T) {
 	}
 }
 
+func TestPlanStatus(t *testing.T) {
+	plan, err := PlanStatus(scconfig.LoadAdminFromEnv(), StatusRequest{Hostname: "App.Example.COM."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Hostname != "app.example.com" {
+		t.Fatalf("Hostname = %q", plan.Hostname)
+	}
+	if !plan.RequiresBroker {
+		t.Fatal("expected broker requirement")
+	}
+}
+
 func TestProfileName(t *testing.T) {
 	if got := ProfileName("App.Example.COM"); got != "sc-route-app-example-com" {
 		t.Fatalf("ProfileName = %q", got)

@@ -41,10 +41,16 @@
   `machine` or `project/machine` through `SANDCASTLE_TENANT` and
   `SANDCASTLE_PROJECT`. Route metadata writes `targetTenant`,
   `targetProject`, and `targetMachine`.
+- `sandcastle route status <hostname>` is implemented as a filtered read over
+  the existing route listing API rather than a new broker endpoint. That keeps
+  the current mTLS broker protocol smaller while still exposing the v1 command
+  shape; it can become a dedicated metadata lookup later if route lists become
+  too large.
 - Route broker authorization is now tenant-grant based. The mTLS principal still
-  has a human/user owner string for audit (`CreatedBy`), but route add/remove
-  authorization checks whether the certificate grants the target Incus tenant
-  project (`sc-{tenant}`), not whether the user name matches the tenant.
+  has a human/user owner string for audit (`CreatedBy`), but route
+  create/delete authorization checks whether the certificate grants the target
+  Incus tenant project (`sc-{tenant}`), not whether the user name matches the
+  tenant.
 - The Incus adapter layer has started moving from project/sandbox method
   semantics to tenant/machine semantics. Some concrete type names in
   `internal/incusx` are still old (`ProjectCreator`, `SandboxCreator`) because

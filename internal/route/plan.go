@@ -24,6 +24,10 @@ type RemoveRequest struct {
 	Hostname string
 }
 
+type StatusRequest struct {
+	Hostname string
+}
+
 type AddPlan struct {
 	Hostname              string            `json:"hostname"`
 	TargetReference       string            `json:"targetReference"`
@@ -56,6 +60,12 @@ type RemovePlan struct {
 }
 
 type ListPlan struct {
+	InfrastructureProject string `json:"infrastructureProject"`
+	RequiresBroker        bool   `json:"requiresBroker"`
+}
+
+type StatusPlan struct {
+	Hostname              string `json:"hostname"`
 	InfrastructureProject string `json:"infrastructureProject"`
 	RequiresBroker        bool   `json:"requiresBroker"`
 }
@@ -181,6 +191,21 @@ func PlanList(admin config.Admin) (ListPlan, error) {
 		return ListPlan{}, err
 	}
 	return ListPlan{InfrastructureProject: admin.InfrastructureProject, RequiresBroker: true}, nil
+}
+
+func PlanStatus(admin config.Admin, request StatusRequest) (StatusPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return StatusPlan{}, err
+	}
+	hostname, err := normalizePublicHostname(request.Hostname)
+	if err != nil {
+		return StatusPlan{}, err
+	}
+	return StatusPlan{
+		Hostname:              hostname,
+		InfrastructureProject: admin.InfrastructureProject,
+		RequiresBroker:        true,
+	}, nil
 }
 
 func ProfileName(hostname string) string {

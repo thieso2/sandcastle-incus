@@ -1715,6 +1715,59 @@ func TestRouteAddRequiresBrokerExecutor(t *testing.T) {
 	}
 }
 
+func TestRouteStatusShowsMatchingRoute(t *testing.T) {
+	routes := &fakeRouteManager{list: route.ListResult{Routes: []route.Route{
+		{Hostname: "app.example.com", TargetReference: "acme/default/codex", RoutePort: 5173},
+		{Hostname: "other.example.com", TargetReference: "acme/default/shell", RoutePort: 3000},
+	}}}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: routeAdminConfigForTest(),
+		routes:      routes,
+	}, "route", "status", "App.Example.COM.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(stdout) != "app.example.com -> acme/default/codex:5173" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestRouteStatusJSON(t *testing.T) {
+	routes := &fakeRouteManager{list: route.ListResult{Routes: []route.Route{
+		{Hostname: "app.example.com", TargetReference: "acme/default/codex", RoutePort: 5173},
+	}}}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: routeAdminConfigForTest(),
+		routes:      routes,
+	}, "--output", "json", "route", "status", "app.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload route.Route
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Hostname != "app.example.com" || payload.TargetReference != "acme/default/codex" || payload.RoutePort != 5173 {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestRouteStatusRequiresExistingRoute(t *testing.T) {
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: routeAdminConfigForTest(),
+		routes:      &fakeRouteManager{},
+	}, "route", "status", "missing.example.com")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "public route missing.example.com not found") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func routeAdminConfigForTest() scconfig.Admin {
 	admin := scconfig.LoadAdminFromEnv()
 	admin.Tenant = "acme"
@@ -2682,7 +2735,9 @@ func (f fakeRouteSandboxStore) FindMachine(ctx context.Context, summary project.
 	}, nil
 }
 
-type fakeRouteManager struct{}
+type fakeRouteManager struct {
+	list route.ListResult
+}
 
 func (f *fakeRouteManager) Add(ctx context.Context, plan route.AddPlan) error {
 	return nil
@@ -2693,7 +2748,7 @@ func (f *fakeRouteManager) Remove(ctx context.Context, plan route.RemovePlan) er
 }
 
 func (f *fakeRouteManager) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
-	return route.ListResult{}, nil
+	return f.list, nil
 }
 
 type fakeRouteBrokerRunner struct {

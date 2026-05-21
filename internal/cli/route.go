@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/route"
@@ -14,6 +15,7 @@ func newRouteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	command.AddCommand(newRouteAddCommand(config, opts))
 	command.AddCommand(newRouteListCommand(config, opts))
+	command.AddCommand(newRouteStatusCommand(config, opts))
 	command.AddCommand(newRouteRemoveCommand(config, opts))
 	return command
 }
@@ -70,6 +72,36 @@ func newRouteListCommand(config commandConfig, opts *rootOptions) *cobra.Command
 	}
 }
 
+func newRouteStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status hostname",
+		Short: "Show a public HTTP route",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := route.PlanStatus(config.adminConfig, route.StatusRequest{Hostname: args[0]})
+			if err != nil {
+				return err
+			}
+			if config.routes == nil {
+				return fmt.Errorf("route broker executor is not configured")
+			}
+			result, err := config.routes.List(cmd.Context(), route.ListPlan{
+				InfrastructureProject: plan.InfrastructureProject,
+				RequiresBroker:        plan.RequiresBroker,
+			})
+			if err != nil {
+				return err
+			}
+			for _, publicRoute := range result.Routes {
+				if publicRoute.Hostname == plan.Hostname {
+					return writeOutput(config.stdout, opts.output, formatRouteStatus(publicRoute), publicRoute)
+				}
+			}
+			return fmt.Errorf("public route %s not found", plan.Hostname)
+		},
+	}
+}
+
 func newRouteRemoveCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
@@ -113,12 +145,16 @@ func formatRouteList(result route.ListResult) string {
 	if len(result.Routes) == 0 {
 		return "No routes"
 	}
-	output := ""
+	var output strings.Builder
 	for index, route := range result.Routes {
 		if index > 0 {
-			output += "\n"
+			output.WriteString("\n")
 		}
-		output += fmt.Sprintf("%s -> %s:%d", route.Hostname, route.TargetReference, route.RoutePort)
+		output.WriteString(formatRouteStatus(route))
 	}
-	return output
+	return output.String()
+}
+
+func formatRouteStatus(publicRoute route.Route) string {
+	return fmt.Sprintf("%s -> %s:%d", publicRoute.Hostname, publicRoute.TargetReference, publicRoute.RoutePort)
 }
