@@ -379,8 +379,11 @@ func TestProjectCreatorCreatesMissingResources(t *testing.T) {
 		if resourceServer.execInstances[i] != name {
 			t.Fatalf("exec[%d] instance = %q, want %q", i, resourceServer.execInstances[i], name)
 		}
-		if got := strings.Join(resourceServer.execCommands[i], " "); !strings.Contains(got, "/usr/sbin/ip addr add") {
-			t.Fatalf("exec[%d] command = %q, want /usr/sbin/ip addr add", i, got)
+		got := strings.Join(resourceServer.execCommands[i], " ")
+		for _, want := range []string{"sandcastle-sidecar-network.service", "/usr/sbin/ip addr replace"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("exec[%d] command = %q, want %s", i, got, want)
+			}
 		}
 	}
 	// Third exec restarts CoreDNS.
