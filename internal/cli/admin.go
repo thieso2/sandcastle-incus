@@ -49,6 +49,9 @@ func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	project.AddCommand(newAdminProjectStatusCommand(config, opts))
 	project.AddCommand(newAdminProjectCreateCommand(config, opts))
 	project.AddCommand(newAdminProjectDeleteCommand(config, opts))
+	project.AddCommand(newAdminTenantGrantCommand(config, opts))
+	project.AddCommand(newAdminTenantRevokeCommand(config, opts))
+	project.AddCommand(newAdminTenantUsersCommand(config, opts))
 	project.AddCommand(newAdminProjectSetSSHKeyCommand(config))
 	return project
 }
@@ -190,6 +193,93 @@ func newAdminProjectSetSSHKeyCommand(config commandConfig) *cobra.Command {
 			return config.projectSSHKeyUpdater.SetTenantSSHKey(cmd.Context(), ref.IncusProject, args[1])
 		},
 	}
+}
+
+func newAdminTenantGrantCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "grant tenant user",
+		Short: "Grant tenant access to a restricted user",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := usertrust.PlanTenantGrant(config.adminConfig, usertrust.TenantAccessRequest{
+				Tenant: args[0],
+				User:   args[1],
+			})
+			if err != nil {
+				return err
+			}
+			if !dryRun {
+				if config.trustManager == nil {
+					return fmt.Errorf("restricted user grant executor is not configured")
+				}
+				if err := config.trustManager.Grant(cmd.Context(), plan); err != nil {
+					return err
+				}
+			}
+			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the grant plan without mutating trust state")
+	return command
+}
+
+func newAdminTenantRevokeCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "revoke tenant user",
+		Short: "Revoke tenant access from a restricted user",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := usertrust.PlanTenantRevoke(config.adminConfig, usertrust.TenantAccessRequest{
+				Tenant: args[0],
+				User:   args[1],
+			})
+			if err != nil {
+				return err
+			}
+			if !dryRun {
+				if config.trustManager == nil {
+					return fmt.Errorf("restricted user revoke executor is not configured")
+				}
+				if err := config.trustManager.Revoke(cmd.Context(), plan); err != nil {
+					return err
+				}
+			}
+			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the revoke plan without mutating trust state")
+	return command
+}
+
+func newAdminTenantUsersCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "users tenant",
+		Short: "List restricted users with tenant access",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := usertrust.PlanTenantUsers(config.adminConfig, args[0])
+			if err != nil {
+				return err
+			}
+			if config.trustManager == nil {
+				return fmt.Errorf("restricted user list executor is not configured")
+			}
+			result, err := config.trustManager.ListTenantUsers(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatTenantUsers(result), result)
+		},
+	}
+}
+
+func formatTenantUsers(result usertrust.TenantUsersResult) string {
+	if len(result.Users) == 0 {
+		return fmt.Sprintf("Tenant: %s\nUsers: none", result.Tenant)
+	}
+	return fmt.Sprintf("Tenant: %s\nUsers: %s", result.Tenant, strings.Join(result.Users, ", "))
 }
 
 func formatDeletePlan(plan project.DeletePlan) string {

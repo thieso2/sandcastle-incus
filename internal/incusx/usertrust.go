@@ -3,6 +3,8 @@ package incusx
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -52,6 +54,65 @@ func (m TrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) error 
 		}
 	}
 	return nil
+}
+
+func (m TrustManager) Revoke(ctx context.Context, plan usertrust.UserPlan) error {
+	server, err := m.server()
+	if err != nil {
+		return err
+	}
+	certs, err := findCertificates(server, plan.CertificateName)
+	if err != nil {
+		return err
+	}
+	for _, cert := range certs {
+		if err := validateGrantCertificate(cert, plan.CertificateName); err != nil {
+			return err
+		}
+		projects := removeProjects(cert.Projects, plan.Projects)
+		if err := server.UpdateCertificate(cert.Fingerprint, api.CertificatePut{
+			Name:        cert.Name,
+			Type:        api.CertificateTypeClient,
+			Restricted:  true,
+			Projects:    projects,
+			Certificate: cert.Certificate,
+			Description: plan.Description,
+		}, ""); err != nil {
+			return fmt.Errorf("update certificate %s: %w", cert.Fingerprint[:12], err)
+		}
+	}
+	return nil
+}
+
+func (m TrustManager) ListTenantUsers(ctx context.Context, plan usertrust.TenantUsersPlan) (usertrust.TenantUsersResult, error) {
+	server, err := m.server()
+	if err != nil {
+		return usertrust.TenantUsersResult{}, err
+	}
+	certificates, err := server.GetCertificates()
+	if err != nil {
+		return usertrust.TenantUsersResult{}, fmt.Errorf("list Incus certificates: %w", err)
+	}
+	users := []string{}
+	for _, cert := range certificates {
+		if cert.Type != api.CertificateTypeClient || !cert.Restricted {
+			continue
+		}
+		if !containsProject(cert.Projects, plan.IncusProject) {
+			continue
+		}
+		user := strings.TrimPrefix(cert.Name, usertrust.CertificateNamePrefix)
+		if user == "" {
+			user = cert.Name
+		}
+		users = append(users, user)
+	}
+	sort.Strings(users)
+	return usertrust.TenantUsersResult{
+		Tenant:       plan.Tenant,
+		IncusProject: plan.IncusProject,
+		Users:        users,
+	}, nil
 }
 
 func (m TrustManager) CreateToken(ctx context.Context, plan usertrust.UserPlan) (usertrust.TokenResult, error) {
@@ -148,4 +209,28 @@ func mergeProjects(existing []string, added []string) []string {
 		merged = append(merged, project)
 	}
 	return merged
+}
+
+func removeProjects(existing []string, removed []string) []string {
+	removedSet := map[string]bool{}
+	for _, project := range removed {
+		removedSet[project] = true
+	}
+	result := make([]string, 0, len(existing))
+	for _, project := range existing {
+		if project == "" || removedSet[project] {
+			continue
+		}
+		result = append(result, project)
+	}
+	return result
+}
+
+func containsProject(projects []string, want string) bool {
+	for _, project := range projects {
+		if project == want {
+			return true
+		}
+	}
+	return false
 }

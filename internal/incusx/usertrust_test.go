@@ -107,6 +107,52 @@ func TestTrustManagerGrantRejectsServerCertificate(t *testing.T) {
 	}
 }
 
+func TestTrustManagerRevoke(t *testing.T) {
+	server := &fakeTrustServer{certificates: []api.Certificate{{
+		Fingerprint: "abc",
+		CertificatePut: api.CertificatePut{
+			Name:       "sandcastle-alice",
+			Type:       api.CertificateTypeClient,
+			Restricted: true,
+			Projects:   []string{"sc-acme", "sc-other"},
+		},
+	}}}
+	manager := TrustManager{Server: server}
+	err := manager.Revoke(context.Background(), usertrust.UserPlan{
+		User:            "alice",
+		CertificateName: "sandcastle-alice",
+		Restricted:      true,
+		Projects:        []string{"sc-acme"},
+		Description:     "Sandcastle restricted user alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.updated == nil {
+		t.Fatal("expected certificate update")
+	}
+	if len(server.updated.Projects) != 1 || server.updated.Projects[0] != "sc-other" {
+		t.Fatalf("Projects = %#v", server.updated.Projects)
+	}
+}
+
+func TestTrustManagerListsTenantUsers(t *testing.T) {
+	server := &fakeTrustServer{certificates: []api.Certificate{
+		{CertificatePut: api.CertificatePut{Name: "sandcastle-bob", Type: api.CertificateTypeClient, Restricted: true, Projects: []string{"sc-acme"}}},
+		{CertificatePut: api.CertificatePut{Name: "sandcastle-alice", Type: api.CertificateTypeClient, Restricted: true, Projects: []string{"sc-acme"}}},
+		{CertificatePut: api.CertificatePut{Name: "sandcastle-carol", Type: api.CertificateTypeClient, Restricted: true, Projects: []string{"sc-other"}}},
+		{CertificatePut: api.CertificatePut{Name: "sandcastle-root", Type: api.CertificateTypeClient, Restricted: false, Projects: []string{"sc-acme"}}},
+	}}
+	manager := TrustManager{Server: server}
+	result, err := manager.ListTenantUsers(context.Background(), usertrust.TenantUsersPlan{Tenant: "acme", IncusProject: "sc-acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Users) != 2 || result.Users[0] != "alice" || result.Users[1] != "bob" {
+		t.Fatalf("Users = %#v", result.Users)
+	}
+}
+
 func TestTrustManagerCreateToken(t *testing.T) {
 	server := &fakeTrustServer{tokenOp: tokenOperation()}
 	manager := TrustManager{Server: server}

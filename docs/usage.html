@@ -208,54 +208,53 @@ remote: sc-alice</code></pre>
     <p>Set <code>VERBOSE=1</code> to see the Incus config directory and remote being used, plus
     per-operation detail from executors.</p>
     <pre><code><span class="env">export VERBOSE</span>=1
-<span class="cmd">sandcastle-admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.example.com</span>
+<span class="cmd">sandcastle-admin tenant create</span> <span class="arg">acme</span>
 <span class="comment"># [verbose] incus config: ~/.config/incus (default)</span>
 <span class="comment"># [verbose] incus remote: big</span></code></pre>
   </div>
 </section>
 
-<!-- ─── 2. Projects ───────────────────────────────────────────────────── -->
+<!-- ─── 2. Tenants ────────────────────────────────────────────────────── -->
 <section id="projects">
-  <h2>2. Create &amp; manage projects <span class="badge badge-admin">admin</span></h2>
+  <h2>2. Create &amp; manage tenants <span class="badge badge-admin">admin</span></h2>
 
   <div class="step">
-    <h3>List projects</h3>
-    <pre><code><span class="cmd">sandcastle-admin project list</span>
-<span class="cmd">sandcastle-admin project ls</span>          <span class="comment"># alias</span>
-<span class="cmd">sandcastle-admin project list</span> <span class="flag">--json</span>  <span class="comment"># JSON output</span></code></pre>
+    <h3>List tenants</h3>
+    <pre><code><span class="cmd">sandcastle-admin tenant list</span>
+<span class="cmd">sandcastle-admin tenant list</span> <span class="flag">--json</span>  <span class="comment"># JSON output</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Create a project</h3>
-    <p>Provisions an Incus project with isolated Incus feature namespaces, private bridge network, storage volumes, Tailscale sidecar, CoreDNS sidecar, and project-local Sandcastle image aliases.</p>
-    <pre><code><span class="cmd">sandcastle-admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span></code></pre>
-    <div class="note"><strong>Note:</strong> The <code>--domain</code> flag is required. It sets the private DNS zone for all sandboxes in the project (e.g. <code>mysandbox.myproject.dev.example.com</code>).</div>
-    <pre><code><span class="comment"># Inject an SSH public key into every sandbox at creation time</span>
-<span class="cmd">sandcastle-admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--ssh-key</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
+    <h3>Create a tenant</h3>
+    <p>Provisions a tenant Incus project with private bridge network, storage volumes, Tailscale sidecar, CoreDNS sidecar, and tenant-local Sandcastle image aliases.</p>
+    <pre><code><span class="cmd">sandcastle-admin tenant create</span> <span class="arg">acme</span></code></pre>
+    <div class="note"><strong>Note:</strong> The tenant name becomes the private DNS suffix for machines in that tenant (e.g. <code>codex.default.acme</code>).</div>
+    <pre><code><span class="comment"># Inject an SSH public key into every machine at creation time</span>
+<span class="cmd">sandcastle-admin tenant create</span> <span class="arg">acme</span> <span class="flag">--ssh-key</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
     <pre><code><span class="comment"># Preview what will be created without mutating anything</span>
-<span class="cmd">sandcastle-admin project create</span> <span class="arg">alice/myproject</span> <span class="flag">--domain</span> <span class="arg">myproject.dev.example.com</span> <span class="flag">--dry-run</span></code></pre>
+<span class="cmd">sandcastle-admin tenant create</span> <span class="arg">acme</span> <span class="flag">--dry-run</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Set or update project SSH key</h3>
-    <p>Update the SSH public key stored on an existing project. The new key will be injected into all sandboxes created after this point.</p>
-    <pre><code><span class="cmd">sandcastle-admin project set-ssh-key</span> <span class="arg">alice/myproject</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
+    <h3>Set or update tenant SSH key</h3>
+    <p>Update the SSH public key stored on an existing tenant. The new key will be injected into all machines created after this point.</p>
+    <pre><code><span class="cmd">sandcastle-admin tenant set-ssh-key</span> <span class="arg">acme</span> <span class="arg">"ssh-ed25519 AAAA..."</span></code></pre>
   </div>
 
   <div class="step">
-    <h3>Project status</h3>
-    <pre><code><span class="cmd">sandcastle-admin project status</span> <span class="arg">alice/myproject</span></code></pre>
+    <h3>Tenant status</h3>
+    <pre><code><span class="cmd">sandcastle-admin tenant status</span> <span class="arg">acme</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Delete a project (keep volumes)</h3>
     <p>Stops runtime resources (sidecars, network) but preserves home/workspace volumes.</p>
-    <pre><code><span class="cmd">sandcastle-admin project delete</span> <span class="arg">alice/myproject</span> <span class="flag">--yes</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin tenant delete</span> <span class="arg">acme</span> <span class="flag">--yes</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Purge a project (destroy everything)</h3>
-    <pre><code><span class="cmd">sandcastle-admin project delete</span> <span class="arg">alice/myproject</span> <span class="flag">--yes</span> <span class="flag">--purge</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin tenant delete</span> <span class="arg">acme</span> <span class="flag">--yes</span> <span class="flag">--purge</span></code></pre>
   </div>
 </section>
 
@@ -280,8 +279,9 @@ Bootstrap:
   <div class="step">
     <h3>Grant a user access to a project</h3>
     <p>Adds the Incus project to the user's certificate restriction list.</p>
-    <pre><code><span class="cmd">sandcastle-admin user grant</span> <span class="arg">alice alice/myproject</span>
-<span class="cmd">sandcastle-admin user grant</span> <span class="arg">alice alice/myproject alice/otherproject</span>  <span class="comment"># multiple</span></code></pre>
+    <pre><code><span class="cmd">sandcastle-admin tenant grant</span> <span class="arg">acme alice</span>
+<span class="cmd">sandcastle-admin tenant revoke</span> <span class="arg">acme alice</span>
+<span class="cmd">sandcastle-admin tenant users</span> <span class="arg">acme</span></code></pre>
   </div>
 
   <div class="step">
@@ -597,11 +597,10 @@ Bootstrap:
         <tr><td>sandcastle route list</td><td>List published routes</td></tr>
         <tr><td>sandcastle route status &lt;host&gt;</td><td>Show a public route</td></tr>
         <tr><td>sandcastle route delete &lt;host&gt;</td><td>Remove a public route</td></tr>
-        <tr><td>sandcastle-admin project create</td><td>Create a new project</td></tr>
-        <tr><td>sandcastle-admin project set-ssh-key</td><td>Set or update project SSH public key</td></tr>
-        <tr><td>sandcastle-admin project delete</td><td>Delete a project</td></tr>
+        <tr><td>sandcastle-admin tenant create</td><td>Create a new tenant</td></tr>
+        <tr><td>sandcastle-admin tenant grant/revoke/users</td><td>Manage tenant access</td></tr>
+        <tr><td>sandcastle-admin tenant delete</td><td>Delete a tenant</td></tr>
         <tr><td>sandcastle-admin user create &lt;user&gt;</td><td>Create restricted user certificate</td></tr>
-        <tr><td>sandcastle-admin user grant &lt;user&gt; &lt;proj&gt;...</td><td>Grant project access to user</td></tr>
         <tr><td>sandcastle-admin user token &lt;user&gt;</td><td>Re-issue add-token for user</td></tr>
         <tr><td>sandcastle-admin infra create</td><td>Create shared infrastructure</td></tr>
         <tr><td>sandcastle-admin infra delete</td><td>Delete shared infrastructure</td></tr>

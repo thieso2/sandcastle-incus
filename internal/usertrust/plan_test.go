@@ -67,3 +67,23 @@ func TestPlanGrantRejectsInvalidTenant(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestPlanTenantGrant(t *testing.T) {
+	plan, err := PlanTenantGrant(config.LoadAdminFromEnv(), TenantAccessRequest{Tenant: "acme", User: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.User != "alice" || len(plan.Projects) != 1 || plan.Projects[0] != "sc-acme" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestPlanTenantUsers(t *testing.T) {
+	plan, err := PlanTenantUsers(config.LoadAdminFromEnv(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Tenant != "acme" || plan.IncusProject != "sc-acme" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}

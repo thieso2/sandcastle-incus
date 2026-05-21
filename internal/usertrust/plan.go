@@ -24,6 +24,22 @@ type GrantRequest struct {
 	Projects []string
 }
 
+type TenantAccessRequest struct {
+	Tenant string
+	User   string
+}
+
+type TenantUsersPlan struct {
+	Tenant       string `json:"tenant"`
+	IncusProject string `json:"incusProject"`
+}
+
+type TenantUsersResult struct {
+	Tenant       string   `json:"tenant"`
+	IncusProject string   `json:"incusProject"`
+	Users        []string `json:"users"`
+}
+
 type TokenResult struct {
 	User            string   `json:"user"`
 	CertificateName string   `json:"certificateName"`
@@ -35,6 +51,8 @@ type TokenResult struct {
 
 type Manager interface {
 	Grant(context.Context, UserPlan) error
+	Revoke(context.Context, UserPlan) error
+	ListTenantUsers(context.Context, TenantUsersPlan) (TenantUsersResult, error)
 	CreateToken(context.Context, UserPlan) (TokenResult, error)
 }
 
@@ -84,6 +102,29 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 	return base, nil
 }
 
+func PlanTenantGrant(admin config.Admin, request TenantAccessRequest) (UserPlan, error) {
+	return planTenantAccess(admin, request)
+}
+
+func PlanTenantRevoke(admin config.Admin, request TenantAccessRequest) (UserPlan, error) {
+	return planTenantAccess(admin, request)
+}
+
+func PlanTenantUsers(admin config.Admin, tenant string) (TenantUsersPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return TenantUsersPlan{}, err
+	}
+	ref, err := naming.ParseTenantRef(tenant)
+	if err != nil {
+		return TenantUsersPlan{}, err
+	}
+	incusProject, err := naming.TenantIncusProjectNameWithPrefix(admin.ProjectPrefix, ref)
+	if err != nil {
+		return TenantUsersPlan{}, err
+	}
+	return TenantUsersPlan{Tenant: ref.Tenant, IncusProject: incusProject}, nil
+}
+
 func PlanToken(user string) (UserPlan, error) {
 	return PlanCreateUser(user)
 }
@@ -97,4 +138,14 @@ func validateUser(user string) error {
 		return fmt.Errorf("invalid user %q", user)
 	}
 	return nil
+}
+
+func planTenantAccess(admin config.Admin, request TenantAccessRequest) (UserPlan, error) {
+	if err := validateUser(request.User); err != nil {
+		return UserPlan{}, err
+	}
+	return PlanGrant(admin, GrantRequest{
+		User:     request.User,
+		Projects: []string{request.Tenant},
+	})
 }

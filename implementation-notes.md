@@ -73,6 +73,12 @@
   `sandcastle-admin create/connect/status/delete tenant[/project]/machine`.
   These commands translate admin refs into the same tenant-scoped machine
   planners used by the user CLI so the admin and user paths do not diverge.
+- Admin tenant access is now exposed in tenant-first command shape:
+  `sandcastle-admin tenant grant <tenant> <user>`,
+  `sandcastle-admin tenant revoke <tenant> <user>`, and
+  `sandcastle-admin tenant users <tenant>`. These commands still mutate Incus
+  restricted certificate project grants internally, because Incus calls the
+  access boundary a project.
 - Bare machine resolution for existing-machine operations now searches across
   the current tenant only when no current project is configured. If exactly one
   project contains the machine name, `connect`/`status`/`delete` use it; if

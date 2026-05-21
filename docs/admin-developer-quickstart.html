@@ -302,27 +302,27 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
       <p>Or import a pre-built image from a registry:</p>
       <pre><code>./bin/sc-adm image import ai SOURCE_REF</code></pre>
 
-      <h3>4. Create the project</h3>
-      <pre><code>./bin/sc-adm project create alice/myproject \
-  --domain myproject.project-tld</code></pre>
+      <h3>4. Create the tenant</h3>
+      <pre><code>./bin/sc-adm tenant create acme</code></pre>
       <p>This creates the Incus project with isolated feature namespaces, project-local Sandcastle image aliases, project-local private bridge network, isolated home/workspace/CA volumes, CoreDNS sidecar, and Tailscale sidecar. Both sidecars start immediately, but <strong>Tailscale is not yet activated</strong> — the container is running but <code>tailscaled</code> has not been started.</p>
 
       <h3>4a. Activate Tailscale (optional)</h3>
       <p>Skip this if you don't need Tailnet access to the project's private network.</p>
       <pre><code># Interactive (opens browser auth)
-./bin/sc tailscale up alice/myproject
+./bin/sc tailscale up
 
 # Unattended with an auth key
-./bin/sc tailscale up alice/myproject --auth-key tskey-auth-...</code></pre>
+./bin/sc tailscale up --auth-key tskey-auth-...</code></pre>
       <p>The <code>sc-tailscale</code> sidecar advertises the project's entire private CIDR (e.g. <code>10.248.0.0/24</code>) as a subnet route. Once you approve the route in the Tailscale admin console, any Tailnet device can reach all project sandboxes directly by their private IP.</p>
 
       <h3>5. Create the developer certificate token</h3>
       <pre><code>./bin/sc-adm user create alice</code></pre>
-      <p>Copy the printed join token into the handoff notes. The developer runs <code>sc remote add</code> with it. The admin must grant project access <em>after</em> the developer has added the remote.</p>
+      <p>Copy the printed join token into the handoff notes. The developer runs <code>sc remote add</code> with it. The admin must grant tenant access <em>after</em> the developer has added the remote.</p>
 
-      <h3>6. Grant project access after the developer adds the remote</h3>
-      <pre><code>./bin/sc-adm user grant alice alice/myproject</code></pre>
-      <p>The grant updates the developer's restricted Incus certificate so normal commands can operate only inside allowed projects.</p>
+      <h3>6. Grant tenant access after the developer adds the remote</h3>
+      <pre><code>./bin/sc-adm tenant grant acme alice
+./bin/sc-adm tenant users acme</code></pre>
+      <p>The grant updates the developer's restricted Incus certificate so normal commands can operate only inside allowed tenants.</p>
     </section>
 
     <section id="handoff">
@@ -340,8 +340,8 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
             <td><code>sc remote add sandcastle-alice JOIN_TOKEN --owner alice</code></td>
           </tr>
           <tr>
-            <td>Project reference</td>
-            <td><code>alice/myproject</code>, or <code>myproject</code> when <code>SANDCASTLE_OWNER</code> is set.</td>
+            <td>Tenant and project reference</td>
+            <td><code>acme</code>, with optional project machine refs such as <code>website/codex</code>.</td>
           </tr>
           <tr>
             <td>Project domain</td>
@@ -399,9 +399,10 @@ sc create website/codex --detach</code></pre>
       <div class="grid">
         <div class="panel">
           <h3>Admin checks</h3>
-          <pre><code>./bin/sc-adm project status alice/myproject
-incus project show REMOTE:sc-alice-myproject
-incus list REMOTE: --project sc-alice-myproject</code></pre>
+          <pre><code>./bin/sc-adm tenant status acme
+./bin/sc-adm tenant users acme
+incus project show REMOTE:sc-acme
+incus list REMOTE: --project sc-acme</code></pre>
         </div>
         <div class="panel">
           <h3>Developer checks</h3>
@@ -424,15 +425,16 @@ sc connect website/codex</code></pre>
     <section id="cleanup">
       <h2>Cleanup and recovery</h2>
       <h3>Developer cleanup</h3>
-      <pre><code>sc rm myproject/codex --yes
-sc trust uninstall myproject
-sc dns uninstall myproject
-sc tailscale down myproject</code></pre>
+      <pre><code>sc delete website/codex --yes
+sc trust uninstall
+sc dns uninstall
+sc tailscale down</code></pre>
 
       <h3>Admin cleanup</h3>
-      <pre><code>./bin/sc-adm project delete alice/myproject --yes
-# For disposable projects only:
-./bin/sc-adm project delete alice/myproject --yes --purge</code></pre>
+      <pre><code>./bin/sc-adm tenant revoke acme alice
+./bin/sc-adm tenant delete acme --yes
+# For disposable tenants only:
+./bin/sc-adm tenant delete acme --yes --purge</code></pre>
       <p><code>--purge</code> removes durable project state. Omit it when preserving home/workspace/CA volumes is required.</p>
     </section>
   </main>

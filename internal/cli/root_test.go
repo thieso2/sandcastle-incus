@@ -2384,6 +2384,58 @@ func TestAdminUserGrantDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestAdminTenantGrantCallsTrustManager(t *testing.T) {
+	manager := &fakeTrustManager{}
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		trustManager: manager,
+	}, "tenant", "grant", "acme", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.grantCalled || manager.plan.User != "alice" || len(manager.plan.Projects) != 1 || manager.plan.Projects[0] != "sc-acme" {
+		t.Fatalf("manager = %#v", manager)
+	}
+}
+
+func TestAdminTenantRevokeCallsTrustManager(t *testing.T) {
+	manager := &fakeTrustManager{}
+	_, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		trustManager: manager,
+	}, "tenant", "revoke", "acme", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.revokeCalled || manager.plan.User != "alice" || len(manager.plan.Projects) != 1 || manager.plan.Projects[0] != "sc-acme" {
+		t.Fatalf("manager = %#v", manager)
+	}
+}
+
+func TestAdminTenantUsersListsTrustUsers(t *testing.T) {
+	manager := &fakeTrustManager{tenantUsers: usertrust.TenantUsersResult{
+		Tenant:       "acme",
+		IncusProject: "sc-acme",
+		Users:        []string{"alice", "bob"},
+	}}
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		trustManager: manager,
+	}, "tenant", "users", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.usersCalled {
+		t.Fatal("expected tenant users manager call")
+	}
+	if !strings.Contains(stdout, "Users: alice, bob") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
 func TestAdminUserCreateDryRunShowsRemoteName(t *testing.T) {
 	stdout, err := executeAdminForTest(t, "sandcastle-admin", "user", "create", "alice", "--dry-run")
 	if err != nil {
@@ -2763,16 +2815,35 @@ func (f *fakeRouteBrokerRunner) Serve(ctx context.Context, plan routebroker.Serv
 }
 
 type fakeTrustManager struct {
-	tokenCalled bool
-	grantCalled bool
-	plan        usertrust.UserPlan
-	token       string
+	tokenCalled  bool
+	grantCalled  bool
+	revokeCalled bool
+	usersCalled  bool
+	plan         usertrust.UserPlan
+	usersPlan    usertrust.TenantUsersPlan
+	tenantUsers  usertrust.TenantUsersResult
+	token        string
 }
 
 func (f *fakeTrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) error {
 	f.grantCalled = true
 	f.plan = plan
 	return nil
+}
+
+func (f *fakeTrustManager) Revoke(ctx context.Context, plan usertrust.UserPlan) error {
+	f.revokeCalled = true
+	f.plan = plan
+	return nil
+}
+
+func (f *fakeTrustManager) ListTenantUsers(ctx context.Context, plan usertrust.TenantUsersPlan) (usertrust.TenantUsersResult, error) {
+	f.usersCalled = true
+	f.usersPlan = plan
+	if f.tenantUsers.Tenant == "" {
+		return usertrust.TenantUsersResult{Tenant: plan.Tenant, IncusProject: plan.IncusProject}, nil
+	}
+	return f.tenantUsers, nil
 }
 
 func (f *fakeTrustManager) CreateToken(ctx context.Context, plan usertrust.UserPlan) (usertrust.TokenResult, error) {
