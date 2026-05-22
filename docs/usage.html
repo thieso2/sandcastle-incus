@@ -335,6 +335,7 @@ Bootstrap:
     <pre><code><span class="cmd">sandcastle login</span> <span class="flag">--ssh-public-key</span> <span class="arg">~/.ssh/id_ed25519.pub</span> <span class="arg">https://auth.example.com</span></code></pre>
     <p>After browser approval, the Auth App creates or ensures the user's Personal Tenant, ensures its Default Project, returns a restricted Incus certificate add token, and streams provisioning status through CLI polling. The CLI enrolls the remote with its own local client key and sets the default tenant only when exactly one accessible Tenant is returned.</p>
     <p>When the CLI Login Result includes a Tenant Tailnet, login verifies the local Tailscale client is connected to that selected Tenant Tailnet and has a Tailscale IP before reporting Login Readiness. Multi-tenant login does not silently join every accessible Tenant Tailnet.</p>
+    <p>Login Readiness means the Incus credential, User SSH Public Key, Personal Tenant, Default Project, Tenant Tailnet, local Tailscale Prerequisite, and local Sandcastle config are ready. A successful first-run login prints the next command, currently <code>sandcastle create dev</code>.</p>
   </div>
 
   <div class="step">
@@ -663,6 +664,12 @@ Bootstrap:
     <p>Creates a local Incus VM, installs Go, mise, and nested Incus, seeds nested image aliases from the host, starts root's systemd user service manager for <code>systemctl --user</code> coverage, copies the checkout, and runs the VM-only local DNS, trust, and hosts e2e tier inside the VM.</p>
     <pre><code><span class="cmd">scripts/e2e-local-vm.sh</span>
 <span class="env">SANDCASTLE_E2E_VM_KEEP</span>=1 <span class="cmd">scripts/e2e-local-vm.sh</span>   <span class="comment"># keep VM for diagnosis</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Run the first-run login mock OAuth flow</h3>
+    <p>The mock GitHub OAuth e2e test simulates GitHub authorization without network access, drives the Auth App onboarding and Device Login approval flow, uploads the User SSH Public Key, verifies Personal Tenant and Tenant Tailnet readiness in the CLI Login Result, and checks that connect planning targets the recorded Tailscale Machine IP.</p>
+    <pre><code><span class="cmd">go test</span> <span class="arg">./internal/e2e</span> <span class="flag">-run</span> <span class="arg">TestFirstRunLoginWithMockGitHubOAuth</span> <span class="flag">-count</span>=1 <span class="flag">-v</span></code></pre>
   </div>
 
   <div class="step">
