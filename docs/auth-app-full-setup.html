@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sandcastle Full Auth App Setup</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #14211f;
+      --muted: #5e6966;
+      --line: #cbd7d3;
+      --paper: #f6f8f7;
+      --panel: #ffffff;
+      --accent: #0f766e;
+      --accent2: #1d4ed8;
+      --warn: #8a5a12;
+      --danger: #991b1b;
+      --code: #10201d;
+      --code-bg: #e8efec;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .hero { padding: 40px 0 26px; }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 5vw, 3.8rem);
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 850px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.06rem;
+    }
+
+    nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0 0 22px;
+    }
+
+    nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: var(--panel);
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 0.93rem;
+    }
+
+    main { padding: 30px 0 56px; }
+
+    section {
+      margin: 0 0 34px;
+      padding: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 1.35rem;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 1rem;
+    }
+
+    p { margin: 0 0 12px; color: var(--muted); }
+
+    ol, ul { margin: 0 0 14px 22px; padding: 0; color: var(--muted); }
+    li { margin: 6px 0; }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      color: var(--code);
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+
+    pre {
+      margin: 12px 0 16px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      background: var(--code-bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    pre code {
+      display: block;
+      padding: 0;
+      background: transparent;
+      color: var(--code);
+      white-space: pre;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 16px;
+      font-size: 0.94rem;
+    }
+
+    th, td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { color: var(--ink); background: #eef3f1; }
+
+    .note, .warn, .danger {
+      margin: 14px 0;
+      padding: 12px 14px;
+      border-left: 4px solid var(--accent2);
+      background: #eef4ff;
+      border-radius: 0 8px 8px 0;
+      color: var(--muted);
+    }
+
+    .warn {
+      border-left-color: var(--warn);
+      background: #fff7e6;
+    }
+
+    .danger {
+      border-left-color: var(--danger);
+      background: #fff1f1;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 7px;
+      margin-left: 6px;
+      border-radius: 999px;
+      background: #e2eee9;
+      color: var(--accent);
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <h1>Sandcastle Full Auth App Setup</h1>
+      <p class="lede">Step-by-step setup for an Incus-backed Sandcastle install with Auth App login, GitHub allowlisting, personal tenants, public route infrastructure, OIDC workload identity, and GCP external account credentials.</p>
+    </div>
+    <nav class="wrap" aria-label="Setup sections">
+      <a href="#prereqs">Prerequisites</a>
+      <a href="#env">Environment</a>
+      <a href="#incus">Incus</a>
+      <a href="#images">Images</a>
+      <a href="#github">GitHub OAuth</a>
+      <a href="#infra">Infrastructure</a>
+      <a href="#admin">Admin UI</a>
+      <a href="#login">CLI Login</a>
+      <a href="#workload">Workload Identity</a>
+      <a href="#routes">Public Routes</a>
+      <a href="#verify">Verify</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="prereqs">
+      <h2>1. Install Prerequisites</h2>
+      <p>Run these on the admin host where you can manage the Incus server.</p>
+      <ul>
+        <li>Go matching this repository's <code>go.mod</code>.</li>
+        <li>Incus client configured with an admin remote.</li>
+        <li>Docker, for local image builds.</li>
+        <li>Caddy-compatible public DNS if you plan to run public routes or the public Auth Hostname.</li>
+        <li>A GitHub OAuth App for Auth App login.</li>
+      </ul>
+      <pre><code>go version
+incus version
+docker version
+gh auth status</code></pre>
+      <div class="note">Docker group membership may require a new shell session after installation. If <code>docker ps</code> works without <code>sudo</code>, no re-login is needed for Docker in that shell.</div>
+    </section>
+
+    <section id="env">
+      <h2>2. Create and Review <code>.env</code></h2>
+      <p>Start from the default template, then fill in values for your machine and DNS setup.</p>
+      <pre><code>cp .env.default .env
+$EDITOR .env
+set -a
+source .env
+set +a</code></pre>
+      <h3>Required Core Values</h3>
+      <table>
+        <thead><tr><th>Variable</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>SANDCASTLE_REMOTE</code></td><td>User-facing Incus remote name.</td></tr>
+          <tr><td><code>SANDCASTLE_ADMIN_REMOTE</code></td><td>Admin Incus remote if it differs from the user remote.</td></tr>
+          <tr><td><code>SANDCASTLE_STORAGE_POOL</code></td><td>Incus storage pool for tenant projects and infrastructure.</td></tr>
+          <tr><td><code>SANDCASTLE_CIDR_POOL</code></td><td>Private tenant CIDR pool, for example <code>10.248.0.0/16</code>.</td></tr>
+          <tr><td><code>SANDCASTLE_INCUS_PROJECT_PREFIX</code></td><td>Prefix for managed Incus projects, usually <code>sc</code>.</td></tr>
+        </tbody>
+      </table>
+      <h3>Auth App and Infrastructure Values</h3>
+      <pre><code>export SANDCASTLE_AUTH_HOSTNAME=auth.example.com
+export SANDCASTLE_AUTH_GITHUB_CLIENT_ID=...
+export SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=...
+export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot
+export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
+export SANDCASTLE_ADMIN_BIN=$PWD/bin/sc-adm
+export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
+export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
+      <div class="warn">Do not commit <code>.env</code>. It can contain GitHub OAuth secrets, Tailscale auth keys, and public route account details.</div>
+    </section>
+
+    <section id="incus">
+      <h2>3. Configure Incus Access</h2>
+      <p>The admin binary uses the global Incus config. The user CLI stores restricted remote credentials under <code>~/.config/sandcastle/&lt;remote&gt;/incus/</code>.</p>
+      <pre><code>incus remote list
+incus project list "$SANDCASTLE_ADMIN_REMOTE:"</code></pre>
+      <p>If the Auth App and Route Broker run inside infrastructure sidecars, mount the host Incus socket with <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code>. Both sidecars use that socket for trusted server-side mutations.</p>
+    </section>
+
+    <section id="images">
+      <h2>4. Build and Import Base Images</h2>
+      <p>Build the base and AI images, then import them into Incus under the aliases used by tenant creation.</p>
+      <pre><code>go build -o bin/sc ./cmd/sc
+go build -o bin/sc-adm ./cmd/sandcastle-admin
+
+SANDCASTLE_E2E_IMAGE_BUILD=1 \
+SANDCASTLE_E2E_CODEX_VERSION=... \
+SANDCASTLE_E2E_CLAUDE_CODE_VERSION=... \
+SANDCASTLE_E2E_GEMINI_CLI_VERSION=... \
+scripts/e2e.sh images</code></pre>
+      <p>For a manual production image workflow, build images with your pinned tool versions and import them as <code>SANDCASTLE_BASE_IMAGE</code> and <code>SANDCASTLE_AI_IMAGE</code>.</p>
+    </section>
+
+    <section id="github">
+      <h2>5. Create the GitHub OAuth App</h2>
+      <ol>
+        <li>Create a GitHub OAuth App owned by the organization or admin account.</li>
+        <li>Set the callback URL to <code>https://AUTH_HOSTNAME/oauth/github/callback</code>.</li>
+        <li>Copy the client ID and secret into <code>SANDCASTLE_AUTH_GITHUB_CLIENT_ID</code> and <code>SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET</code>.</li>
+        <li>Add the initial admin GitHub usernames to <code>SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</code>.</li>
+      </ol>
+      <div class="note">The Auth App uses GitHub usernames as v1 identity keys and stores GitHub numeric account IDs as metadata. GitHub email is stored only as inactive metadata.</div>
+    </section>
+
+    <section id="infra">
+      <h2>6. Create Shared Infrastructure</h2>
+      <p>This creates the infrastructure Incus project, Caddy instance, Route Broker, and Auth App sidecar.</p>
+      <pre><code>go build -o bin/sc-adm ./cmd/sandcastle-admin
+export SANDCASTLE_ADMIN_BIN=$PWD/bin/sc-adm
+sandcastle-admin infra create
+
+# Preview only:
+sandcastle-admin infra create --dry-run</code></pre>
+      <p>The Auth App serves on the internal infrastructure network and shared Caddy routes <code>SANDCASTLE_AUTH_HOSTNAME</code> to it. The Auth App database is stored at <code>/var/lib/sandcastle/auth/auth.db</code> inside the Auth App sidecar.</p>
+      <div class="danger">The public route tier needs real public DNS, an infrastructure host, and a Let's Encrypt email. Tailscale Funnel is not a drop-in replacement for the current wildcard DNS and Caddy/ACME public route model.</div>
+    </section>
+
+    <section id="admin">
+      <h2>7. Bootstrap Admin UI</h2>
+      <p>Open the Auth App hostname in a browser and sign in with a bootstrap admin GitHub username.</p>
+      <pre><code>https://auth.example.com/login/github
+https://auth.example.com/admin/allowlist
+https://auth.example.com/admin/access</code></pre>
+      <ol>
+        <li>Add explicit GitHub users at <code>/admin/allowlist</code>.</li>
+        <li>Remove users there to block future GitHub and CLI login and revoke restricted Incus grants.</li>
+        <li>Use <code>/admin/access</code> to view Users, Tenants, and tenant access grants.</li>
+        <li>Grant or revoke Tenant Access from <code>/admin/access</code> when needed.</li>
+      </ol>
+    </section>
+
+    <section id="login">
+      <h2>8. User CLI Login</h2>
+      <p>Allowlisted users enroll their local CLI with browser-assisted Device Login.</p>
+      <pre><code>sandcastle login https://auth.example.com</code></pre>
+      <p>The CLI prints a verification URL and user code. After browser approval, the Auth App creates or ensures the user's Personal Tenant, ensures its Default Project, returns a restricted Incus certificate add token, and the CLI enrolls the remote with its own local private key.</p>
+      <p>The CLI sets the default tenant only when exactly one accessible Tenant is returned.</p>
+    </section>
+
+    <section id="workload">
+      <h2>9. Configure Workload Identity</h2>
+      <p>The Auth App publishes OIDC provider metadata under the Auth Hostname.</p>
+      <pre><code>curl https://auth.example.com/.well-known/openid-configuration
+curl https://auth.example.com/.well-known/jwks.json</code></pre>
+      <p>Users manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. For GCP, provide the Workload Identity audience and optional service account impersonation URL.</p>
+      <pre><code>https://auth.example.com/cloud-identities</code></pre>
+      <p>When workload identity is enabled for a Machine, Sandcastle rotates a Machine Runtime Secret, stores only a verifier in the Auth Database, injects token endpoint metadata, and writes GCP external account credentials plus shell environment variables into the Machine.</p>
+      <table>
+        <thead><tr><th>Machine File</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>/var/lib/sandcastle/workload/runtime-secret</code></td><td>Machine Runtime Secret.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/token-endpoint</code></td><td>Auth App internal token endpoint.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/gcp-credential.json</code></td><td>GCP external account credential file.</td></tr>
+          <tr><td><code>/etc/profile.d/sandcastle-workload-identity.sh</code></td><td>Exports <code>GOOGLE_APPLICATION_CREDENTIALS</code> and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code>.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="routes">
+      <h2>10. Public Routes</h2>
+      <p>Public routes go through shared Caddy and the Route Broker. Configure these only when you have public DNS and an infrastructure host.</p>
+      <pre><code>export SANDCASTLE_INFRA_HOST=203.0.113.10
+export SANDCASTLE_LETSENCRYPT_EMAIL=ops@example.com
+export SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com</code></pre>
+      <p>User-created public routes cannot use the configured Auth Hostname; it is reserved for the Auth App.</p>
+    </section>
+
+    <section id="verify">
+      <h2>11. Verify the Install</h2>
+      <p>Start with unit and gated tests, then run destructive tiers only from an environment that intentionally sourced <code>.env</code>.</p>
+      <pre><code>scripts/e2e.sh unit
+scripts/e2e.sh gated
+scripts/e2e.sh local
+
+set -a
+source .env
+set +a
+scripts/e2e.sh images
+scripts/e2e.sh incus
+scripts/e2e.sh restricted
+scripts/e2e.sh tailscale
+scripts/e2e.sh route-broker</code></pre>
+      <table>
+        <thead><tr><th>Tier</th><th>Validates</th></tr></thead>
+        <tbody>
+          <tr><td><code>unit</code></td><td>All Incus-free Go tests with a sanitized environment.</td></tr>
+          <tr><td><code>gated</code></td><td>e2e compile and skip behavior with <code>SANDCASTLE_E2E=0</code>.</td></tr>
+          <tr><td><code>images</code></td><td>Docker image build and Incus image import flow.</td></tr>
+          <tr><td><code>incus</code></td><td>Tenant, machine, DNS, route broker, local trust, and CLI create/connect flows.</td></tr>
+          <tr><td><code>restricted</code></td><td>Restricted client certificate token, grants, and machine lifecycle.</td></tr>
+          <tr><td><code>tailscale</code></td><td>Tailscale routed access.</td></tr>
+          <tr><td><code>route-broker</code></td><td>mTLS route broker mutations through infrastructure sidecars.</td></tr>
+          <tr><td><code>public-routes</code></td><td>Public Caddy/ACME route path; requires public DNS inputs.</td></tr>
+        </tbody>
+      </table>
+      <div class="warn"><code>local-vm</code> mutates host resolver/trust/hosts state and is intended for a disposable VM. Run it only in that environment with <code>SANDCASTLE_E2E_LOCAL_VM=1</code>.</div>
+    </section>
+  </main>
+</body>
+</html>
