@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -16,14 +17,17 @@ type PersonalTenantProvisioner interface {
 }
 
 type PersonalTenantResult struct {
-	UserKey           string
-	Tenant            string
-	IncusProject      string
-	AccessibleTenants []string
-	Token             string
-	RemoteName        string
-	Projects          []string
-	Message           string
+	UserKey             string
+	Tenant              string
+	IncusProject        string
+	AccessibleTenants   []string
+	Token               string
+	RemoteName          string
+	Projects            []string
+	CurrentProject      string
+	DefaultProjectReady bool
+	TenantTailnetReady  bool
+	Message             string
 }
 
 type TrustTokenCreator interface {
@@ -31,10 +35,11 @@ type TrustTokenCreator interface {
 }
 
 type Provisioner struct {
-	Admin         config.Admin
-	Tenants       tenant.IncusTenantStore
-	TenantCreator tenant.Creator
-	Trust         TrustTokenCreator
+	Admin          config.Admin
+	Tenants        tenant.IncusTenantStore
+	TenantCreator  tenant.Creator
+	ProjectUpdater tenant.ProjectUpdater
+	Trust          TrustTokenCreator
 }
 
 func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (PersonalTenantResult, error) {
@@ -66,6 +71,7 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 		}
 	}
 	incusProject := existing.IncusName
+	projects := existing.Projects
 	if incusProject == "" {
 		plan, err := tenant.PlanCreate(p.Admin, tenant.CreateRequest{
 			Reference:     userKey,
@@ -80,6 +86,17 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 			return PersonalTenantResult{}, err
 		}
 		incusProject = plan.IncusProject
+		metadata, err := tenantMetadataFromCreatePlan(plan)
+		if err != nil {
+			return PersonalTenantResult{}, err
+		}
+		projects = append([]meta.Project{}, metadata.Projects...)
+	} else {
+		updatedProjects, err := p.ensureDefaultProject(ctx, existing)
+		if err != nil {
+			return PersonalTenantResult{}, err
+		}
+		projects = updatedProjects
 	}
 	tokenPlan, err := usertrust.PlanGrant(p.Admin, usertrust.GrantRequest{
 		User:     userKey,
@@ -94,15 +111,46 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 		return PersonalTenantResult{}, err
 	}
 	return PersonalTenantResult{
-		UserKey:           userKey,
-		Tenant:            userKey,
-		IncusProject:      incusProject,
-		AccessibleTenants: []string{userKey},
-		Token:             token.Token,
-		RemoteName:        token.RemoteName,
-		Projects:          append([]string{}, token.Projects...),
-		Message:           "Personal tenant " + userKey + " is ready.",
+		UserKey:             userKey,
+		Tenant:              userKey,
+		IncusProject:        incusProject,
+		AccessibleTenants:   []string{userKey},
+		Token:               token.Token,
+		RemoteName:          token.RemoteName,
+		Projects:            append([]string{}, token.Projects...),
+		CurrentProject:      naming.DefaultProjectName,
+		DefaultProjectReady: hasProject(projects, naming.DefaultProjectName),
+		TenantTailnetReady:  true,
+		Message:             "Personal tenant " + userKey + " is ready.",
 	}, nil
+}
+
+func (p Provisioner) ensureDefaultProject(ctx context.Context, summary tenant.Summary) ([]meta.Project, error) {
+	if hasProject(summary.Projects, naming.DefaultProjectName) {
+		return append([]meta.Project{}, summary.Projects...), nil
+	}
+	if p.ProjectUpdater == nil {
+		return nil, fmt.Errorf("Personal Tenant %s is missing Default Project and project updater is not configured", summary.Tenant)
+	}
+	projects := append([]meta.Project{}, summary.Projects...)
+	projects = append(projects, meta.Project{Name: naming.DefaultProjectName})
+	if err := p.ProjectUpdater.SetTenantProjects(ctx, summary.IncusName, projects); err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
+func hasProject(projects []meta.Project, name string) bool {
+	for _, project := range projects {
+		if project.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func tenantMetadataFromCreatePlan(plan tenant.CreatePlan) (meta.Tenant, error) {
+	return meta.ParseTenantConfig(plan.TenantMetadataConfig)
 }
 
 func (r PersonalTenantResult) normalizedMessage() string {

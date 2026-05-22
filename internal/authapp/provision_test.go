@@ -36,6 +36,9 @@ func TestProvisionerCreatesPersonalTenantAndReturnsRestrictedToken(t *testing.T)
 	if result.Token != "token-1octocat" || result.RemoteName != "sandcastle-1octocat" || len(result.AccessibleTenants) != 1 || result.AccessibleTenants[0] != "1octocat" {
 		t.Fatalf("result token fields = %#v", result)
 	}
+	if result.CurrentProject != "default" || !result.DefaultProjectReady || !result.TenantTailnetReady {
+		t.Fatalf("result readiness fields = %#v", result)
+	}
 	if len(trust.plans) != 1 || trust.plans[0].User != "1octocat" || trust.plans[0].Projects[0] != "sc-1octocat" {
 		t.Fatalf("trust plans = %#v", trust.plans)
 	}
@@ -48,7 +51,7 @@ func TestProvisionerSkipsTenantCreateWhenPersonalTenantExists(t *testing.T) {
 		Admin: config.LoadAdminFromEnv(),
 		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-1octocat",
-			Config: tenantConfigForProvisionTest(t, meta.Tenant{Tenant: "1octocat", Personal: true, PrivateCIDR: "10.248.1.0/24"}),
+			Config: tenantConfigForProvisionTest(t, meta.Tenant{Tenant: "1octocat", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
 		}}},
 		TenantCreator: creator,
 		Trust:         trust,
@@ -65,6 +68,36 @@ func TestProvisionerSkipsTenantCreateWhenPersonalTenantExists(t *testing.T) {
 	}
 }
 
+func TestProvisionerRepairsMissingDefaultProjectOnExistingPersonalTenant(t *testing.T) {
+	creator := &fakeTenantCreator{}
+	trust := &fakeTokenCreator{}
+	updater := &fakeProjectUpdater{}
+	provisioner := Provisioner{
+		Admin: config.LoadAdminFromEnv(),
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-1octocat",
+			Config: tenantConfigForProvisionTest(t, meta.Tenant{Tenant: "1octocat", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "work"}}}),
+		}}},
+		TenantCreator:  creator,
+		ProjectUpdater: updater,
+		Trust:          trust,
+	}
+
+	result, err := provisioner.EnsurePersonalTenant(context.Background(), User{UserKey: "1octocat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(creator.plans) != 0 {
+		t.Fatalf("created plans = %#v", creator.plans)
+	}
+	if len(updater.calls) != 1 || updater.calls[0].incusProject != "sc-1octocat" || !projectListHas(updater.calls[0].projects, "default") || !projectListHas(updater.calls[0].projects, "work") {
+		t.Fatalf("updater calls = %#v", updater.calls)
+	}
+	if !result.DefaultProjectReady || result.CurrentProject != "default" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 type fakeTenantCreator struct {
 	plans []tenant.CreatePlan
 }
@@ -72,6 +105,30 @@ type fakeTenantCreator struct {
 func (c *fakeTenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan) error {
 	c.plans = append(c.plans, plan)
 	return nil
+}
+
+type fakeProjectUpdater struct {
+	calls []struct {
+		incusProject string
+		projects     []meta.Project
+	}
+}
+
+func (u *fakeProjectUpdater) SetTenantProjects(ctx context.Context, incusProjectName string, projects []meta.Project) error {
+	u.calls = append(u.calls, struct {
+		incusProject string
+		projects     []meta.Project
+	}{incusProject: incusProjectName, projects: append([]meta.Project{}, projects...)})
+	return nil
+}
+
+func projectListHas(projects []meta.Project, name string) bool {
+	for _, project := range projects {
+		if project.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeTokenCreator struct {

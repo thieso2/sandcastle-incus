@@ -66,6 +66,7 @@ func ExecuteAdmin(name string, args []string) int {
 	authAppMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
 	authAppCreator := incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	authAppTrust := incusx.NewTrustManager(adminConfig.Remote)
+	var authAppProjectUpdater tenant.ProjectUpdater = incusx.TenantSSHKeyManager{Remote: adminConfig.Remote}
 	if routeBrokerServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
 			routeBrokerTenants = incusx.NewTenantStoreForServer(socketServer)
@@ -128,10 +129,11 @@ func ExecuteAdmin(name string, args []string) int {
 			TenantAccess:    authAppTrust,
 			Machines:        authAppMachines,
 			Provisioner: authapp.Provisioner{
-				Admin:         adminConfig,
-				Tenants:       authAppTenants,
-				TenantCreator: authAppCreator,
-				Trust:         authAppTrust,
+				Admin:          adminConfig,
+				Tenants:        authAppTenants,
+				TenantCreator:  authAppCreator,
+				ProjectUpdater: authAppProjectUpdater,
+				Trust:          authAppTrust,
 			},
 		},
 	})
