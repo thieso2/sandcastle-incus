@@ -57,6 +57,14 @@ _Avoid_: Tenant owner, infrastructure user
 The browser sign-in flow that maps a GitHub identity to a Sandcastle User.
 _Avoid_: GitHub OpenID login, GitHub OIDC login
 
+**Web Registration**:
+The browser flow that creates or confirms a Sandcastle User session after GitHub OAuth Login without provisioning tenant infrastructure.
+_Avoid_: Tenant registration, browser tenant creation
+
+**Onboarding Page**:
+The signed-in Auth App page that shows GitHub identity status, allowlist status, CLI installation instructions, and the CLI login command.
+_Avoid_: Browser provisioner, SSH key upload page
+
 **Sandcastle OIDC Provider**:
 The public issuer that signs Sandcastle workload identity tokens for external cloud trust.
 _Avoid_: GitHub OIDC provider, OAuth login provider
@@ -97,6 +105,34 @@ _Avoid_: API token login, password login
 A one-time Incus token that lets the CLI add its locally generated client certificate as the User's restricted Incus credential.
 _Avoid_: Incus auth token, Sandcastle API token, private key
 
+**User SSH Public Key**:
+The single current public SSH key uploaded by the CLI during device login and authorized for Machine shell access.
+_Avoid_: SSH private key, browser-uploaded SSH key, named SSH key set
+
+**Machine SSH Access**:
+The user-facing shell connection path into a Machine using the User's SSH private key.
+_Avoid_: Incus exec as user shell, browser shell
+
+**Tailscale Machine IP**:
+The Tailscale-assigned IP address used by the CLI for Machine SSH Access.
+_Avoid_: Local DNS SSH target, Incus internal IP
+
+**Tailscale Prerequisite**:
+The requirement that the user's local machine has a working Tailscale client connected to the relevant Tenant Tailnet before Machine SSH Access can succeed.
+_Avoid_: Optional VPN setup, silent CLI Tailscale enrollment
+
+**Sandcastle SSH Key**:
+The CLI-generated local SSH key pair used when the user has not selected or already created a default SSH key.
+_Avoid_: Server-generated SSH key, tenant SSH key
+
+**Login Readiness**:
+The completed CLI state in which credentials, SSH access, Personal Tenant, Default Project, and Tailscale-backed Tenant Infrastructure are ready for Machine creation and connection.
+_Avoid_: OAuth completion, browser login success
+
+**CLI Login Result**:
+The structured final response from CLI Device Login that lets the CLI persist local configuration and print the next command.
+_Avoid_: Browser session payload, provisioning log
+
 **Created By**:
 Audit metadata recording which user created a resource.
 _Avoid_: Resource owner
@@ -132,6 +168,10 @@ _Avoid_: Project network
 **Tenant Infrastructure**:
 The DNS, Tailscale, and certificate authority services shared by all projects in a tenant.
 _Avoid_: Project sidecars
+
+**Tenant Tailnet**:
+The Tailscale network dedicated to exactly one Tenant.
+_Avoid_: Shared Sandcastle tailnet, project tailnet
 
 **Tenant CA**:
 The certificate authority used for private machine TLS hostnames in a tenant.
@@ -191,10 +231,14 @@ _Avoid_: Projectless mode
 - A **Tenant** has exactly one **Incus Project Mapping**.
 - A **Tenant** has one **Tenant Network** shared by all its **Projects**.
 - A **Tenant** has one **Tenant Infrastructure** set shared by all its **Projects**.
+- A **Tenant** has exactly one **Tenant Tailnet**.
 - A **Tenant** has **Tenant Storage** shared by all its **Projects**.
 - Admin tenant creation requires only the **Tenant** name; infrastructure details are derived from admin configuration.
 - Admin-created non-personal **Tenants** keep the existing Sandcastle tenant naming rule.
 - The Auth App creates a **Personal Tenant** for an allowlisted **User** during first CLI Device Login.
+- **Web Registration** creates or confirms a **User** session but does not create a **Personal Tenant**.
+- The **Onboarding Page** does not accept SSH keys or provision tenant infrastructure.
+- The **Onboarding Page** shows install instructions for supported CLI platforms and highlights the detected platform when possible.
 - A **Personal Tenant** uses the **Normalized GitHub Username** as its Tenant identity in v1.
 - A **Personal Tenant** name follows **GitHub Username Tenant Name** rules in v1.
 - A **Personal Tenant DNS Suffix** is initialized from the allowlisted **Normalized GitHub Username**.
@@ -222,7 +266,11 @@ _Avoid_: Projectless mode
 - A **Machine Template** is a **Machine** property, not a **Project** property.
 - Machine creation defaults to the AI container **Machine Template**.
 - Machine creation starts the **Machine** and connects in an interactive terminal unless detached.
+- Machine creation authorizes the User's uploaded **User SSH Public Key** for shell access.
+- Machine creation waits until the **Machine** has joined the **Tenant Tailnet** and recorded its **Tailscale Machine IP** before reporting success.
+- Machine connection uses **Machine SSH Access** over the Machine's **Tailscale Machine IP** as the user-facing shell path.
 - Each **Machine** has a **Private Machine Proxy** that serves the machine's private hostname and forwards to its **App Port**.
+- A **Machine** private hostname resolves to the Machine's **Tailscale Machine IP**.
 - An **Incus Instance Name** is `{project}-{machine}` so two projects in the same tenant can each have a machine with the same name.
 - A **Container** is the default **Machine** type.
 - A **VM** is a future **Machine** type.
@@ -329,18 +377,31 @@ _Avoid_: Projectless mode
 - The **Auth App** stores login and device authorization state in the **Auth Database**.
 - The **Auth Database** lives on persistent infrastructure storage and is scoped to a single Auth App instance in v1.
 - **Tenant Metadata** remains the authoritative Sandcastle state for tenant runtime resources, not the Auth App's session or login store.
+- **Tenant Metadata** is authoritative for **Tenant Tailnet** configuration.
 - **CLI Device Login** returns an **Incus Certificate Add Token**, not a generated client private key.
 - During **CLI Device Login**, the CLI generates and stores its own Incus client private key locally.
+- During **CLI Device Login**, the CLI uploads a **User SSH Public Key** and keeps the matching private key local.
+- **CLI Device Login** prefers the user's existing `id_ed25519.pub`, can use an explicit SSH public key path, and otherwise creates a local **Sandcastle SSH Key**.
+- Each successful **CLI Device Login** replaces the **User SSH Public Key** when the uploaded key differs from the stored key.
+- **CLI Device Login** reconciles the current **User SSH Public Key** onto existing **Machines** in the User's **Personal Tenant** before reaching **Login Readiness**.
 - Users start **CLI Device Login** with `sandcastle login <auth-host>`.
 - **CLI Device Login** shows Personal Tenant provisioning progress in the terminal.
 - **CLI Device Login** reports provisioning progress through polling status messages in v1.
+- The browser authorization page for **CLI Device Login** only confirms authorization and sends the user back to the terminal.
 - **CLI Device Login** provisioning is idempotent and safe to retry after partial failure.
+- **CLI Device Login** provisions Tailscale-backed **Tenant Infrastructure**, including the **Tenant Tailnet**, server-side and may offer **Local DNS Installation** client-side for hostname convenience.
+- **CLI Device Login** reaches **Login Readiness** only when the User can create and connect to a **Machine**.
+- **CLI Device Login** ends with a **CLI Login Result** containing the selected User, Current Tenant, Current Project, credential enrollment data, SSH key fingerprint, Tenant Tailnet status, and next command.
+- **CLI Device Login** guides the user through joining the relevant **Tenant Tailnet** and verifies the **Tailscale Prerequisite** before reaching **Login Readiness**.
 - **CLI Device Login** sets the current tenant only when the User has exactly one accessible **Tenant**.
+- First-time **CLI Device Login** defaults the selected **Current Tenant** to the User's **Personal Tenant**.
+- **CLI Device Login** joins only the selected **Current Tenant**'s **Tenant Tailnet**, not every accessible tenant tailnet.
 - **CLI Device Login** may succeed for a **User** with no **Tenant Access**.
 - A **User** with no **Tenant Access** cannot manage Sandcastle resources until a **Sandcastle Admin** grants access.
 - A **User** receives **Tenant Access** to their **Personal Tenant** when it is created.
 - **Tenant Access** grants access to every **Project** and **Machine** in that **Tenant**.
 - **Tenant Access** grants management rights over **Projects**, **Machines**, and **Public Routes** in that **Tenant**.
+- Revoking **Tenant Access** revokes **Machine SSH Access** by removing that User's **User SSH Public Key** from Machines in that **Tenant**.
 - User CLI commands operate in exactly one **Current Tenant**.
 - When a user has multiple tenants and no **Current Tenant** is selected, user CLI commands fail until the tenant is selected.
 - Bare user `status` reports **Current Tenant** status.
