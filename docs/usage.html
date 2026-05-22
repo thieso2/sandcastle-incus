@@ -373,6 +373,7 @@ Bootstrap:
   <div class="step">
     <h3>Create and connect to a machine <span class="badge badge-user">user</span></h3>
     <p>Creates an Incus container machine from the selected template and connects to a shell.</p>
+    <p>Creation waits for the Machine to join the Tenant Tailnet and records its Tailscale Machine IP before reporting success.</p>
     <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span></code></pre>
   </div>
 

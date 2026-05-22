@@ -10,11 +10,13 @@ import (
 	"net/netip"
 	"path"
 	"strings"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -25,6 +27,7 @@ type MachineCreateServer interface {
 type MachineResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
+	UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	DeleteInstance(name string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
@@ -39,6 +42,11 @@ type MachineCreator struct {
 	Server     MachineCreateServer
 	Log        func(string)
 }
+
+var (
+	machineTailscaleIPAttempts     = 30
+	machineTailscaleIPPollInterval = 200 * time.Millisecond
+)
 
 func NewMachineCreator(remote string) MachineCreator {
 	return MachineCreator{Remote: remote}
@@ -91,7 +99,10 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 			}
 		}
 		c.log("ensure machine files for " + plan.InstanceName)
-		return ensureMachineFiles(projectServer, plan)
+		if err := ensureMachineFiles(projectServer, plan); err != nil {
+			return err
+		}
+		return ensureMachineTailscaleIP(ctx, projectServer, plan)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
@@ -108,7 +119,10 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 		return err
 	}
 	c.log("ensure machine files for " + plan.InstanceName)
-	return ensureMachineFiles(projectServer, plan)
+	if err := ensureMachineFiles(projectServer, plan); err != nil {
+		return err
+	}
+	return ensureMachineTailscaleIP(ctx, projectServer, plan)
 }
 
 func ensureMachineStorageDirs(server MachineResourceServer, plan machine.CreatePlan) error {
@@ -138,6 +152,87 @@ func ensureMachineStorageDirs(server MachineResourceServer, plan machine.CreateP
 		return ensureMachineStorageDirsWithHelper(server, plan, helperDirs)
 	}
 	return nil
+}
+
+func ensureMachineTailscaleIP(ctx context.Context, server MachineResourceServer, plan machine.CreatePlan) error {
+	ip, err := waitForMachineTailscaleIP(ctx, server, plan.InstanceName)
+	if err != nil {
+		return err
+	}
+	instance, etag, err := server.GetInstance(plan.InstanceName)
+	if err != nil {
+		return fmt.Errorf("get machine %s after Tailscale readiness: %w", plan.InstanceName, err)
+	}
+	state, err := meta.ParseMachineConfig(instance.Config)
+	if err != nil {
+		return fmt.Errorf("parse machine metadata for %s after Tailscale readiness: %w", plan.InstanceName, err)
+	}
+	if state.TailscaleIP == ip {
+		return nil
+	}
+	state.TailscaleIP = ip
+	config, err := meta.MachineConfig(state)
+	if err != nil {
+		return err
+	}
+	put := instance.Writable()
+	if put.Config == nil {
+		put.Config = map[string]string{}
+	}
+	for key, value := range config {
+		put.Config[key] = value
+	}
+	op, err := server.UpdateInstance(plan.InstanceName, put, etag)
+	if err != nil {
+		return fmt.Errorf("record Tailscale Machine IP for %s: %w", plan.InstanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait to record Tailscale Machine IP for %s: %w", plan.InstanceName, err)
+	}
+	return nil
+}
+
+func waitForMachineTailscaleIP(ctx context.Context, server MachineResourceServer, instanceName string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < machineTailscaleIPAttempts; attempt++ {
+		ip, err := machineTailscaleIP(ctx, server, instanceName)
+		if err == nil && ip != "" {
+			return ip, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(machineTailscaleIPPollInterval):
+		}
+	}
+	if lastErr != nil {
+		return "", fmt.Errorf("machine %s was created but did not report Tailscale Machine IP: %w", instanceName, lastErr)
+	}
+	return "", fmt.Errorf("machine %s was created but did not report Tailscale Machine IP", instanceName)
+}
+
+func machineTailscaleIP(ctx context.Context, server MachineResourceServer, instanceName string) (string, error) {
+	var stdout bytes.Buffer
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
+		Command:   []string{"/bin/sh", "-c", "tailscale ip -4 2>/dev/null | head -n1"},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdout:   &stdout,
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := op.Wait(); err != nil {
+		return "", err
+	}
+	<-dataDone
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 type machineStorageDir struct {
@@ -663,6 +758,10 @@ func (s sdkMachineResourceServer) GetInstance(name string) (*api.Instance, strin
 
 func (s sdkMachineResourceServer) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
 	return s.inner.CreateInstance(instance)
+}
+
+func (s sdkMachineResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
+	return s.inner.UpdateInstance(name, instance, etag)
 }
 
 func (s sdkMachineResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {

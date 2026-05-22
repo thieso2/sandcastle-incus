@@ -80,6 +80,7 @@ type Machine struct {
 	Template       string   `json:"template,omitempty"`
 	AppPort        int      `json:"appPort"`
 	PrivateIP      string   `json:"privateIP"`
+	TailscaleIP    string   `json:"tailscaleIP,omitempty"`
 	LinuxUser      string   `json:"linuxUser,omitempty"`
 	HomeDir        string   `json:"homeDir,omitempty"`
 	WorkspaceDir   string   `json:"workspaceDir,omitempty"`

@@ -28,6 +28,7 @@ func (s fakeMachineServer) UseProject(name string) MachineResourceServer {
 type fakeMachineResource struct {
 	instance          *api.Instance
 	created           *api.InstancesPost
+	updated           *api.InstancePut
 	helperCreated     *api.InstancesPost
 	helperDeleted     bool
 	started           bool
@@ -36,6 +37,7 @@ type fakeMachineResource struct {
 	caFiles           map[string]string
 	execCommands      [][]string
 	execEnvs          []map[string]string
+	tailscaleIP       string
 	volumeFileErr     error
 }
 
@@ -52,6 +54,16 @@ func (r *fakeMachineResource) CreateInstance(instance api.InstancesPost) (incus.
 		return fakeOperation{}, nil
 	}
 	r.created = &instance
+	r.instance = &api.Instance{Name: instance.Name, StatusCode: api.Running, InstancePut: api.InstancePut{Config: api.ConfigMap(instance.Config)}}
+	return fakeOperation{}, nil
+}
+
+func (r *fakeMachineResource) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
+	r.updated = &instance
+	if r.instance == nil {
+		r.instance = &api.Instance{Name: name}
+	}
+	r.instance.InstancePut.Config = instance.Config
 	return fakeOperation{}, nil
 }
 
@@ -111,6 +123,15 @@ func (r *fakeMachineResource) GetStorageVolumeFile(pool string, volumeType strin
 func (r *fakeMachineResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	r.execCommands = append(r.execCommands, exec.Command)
 	r.execEnvs = append(r.execEnvs, exec.Environment)
+	if len(exec.Command) >= 3 && strings.Contains(exec.Command[2], "tailscale ip -4") && args.Stdout != nil {
+		ip := r.tailscaleIP
+		if ip == "" {
+			ip = "100.64.0.20"
+		}
+		if ip != "<none>" {
+			_, _ = args.Stdout.Write([]byte(ip + "\n"))
+		}
+	}
 	if args.DataDone != nil {
 		close(args.DataDone)
 	}
@@ -161,7 +182,7 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	if resource.createdFiles[machine.MachineCertKeyPath] == "" {
 		t.Fatal("expected private key write")
 	}
-	if len(resource.execCommands) != 6 {
+	if len(resource.execCommands) != 7 {
 		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
 	if strings.Join(resource.execCommands[0], " ") != "hostname codex.default.acme" {
@@ -190,6 +211,44 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(resource.execCommands[5], " "), "caddy") {
 		t.Fatalf("caddy command = %#v", resource.execCommands[5])
+	}
+	if !strings.Contains(strings.Join(resource.execCommands[6], " "), "tailscale ip -4") {
+		t.Fatalf("tailscale command = %#v", resource.execCommands[6])
+	}
+	if resource.updated == nil {
+		t.Fatal("expected machine metadata update")
+	}
+	metadata, err := meta.ParseMachineConfig(resource.updated.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.TailscaleIP != "100.64.0.20" {
+		t.Fatalf("TailscaleIP = %q", metadata.TailscaleIP)
+	}
+}
+
+func TestMachineCreatorReportsTailscaleMachineIPTimeout(t *testing.T) {
+	oldAttempts := machineTailscaleIPAttempts
+	oldInterval := machineTailscaleIPPollInterval
+	machineTailscaleIPAttempts = 2
+	machineTailscaleIPPollInterval = time.Millisecond
+	t.Cleanup(func() {
+		machineTailscaleIPAttempts = oldAttempts
+		machineTailscaleIPPollInterval = oldInterval
+	})
+	plan := machinePlanForTest(t)
+	resource := fakeMachineResourceWithCA(t)
+	resource.tailscaleIP = "<none>"
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
+	err := creator.CreateMachine(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "did not report Tailscale Machine IP") {
+		t.Fatalf("error = %v", err)
+	}
+	if resource.created == nil {
+		t.Fatal("expected instance creation before Tailscale readiness failure")
+	}
+	if resource.updated != nil {
+		t.Fatalf("metadata updated despite missing Tailscale IP: %#v", resource.updated)
 	}
 }
 
@@ -252,7 +311,7 @@ func flattenCommands(commands [][]string) []string {
 func TestMachineCreatorStartsExistingStoppedInstance(t *testing.T) {
 	plan := machinePlanForTest(t)
 	resource := fakeMachineResourceWithCA(t)
-	resource.instance = &api.Instance{Name: plan.InstanceName, StatusCode: api.Stopped}
+	resource.instance = &api.Instance{Name: plan.InstanceName, StatusCode: api.Stopped, InstancePut: api.InstancePut{Config: api.ConfigMap(plan.MetadataConfig)}}
 	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
 	if err := creator.CreateMachine(context.Background(), plan); err != nil {
 		t.Fatal(err)
