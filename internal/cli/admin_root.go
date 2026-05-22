@@ -66,6 +66,7 @@ func ExecuteAdmin(name string, args []string) int {
 	authAppMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
 	authAppCreator := incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	authAppTrust := incusx.NewTrustManager(adminConfig.Remote)
+	authAppSSHKeys := incusx.NewMachineSSHKeyReconciler(adminConfig.Remote, authAppMachines)
 	var authAppProjectUpdater tenant.ProjectUpdater = incusx.TenantSSHKeyManager{Remote: adminConfig.Remote}
 	if routeBrokerServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
@@ -85,6 +86,7 @@ func ExecuteAdmin(name string, args []string) int {
 			authAppMachines = incusx.NewHostOverrideManagerForServer(socketServer)
 			authAppCreator = incusx.NewTenantCreatorForServer(socketServer).WithVerbose(verbose, os.Stderr)
 			authAppTrust = incusx.NewTrustManagerForServer(socketServer)
+			authAppSSHKeys = incusx.NewMachineSSHKeyReconcilerForServer(socketServer, authAppMachines)
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)
 		}
@@ -128,6 +130,7 @@ func ExecuteAdmin(name string, args []string) int {
 			Tenants:         authAppTenants,
 			TenantAccess:    authAppTrust,
 			Machines:        authAppMachines,
+			MachineSSHKeys:  authAppSSHKeys,
 			Provisioner: authapp.Provisioner{
 				Admin:          adminConfig,
 				Tenants:        authAppTenants,

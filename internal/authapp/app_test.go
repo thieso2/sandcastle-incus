@@ -488,9 +488,15 @@ func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
 	db := authDBForTest(t)
 	cookie := adminSessionCookieForTest(t, db)
 	provisioner := &fakePersonalTenantProvisioner{}
+	reconciler := &fakeMachineSSHKeyReconciler{}
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname: "auth.example.com",
-		Provisioner:  provisioner,
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-admin",
+			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "admin", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}}},
+		Provisioner:    provisioner,
+		MachineSSHKeys: reconciler,
 	})
 
 	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
@@ -519,9 +525,15 @@ func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
 	db := authDBForTest(t)
 	cookie := adminSessionCookieForTest(t, db)
 	provisioner := &fakePersonalTenantProvisioner{}
+	reconciler := &fakeMachineSSHKeyReconciler{}
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname: "auth.example.com",
-		Provisioner:  provisioner,
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-admin",
+			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "admin", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}}},
+		Provisioner:    provisioner,
+		MachineSSHKeys: reconciler,
 	})
 	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
 	if err != nil {
@@ -554,6 +566,9 @@ func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
 	if stored.PublicKey != key || stored.Fingerprint != approved.LoginResult.SSHKeyFingerprint {
 		t.Fatalf("stored key = %#v approved=%#v", stored, approved.LoginResult)
 	}
+	if len(reconciler.calls) != 1 || reconciler.calls[0].tenant != "admin" || reconciler.calls[0].user != "admin" || reconciler.calls[0].key != key {
+		t.Fatalf("reconciler calls = %#v", reconciler.calls)
+	}
 	if strings.Contains(approved.raw, "PRIVATE KEY") || strings.Contains(strings.ToLower(approved.raw), "private_key") {
 		t.Fatalf("poll response leaked private key material: %s", approved.raw)
 	}
@@ -570,6 +585,9 @@ func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
 	}
 	if stored.PublicKey != replacement || stored.Fingerprint != replaced.LoginResult.SSHKeyFingerprint || stored.Fingerprint == approved.LoginResult.SSHKeyFingerprint {
 		t.Fatalf("replacement stored=%#v initial=%#v replaced=%#v", stored, approved.LoginResult, replaced.LoginResult)
+	}
+	if len(reconciler.calls) != 3 || reconciler.calls[2].key != replacement {
+		t.Fatalf("reconciler calls after replacement = %#v", reconciler.calls)
 	}
 }
 
@@ -810,6 +828,23 @@ func (m *fakeTenantAccessManager) Revoke(ctx context.Context, plan usertrust.Use
 
 func (m *fakeTenantAccessManager) ListTenantUsers(ctx context.Context, plan usertrust.TenantUsersPlan) (usertrust.TenantUsersResult, error) {
 	return usertrust.TenantUsersResult{Tenant: plan.Tenant, IncusProject: plan.IncusProject, Users: append([]string{}, m.usersByTenant[plan.Tenant]...)}, nil
+}
+
+type fakeMachineSSHKeyReconciler struct {
+	calls []struct {
+		tenant string
+		user   string
+		key    string
+	}
+}
+
+func (r *fakeMachineSSHKeyReconciler) ReconcileUserSSHKey(ctx context.Context, summary tenant.Summary, userKey string, publicKey string) error {
+	r.calls = append(r.calls, struct {
+		tenant string
+		user   string
+		key    string
+	}{tenant: summary.Tenant, user: userKey, key: publicKey})
+	return nil
 }
 
 func tenantConfigForAuthTest(t *testing.T, value meta.Tenant) map[string]string {

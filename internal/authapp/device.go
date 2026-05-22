@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 const (
@@ -118,6 +120,10 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err := h.reconcilePersonalTenantSSHKey(r.Context(), login.UserKey, stored.PublicKey); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		sshFingerprint = stored.Fingerprint
 	} else if login.Status == DeviceStatusApproved && login.UserKey != "" {
 		if stored, err := GetUserSSHKey(r.Context(), h.db, login.UserKey); err == nil {
@@ -145,6 +151,29 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		LoginResult:        loginResult,
 		ExpiresIn:          expiresIn,
 	})
+}
+
+func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey string, publicKey string) error {
+	if h.machineSSHKeys == nil {
+		return nil
+	}
+	if h.tenants == nil {
+		return fmt.Errorf("cannot reconcile User SSH Public Key: tenant store is not configured")
+	}
+	summaries, err := tenant.List(ctx, h.tenants)
+	if err != nil {
+		return fmt.Errorf("list tenants for User SSH Public Key reconciliation: %w", err)
+	}
+	tenantName := NormalizeGitHubUsername(userKey)
+	for _, summary := range summaries {
+		if summary.Tenant == tenantName && summary.Personal {
+			if err := h.machineSSHKeys.ReconcileUserSSHKey(ctx, summary, tenantName, publicKey); err != nil {
+				return fmt.Errorf("reconcile User SSH Public Key for Personal Tenant %s: %w", tenantName, err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("cannot reconcile User SSH Public Key: Personal Tenant %s not found", tenantName)
 }
 
 type CLILoginResult struct {
