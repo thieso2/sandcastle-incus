@@ -334,6 +334,7 @@ Bootstrap:
     <p>Login prepares the User SSH Public Key used for Machine SSH Access before starting the device flow. Pass <code>--ssh-public-key &lt;path&gt;</code> to choose a public key explicitly. Without that flag, the CLI uses <code>~/.ssh/id_ed25519.pub</code> when it exists, otherwise it creates a local Sandcastle SSH Key at <code>~/.ssh/sandcastle_ed25519</code>. The private key stays local.</p>
     <pre><code><span class="cmd">sandcastle login</span> <span class="flag">--ssh-public-key</span> <span class="arg">~/.ssh/id_ed25519.pub</span> <span class="arg">https://auth.example.com</span></code></pre>
     <p>After browser approval, the Auth App creates or ensures the user's Personal Tenant, ensures its Default Project, returns a restricted Incus certificate add token, and streams provisioning status through CLI polling. The CLI enrolls the remote with its own local client key and sets the default tenant only when exactly one accessible Tenant is returned.</p>
+    <p>When the CLI Login Result includes a Tenant Tailnet, login verifies the local Tailscale client is connected to that selected Tenant Tailnet and has a Tailscale IP before reporting Login Readiness. Multi-tenant login does not silently join every accessible Tenant Tailnet.</p>
   </div>
 
   <div class="step">

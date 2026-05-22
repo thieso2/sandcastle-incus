@@ -112,9 +112,23 @@ type fakeLoginRemoteInstaller struct {
 	requests []loginRemoteInstallRequest
 }
 
+type fakeLoginTailnetVerifier struct {
+	requests []string
+	status   loginTailnetStatus
+	err      error
+}
+
 func (i *fakeLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, request loginRemoteInstallRequest) (loginRemoteInstallResult, error) {
 	i.requests = append(i.requests, request)
 	return loginRemoteInstallResult{RemoteName: request.RemoteName, Tenant: request.Tenant, IncusConfig: "/tmp/incus"}, nil
+}
+
+func (v *fakeLoginTailnetVerifier) VerifyTenantTailnet(ctx context.Context, tailnet string) (loginTailnetStatus, error) {
+	v.requests = append(v.requests, tailnet)
+	if v.err != nil {
+		return loginTailnetStatus{}, v.err
+	}
+	return v.status, nil
 }
 
 func (c *fakeAuthDeviceClient) Start(ctx context.Context) (authapp.DeviceStartResult, error) {
@@ -259,6 +273,45 @@ func TestLoginDoesNotSetTenantWhenNoAccessibleTenants(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "No default tenant set; no accessible tenants were returned.") {
 		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestLoginVerifiesTenantTailnetFromLoginResult(t *testing.T) {
+	useLoginHomeForTest(t)
+	installer := &fakeLoginRemoteInstaller{}
+	verifier := &fakeLoginTailnetVerifier{status: loginTailnetStatus{Tailnet: "tailnet.example", IPs: []string{"100.64.0.10"}}}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			UserKey:           "octocat",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+			LoginResult: &authapp.CLILoginResult{
+				TenantTailnetStatus: authapp.TenantTailnetStatus{Tailnet: "tailnet.example"},
+			},
+		}},
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:         "sandcastle",
+		authDevice:   client,
+		loginRemote:  installer,
+		loginTailnet: verifier,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(verifier.requests) != 1 || verifier.requests[0] != "tailnet.example" {
+		t.Fatalf("verifier requests = %#v", verifier.requests)
+	}
+	for _, want := range []string{
+		"Join Tenant Tailnet \"tailnet.example\"",
+		"Tenant Tailnet \"tailnet.example\" connected with IP 100.64.0.10.",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
 	}
 }
 

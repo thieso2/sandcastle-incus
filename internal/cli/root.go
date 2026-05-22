@@ -78,6 +78,7 @@ type commandConfig struct {
 	authApp             authapp.Runner
 	authDevice          authDeviceClient
 	loginRemote         loginRemoteInstaller
+	loginTailnet        loginTailnetVerifier
 	incusRunner         incusRunner
 }
 

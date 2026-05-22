@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -114,6 +115,9 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					} else {
 						fmt.Fprintln(config.stdout, "No Incus enrollment token returned; remote was not changed.")
 					}
+					if err := verifyLoginTailnet(cmd.Context(), config, result); err != nil {
+						return err
+					}
 					return nil
 				case authapp.DeviceStatusExpired:
 					return fmt.Errorf("device login expired")
@@ -129,6 +133,28 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts")
 	command.Flags().StringVar(&sshPublicKeyPath, "ssh-public-key", "", "SSH public key path to authorize for Machine SSH Access")
 	return command
+}
+
+func verifyLoginTailnet(ctx context.Context, config commandConfig, result authapp.DevicePollResult) error {
+	if result.LoginResult == nil || strings.TrimSpace(result.LoginResult.TenantTailnetStatus.Tailnet) == "" {
+		return nil
+	}
+	verifier := config.loginTailnet
+	if verifier == nil {
+		verifier = localLoginTailnetVerifier{}
+	}
+	tailnet := result.LoginResult.TenantTailnetStatus.Tailnet
+	fmt.Fprintf(config.stdout, "Join Tenant Tailnet %q, then return to this terminal.\n", tailnet)
+	status, err := verifier.VerifyTenantTailnet(ctx, tailnet)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(config.stdout, "Tenant Tailnet %q connected", status.Tailnet)
+	if len(status.IPs) > 0 {
+		fmt.Fprintf(config.stdout, " with IP %s", status.IPs[0])
+	}
+	fmt.Fprintln(config.stdout, ".")
+	return nil
 }
 
 func defaultLoginTenant(tenants []string) string {

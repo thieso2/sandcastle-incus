@@ -195,7 +195,8 @@ type CredentialEnrollment struct {
 }
 
 type TenantTailnetStatus struct {
-	State string `json:"state,omitempty"`
+	State   string `json:"state,omitempty"`
+	Tailnet string `json:"tailnet,omitempty"`
 }
 
 func loginResultForDeviceLogin(login DeviceLogin, sshFingerprint string) *CLILoginResult {
@@ -212,7 +213,8 @@ func loginResultForDeviceLogin(login DeviceLogin, sshFingerprint string) *CLILog
 		},
 		SSHKeyFingerprint: sshFingerprint,
 		TenantTailnetStatus: TenantTailnetStatus{
-			State: tenantTailnetStateForDeviceLogin(login),
+			State:   tenantTailnetStateForDeviceLogin(login),
+			Tailnet: tenantTailnetForDeviceLogin(login),
 		},
 		AccessibleTenants: append([]string{}, login.AccessibleTenants...),
 		Projects:          append([]string{}, login.Projects...),
@@ -239,6 +241,10 @@ func tenantTailnetStateForDeviceLogin(login DeviceLogin) string {
 	if login.Status == DeviceStatusApproved {
 		return "pending"
 	}
+	return ""
+}
+
+func tenantTailnetForDeviceLogin(login DeviceLogin) string {
 	return ""
 }
 
