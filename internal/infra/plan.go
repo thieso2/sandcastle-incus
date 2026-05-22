@@ -31,6 +31,9 @@ const (
 	AuthAppEnvPath             = "/etc/sandcastle/auth-app/env"
 	AuthAppUnitPath            = "/etc/systemd/system/sandcastle-auth-app.service"
 	InfrastructureNetworkName  = "incusbr0"
+	NetworkdEth0Path           = "/etc/systemd/network/10-eth0.network"
+	StaticNetworkScriptPath    = "/usr/local/sbin/sandcastle-infra-network"
+	StaticNetworkUnitPath      = "/etc/systemd/system/sandcastle-infra-network.service"
 )
 
 type CreateRequest struct{}
@@ -88,6 +91,12 @@ type RuntimeCommand struct {
 	Instance    string   `json:"instance"`
 	Description string   `json:"description"`
 	Command     []string `json:"command"`
+}
+
+type StaticNetwork struct {
+	Gateway      string            `json:"gateway"`
+	PrefixLength int               `json:"prefixLength"`
+	Addresses    map[string]string `json:"addresses"`
 }
 
 type Creator interface {
@@ -157,14 +166,15 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 		AuthHostname:     admin.AuthHostname,
 		AuthUpstream:     "http://" + AuthAppName + AuthAppListen,
 	})
-	return []RuntimeFile{
-		{
+	files := networkRuntimeFiles([]string{route.InfrastructureCaddyName, RouteBrokerName, AuthAppName})
+	files = append(files,
+		RuntimeFile{
 			Instance: route.InfrastructureCaddyName,
 			Path:     caddyFile.Path,
 			Content:  caddyFile.Content,
 			Mode:     caddyFile.Mode,
 		},
-		{
+		RuntimeFile{
 			Instance: RouteBrokerName,
 			Path:     RouteBrokerEnvPath,
 			Content: strings.Join([]string{
@@ -184,25 +194,25 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 			}, "\n"),
 			Mode: 0o600,
 		},
-		{
+		RuntimeFile{
 			Instance: RouteBrokerName,
 			Path:     RouteBrokerCertPath,
 			Content:  string(brokerTLS.CertificatePEM),
 			Mode:     0o644,
 		},
-		{
+		RuntimeFile{
 			Instance: RouteBrokerName,
 			Path:     RouteBrokerKeyPath,
 			Content:  string(brokerTLS.PrivateKeyPEM),
 			Mode:     0o600,
 		},
-		{
+		RuntimeFile{
 			Instance: RouteBrokerName,
 			Path:     RouteBrokerUnitPath,
-			Content:  "[Unit]\nDescription=Sandcastle route broker\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + RouteBrokerEnvPath + "\nExecStart=" + RouteBrokerBinaryPath + " route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			Content:  "[Unit]\nDescription=Sandcastle route broker\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nEnvironmentFile=" + RouteBrokerEnvPath + "\nExecStart=" + RouteBrokerBinaryPath + " route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
 			Mode:     0o644,
 		},
-		{
+		RuntimeFile{
 			Instance: AuthAppName,
 			Path:     AuthAppEnvPath,
 			Content: strings.Join([]string{
@@ -223,12 +233,138 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 			}, "\n"),
 			Mode: 0o600,
 		},
-		{
+		RuntimeFile{
 			Instance: AuthAppName,
 			Path:     AuthAppUnitPath,
-			Content:  "[Unit]\nDescription=Sandcastle auth app\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + AuthAppEnvPath + "\nExecStart=" + AuthAppBinaryPath + " auth-app serve --listen ${SANDCASTLE_AUTH_LISTEN} --database ${SANDCASTLE_AUTH_DB} --auth-hostname ${SANDCASTLE_AUTH_HOSTNAME} --github-client-id ${SANDCASTLE_AUTH_GITHUB_CLIENT_ID} --github-client-secret ${SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET} --admin-github-users ${SANDCASTLE_AUTH_ADMIN_GITHUB_USERS}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			Content:  "[Unit]\nDescription=Sandcastle auth app\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nEnvironmentFile=" + AuthAppEnvPath + "\nExecStart=" + AuthAppBinaryPath + " auth-app serve --listen ${SANDCASTLE_AUTH_LISTEN} --database ${SANDCASTLE_AUTH_DB} --auth-hostname ${SANDCASTLE_AUTH_HOSTNAME} --github-client-id ${SANDCASTLE_AUTH_GITHUB_CLIENT_ID} --github-client-secret ${SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET} --admin-github-users ${SANDCASTLE_AUTH_ADMIN_GITHUB_USERS}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
 			Mode:     0o644,
 		},
+	)
+	return files
+}
+
+func networkRuntimeFiles(instances []string) []RuntimeFile {
+	content := strings.Join([]string{
+		"[Match]",
+		"Name=eth0",
+		"",
+		"[Network]",
+		"DHCP=yes",
+		"IPv6AcceptRA=yes",
+		"",
+	}, "\n")
+	files := make([]RuntimeFile, 0, len(instances))
+	for _, instance := range instances {
+		files = append(files, RuntimeFile{
+			Instance: instance,
+			Path:     NetworkdEth0Path,
+			Content:  content,
+			Mode:     0o644,
+		})
+	}
+	return files
+}
+
+func networkBootstrapShell() []string {
+	return []string{
+		"systemctl enable systemd-networkd",
+		"systemctl restart systemd-networkd",
+		"networkctl renew eth0 || true",
+		"for i in $(seq 1 50); do ip -4 addr show dev eth0 | grep -q 'inet ' && break; sleep 0.1; done",
+		"ip -4 addr show dev eth0 | grep -q 'inet '",
+	}
+}
+
+func ApplyStaticNetwork(plan CreatePlan, network StaticNetwork) CreatePlan {
+	plan.RuntimeFiles = withoutRuntimePath(plan.RuntimeFiles, NetworkdEth0Path)
+	for _, instance := range plan.Instances {
+		address := strings.TrimSpace(network.Addresses[instance.Name])
+		if address == "" {
+			continue
+		}
+		plan.RuntimeFiles = append(plan.RuntimeFiles,
+			RuntimeFile{
+				Instance: instance.Name,
+				Path:     StaticNetworkScriptPath,
+				Content:  staticNetworkScript(address, network.PrefixLength, network.Gateway),
+				Mode:     0o755,
+			},
+			RuntimeFile{
+				Instance: instance.Name,
+				Path:     StaticNetworkUnitPath,
+				Content:  staticNetworkUnit(),
+				Mode:     0o644,
+			},
+		)
+	}
+	if authAddress := strings.TrimSpace(network.Addresses[AuthAppName]); authAddress != "" {
+		replaceRuntimeFileContent(&plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile", func(content string) string {
+			return strings.ReplaceAll(content, "http://"+AuthAppName+AuthAppListen, "http://"+authAddress+AuthAppListen)
+		})
+	}
+	oldBootstrap := strings.Join(networkBootstrapShell(), "; ")
+	newBootstrap := strings.Join(staticNetworkBootstrapShell(), "; ")
+	for i := range plan.RuntimeCommands {
+		if len(plan.RuntimeCommands[i].Command) >= 3 {
+			plan.RuntimeCommands[i].Command[2] = strings.Replace(plan.RuntimeCommands[i].Command[2], oldBootstrap, newBootstrap, 1)
+		}
+	}
+	return plan
+}
+
+func withoutRuntimePath(files []RuntimeFile, path string) []RuntimeFile {
+	output := files[:0]
+	for _, file := range files {
+		if file.Path != path {
+			output = append(output, file)
+		}
+	}
+	return output
+}
+
+func replaceRuntimeFileContent(plan *CreatePlan, instance string, path string, replace func(string) string) {
+	for i := range plan.RuntimeFiles {
+		if plan.RuntimeFiles[i].Instance == instance && plan.RuntimeFiles[i].Path == path {
+			plan.RuntimeFiles[i].Content = replace(plan.RuntimeFiles[i].Content)
+		}
+	}
+}
+
+func staticNetworkScript(address string, prefixLength int, gateway string) string {
+	return strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"/usr/sbin/ip link set eth0 up",
+		fmt.Sprintf("/usr/sbin/ip addr replace %s/%d dev eth0", address, prefixLength),
+		"/usr/sbin/ip route replace default via " + gateway,
+		"",
+	}, "\n")
+}
+
+func staticNetworkUnit() string {
+	return strings.Join([]string{
+		"[Unit]",
+		"Description=Sandcastle infrastructure static network",
+		"After=network-pre.target",
+		"Before=network-online.target",
+		"",
+		"[Service]",
+		"Type=oneshot",
+		"ExecStart=" + StaticNetworkScriptPath,
+		"RemainAfterExit=yes",
+		"",
+		"[Install]",
+		"WantedBy=multi-user.target",
+		"",
+	}, "\n")
+}
+
+func staticNetworkBootstrapShell() []string {
+	return []string{
+		"systemctl daemon-reload",
+		"systemctl enable sandcastle-infra-network.service",
+		"systemctl restart sandcastle-infra-network.service",
+		"ip -4 addr show dev eth0 | grep -q 'inet '",
 	}
 }
 
@@ -264,34 +400,34 @@ func runtimeCommands() []RuntimeCommand {
 		{
 			Instance:    route.InfrastructureCaddyName,
 			Description: "start infrastructure Caddy",
-			Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+			Command: []string{"/bin/sh", "-lc", strings.Join(append(networkBootstrapShell(),
 				"install -d /etc/caddy",
 				"systemctl restart caddy",
 				"for i in $(seq 1 50); do systemctl is-active caddy >/dev/null 2>&1 && exit 0; sleep 0.1; done",
 				"systemctl is-active caddy",
-			}, "; ")},
+			), "; ")},
 		},
 		{
 			Instance:    RouteBrokerName,
 			Description: "start route broker service",
-			Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+			Command: []string{"/bin/sh", "-lc", strings.Join(append(networkBootstrapShell(),
 				"systemctl daemon-reload",
 				"systemctl enable sandcastle-route-broker",
 				"systemctl restart sandcastle-route-broker",
 				"for i in $(seq 1 50); do systemctl is-active sandcastle-route-broker >/dev/null 2>&1 && exit 0; sleep 0.1; done",
 				"systemctl is-active sandcastle-route-broker",
-			}, "; ")},
+			), "; ")},
 		},
 		{
 			Instance:    AuthAppName,
 			Description: "start auth app service",
-			Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+			Command: []string{"/bin/sh", "-lc", strings.Join(append(networkBootstrapShell(),
 				"systemctl daemon-reload",
 				"systemctl enable sandcastle-auth-app",
 				"systemctl restart sandcastle-auth-app",
 				"for i in $(seq 1 50); do systemctl is-active sandcastle-auth-app >/dev/null 2>&1 && exit 0; sleep 0.1; done",
 				"systemctl is-active sandcastle-auth-app",
-			}, "; ")},
+			), "; ")},
 		},
 	}
 }

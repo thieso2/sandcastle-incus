@@ -1,6 +1,7 @@
 package incusx
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"strings"
@@ -15,7 +16,7 @@ import (
 func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	plan := infraPlanForTest(t)
 	resourceServer := &fakeResourceServer{
-		networks:  map[string]*api.Network{},
+		networks:  fakeInfrastructureNetworks(),
 		volumes:   map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{},
 	}
@@ -81,6 +82,37 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	}
 }
 
+func TestInfrastructureCreatorVerboseLogsCommandDurations(t *testing.T) {
+	plan := infraPlanForTest(t)
+	plan.Instances = plan.Instances[:1]
+	plan.RuntimeDirectories = plan.RuntimeDirectories[:1]
+	plan.RuntimeFiles = nil
+	plan.RuntimeBinaries = nil
+	plan.RuntimeCommands = nil
+	resourceServer := &fakeResourceServer{
+		networks:  fakeInfrastructureNetworks(),
+		volumes:   map[string]*api.StorageVolume{},
+		instances: map[string]*api.Instance{},
+	}
+	server := &fakeCreateServer{resourceServer: resourceServer}
+	var stderr bytes.Buffer
+	creator := (InfrastructureCreator{Remote: "big", Server: server}).WithVerbose(true, &stderr)
+
+	if err := creator.CreateInfrastructure(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	output := stderr.String()
+	for _, want := range []string{
+		"incus project create/update big:sc-infra ... done (",
+		"incus launch/update sandcastle/base:latest big:sc-caddy --project sc-infra ... done (",
+		"incus file mkdir big:sc-caddy/etc/caddy --project sc-infra ... done (",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("verbose output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {
 	plan := infraPlanForTest(t)
 	plan.Instances[1].Config["security.privileged"] = "true"
@@ -90,7 +122,7 @@ func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {
 		"path":   infra.RouteBrokerIncusSocketPath,
 	}
 	resourceServer := &fakeResourceServer{
-		networks: map[string]*api.Network{},
+		networks: fakeInfrastructureNetworks(),
 		volumes:  map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{
 			route.InfrastructureCaddyName: {Name: route.InfrastructureCaddyName, Status: "Stopped", StatusCode: api.Stopped, InstancePut: api.InstancePut{Config: map[string]string{"image.os": "debian"}}},
@@ -150,6 +182,37 @@ func TestInfrastructureDeleterDeletesRuntimeAndProject(t *testing.T) {
 	}
 }
 
+func TestInfrastructureDeleterVerboseLogsCommandDurations(t *testing.T) {
+	plan := infra.DeletePlan{
+		Project:          config.DefaultInfrastructureProject,
+		RuntimeInstances: []string{route.InfrastructureCaddyName},
+	}
+	resourceServer := &fakeDeleteResourceServer{
+		instances: map[string]*api.Instance{
+			route.InfrastructureCaddyName: {Name: route.InfrastructureCaddyName, Status: "Stopped", StatusCode: api.Stopped},
+		},
+	}
+	server := &fakeDeleteServer{resourceServer: resourceServer}
+	var stderr bytes.Buffer
+	deleter := (InfrastructureDeleter{Remote: "big", Server: server}).WithVerbose(true, &stderr)
+
+	if err := deleter.DeleteInfrastructure(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	output := stderr.String()
+	for _, want := range []string{
+		"incus delete big:sc-caddy --project sc-infra --force ... done (",
+		"incus project delete big:sc-infra ... done (",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("verbose output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "...\n") {
+		t.Fatalf("verbose output split command start and completion across lines:\n%s", output)
+	}
+}
+
 func infraPlanForTest(t *testing.T) infra.CreatePlan {
 	t.Helper()
 	binaryPath := t.TempDir() + "/sandcastle"
@@ -162,4 +225,17 @@ func infraPlanForTest(t *testing.T) infra.CreatePlan {
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func fakeInfrastructureNetworks() map[string]*api.Network {
+	return map[string]*api.Network{
+		infra.InfrastructureNetworkName: {
+			Name: infra.InfrastructureNetworkName,
+			NetworkPut: api.NetworkPut{
+				Config: map[string]string{
+					"ipv4.address": "10.196.38.1/24",
+				},
+			},
+		},
+	}
 }

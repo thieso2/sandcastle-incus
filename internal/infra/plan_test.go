@@ -51,6 +51,10 @@ func TestPlanCreate(t *testing.T) {
 		if eth0["type"] != "nic" || eth0["nictype"] != "bridged" || eth0["parent"] != InfrastructureNetworkName {
 			t.Fatalf("%s eth0 device = %#v", instance.Name, eth0)
 		}
+		networkConfig := runtimeFileContent(plan, instance.Name, NetworkdEth0Path)
+		if !strings.Contains(networkConfig, "Name=eth0") || !strings.Contains(networkConfig, "DHCP=yes") {
+			t.Fatalf("%s network config = %q", instance.Name, networkConfig)
+		}
 	}
 	if _, ok := plan.Instances[1].Devices["incus-socket"]; ok {
 		t.Fatalf("route broker socket should be opt-in, devices = %#v", plan.Instances[1].Devices)
@@ -123,6 +127,12 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if len(plan.RuntimeCommands) != 3 {
 		t.Fatalf("runtime commands = %#v", plan.RuntimeCommands)
+	}
+	for _, command := range plan.RuntimeCommands {
+		joined := strings.Join(command.Command, " ")
+		if !strings.Contains(joined, "systemctl restart systemd-networkd") || !strings.Contains(joined, "ip -4 addr show dev eth0") {
+			t.Fatalf("%s command does not bootstrap DHCP: %#v", command.Instance, command)
+		}
 	}
 	if !strings.Contains(runtimeFileContent(plan, RouteBrokerName, RouteBrokerUnitPath), "sandcastle-admin route-broker serve") {
 		t.Fatalf("broker unit = %q", runtimeFileContent(plan, RouteBrokerName, RouteBrokerUnitPath))
