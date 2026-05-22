@@ -331,6 +331,8 @@ Bootstrap:
     <h3>CLI Device Login</h3>
     <p>Starts browser-assisted sign-in against the Auth App. The CLI prints a verification URL and user code, then polls until the browser approval completes, expires, or is denied.</p>
     <pre><code><span class="cmd">sandcastle login</span> <span class="arg">https://auth.example.com</span></code></pre>
+    <p>Login prepares the User SSH Public Key used for Machine SSH Access before starting the device flow. Pass <code>--ssh-public-key &lt;path&gt;</code> to choose a public key explicitly. Without that flag, the CLI uses <code>~/.ssh/id_ed25519.pub</code> when it exists, otherwise it creates a local Sandcastle SSH Key at <code>~/.ssh/sandcastle_ed25519</code>. The private key stays local.</p>
+    <pre><code><span class="cmd">sandcastle login</span> <span class="flag">--ssh-public-key</span> <span class="arg">~/.ssh/id_ed25519.pub</span> <span class="arg">https://auth.example.com</span></code></pre>
     <p>After browser approval, the Auth App creates or ensures the user's Personal Tenant, ensures its Default Project, returns a restricted Incus certificate add token, and streams provisioning status through CLI polling. The CLI enrolls the remote with its own local client key and sets the default tenant only when exactly one accessible Tenant is returned.</p>
   </div>
 

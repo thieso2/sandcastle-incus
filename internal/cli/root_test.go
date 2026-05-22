@@ -182,6 +182,7 @@ func TestJSONFlagRejectsExplicitTextOutput(t *testing.T) {
 }
 
 func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
+	useLoginHomeForTest(t)
 	installer := &fakeLoginRemoteInstaller{}
 	client := &fakeAuthDeviceClient{
 		start: authapp.DeviceStartResult{
@@ -209,6 +210,7 @@ func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"SSH key: SHA256:",
 		"Open: https://auth.example.com/device?user_code=ABCD-1234",
 		"Code: ABCD-1234",
 		"Approved as octocat.",
@@ -228,6 +230,7 @@ func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 }
 
 func TestLoginDoesNotSetTenantWhenNoAccessibleTenants(t *testing.T) {
+	useLoginHomeForTest(t)
 	installer := &fakeLoginRemoteInstaller{}
 	client := &fakeAuthDeviceClient{
 		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
@@ -255,6 +258,7 @@ func TestLoginDoesNotSetTenantWhenNoAccessibleTenants(t *testing.T) {
 }
 
 func TestLoginReportsDeniedDeviceFlow(t *testing.T) {
+	useLoginHomeForTest(t)
 	client := &fakeAuthDeviceClient{
 		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
 		polls: []authapp.DevicePollResult{{
@@ -267,6 +271,51 @@ func TestLoginReportsDeniedDeviceFlow(t *testing.T) {
 	}, "login", "https://auth.example.com")
 	if err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestLoginAcceptsExplicitSSHPublicKeyPath(t *testing.T) {
+	useLoginHomeForTest(t)
+	keyPath := filepath.Join(t.TempDir(), "login.pub")
+	if err := os.WriteFile(keyPath, []byte(validAuthorizedKeyForTest(t)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status: authapp.DeviceStatusApproved,
+		}},
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:       "sandcastle",
+		authDevice: client,
+	}, "login", "--ssh-public-key", keyPath, "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "SSH key: SHA256:") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestLoginRejectsInvalidExplicitSSHPublicKeyPath(t *testing.T) {
+	useLoginHomeForTest(t)
+	keyPath := filepath.Join(t.TempDir(), "login.pub")
+	if err := os.WriteFile(keyPath, []byte("ssh-ed25519 not-base64\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+	}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:       "sandcastle",
+		authDevice: client,
+	}, "login", "--ssh-public-key", keyPath, "https://auth.example.com")
+	if err == nil || !strings.Contains(err.Error(), "parse SSH public key") {
+		t.Fatalf("error = %v", err)
+	}
+	if client.polledDeviceCode != "" {
+		t.Fatalf("device flow started after invalid SSH key: %q", client.polledDeviceCode)
 	}
 }
 

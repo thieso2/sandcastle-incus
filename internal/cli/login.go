@@ -28,11 +28,20 @@ type loginRemoteInstaller interface {
 
 func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var maxPolls int
+	var sshPublicKeyPath string
 	command := &cobra.Command{
 		Use:   "login auth-host",
 		Short: "Sign in to Sandcastle through the Auth App",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			sshKey, err := prepareLoginSSHKey(loginSSHKeyRequest{
+				PublicKeyPath: sshPublicKeyPath,
+				ExplicitPath:  cmd.Flags().Changed("ssh-public-key"),
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(config.stdout, "SSH key: %s\n", sshKey.Fingerprint)
 			client := config.authDevice
 			if client == nil {
 				client = authapp.DeviceClient{BaseURL: args[0]}
@@ -116,6 +125,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		},
 	}
 	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts")
+	command.Flags().StringVar(&sshPublicKeyPath, "ssh-public-key", "", "SSH public key path to authorize for Machine SSH Access")
 	return command
 }
 
