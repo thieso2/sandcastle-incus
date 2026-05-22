@@ -76,6 +76,43 @@ func TestMachineSSHKeyReconcilerCanRetryAfterPartialFailure(t *testing.T) {
 	}
 }
 
+func TestMachineSSHKeyReconcilerRevokesExistingMachineAccess(t *testing.T) {
+	resource := &fakeMachineSSHKeyResource{}
+	reconciler := MachineSSHKeyReconciler{
+		Store: fakeMachineSSHKeyStore{machines: []meta.Machine{
+			{Tenant: "alice", Project: "default", Name: "dev", LinuxUser: "alice"},
+		}},
+		Server: &fakeMachineSSHKeyServer{resource: resource},
+	}
+	if err := reconciler.RevokeUserSSHKey(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if len(resource.execs) != 1 || resource.execs[0].instance != "default-dev" {
+		t.Fatalf("execs = %#v", resource.execs)
+	}
+	if resource.execs[0].environment["SANDCASTLE_SSH_PUBLIC_KEY"] != "" || resource.execs[0].environment["SANDCASTLE_USER"] != "alice" {
+		t.Fatalf("environment = %#v", resource.execs[0].environment)
+	}
+	script := strings.Join(resource.execs[0].command, " ")
+	if !strings.Contains(script, "sandcastle user ssh key begin") || strings.Contains(script, "SANDCASTLE_SSH_PUBLIC_KEY") {
+		t.Fatalf("revoke script = %s", script)
+	}
+}
+
+func TestMachineSSHKeyReconcilerRevokeSkipsWhenNoMachinesExist(t *testing.T) {
+	server := &fakeMachineSSHKeyServer{}
+	reconciler := MachineSSHKeyReconciler{
+		Store:  fakeMachineSSHKeyStore{},
+		Server: server,
+	}
+	if err := reconciler.RevokeUserSSHKey(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if len(server.resources) != 0 {
+		t.Fatalf("server resources = %#v", server.resources)
+	}
+}
+
 type fakeMachineSSHKeyStore struct {
 	machines []meta.Machine
 }

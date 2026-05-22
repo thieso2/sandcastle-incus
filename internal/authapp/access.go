@@ -87,7 +87,41 @@ func (h handler) adminTenantAccessMutation(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	if action == "revoke" {
+		if err := h.revokeMachineSSHAccess(r, tenantName, plan.User); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
 	http.Redirect(w, r, "/admin/access", http.StatusSeeOther)
+}
+
+func (h handler) revokeMachineSSHAccess(r *http.Request, tenantName string, userKey string) error {
+	if h.machineSSHAccess == nil {
+		return nil
+	}
+	summary, err := h.findTenantSummary(r, tenantName)
+	if err != nil {
+		return err
+	}
+	return h.machineSSHAccess.RevokeUserSSHKey(r.Context(), summary, NormalizeGitHubUsername(userKey))
+}
+
+func (h handler) findTenantSummary(r *http.Request, tenantName string) (tenant.Summary, error) {
+	if h.tenants == nil {
+		return tenant.Summary{}, fmt.Errorf("tenant store is not configured")
+	}
+	summaries, err := tenant.List(r.Context(), h.tenants)
+	if err != nil {
+		return tenant.Summary{}, err
+	}
+	normalized := NormalizeGitHubUsername(tenantName)
+	for _, summary := range summaries {
+		if summary.Tenant == normalized {
+			return summary, nil
+		}
+	}
+	return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", normalized)
 }
 
 func (h handler) tenantAccessPage(r *http.Request) (accessPage, error) {

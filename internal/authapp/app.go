@@ -54,14 +54,19 @@ type MachineSSHKeyReconciler interface {
 	ReconcileUserSSHKey(context.Context, tenant.Summary, string, string) error
 }
 
+type MachineSSHAccessRevoker interface {
+	RevokeUserSSHKey(context.Context, tenant.Summary, string) error
+}
+
 type HTTPRunner struct {
-	RestrictedUsers RestrictedUserRevoker
-	Provisioner     PersonalTenantProvisioner
-	Admin           config.Admin
-	Tenants         tenant.IncusTenantStore
-	TenantAccess    TenantAccessManager
-	Machines        machine.Store
-	MachineSSHKeys  MachineSSHKeyReconciler
+	RestrictedUsers  RestrictedUserRevoker
+	Provisioner      PersonalTenantProvisioner
+	Admin            config.Admin
+	Tenants          tenant.IncusTenantStore
+	TenantAccess     TenantAccessManager
+	Machines         machine.Store
+	MachineSSHKeys   MachineSSHKeyReconciler
+	MachineSSHAccess MachineSSHAccessRevoker
 }
 
 func PlanServe(request ServeRequest) (ServePlan, error) {
@@ -108,6 +113,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			TenantAccess:       r.TenantAccess,
 			Machines:           r.Machines,
 			MachineSSHKeys:     r.MachineSSHKeys,
+			MachineSSHAccess:   r.MachineSSHAccess,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -288,24 +294,26 @@ type HandlerOptions struct {
 	TenantAccess       TenantAccessManager
 	Machines           machine.Store
 	MachineSSHKeys     MachineSSHKeyReconciler
+	MachineSSHAccess   MachineSSHAccessRevoker
 }
 
 func NewHandler(db *sql.DB, options any) http.Handler {
 	mux := http.NewServeMux()
 	handlerOptions := normalizeHandlerOptions(options)
 	app := handler{
-		db:             db,
-		authHostname:   strings.Trim(strings.TrimSpace(handlerOptions.AuthHostname), "."),
-		githubClient:   handlerOptions.GitHub,
-		githubOAuth:    GitHubOAuth{ClientID: handlerOptions.GitHubClientID, ClientSecret: handlerOptions.GitHubClientSecret},
-		restricted:     handlerOptions.RestrictedUsers,
-		provisioner:    handlerOptions.Provisioner,
-		admin:          handlerOptions.Admin,
-		tenants:        handlerOptions.Tenants,
-		tenantAccess:   handlerOptions.TenantAccess,
-		machines:       handlerOptions.Machines,
-		machineSSHKeys: handlerOptions.MachineSSHKeys,
-		sessionCookie:  "sandcastle_session",
+		db:               db,
+		authHostname:     strings.Trim(strings.TrimSpace(handlerOptions.AuthHostname), "."),
+		githubClient:     handlerOptions.GitHub,
+		githubOAuth:      GitHubOAuth{ClientID: handlerOptions.GitHubClientID, ClientSecret: handlerOptions.GitHubClientSecret},
+		restricted:       handlerOptions.RestrictedUsers,
+		provisioner:      handlerOptions.Provisioner,
+		admin:            handlerOptions.Admin,
+		tenants:          handlerOptions.Tenants,
+		tenantAccess:     handlerOptions.TenantAccess,
+		machines:         handlerOptions.Machines,
+		machineSSHKeys:   handlerOptions.MachineSSHKeys,
+		machineSSHAccess: handlerOptions.MachineSSHAccess,
+		sessionCookie:    "sandcastle_session",
 	}
 	if app.githubClient == nil {
 		app.githubClient = HTTPGitHubClient{}
@@ -342,18 +350,19 @@ func normalizeHandlerOptions(value any) HandlerOptions {
 }
 
 type handler struct {
-	db             *sql.DB
-	authHostname   string
-	githubClient   GitHubClient
-	githubOAuth    GitHubOAuth
-	restricted     RestrictedUserRevoker
-	provisioner    PersonalTenantProvisioner
-	admin          config.Admin
-	tenants        tenant.IncusTenantStore
-	tenantAccess   TenantAccessManager
-	machines       machine.Store
-	machineSSHKeys MachineSSHKeyReconciler
-	sessionCookie  string
+	db               *sql.DB
+	authHostname     string
+	githubClient     GitHubClient
+	githubOAuth      GitHubOAuth
+	restricted       RestrictedUserRevoker
+	provisioner      PersonalTenantProvisioner
+	admin            config.Admin
+	tenants          tenant.IncusTenantStore
+	tenantAccess     TenantAccessManager
+	machines         machine.Store
+	machineSSHKeys   MachineSSHKeyReconciler
+	machineSSHAccess MachineSSHAccessRevoker
+	sessionCookie    string
 }
 
 func (h handler) health(w http.ResponseWriter, r *http.Request) {

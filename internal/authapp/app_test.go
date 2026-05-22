@@ -344,12 +344,23 @@ func TestAllowlistRemoveBlocksLoginAndRevokesRestrictedCertificate(t *testing.T)
 		t.Fatal(err)
 	}
 	revoker := &fakeRestrictedRevoker{}
+	sshAccess := &fakeMachineSSHKeyReconciler{}
 	request := httptest.NewRequest(http.MethodPost, "/admin/allowlist/remove", strings.NewReader("github_username=alice"))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.AddCookie(adminSessionCookieForTest(t, db))
 	response := httptest.NewRecorder()
 
-	NewHandler(db, HandlerOptions{RestrictedUsers: revoker}).ServeHTTP(response, request)
+	NewHandler(db, HandlerOptions{
+		RestrictedUsers: revoker,
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-alice",
+			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "alice", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}, {
+			Name:   "sc-acme",
+			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.2.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}}},
+		MachineSSHAccess: sshAccess,
+	}).ServeHTTP(response, request)
 	if response.Code != http.StatusSeeOther {
 		t.Fatalf("allowlist remove = %d %q", response.Code, response.Body.String())
 	}
@@ -359,6 +370,9 @@ func TestAllowlistRemoveBlocksLoginAndRevokesRestrictedCertificate(t *testing.T)
 	}
 	if len(revoker.deleted) != 1 || revoker.deleted[0] != "alice" {
 		t.Fatalf("deleted users = %#v", revoker.deleted)
+	}
+	if len(sshAccess.revokes) != 2 || sshAccess.revokes[0].user != "alice" || sshAccess.revokes[1].user != "alice" {
+		t.Fatalf("ssh access revokes = %#v", sshAccess.revokes)
 	}
 	if _, err := FindLoginUser(context.Background(), db, "alice"); err == nil {
 		t.Fatal("expected removed user to be blocked from login")
@@ -425,9 +439,15 @@ func TestTenantAccessAdminListsUsersTenantsAndGrants(t *testing.T) {
 func TestTenantAccessAdminRevokesPersonalTenantAccess(t *testing.T) {
 	db := authDBForTest(t)
 	access := &fakeTenantAccessManager{}
+	sshAccess := &fakeMachineSSHKeyReconciler{}
 	handler := NewHandler(db, HandlerOptions{
-		Admin:        testAuthAdminConfig(),
-		TenantAccess: access,
+		Admin: testAuthAdminConfig(),
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-1octocat",
+			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "1octocat", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}}},
+		TenantAccess:     access,
+		MachineSSHAccess: sshAccess,
 	})
 
 	request := httptest.NewRequest(http.MethodPost, "/admin/access/revoke", strings.NewReader("tenant=1octocat&user=1octocat&personal=1"))
@@ -440,6 +460,9 @@ func TestTenantAccessAdminRevokesPersonalTenantAccess(t *testing.T) {
 	}
 	if len(access.revokes) != 1 || access.revokes[0].User != "1octocat" || access.revokes[0].Projects[0] != "sc-1octocat" {
 		t.Fatalf("revokes = %#v", access.revokes)
+	}
+	if len(sshAccess.revokes) != 1 || sshAccess.revokes[0].tenant != "1octocat" || sshAccess.revokes[0].user != "1octocat" {
+		t.Fatalf("ssh access revokes = %#v", sshAccess.revokes)
 	}
 }
 
@@ -836,6 +859,10 @@ type fakeMachineSSHKeyReconciler struct {
 		user   string
 		key    string
 	}
+	revokes []struct {
+		tenant string
+		user   string
+	}
 }
 
 func (r *fakeMachineSSHKeyReconciler) ReconcileUserSSHKey(ctx context.Context, summary tenant.Summary, userKey string, publicKey string) error {
@@ -844,6 +871,14 @@ func (r *fakeMachineSSHKeyReconciler) ReconcileUserSSHKey(ctx context.Context, s
 		user   string
 		key    string
 	}{tenant: summary.Tenant, user: userKey, key: publicKey})
+	return nil
+}
+
+func (r *fakeMachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summary tenant.Summary, userKey string) error {
+	r.revokes = append(r.revokes, struct {
+		tenant string
+		user   string
+	}{tenant: summary.Tenant, user: userKey})
 	return nil
 }
 

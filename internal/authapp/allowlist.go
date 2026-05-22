@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -88,7 +89,30 @@ func (h handler) adminAllowlistRemove(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := h.revokeMachineSSHAccessFromAllTenants(r, user.UserKey); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
 	http.Redirect(w, r, "/admin/allowlist", http.StatusSeeOther)
+}
+
+func (h handler) revokeMachineSSHAccessFromAllTenants(r *http.Request, userKey string) error {
+	if h.machineSSHAccess == nil {
+		return nil
+	}
+	if h.tenants == nil {
+		return fmt.Errorf("tenant store is not configured")
+	}
+	summaries, err := tenant.List(r.Context(), h.tenants)
+	if err != nil {
+		return err
+	}
+	for _, summary := range summaries {
+		if err := h.machineSSHAccess.RevokeUserSSHKey(r.Context(), summary, NormalizeGitHubUsername(userKey)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var allowlistTemplate = template.Must(template.New("allowlist").Parse(`<!doctype html>
