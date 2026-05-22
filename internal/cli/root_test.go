@@ -1250,6 +1250,7 @@ func TestCreateConnectsAfterCreateByDefault(t *testing.T) {
 			Config: configMap,
 		}}},
 		machineCreator:   creator,
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
 		machineConnector: connector,
 	}, "create", "codex")
 	if err != nil {
@@ -1282,6 +1283,7 @@ func TestConnectCommandUsesConnector(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
 		machineConnector: connector,
 	}, "connect", "codex")
 	if err != nil {
@@ -1314,6 +1316,7 @@ func TestConnectCommandAcceptsExplicitCommand(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
 		machineConnector: connector,
 	}, "connect", "codex", "pwd")
 	if err != nil {
@@ -1343,7 +1346,7 @@ func TestConnectCommandSearchesBareMachineWhenUnique(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
 		machineConnector: connector,
 	}, "connect", "codex")
 	if err != nil {
@@ -2831,6 +2834,7 @@ func TestAdminMachineConnectUsesTenantRef(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
 		machineConnector: connector,
 	}, "connect", "acme/codex", "pwd")
 	if err != nil {

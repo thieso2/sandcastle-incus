@@ -109,7 +109,8 @@ func TestPlanCreateRequiresShareHomeForRunningMachineUsingSameHome(t *testing.T)
 func TestPlanConnect(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), nil, ConnectRequest{Reference: "website/codex"})
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42", TailscaleIP: "100.64.0.42"}}}
+	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "website/codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestPlanConnect(t *testing.T) {
 func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42"}}}
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42", TailscaleIP: "100.64.0.42"}}}
 	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex"})
 	if err != nil {
 		t.Fatal(err)
@@ -129,8 +130,18 @@ func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 	if plan.Project != "website" || plan.InstanceName != "website-codex" {
 		t.Fatalf("plan = %#v", plan)
 	}
-	if plan.SSHHost != "10.248.0.42" || plan.HostKeyAlias != "codex.website.acme" {
+	if plan.SSHHost != "100.64.0.42" || plan.HostKeyAlias != "codex.website.acme" || plan.Hostname != "codex.website.acme" {
 		t.Fatalf("ssh target = %q alias %q", plan.SSHHost, plan.HostKeyAlias)
+	}
+}
+
+func TestPlanConnectRejectsManagedMachineWithoutTailscaleMachineIP(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42"}}}
+	_, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "website/codex"})
+	if err == nil || !strings.Contains(err.Error(), "no recorded Tailscale Machine IP") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -138,7 +149,7 @@ func TestPlanConnectResolvesMachineFQDN(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
 	store := fakeMachineStore{machines: []meta.Machine{
-		{Project: "website", Name: "codex"},
+		{Project: "website", Name: "codex", TailscaleIP: "100.64.0.42"},
 		{Project: "default", Name: "shell"},
 	}}
 	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex.website.acme"})
@@ -153,7 +164,7 @@ func TestPlanConnectResolvesMachineFQDN(t *testing.T) {
 func TestPlanConnectResolvesMachineFQDNWithTrailingDot(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex"}}}
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", TailscaleIP: "100.64.0.42"}}}
 	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex.website.acme."})
 	if err != nil {
 		t.Fatal(err)

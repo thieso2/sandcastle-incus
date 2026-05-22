@@ -423,7 +423,7 @@ Bootstrap:
 
 <span class="comment"># Run a specific command</span>
 <span class="cmd">sandcastle connect</span> <span class="arg">website/codex</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
-    <p><code>connect</code> uses SSH to the machine private IP and keeps using the global <code>~/.ssh/known_hosts</code>. When a machine is created, Sandcastle removes stale keys for the machine FQDN and private IP, then scans and records the new host keys so recycled names and addresses do not trigger SSH host-key-change warnings.</p>
+    <p><code>connect</code> uses SSH to the recorded Tailscale Machine IP and keeps using the private machine hostname as the host-key alias. Local DNS is useful for private URLs, but it is not required for Machine SSH Access.</p>
     <p>If the machine is missing, <code>connect</code> logs that it is creating the machine, then connects after creation.</p>
   </div>
 
