@@ -32,6 +32,7 @@ const (
 	AuthAppUnitPath            = "/etc/systemd/system/sandcastle-auth-app.service"
 	InfrastructureNetworkName  = "incusbr0"
 	NetworkdEth0Path           = "/etc/systemd/network/10-eth0.network"
+	ResolverPath               = "/etc/resolv.conf"
 	StaticNetworkScriptPath    = "/usr/local/sbin/sandcastle-infra-network"
 	StaticNetworkUnitPath      = "/etc/systemd/system/sandcastle-infra-network.service"
 )
@@ -295,6 +296,12 @@ func ApplyStaticNetwork(plan CreatePlan, network StaticNetwork) CreatePlan {
 				Content:  staticNetworkUnit(),
 				Mode:     0o644,
 			},
+			RuntimeFile{
+				Instance: instance.Name,
+				Path:     ResolverPath,
+				Content:  "nameserver " + network.Gateway + "\n",
+				Mode:     0o644,
+			},
 		)
 	}
 	if authAddress := strings.TrimSpace(network.Addresses[AuthAppName]); authAddress != "" {
@@ -450,6 +457,18 @@ func instancePlan(admin config.Admin, name string, role string) InstancePlan {
 			"nictype": "bridged",
 			"parent":  InfrastructureNetworkName,
 		},
+	}
+	if name == route.InfrastructureCaddyName {
+		devices["http"] = Device{
+			"type":    "proxy",
+			"listen":  "tcp:0.0.0.0:80",
+			"connect": "tcp:127.0.0.1:80",
+		}
+		devices["https"] = Device{
+			"type":    "proxy",
+			"listen":  "tcp:0.0.0.0:443",
+			"connect": "tcp:127.0.0.1:443",
+		}
 	}
 	if (name == RouteBrokerName || name == AuthAppName) && strings.TrimSpace(admin.RouteBrokerIncusSocket) != "" {
 		devices["incus-socket"] = Device{

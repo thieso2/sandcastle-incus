@@ -75,6 +75,15 @@ func executeAdminForTest(t *testing.T, name string, args ...string) (string, err
 
 func executeAdminForTestWithConfig(t *testing.T, config commandConfig, args ...string) (string, error) {
 	t.Helper()
+	stdout, stderr, err := executeAdminForTestWithConfigAndStderr(t, config, args...)
+	if stderr != "" {
+		t.Fatalf("unexpected stderr: %s", stderr)
+	}
+	return stdout, err
+}
+
+func executeAdminForTestWithConfigAndStderr(t *testing.T, config commandConfig, args ...string) (string, string, error) {
+	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	config.stdout = &stdout
@@ -87,10 +96,7 @@ func executeAdminForTestWithConfig(t *testing.T, config commandConfig, args ...s
 	cmd.SetErr(&stderr)
 	cmd.SetArgs(args)
 	err := cmd.Execute()
-	if stderr.Len() > 0 {
-		t.Fatalf("unexpected stderr: %s", stderr.String())
-	}
-	return stdout.String(), err
+	return stdout.String(), stderr.String(), err
 }
 
 func testAdminConfig() scconfig.Admin {
@@ -3091,7 +3097,7 @@ func TestAdminInfraCreateDryRunJSON(t *testing.T) {
 
 func TestAdminInfraCreateCallsExecutor(t *testing.T) {
 	creator := &fakeInfraCreator{}
-	_, err := executeAdminForTestWithConfig(t, commandConfig{
+	_, stderr, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
 		name:         "sandcastle-admin",
 		adminConfig:  scconfig.LoadAdminFromEnv(),
 		infraCreator: creator,
@@ -3104,6 +3110,48 @@ func TestAdminInfraCreateCallsExecutor(t *testing.T) {
 	}
 	if creator.plan.Project != scconfig.DefaultInfrastructureProject {
 		t.Fatalf("Project = %q", creator.plan.Project)
+	}
+	if !strings.Contains(stderr, "Sandcastle infrastructure configuration") {
+		t.Fatalf("stderr missing config banner:\n%s", stderr)
+	}
+}
+
+func TestAdminInfraCreatePrintsConfigBanner(t *testing.T) {
+	creator := &fakeInfraCreator{}
+	admin := scconfig.LoadAdminFromEnv()
+	admin.Remote = "big"
+	admin.InfrastructureProject = "castle-infra"
+	admin.IncusProjectPrefix = "castle"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthGitHubClientID = "client-id"
+	admin.AuthGitHubClientSecret = "secret-value"
+	admin.AuthAdminGitHubUsers = []string{"octocat", "hubot"}
+	admin.RouteBrokerIncusSocket = "/var/lib/incus/unix.socket"
+	_, stderr, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  admin,
+		infraCreator: creator,
+	}, "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Sandcastle infrastructure configuration",
+		"SANDCASTLE_REMOTE=big",
+		"SANDCASTLE_INCUS_PROJECT_PREFIX=castle",
+		"SANDCASTLE_INFRA_PROJECT=castle-infra",
+		"SANDCASTLE_AUTH_HOSTNAME=auth.example.com",
+		"SANDCASTLE_AUTH_GITHUB_CLIENT_ID=client-id",
+		"SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=set (redacted)",
+		"SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot",
+		"SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "secret-value") {
+		t.Fatalf("stderr leaked secret:\n%s", stderr)
 	}
 }
 
@@ -3135,7 +3183,7 @@ func TestAdminInfraDeleteRequiresConfirmation(t *testing.T) {
 
 func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
 	deleter := &fakeInfraDeleter{}
-	_, err := executeAdminForTestWithConfig(t, commandConfig{
+	_, stderr, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
 		name:         "sandcastle-admin",
 		adminConfig:  scconfig.LoadAdminFromEnv(),
 		infraDeleter: deleter,
@@ -3148,6 +3196,9 @@ func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
 	}
 	if deleter.plan.Project != scconfig.DefaultInfrastructureProject {
 		t.Fatalf("Project = %q", deleter.plan.Project)
+	}
+	if !strings.Contains(stderr, "Sandcastle infrastructure configuration") {
+		t.Fatalf("stderr missing config banner:\n%s", stderr)
 	}
 }
 

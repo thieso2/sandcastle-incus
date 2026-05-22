@@ -318,7 +318,9 @@ export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot
 export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
 export SANDCASTLE_ADMIN_BIN=$PWD/bin/sc-adm
 ./bin/sc-adm infra create</code></pre>
+      <p><code>infra create</code> and <code>infra delete --yes</code> print a configuration banner before mutation. Verify the remote, infrastructure project, image aliases, Auth Hostname, GitHub OAuth client ID, initial admin users, and Incus socket path; the GitHub OAuth client secret is shown only as set or unset.</p>
       <p>The Auth App sidecar runs <code>sandcastle-admin auth-app serve</code> with a persistent SQLite database. Initial admins can sign in with GitHub, manage explicit GitHub users at <code>/admin/allowlist</code>, and manage Tenant Access at <code>/admin/access</code>. The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. Both sidecars use the mounted Incus socket when route infrastructure is configured this way.</p>
+      <p>The shared Caddy sidecar publishes host ports <code>80</code> and <code>443</code> through Incus proxy devices and routes the configured Auth Hostname to the Auth App over the infrastructure bridge network.</p>
       <p>The Auth App publishes OIDC discovery and JWKS endpoints under the Auth Hostname. Signing keys are bootstrapped into the SQLite database with encrypted private key storage.</p>
       <p>Workload identity uses per-Machine runtime secrets. The Auth App stores only verifiers, mints 15-minute tokens, and lets users manage User-owned GCP Cloud Identity Configs at <code>/cloud-identities</code>.</p>
       <p>Allowlisted users first see the Auth App Onboarding Page after GitHub OAuth. If they are not on the Login Allowlist, the page tells them to ask a Sandcastle Admin for access; browser-only GitHub login does not provision a Personal Tenant.</p>

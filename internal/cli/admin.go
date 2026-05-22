@@ -316,6 +316,7 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 				if config.infraCreator == nil {
 					return fmt.Errorf("infrastructure creation executor is not configured")
 				}
+				writeInfraConfigBanner(config, opts)
 				if err := config.infraCreator.CreateInfrastructure(cmd.Context(), plan); err != nil {
 					return err
 				}
@@ -348,6 +349,7 @@ func newAdminInfraDeleteCommand(config commandConfig, opts *rootOptions) *cobra.
 			if config.infraDeleter == nil {
 				return fmt.Errorf("infrastructure deletion executor is not configured")
 			}
+			writeInfraConfigBanner(config, opts)
 			if err := config.infraDeleter.DeleteInfrastructure(cmd.Context(), plan); err != nil {
 				return err
 			}
@@ -360,6 +362,64 @@ func newAdminInfraDeleteCommand(config commandConfig, opts *rootOptions) *cobra.
 
 func formatInfraDeletePlan(plan infra.DeletePlan) string {
 	return fmt.Sprintf("Deleted infrastructure project: %s", plan.Project)
+}
+
+func writeInfraConfigBanner(config commandConfig, opts *rootOptions) {
+	if config.stderr == nil || opts.output == outputJSON {
+		return
+	}
+	admin := config.adminConfig
+	secretState := "unset"
+	if strings.TrimSpace(admin.AuthGitHubClientSecret) != "" {
+		secretState = "set (redacted)"
+	}
+	socket := strings.TrimSpace(admin.RouteBrokerIncusSocket)
+	if socket == "" {
+		socket = "unset"
+	}
+	authAdmins := strings.Join(admin.AuthAdminGitHubUsers, ",")
+	if authAdmins == "" {
+		authAdmins = "unset"
+	}
+	fmt.Fprintf(config.stderr, `Sandcastle infrastructure configuration
+  SANDCASTLE_REMOTE=%s
+  SANDCASTLE_STORAGE_POOL=%s
+  SANDCASTLE_CIDR_POOL=%s
+  SANDCASTLE_INCUS_PROJECT_PREFIX=%s
+  SANDCASTLE_INFRA_PROJECT=%s
+  SANDCASTLE_INFRA_HOST=%s
+  SANDCASTLE_LETSENCRYPT_EMAIL=%s
+  SANDCASTLE_BASE_IMAGE=%s
+  SANDCASTLE_AI_IMAGE=%s
+  SANDCASTLE_AUTH_HOSTNAME=%s
+  SANDCASTLE_AUTH_GITHUB_CLIENT_ID=%s
+  SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=%s
+  SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=%s
+  SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=%s
+`,
+		bannerValue(admin.Remote),
+		bannerValue(admin.StoragePool),
+		bannerValue(admin.CIDRPool),
+		bannerValue(admin.IncusProjectPrefix),
+		bannerValue(admin.InfrastructureProject),
+		bannerValue(admin.InfrastructureHost),
+		bannerValue(admin.LetsEncryptEmail),
+		bannerValue(admin.Images.Base),
+		bannerValue(admin.Images.AI),
+		bannerValue(admin.AuthHostname),
+		bannerValue(admin.AuthGitHubClientID),
+		secretState,
+		authAdmins,
+		socket,
+	)
+}
+
+func bannerValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unset"
+	}
+	return value
 }
 
 func newAdminImageCommand(config commandConfig, opts *rootOptions) *cobra.Command {

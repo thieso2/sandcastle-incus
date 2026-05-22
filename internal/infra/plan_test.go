@@ -40,6 +40,12 @@ func TestPlanCreate(t *testing.T) {
 	if plan.Instances[0].Name != route.InfrastructureCaddyName || plan.Instances[0].Role != "caddy" {
 		t.Fatalf("caddy instance = %#v", plan.Instances[0])
 	}
+	if got := plan.Instances[0].Devices["http"]; got["type"] != "proxy" || got["listen"] != "tcp:0.0.0.0:80" || got["connect"] != "tcp:127.0.0.1:80" {
+		t.Fatalf("caddy http proxy = %#v", got)
+	}
+	if got := plan.Instances[0].Devices["https"]; got["type"] != "proxy" || got["listen"] != "tcp:0.0.0.0:443" || got["connect"] != "tcp:127.0.0.1:443" {
+		t.Fatalf("caddy https proxy = %#v", got)
+	}
 	if plan.Instances[1].Name != RouteBrokerName || plan.Instances[1].Role != "route-broker" {
 		t.Fatalf("route broker instance = %#v", plan.Instances[1])
 	}
@@ -210,6 +216,35 @@ func TestPlanCreateMountsRouteBrokerIncusSocketWhenConfigured(t *testing.T) {
 	}
 	if _, ok := plan.Instances[0].Devices["incus-socket"]; ok {
 		t.Fatalf("caddy should not receive Incus socket, devices = %#v", plan.Instances[0].Devices)
+	}
+}
+
+func TestApplyStaticNetworkWritesAddressesAndResolver(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.AuthHostname = "auth.example.com"
+	plan, err := PlanCreate(admin, CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan = ApplyStaticNetwork(plan, StaticNetwork{
+		Gateway:      "10.196.38.1",
+		PrefixLength: 24,
+		Addresses: map[string]string{
+			route.InfrastructureCaddyName: "10.196.38.20",
+			RouteBrokerName:               "10.196.38.21",
+			AuthAppName:                   "10.196.38.22",
+		},
+	})
+
+	for _, instance := range []string{route.InfrastructureCaddyName, RouteBrokerName, AuthAppName} {
+		resolver := runtimeFileContent(plan, instance, ResolverPath)
+		if resolver != "nameserver 10.196.38.1\n" {
+			t.Fatalf("%s resolver = %q", instance, resolver)
+		}
+	}
+	caddyfile := runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile")
+	if !strings.Contains(caddyfile, "reverse_proxy http://10.196.38.22:9444") {
+		t.Fatalf("Caddyfile missing static auth upstream:\n%s", caddyfile)
 	}
 }
 
