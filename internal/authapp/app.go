@@ -361,10 +361,38 @@ func (h handler) status(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth database unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	if cookie, err := r.Cookie(h.sessionCookie); err == nil {
+		if user, err := UserForSession(r.Context(), h.db, cookie.Value, timeNow()); err == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_ = onboardingTemplate.Execute(w, onboardingPage{
+				User:         user,
+				AuthHostname: h.authHostname,
+				LoginCommand: cliLoginCommand(h.authHostname),
+			})
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = statusTemplate.Execute(w, struct {
 		AuthHostname string
 	}{AuthHostname: h.authHostname})
+}
+
+type onboardingPage struct {
+	User         User
+	AuthHostname string
+	LoginCommand string
+}
+
+func cliLoginCommand(authHostname string) string {
+	host := strings.TrimSpace(authHostname)
+	if host == "" {
+		return "sandcastle login <auth-host>"
+	}
+	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+		return "sandcastle login " + strings.TrimRight(host, "/")
+	}
+	return "sandcastle login https://" + strings.Trim(host, ".")
 }
 
 var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
@@ -378,6 +406,47 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
     <h1>Sandcastle Auth</h1>
     <p>Status: ok</p>
     {{if .AuthHostname}}<p>Auth Hostname: {{.AuthHostname}}</p>{{end}}
+  </main>
+</body>
+</html>
+`))
+
+var onboardingTemplate = template.Must(template.New("onboarding").Parse(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sandcastle Onboarding</title>
+</head>
+<body>
+  <main>
+    <h1>Sandcastle Onboarding</h1>
+    <section>
+      <h2>GitHub identity</h2>
+      <p>GitHub Username: {{.User.GitHubUsername}}</p>
+      <p>Sandcastle User Key: {{.User.UserKey}}</p>
+      {{if .User.GitHubEmail}}<p>GitHub Email: {{.User.GitHubEmail}}</p>{{end}}
+    </section>
+    <section>
+      <h2>Allowlist status</h2>
+      {{if .User.Allowlisted}}
+        <p>Status: allowlisted</p>
+      {{else}}
+        <p>Status: not allowlisted</p>
+        <p>Ask a Sandcastle Admin to add your GitHub Username to the Login Allowlist before running CLI Device Login.</p>
+      {{end}}
+    </section>
+    {{if .User.Allowlisted}}
+      <section>
+        <h2>Install the CLI</h2>
+        <p>Install the Sandcastle CLI for your platform, then run the login command from a terminal.</p>
+        <pre><code>mise run build
+mise run build:linux-amd64</code></pre>
+      </section>
+      <section>
+        <h2>Login command</h2>
+        <pre><code>{{.LoginCommand}}</code></pre>
+      </section>
+    {{end}}
   </main>
 </body>
 </html>

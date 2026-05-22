@@ -74,6 +74,7 @@ func TestGitHubOAuthCallbackCreatesSessionForAllowlistedUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := createStateForTest(t, db)
+	provisioner := &fakePersonalTenantProvisioner{}
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname:       "auth.example.com",
 		GitHubClientID:     "client",
@@ -86,6 +87,7 @@ func TestGitHubOAuthCallbackCreatesSessionForAllowlistedUser(t *testing.T) {
 				Email: "octo@example.com",
 			},
 		},
+		Provisioner: provisioner,
 	})
 
 	response := httptest.NewRecorder()
@@ -93,8 +95,29 @@ func TestGitHubOAuthCallbackCreatesSessionForAllowlistedUser(t *testing.T) {
 	if response.Code != http.StatusFound {
 		t.Fatalf("callback = %d %q", response.Code, response.Body.String())
 	}
+	if response.Header().Get("Location") != "/" {
+		t.Fatalf("callback location = %q", response.Header().Get("Location"))
+	}
 	if len(response.Result().Cookies()) != 1 || response.Result().Cookies()[0].Name != "sandcastle_session" {
 		t.Fatalf("cookies = %#v", response.Result().Cookies())
+	}
+	onboardingRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	onboardingRequest.AddCookie(response.Result().Cookies()[0])
+	onboarding := httptest.NewRecorder()
+	handler.ServeHTTP(onboarding, onboardingRequest)
+	if onboarding.Code != http.StatusOK {
+		t.Fatalf("onboarding = %d %q", onboarding.Code, onboarding.Body.String())
+	}
+	for _, want := range []string{
+		"Sandcastle Onboarding",
+		"GitHub Username: OctoCat",
+		"Status: allowlisted",
+		"Install the CLI",
+		"sandcastle login https://auth.example.com",
+	} {
+		if !strings.Contains(onboarding.Body.String(), want) {
+			t.Fatalf("onboarding missing %q:\n%s", want, onboarding.Body.String())
+		}
 	}
 	user := findUserForTest(t, db, "octocat")
 	if user.GitHubAccountID != "583231" || user.GitHubEmail != "octo@example.com" {
@@ -106,6 +129,9 @@ func TestGitHubOAuthCallbackCreatesSessionForAllowlistedUser(t *testing.T) {
 	}
 	if sessions != 1 {
 		t.Fatalf("sessions = %d", sessions)
+	}
+	if provisioner.calls != 0 {
+		t.Fatalf("browser-only login provisioner calls = %d", provisioner.calls)
 	}
 	assertNoPersonalTenantProvisioningTables(t, db)
 }
@@ -126,6 +152,9 @@ func TestGitHubOAuthCallbackRejectsNonAllowlistedUser(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/oauth/github/callback?code=abc&state="+state, nil))
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("callback = %d %q", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "not allowlisted") {
+		t.Fatalf("callback body = %q", response.Body.String())
 	}
 	var sessions int
 	if err := db.QueryRow("SELECT count(*) FROM web_sessions").Scan(&sessions); err != nil {
@@ -179,6 +208,34 @@ func TestPasswordLoginPathDoesNotExist(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/login/password", nil))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("password login = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestOnboardingPageShowsRemovedAllowlistStatusWithoutLoginCommand(t *testing.T) {
+	db := authDBForTest(t)
+	if _, err := AllowlistGitHubUser(context.Background(), db, GitHubProfile{Login: "OctoCat", ID: "1", Email: "octo@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := CreateSession(context.Background(), db, "octocat", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RemoveAllowlistedUser(context.Background(), db, "octocat"); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(db, HandlerOptions{AuthHostname: "auth.example.com"})
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.AddCookie(&http.Cookie{Name: "sandcastle_session", Value: sessionID})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("onboarding = %d %q", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "Status: not allowlisted") || !strings.Contains(response.Body.String(), "Login Allowlist") {
+		t.Fatalf("onboarding body = %q", response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "sandcastle login https://auth.example.com") {
+		t.Fatalf("non-allowlisted onboarding included login command:\n%s", response.Body.String())
 	}
 }
 
@@ -413,6 +470,9 @@ func TestDeviceLoginLifecycle(t *testing.T) {
 	handler.ServeHTTP(approve, approveRequest)
 	if approve.Code != http.StatusOK {
 		t.Fatalf("approve = %d %q", approve.Code, approve.Body.String())
+	}
+	if !strings.Contains(approve.Body.String(), "Return to the terminal") {
+		t.Fatalf("approve body = %q", approve.Body.String())
 	}
 
 	approved := pollDeviceForTest(t, handler, started.DeviceCode)

@@ -193,7 +193,12 @@ func (h handler) deviceApprovePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte("device login " + action + "d\n"))
+	switch action {
+	case "approve":
+		_, _ = w.Write([]byte("Device login approved. Return to the terminal to continue provisioning.\n"))
+	case "deny":
+		_, _ = w.Write([]byte("Device login denied. Return to the terminal.\n"))
+	}
 }
 
 func (h handler) requireAllowlistedSession(r *http.Request) (User, error) {
