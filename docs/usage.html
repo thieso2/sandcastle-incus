@@ -661,7 +661,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Run the disposable VM local mutation tier</h3>
-    <p>Creates a local Incus VM, installs Go, mise, and nested Incus, seeds nested image aliases from the host, starts root's systemd user service manager for <code>systemctl --user</code> coverage, copies the checkout, and runs the VM-only local DNS, trust, and hosts e2e tier inside the VM.</p>
+    <p>Creates a local Incus VM with a 20GiB root disk by default, installs Go, mise, and nested Incus, seeds nested image aliases from the host, starts root's systemd user service manager for <code>systemctl --user</code> coverage, copies the checkout, and runs the VM-only local DNS, trust, and hosts e2e tier inside the VM.</p>
     <pre><code><span class="cmd">scripts/e2e-local-vm.sh</span>
 <span class="env">SANDCASTLE_E2E_VM_KEEP</span>=1 <span class="cmd">scripts/e2e-local-vm.sh</span>   <span class="comment"># keep VM for diagnosis</span></code></pre>
   </div>

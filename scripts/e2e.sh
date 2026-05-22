@@ -82,7 +82,7 @@ run_local_vm() {
     echo "error: set SANDCASTLE_E2E_LOCAL_VM=1 to run disposable-VM local mutation tier 'local-vm'" >&2
     exit 2
   fi
-  run go test ./internal/e2e -run 'Test(LocalDNS.*E2E|LocalTrust.*E2E|HostOverride.*E2E)' -count=1 -v
+  run go test ./internal/e2e -run 'Test(LocalDNS.*E2E|LocalTrust.*E2E|HostOverrideHostsFileE2E)' -count=1 -v
 }
 
 run_incus() {

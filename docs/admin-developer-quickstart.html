@@ -454,7 +454,7 @@ sc connect codex</code></pre>
       <p>For repo-level verification, the destructive <code>scripts/e2e.sh incus</code> tier covers tenant create/purge and listing, tenant DNS, the current <code>sc create</code> and <code>sc connect</code> machine flows, local trust, host override create/list/delete, infrastructure, and image-sync checks.</p>
 
       <h3>Disposable VM local e2e</h3>
-      <p>Use the host-side VM harness for local DNS service, platform trust, and <code>/etc/hosts</code> mutation coverage. The harness starts a root systemd user service manager inside the VM so Linux <code>systemctl --user</code> paths are exercised.</p>
+      <p>Use the host-side VM harness for local DNS service, platform trust, and <code>/etc/hosts</code> mutation coverage. The harness creates a 20GiB root disk by default and starts a root systemd user service manager inside the VM so Linux <code>systemctl --user</code> paths are exercised.</p>
       <p>Test tenant private DNS suffixes are derived from the disposable tenant names; there is no separate e2e domain-suffix setting.</p>
       <pre><code>scripts/e2e-local-vm.sh
 SANDCASTLE_E2E_VM_KEEP=1 scripts/e2e-local-vm.sh</code></pre>

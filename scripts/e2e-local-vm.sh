@@ -14,7 +14,7 @@ manager, copy this checkout, and run:
 Environment:
   SANDCASTLE_E2E_VM_NAME       VM name. Default: sc-e2e-local-vm-<timestamp>
   SANDCASTLE_E2E_VM_IMAGE      VM image. Default: images:debian/13
-  SANDCASTLE_E2E_VM_DISK_SIZE  Root disk size. Default: 8GiB
+  SANDCASTLE_E2E_VM_DISK_SIZE  Root disk size. Default: 20GiB
   SANDCASTLE_E2E_VM_CPUS       CPU limit. Default: 2
   SANDCASTLE_E2E_VM_MEMORY     Memory limit. Default: 3GiB
   SANDCASTLE_E2E_VM_KEEP       Keep VM after exit when set to 1.
@@ -32,7 +32,7 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 vm_name="${SANDCASTLE_E2E_VM_NAME:-sc-e2e-local-vm-$(date -u +%Y%m%d-%H%M%S)}"
 vm_image="${SANDCASTLE_E2E_VM_IMAGE:-images:debian/13}"
-vm_disk_size="${SANDCASTLE_E2E_VM_DISK_SIZE:-8GiB}"
+vm_disk_size="${SANDCASTLE_E2E_VM_DISK_SIZE:-20GiB}"
 vm_cpus="${SANDCASTLE_E2E_VM_CPUS:-2}"
 vm_memory="${SANDCASTLE_E2E_VM_MEMORY:-3GiB}"
 keep_vm="${SANDCASTLE_E2E_VM_KEEP:-0}"
