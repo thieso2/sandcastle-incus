@@ -123,12 +123,20 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 	}
 
 	cfgPath := scconfig.DefaultConfigPath()
+	defaultRemoteSet, tenant, err := saveRemoteDefaults(cfgPath, name, tenant)
+	if err != nil {
+		return remoteAddResult{}, err
+	}
+	return remoteAddResult{RemoteName: name, IncusConfig: incusDir, Tenant: tenant, DefaultRemoteSet: defaultRemoteSet}, nil
+}
+
+func saveRemoteDefaults(cfgPath string, name string, tenant string) (bool, string, error) {
 	cfg, err := scconfig.LoadSandcastleConfig(cfgPath)
 	if err != nil {
-		return remoteAddResult{}, fmt.Errorf("load sandcastle config: %w", err)
+		return false, "", fmt.Errorf("load sandcastle config: %w", err)
 	}
 	defaultRemoteSet := false
-	if cfg.Remote == "" {
+	if cfg.Remote != name {
 		cfg.Remote = name
 		defaultRemoteSet = true
 	}
@@ -136,9 +144,9 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 		cfg.Tenant = tenant
 	}
 	if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
-		return remoteAddResult{}, fmt.Errorf("save sandcastle config: %w", err)
+		return false, "", fmt.Errorf("save sandcastle config: %w", err)
 	}
-	return remoteAddResult{RemoteName: name, IncusConfig: incusDir, Tenant: cfg.Tenant, DefaultRemoteSet: defaultRemoteSet}, nil
+	return defaultRemoteSet, cfg.Tenant, nil
 }
 
 func normalizeRemoteURL(ctx context.Context, name string, incusDir string, env []string, stderr io.Writer) error {

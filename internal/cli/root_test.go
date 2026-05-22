@@ -118,6 +118,11 @@ type fakeLoginTailnetVerifier struct {
 	err      error
 }
 
+type fakeLoginSetupRunner struct {
+	requests []loginSetupRequest
+	result   loginSetupResult
+}
+
 func (i *fakeLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, request loginRemoteInstallRequest) (loginRemoteInstallResult, error) {
 	i.requests = append(i.requests, request)
 	return loginRemoteInstallResult{RemoteName: request.RemoteName, Tenant: request.Tenant, IncusConfig: "/tmp/incus"}, nil
@@ -129,6 +134,27 @@ func (v *fakeLoginTailnetVerifier) VerifyTenantTailnet(ctx context.Context, tail
 		return loginTailnetStatus{}, v.err
 	}
 	return v.status, nil
+}
+
+func (r *fakeLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request loginSetupRequest) (loginSetupResult, error) {
+	r.requests = append(r.requests, request)
+	if r.result.DNS.Reference == "" {
+		r.result.DNS = dnsSetupResult{
+			Reference: request.Tenant,
+			Apply:     dns.ApplyResult{RecordCount: 2},
+			Service:   localdns.ServiceResult{ServicePath: "/tmp/service"},
+			Install:   localdns.Result{StatePath: "/tmp/dns.yaml", ResolverPath: "/tmp/resolver"},
+		}
+	}
+	if r.result.Tailscale.Reference == "" {
+		r.result.Tailscale = tailscale.UpPlan{
+			Reference:       request.Tenant,
+			InstanceName:    "sc-" + request.Tenant,
+			AdvertiseRoutes: []string{"10.248.0.0/24"},
+			HasAuthKey:      request.TailscaleAuthKey != "",
+		}
+	}
+	return r.result, nil
 }
 
 func (c *fakeAuthDeviceClient) Start(ctx context.Context) (authapp.DeviceStartResult, error) {
@@ -245,6 +271,76 @@ func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 	}
 	if len(installer.requests) != 1 || installer.requests[0].Token != "token" || installer.requests[0].Tenant != "octocat" {
 		t.Fatalf("installer requests = %#v", installer.requests)
+	}
+}
+
+func TestLoginRunsPostSetupForSingleTenant(t *testing.T) {
+	installer := &fakeLoginRemoteInstaller{}
+	setup := &fakeLoginSetupRunner{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			UserKey:           "octocat",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+		}},
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+		loginSetup:  setup,
+	}, "login", "https://auth.example.com", "--tailscale-auth-key", "tskey-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(setup.requests) != 1 {
+		t.Fatalf("setup requests = %#v", setup.requests)
+	}
+	request := setup.requests[0]
+	if request.RemoteName != "sandcastle-octocat" || request.Tenant != "octocat" || request.TailscaleAuthKey != "tskey-secret" {
+		t.Fatalf("setup request = %#v", request)
+	}
+	for _, want := range []string{
+		"Setting up DNS and Tailscale for \"octocat\".",
+		"DNS setup: octocat",
+		"Tailscale: octocat",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "tskey-secret") {
+		t.Fatalf("stdout leaked auth key: %s", stdout)
+	}
+}
+
+func TestLoginSkipSetupDoesNotRunPostSetup(t *testing.T) {
+	installer := &fakeLoginRemoteInstaller{}
+	setup := &fakeLoginSetupRunner{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			UserKey:           "octocat",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+		}},
+	}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+		loginSetup:  setup,
+	}, "login", "https://auth.example.com", "--skip-setup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(setup.requests) != 0 {
+		t.Fatalf("setup requests = %#v", setup.requests)
 	}
 }
 

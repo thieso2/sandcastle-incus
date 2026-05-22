@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 )
 
 func TestNormalizedRemoteURLUsesCertificateDNSNameForIPRemote(t *testing.T) {
@@ -61,6 +63,55 @@ func TestNormalizedRemoteURLLeavesDNSRemoteUntouched(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("did not expect remote URL normalization")
+	}
+}
+
+func TestSaveRemoteDefaultsReplacesStaleRemote(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant: "thies",
+		Remote: "sandcastle-thies",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	remoteSet, tenant, err := saveRemoteDefaults(configPath, "sandcastle-thieso2", "thieso2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !remoteSet {
+		t.Fatal("expected stale remote to be replaced")
+	}
+	if tenant != "thieso2" {
+		t.Fatalf("tenant = %q", tenant)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Remote != "sandcastle-thieso2" || cfg.Tenant != "thieso2" {
+		t.Fatalf("config = %#v", cfg)
+	}
+}
+
+func TestSaveRemoteDefaultsKeepsRemoteWhenAlreadyCurrent(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant: "thieso2",
+		Remote: "sandcastle-thieso2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	remoteSet, tenant, err := saveRemoteDefaults(configPath, "sandcastle-thieso2", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remoteSet {
+		t.Fatal("did not expect current remote to be rewritten")
+	}
+	if tenant != "thieso2" {
+		t.Fatalf("tenant = %q", tenant)
 	}
 }
 

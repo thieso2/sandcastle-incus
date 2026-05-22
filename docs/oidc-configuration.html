@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sandcastle OIDC Configuration</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17211f;
+      --muted: #60706c;
+      --line: #cbd8d4;
+      --paper: #f6f8f7;
+      --panel: #ffffff;
+      --accent: #0f766e;
+      --accent2: #1d4ed8;
+      --code: #10201d;
+      --code-bg: #e8efec;
+      --warn-bg: #fff7df;
+      --warn-line: #d6a635;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .hero { padding: 42px 0 26px; }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 5vw, 3.6rem);
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 850px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.06rem;
+    }
+
+    nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0 0 22px;
+    }
+
+    nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: var(--panel);
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 0.93rem;
+    }
+
+    main { padding: 30px 0 56px; }
+
+    section {
+      margin: 0 0 34px;
+      padding: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 1.35rem;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 1rem;
+    }
+
+    p { margin: 0 0 12px; color: var(--muted); }
+
+    ol, ul { margin: 0 0 14px 22px; padding: 0; color: var(--muted); }
+    li { margin: 6px 0; }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      color: var(--code);
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+
+    pre {
+      margin: 12px 0 16px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      background: var(--code-bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: var(--code);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      color: var(--ink);
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .note {
+      margin: 14px 0;
+      padding: 12px 14px;
+      border: 1px solid var(--warn-line);
+      border-left-width: 4px;
+      border-radius: 8px;
+      background: var(--warn-bg);
+      color: var(--ink);
+    }
+
+    .note p { color: var(--ink); margin: 0; }
+
+    .diagram {
+      margin: 18px 0 6px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .node {
+      min-height: 96px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfb;
+      position: relative;
+    }
+
+    .node strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--ink);
+    }
+
+    .node span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .node.accent {
+      border-color: #91cbc4;
+      background: #ecf8f6;
+    }
+
+    .node.blue {
+      border-color: #a9c4f6;
+      background: #eef4ff;
+    }
+
+    .arrow {
+      display: flex;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .sequence {
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .sequence div {
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfb;
+    }
+
+    .sequence div:nth-child(2n) {
+      background: var(--panel);
+      color: var(--muted);
+    }
+
+    .sequence div:nth-last-child(-n+2) { border-bottom: 0; }
+
+    @media (max-width: 820px) {
+      section { padding: 22px; }
+      .flow { grid-template-columns: 1fr; }
+      .sequence { grid-template-columns: 1fr; }
+      .sequence div:nth-child(2n) { border-bottom: 1px solid var(--line); }
+      .sequence div:last-child { border-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <h1>Sandcastle OIDC Configuration</h1>
+      <p class="lede">How the Auth App is configured as the Sandcastle OIDC Provider, how it publishes discovery and JWKS, and how machines receive workload identity material for external cloud federation.</p>
+    </div>
+    <nav class="wrap" aria-label="Page sections">
+      <a href="#summary">Summary</a>
+      <a href="#deployment">Deployment</a>
+      <a href="#provider">Provider</a>
+      <a href="#machine">Machine Flow</a>
+      <a href="#gcp">GCP</a>
+      <a href="#operations">Operations</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="summary">
+      <h2>Summary</h2>
+      <p>Sandcastle has two separate identity paths. GitHub OAuth Login authenticates humans into the Auth App. The Sandcastle OIDC Provider issues short-lived workload identity tokens for machines. Do not treat GitHub OAuth as the OIDC issuer for cloud trust.</p>
+
+      <div class="diagram" aria-label="OIDC configuration flow">
+        <div class="flow">
+          <div class="node">
+            <strong>Admin config</strong>
+            <span><code>SANDCASTLE_AUTH_HOSTNAME</code>, GitHub OAuth credentials, initial admins, database path.</span>
+          </div>
+          <div class="node accent">
+            <strong>Auth App</strong>
+            <span>Runs <code>sandcastle-admin auth-app serve</code> and owns OIDC issuer behavior.</span>
+          </div>
+          <div class="node blue">
+            <strong>OIDC metadata</strong>
+            <span>Serves discovery, JWKS, and workload token endpoints under the Auth Hostname.</span>
+          </div>
+          <div class="node">
+            <strong>Machine token</strong>
+            <span>Machine exchanges its runtime secret for a 15-minute RS256 JWT.</span>
+          </div>
+        </div>
+        <div class="arrow">admin configuration -> Auth App sidecar -> public issuer endpoints -> external cloud trust</div>
+      </div>
+
+      <div class="note">
+        <p>The issuer is the configured Auth Hostname. If the hostname has no scheme, Sandcastle normalizes it to <code>https://auth.example.com</code>.</p>
+      </div>
+    </section>
+
+    <section id="deployment">
+      <h2>Deployment Configuration</h2>
+      <p>The Auth App can be started directly, or through the infrastructure sidecar plan. The direct command is:</p>
+      <pre><code>sandcastle-admin auth-app serve \
+  --listen :9444 \
+  --database /var/lib/sandcastle/auth/auth.db \
+  --auth-hostname auth.example.com \
+  --github-client-id ... \
+  --github-client-secret ... \
+  --admin-github-users octocat,hubot</code></pre>
+
+      <p>When managed by infrastructure creation, the plan writes these values into <code>/etc/sandcastle/auth-app/env</code> inside <code>sc-auth-app</code> and starts <code>sandcastle-auth-app.service</code>. Shared Caddy reserves the Auth Hostname and reverse-proxies both HTTP and HTTPS traffic to the Auth App on the infrastructure network.</p>
+
+      <table>
+        <thead>
+          <tr><th>Setting</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>SANDCASTLE_AUTH_HOSTNAME</code></td><td>Public issuer host for OIDC discovery, JWKS, browser login, device login, and workload token requests.</td></tr>
+          <tr><td><code>SANDCASTLE_AUTH_GITHUB_CLIENT_ID</code></td><td>GitHub OAuth client ID for human login only.</td></tr>
+          <tr><td><code>SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET</code></td><td>GitHub OAuth client secret for human login only.</td></tr>
+          <tr><td><code>SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</code></td><td>Comma-separated GitHub usernames bootstrapped as Sandcastle Admins.</td></tr>
+          <tr><td><code>SANDCASTLE_AUTH_DB</code></td><td>SQLite database path, normally <code>/var/lib/sandcastle/auth/auth.db</code>.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="provider">
+      <h2>OIDC Provider Endpoints</h2>
+      <p>The Auth App registers the public OIDC endpoints and the internal workload token endpoint on the same HTTP handler:</p>
+
+      <table>
+        <thead>
+          <tr><th>Endpoint</th><th>Behavior</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>/.well-known/openid-configuration</code></td><td>Returns the issuer, JWKS URI, supported signing algorithm <code>RS256</code>, response type <code>id_token</code>, and public subject type.</td></tr>
+          <tr><td><code>/.well-known/jwks.json</code></td><td>Returns active public signing keys from the Auth Database. Private keys are never published.</td></tr>
+          <tr><td><code>/internal/workload/token</code></td><td>Accepts a machine runtime secret and returns a short-lived bearer token when the machine is enabled and still exists.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Signing Keys</h3>
+      <p>Signing keys are bootstrapped lazily. The first discovery, JWKS, or token operation ensures an active RSA signing key exists. Sandcastle stores the public JWK and an encrypted private key in <code>oidc_signing_keys</code>. The encryption key is a 32-byte AES-GCM key stored in <code>auth_app_meta</code> under <code>oidc_encryption_key</code>.</p>
+
+      <h3>Auth Database Tables</h3>
+      <table>
+        <thead>
+          <tr><th>Table</th><th>OIDC Role</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>oidc_signing_keys</code></td><td>Active and retired signing keys. Stores <code>kid</code>, algorithm, encrypted private key, public JWK, activation time, and retirement state.</td></tr>
+          <tr><td><code>machine_runtime_secrets</code></td><td>Per-machine runtime secret verifiers. The raw runtime secret is returned once and injected into the machine, but the database stores only the verifier.</td></tr>
+          <tr><td><code>cloud_identity_configs</code></td><td>User-owned cloud federation configuration. In v1, the implemented provider is GCP.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="machine">
+      <h2>Machine Workload Identity Flow</h2>
+      <div class="sequence" aria-label="Machine workload identity sequence">
+        <div>1. Enable</div>
+        <div>Sandcastle generates a new per-machine runtime secret and stores only its verifier in <code>machine_runtime_secrets</code>.</div>
+        <div>2. Inject</div>
+        <div>The machine receives <code>/var/lib/sandcastle/workload/runtime-secret</code> and <code>/var/lib/sandcastle/workload/token-endpoint</code>.</div>
+        <div>3. Request</div>
+        <div>The machine posts <code>tenant</code>, <code>project</code>, <code>machine</code>, and <code>runtime_secret</code> to <code>/internal/workload/token</code>.</div>
+        <div>4. Verify</div>
+        <div>The Auth App verifies the runtime secret, the enabled flag, the tenant, and the machine record.</div>
+        <div>5. Mint</div>
+        <div>The Auth App signs a 15-minute RS256 JWT with the active OIDC private key.</div>
+      </div>
+
+      <h3>Token Claims</h3>
+      <p>Minted workload identity tokens include:</p>
+      <ul>
+        <li><code>iss</code>: the Auth Hostname issuer URL.</li>
+        <li><code>sub</code>: <code>machine:&lt;tenant&gt;/&lt;project&gt;/&lt;machine&gt;</code>.</li>
+        <li><code>iat</code> and <code>exp</code>: issue and expiry timestamps. The v1 token lifetime is 15 minutes.</li>
+        <li><code>tenant</code>, <code>project</code>, and <code>machine</code>: Sandcastle workload identity vocabulary.</li>
+        <li><code>sandcastle_user_key</code> and <code>github_username</code>: the user identity associated with the machine runtime secret.</li>
+      </ul>
+    </section>
+
+    <section id="gcp">
+      <h2>GCP Cloud Identity Configs</h2>
+      <p>Users manage cloud identity configs at:</p>
+      <pre><code>https://auth.example.com/cloud-identities</code></pre>
+
+      <p>For GCP, a config requires a Workload Identity audience. The subject token type defaults to <code>urn:ietf:params:oauth:token-type:jwt</code> when omitted. A service account impersonation URL is optional.</p>
+
+      <p>When a machine selects a GCP config, Sandcastle writes an external account credential file and profile exports:</p>
+      <table>
+        <thead>
+          <tr><th>Machine File</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>/var/lib/sandcastle/workload/runtime-secret</code></td><td>Secret used by the machine to request a Sandcastle workload identity token.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/token-endpoint</code></td><td>Auth App token endpoint URL.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/gcp-credential.json</code></td><td>GCP external account credential JSON using the Sandcastle token as the subject token.</td></tr>
+          <tr><td><code>/etc/profile.d/sandcastle-workload-identity.sh</code></td><td>Exports <code>GOOGLE_APPLICATION_CREDENTIALS</code> and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code>.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="operations">
+      <h2>Operational Notes</h2>
+      <ul>
+        <li>The Auth Hostname is reserved infrastructure routing and should not be used as a user Public Route.</li>
+        <li>The JWKS endpoint publishes public keys only. Private signing keys remain encrypted in the Auth Database.</li>
+        <li>Machine runtime secrets are rotated when workload identity is enabled or re-enabled for a machine.</li>
+        <li>Cloud Identity Configs are user-owned and selected per machine in v1. They are not applied automatically at Tenant or Project level.</li>
+        <li>The current code contains the OIDC provider, database tables, token endpoint, GCP credential writer, and planner support. A complete user/admin CLI for selecting a cloud identity config during machine creation should be confirmed before relying on this end to end.</li>
+      </ul>
+
+      <h3>Smoke Checks</h3>
+      <pre><code>curl https://auth.example.com/.well-known/openid-configuration
+curl https://auth.example.com/.well-known/jwks.json</code></pre>
+    </section>
+  </main>
+</body>
+</html>

@@ -97,8 +97,11 @@ func ensureInfrastructureProject(server TenantCreateServer, plan infra.CreatePla
 }
 
 func ensureInfrastructureInstance(server TenantResourceServer, instance infra.InstancePlan) error {
-	existing, _, err := server.GetInstance(instance.Name)
+	existing, etag, err := server.GetInstance(instance.Name)
 	if err == nil {
+		if err := updateInfrastructureInstance(server, existing, etag, instance); err != nil {
+			return err
+		}
 		if instance.Start && !existing.IsActive() {
 			op, err := server.UpdateInstanceState(instance.Name, api.InstanceStatePut{
 				Action:  "start",
@@ -122,6 +125,23 @@ func ensureInfrastructureInstance(server TenantResourceServer, instance infra.In
 	}
 	if err := op.Wait(); err != nil {
 		return fmt.Errorf("wait for infrastructure instance %s create: %w", instance.Name, err)
+	}
+	return nil
+}
+
+func updateInfrastructureInstance(server TenantResourceServer, existing *api.Instance, etag string, instance infra.InstancePlan) error {
+	config := mergeConfig(map[string]string(existing.Config), instance.Config)
+	op, err := server.UpdateInstance(instance.Name, api.InstancePut{
+		Description: "Sandcastle infrastructure " + instance.Role,
+		Config:      api.ConfigMap(config),
+		Devices:     infrastructureDevicesMap(instance.Devices),
+		Profiles:    []string{},
+	}, etag)
+	if err != nil {
+		return fmt.Errorf("update infrastructure instance %s: %w", instance.Name, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for infrastructure instance %s update: %w", instance.Name, err)
 	}
 	return nil
 }

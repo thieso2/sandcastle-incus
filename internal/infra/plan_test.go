@@ -46,6 +46,12 @@ func TestPlanCreate(t *testing.T) {
 	if plan.Instances[2].Name != AuthAppName || plan.Instances[2].Role != "auth-app" {
 		t.Fatalf("auth app instance = %#v", plan.Instances[2])
 	}
+	for _, instance := range plan.Instances {
+		eth0 := instance.Devices["eth0"]
+		if eth0["type"] != "nic" || eth0["nictype"] != "bridged" || eth0["parent"] != InfrastructureNetworkName {
+			t.Fatalf("%s eth0 device = %#v", instance.Name, eth0)
+		}
+	}
 	if _, ok := plan.Instances[1].Devices["incus-socket"]; ok {
 		t.Fatalf("route broker socket should be opt-in, devices = %#v", plan.Instances[1].Devices)
 	}

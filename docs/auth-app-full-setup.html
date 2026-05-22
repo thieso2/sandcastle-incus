@@ -314,7 +314,7 @@ https://auth.example.com/admin/access</code></pre>
 
     <section id="workload">
       <h2>9. Configure Workload Identity</h2>
-      <p>The Auth App publishes OIDC provider metadata under the Auth Hostname.</p>
+      <p>The Auth App publishes OIDC provider metadata under the Auth Hostname. See <a href="oidc-configuration.html">Sandcastle OIDC Configuration</a> for the full provider and machine token flow.</p>
       <pre><code>curl https://auth.example.com/.well-known/openid-configuration
 curl https://auth.example.com/.well-known/jwks.json</code></pre>
       <p>Users manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. For GCP, provide the Workload Identity audience and optional service account impersonation URL.</p>

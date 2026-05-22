@@ -191,20 +191,29 @@ func launchdCommands(action string, plan ServicePlan) []Command {
 	switch action {
 	case "install":
 		return []Command{
+			launchdBootoutIgnoreCommand(target, plan.Label),
 			{Args: []string{"launchctl", "bootstrap", target, plan.ServicePath}},
 			{Args: []string{"launchctl", "kickstart", "-k", target + "/" + plan.Label}},
 		}
 	case "reload":
 		return []Command{
-			{Args: []string{"launchctl", "bootout", target + "/" + plan.Label}},
+			launchdBootoutIgnoreCommand(target, plan.Label),
 			{Args: []string{"launchctl", "bootstrap", target, plan.ServicePath}},
 			{Args: []string{"launchctl", "kickstart", "-k", target + "/" + plan.Label}},
 		}
 	case "uninstall":
-		return []Command{{Args: []string{"launchctl", "bootout", target + "/" + plan.Label}}}
+		return []Command{launchdBootoutIgnoreCommand(target, plan.Label)}
 	default:
 		return nil
 	}
+}
+
+func launchdBootoutIgnoreCommand(target string, label string) Command {
+	return Command{Args: []string{"/bin/sh", "-lc", "launchctl bootout " + shellQuote(target+"/"+label) + " >/dev/null 2>&1 || true"}}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func systemdCommands(action string, plan ServicePlan) []Command {

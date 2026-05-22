@@ -103,6 +103,7 @@ type fakeResourceServer struct {
 	createdInstances   []api.InstancesPost
 	copiedImages       []string
 	createdFiles       map[string]string
+	updatedInstances   []string
 	startedInstances   []string
 	execInstances      []string
 	execCommands       [][]string
@@ -185,6 +186,15 @@ func (s *fakeResourceServer) CreateInstance(instance api.InstancesPost) (incus.O
 		statusCode = api.Running
 	}
 	s.instances[instance.Name] = &api.Instance{Name: instance.Name, Status: status, StatusCode: statusCode}
+	return fakeOperation{}, nil
+}
+
+func (s *fakeResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
+	s.updatedInstances = append(s.updatedInstances, name)
+	if s.instances[name] == nil {
+		s.instances[name] = &api.Instance{Name: name}
+	}
+	s.instances[name].InstancePut = instance
 	return fakeOperation{}, nil
 }
 

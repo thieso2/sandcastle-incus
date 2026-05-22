@@ -43,6 +43,31 @@ func TestPlanServiceInstallUsesForwarderCommand(t *testing.T) {
 	}
 }
 
+func TestPlanServiceInstallReplacesExistingLaunchdJob(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd commands are only planned on macOS")
+	}
+	dir := t.TempDir()
+	t.Setenv("SANDCASTLE_BIN", "/usr/local/bin/sandcastle")
+	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(dir, "dns.yaml"))
+	t.Setenv("SANDCASTLE_LOCAL_DNS_SERVICE_DIR", filepath.Join(dir, "services"))
+
+	plan, err := PlanServiceInstall()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Commands) != 3 {
+		t.Fatalf("commands = %#v", plan.Commands)
+	}
+	first := strings.Join(plan.Commands[0].Args, " ")
+	if !strings.Contains(first, "launchctl bootout") || !strings.Contains(first, "|| true") {
+		t.Fatalf("first command = %q, want tolerant bootout", first)
+	}
+	if !strings.HasPrefix(strings.Join(plan.Commands[1].Args, " "), "launchctl bootstrap") {
+		t.Fatalf("second command = %#v, want bootstrap", plan.Commands[1].Args)
+	}
+}
+
 func TestFileServiceManagerInstallReloadAndUninstall(t *testing.T) {
 	dir := t.TempDir()
 	plan := ServicePlan{

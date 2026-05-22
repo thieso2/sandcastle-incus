@@ -38,6 +38,7 @@ type TenantResourceServer interface {
 	UpdateProfile(name string, profile api.ProfilePut, ETag string) error
 	GetInstance(name string) (*api.Instance, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
+	UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
@@ -678,6 +679,10 @@ func (s sdkResourceServer) GetInstance(name string) (*api.Instance, string, erro
 
 func (s sdkResourceServer) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
 	return s.inner.CreateInstance(instance)
+}
+
+func (s sdkResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
+	return s.inner.UpdateInstance(name, instance, etag)
 }
 
 func (s sdkResourceServer) UpdateInstanceState(name string, state api.InstanceStatePut, etag string) (incus.Operation, error) {

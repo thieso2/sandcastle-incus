@@ -3,11 +3,15 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
+	"github.com/thieso2/sandcastle-incus/internal/incusx"
+	"github.com/thieso2/sandcastle-incus/internal/localdns"
+	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -27,9 +31,66 @@ type loginRemoteInstaller interface {
 	InstallLoginRemote(context.Context, loginRemoteInstallRequest) (loginRemoteInstallResult, error)
 }
 
+type loginSetupRequest struct {
+	RemoteName       string
+	Tenant           string
+	TailscaleAuthKey string
+}
+
+type loginSetupResult struct {
+	DNS       dnsSetupResult
+	Tailscale tailscale.UpPlan
+}
+
+type loginSetupRunner interface {
+	RunPostLoginSetup(context.Context, loginSetupRequest) (loginSetupResult, error)
+}
+
+type realLoginSetupRunner struct {
+	config commandConfig
+}
+
+func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request loginSetupRequest) (loginSetupResult, error) {
+	config := r.config
+	config.adminConfig.Remote = request.RemoteName
+	config.adminConfig.Tenant = request.Tenant
+	config.adminConfig.Project = ""
+	config.tenantStore = incusx.NewTenantStore(request.RemoteName)
+	config.dnsApplier = incusx.NewDNSManager(request.RemoteName)
+	config.localDNS = localdns.FileManager{}
+	config.localDNSService = localdns.FileServiceManager{}
+	config.tailscale = incusx.NewTailscaleManager(request.RemoteName)
+
+	dnsResult, err := runDNSSetup(ctx, config, request.Tenant)
+	if err != nil {
+		return loginSetupResult{}, err
+	}
+	tailscalePlan, err := tailscale.PlanUp(ctx, config.adminConfig, config.tenantStore, tailscale.UpRequest{
+		Reference:     request.Tenant,
+		AuthKey:       request.TailscaleAuthKey,
+		AdvertiseTags: defaultAdvertiseTags(),
+	})
+	if err != nil {
+		return loginSetupResult{}, err
+	}
+	if config.tailscale == nil {
+		return loginSetupResult{}, fmt.Errorf("tailscale executor is not configured")
+	}
+	if err := config.tailscale.RunUp(ctx, tailscalePlan, tailscale.RunSession{
+		Stdin:  config.stdin,
+		Stdout: config.stdout,
+		Stderr: config.stderr,
+	}); err != nil {
+		return loginSetupResult{}, err
+	}
+	return loginSetupResult{DNS: dnsResult, Tailscale: tailscalePlan}, nil
+}
+
 func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var maxPolls int
 	var sshPublicKeyPath string
+	var skipSetup bool
+	var tailscaleAuthKey string
 	command := &cobra.Command{
 		Use:   "login auth-host",
 		Short: "Sign in to Sandcastle through the Auth App",
@@ -112,6 +173,26 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 						default:
 							fmt.Fprintln(config.stdout, "No default tenant set; multiple accessible tenants were returned.")
 						}
+						if shouldRunLoginSetup(skipSetup, installed.Tenant, result.AccessibleTenants) {
+							runner := config.loginSetup
+							if runner != nil {
+								authKey := strings.TrimSpace(tailscaleAuthKey)
+								if authKey == "" {
+									authKey = loginTailscaleAuthKeyFromEnv()
+								}
+								fmt.Fprintf(config.stdout, "Setting up DNS and Tailscale for %q.\n", installed.Tenant)
+								setup, err := runner.RunPostLoginSetup(cmd.Context(), loginSetupRequest{
+									RemoteName:       installed.RemoteName,
+									Tenant:           installed.Tenant,
+									TailscaleAuthKey: authKey,
+								})
+								if err != nil {
+									return err
+								}
+								fmt.Fprintln(config.stdout, formatDNSSetup(setup.DNS))
+								fmt.Fprintln(config.stdout, formatTailscaleUp(setup.Tailscale))
+							}
+						}
 					} else {
 						fmt.Fprintln(config.stdout, "No Incus enrollment token returned; remote was not changed.")
 					}
@@ -132,6 +213,8 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts")
 	command.Flags().StringVar(&sshPublicKeyPath, "ssh-public-key", "", "SSH public key path to authorize for Machine SSH Access")
+	command.Flags().BoolVar(&skipSetup, "skip-setup", false, "skip automatic DNS and Tailscale setup after enrollment")
+	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key for unattended post-login attachment")
 	return command
 }
 
@@ -162,4 +245,12 @@ func defaultLoginTenant(tenants []string) string {
 		return tenants[0]
 	}
 	return ""
+}
+
+func shouldRunLoginSetup(skipSetup bool, tenantName string, accessibleTenants []string) bool {
+	return !skipSetup && tenantName != "" && len(accessibleTenants) == 1
+}
+
+func loginTailscaleAuthKeyFromEnv() string {
+	return strings.TrimSpace(os.Getenv("SANDCASTLE_TAILSCALE_AUTHKEY"))
 }

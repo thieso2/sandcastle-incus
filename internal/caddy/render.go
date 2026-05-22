@@ -66,7 +66,8 @@ func RenderInfrastructureWithOptions(routes []meta.Route, options Infrastructure
 	if email != "" {
 		content += fmt.Sprintf("    email %s\n", email)
 	}
-	content += `    auto_https disable_redirects
+	content += `    admin 127.0.0.1:2019
+    auto_https disable_redirects
 }
 
 `

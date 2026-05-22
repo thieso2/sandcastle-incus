@@ -30,6 +30,7 @@ const (
 	AuthAppDatabasePath        = "/var/lib/sandcastle/auth/auth.db"
 	AuthAppEnvPath             = "/etc/sandcastle/auth-app/env"
 	AuthAppUnitPath            = "/etc/systemd/system/sandcastle-auth-app.service"
+	InfrastructureNetworkName  = "incusbr0"
 )
 
 type CreateRequest struct{}
@@ -307,6 +308,11 @@ func instancePlan(admin config.Admin, name string, role string) InstancePlan {
 			"type": "disk",
 			"pool": admin.StoragePool,
 			"path": "/",
+		},
+		"eth0": {
+			"type":    "nic",
+			"nictype": "bridged",
+			"parent":  InfrastructureNetworkName,
 		},
 	}
 	if (name == RouteBrokerName || name == AuthAppName) && strings.TrimSpace(admin.RouteBrokerIncusSocket) != "" {

@@ -79,6 +79,7 @@ type commandConfig struct {
 	authDevice          authDeviceClient
 	loginRemote         loginRemoteInstaller
 	loginTailnet        loginTailnetVerifier
+	loginSetup          loginSetupRunner
 	incusRunner         incusRunner
 }
 
@@ -157,6 +158,12 @@ func Execute(name string, args []string) int {
 			Routes:        directRouteManager,
 			RouteMetadata: directRouteManager,
 			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),
+		}},
+		loginSetup: realLoginSetupRunner{config: commandConfig{
+			stdin:       os.Stdin,
+			stdout:      os.Stdout,
+			stderr:      os.Stderr,
+			adminConfig: adminConfig,
 		}},
 	})
 	cmd.SetOut(os.Stdout)

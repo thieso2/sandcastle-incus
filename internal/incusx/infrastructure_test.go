@@ -83,13 +83,19 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 
 func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {
 	plan := infraPlanForTest(t)
+	plan.Instances[1].Config["security.privileged"] = "true"
+	plan.Instances[1].Devices["incus-socket"] = infra.Device{
+		"type":   "disk",
+		"source": "/run/incus/unix.socket",
+		"path":   infra.RouteBrokerIncusSocketPath,
+	}
 	resourceServer := &fakeResourceServer{
 		networks: map[string]*api.Network{},
 		volumes:  map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{
-			route.InfrastructureCaddyName: {Name: route.InfrastructureCaddyName, Status: "Stopped", StatusCode: api.Stopped},
-			infra.RouteBrokerName:         {Name: infra.RouteBrokerName, Status: "Running", StatusCode: api.Running},
-			infra.AuthAppName:             {Name: infra.AuthAppName, Status: "Running", StatusCode: api.Running},
+			route.InfrastructureCaddyName: {Name: route.InfrastructureCaddyName, Status: "Stopped", StatusCode: api.Stopped, InstancePut: api.InstancePut{Config: map[string]string{"image.os": "debian"}}},
+			infra.RouteBrokerName:         {Name: infra.RouteBrokerName, Status: "Running", StatusCode: api.Running, InstancePut: api.InstancePut{Config: map[string]string{"image.os": "debian"}}},
+			infra.AuthAppName:             {Name: infra.AuthAppName, Status: "Running", StatusCode: api.Running, InstancePut: api.InstancePut{Config: map[string]string{"image.os": "debian"}}},
 		},
 	}
 	server := &fakeCreateServer{
@@ -106,6 +112,16 @@ func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {
 	}
 	if resourceServer.startedInstances[0] != route.InfrastructureCaddyName {
 		t.Fatalf("started instance = %q", resourceServer.startedInstances[0])
+	}
+	if len(resourceServer.updatedInstances) != 3 {
+		t.Fatalf("updated instances = %#v", resourceServer.updatedInstances)
+	}
+	routeBroker := resourceServer.instances[infra.RouteBrokerName]
+	if routeBroker.Config["image.os"] != "debian" || routeBroker.Config["security.privileged"] != "true" {
+		t.Fatalf("route broker config = %#v", routeBroker.Config)
+	}
+	if routeBroker.Devices["incus-socket"]["source"] != "/run/incus/unix.socket" {
+		t.Fatalf("route broker devices = %#v", routeBroker.Devices)
 	}
 }
 

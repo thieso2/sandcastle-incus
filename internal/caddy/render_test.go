@@ -54,6 +54,9 @@ func TestRenderInfrastructureBootstrap(t *testing.T) {
 	if !strings.Contains(file.Content, `respond "sandcastle infrastructure"`) {
 		t.Fatalf("content = %q", file.Content)
 	}
+	if !strings.Contains(file.Content, "admin 127.0.0.1:2019") {
+		t.Fatalf("content missing numeric admin endpoint: %q", file.Content)
+	}
 	if !strings.Contains(file.Content, "auto_https disable_redirects") {
 		t.Fatalf("content missing disabled automatic redirects: %q", file.Content)
 	}
@@ -63,7 +66,7 @@ func TestRenderInfrastructureIncludesLetsEncryptEmail(t *testing.T) {
 	file := RenderInfrastructureWithOptions([]meta.Route{
 		{Hostname: "app.example.com", TargetIP: "10.248.0.20", RoutePort: 5173},
 	}, InfrastructureOptions{LetsEncryptEmail: " ops@example.com "})
-	if !strings.HasPrefix(file.Content, "{\n    email ops@example.com\n    auto_https disable_redirects\n}\n\n") {
+	if !strings.HasPrefix(file.Content, "{\n    email ops@example.com\n    admin 127.0.0.1:2019\n    auto_https disable_redirects\n}\n\n") {
 		t.Fatalf("content = %q", file.Content)
 	}
 	if !strings.Contains(file.Content, "https://app.example.com {\n    reverse_proxy http://10.248.0.20:5173") {

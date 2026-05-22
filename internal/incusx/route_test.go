@@ -163,7 +163,7 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	if !strings.Contains(caddyfile, "app.example.com") || !strings.Contains(caddyfile, "10.248.0.20:5173") {
 		t.Fatalf("Caddyfile = %q", caddyfile)
 	}
-	if !strings.HasPrefix(caddyfile, "{\n    email ops@example.com\n    auto_https disable_redirects\n}\n\n") {
+	if !strings.HasPrefix(caddyfile, "{\n    email ops@example.com\n    admin 127.0.0.1:2019\n    auto_https disable_redirects\n}\n\n") {
 		t.Fatalf("Caddyfile missing Let's Encrypt email: %q", caddyfile)
 	}
 	if resource.execInstance != route.InfrastructureCaddyName {

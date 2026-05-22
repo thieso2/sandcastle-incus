@@ -58,60 +58,66 @@ func newDNSSetupCommand(config commandConfig, opts *rootOptions) *cobra.Command 
 		Short: "Apply tenant DNS and install local DNS forwarding",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reference := optionalArg(args)
-			installPlan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: reference})
+			result, err := runDNSSetup(cmd.Context(), config, optionalArg(args))
 			if err != nil {
 				return err
-			}
-			summary, err := findTenantSummary(cmd.Context(), config.tenantStore, installPlan.Reference)
-			if err != nil {
-				return err
-			}
-			if config.dnsApplier == nil {
-				return fmt.Errorf("DNS apply executor is not configured")
-			}
-			applyResult, err := config.dnsApplier.Apply(cmd.Context(), dnsProject(summary))
-			if err != nil {
-				return err
-			}
-			if config.localDNSService == nil {
-				return fmt.Errorf("local DNS service executor is not configured")
-			}
-			servicePlan, err := localdns.PlanServiceInstall()
-			if err != nil {
-				return err
-			}
-			serviceResult, err := config.localDNSService.InstallService(cmd.Context(), servicePlan)
-			if err != nil {
-				return err
-			}
-			if config.localDNS == nil {
-				return fmt.Errorf("local DNS executor is not configured")
-			}
-			installResult, installElevated, err := runLocalDNSWithSudoFallback(cmd.Context(), config, "install", installPlan)
-			if err != nil {
-				return err
-			}
-			refreshPlan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: installPlan.Reference})
-			if err != nil {
-				return err
-			}
-			refreshResult, refreshElevated, err := runLocalDNSWithSudoFallback(cmd.Context(), config, "refresh", refreshPlan)
-			if err != nil {
-				return err
-			}
-			result := dnsSetupResult{
-				Reference: installPlan.Reference,
-				Apply:     applyResult,
-				Service:   serviceResult,
-				Install:   installResult,
-				Refresh:   refreshResult,
-				Elevated:  elevatedActions([]string{"install", "refresh"}, installElevated, refreshElevated),
 			}
 			return writeOutput(config.stdout, opts.output, formatDNSSetup(result), result)
 		},
 	}
 	return command
+}
+
+func runDNSSetup(ctx context.Context, config commandConfig, reference string) (dnsSetupResult, error) {
+	installPlan, err := localdns.PlanInstall(ctx, config.adminConfig, config.tenantStore, localdns.Request{Reference: reference})
+	if err != nil {
+		return dnsSetupResult{}, err
+	}
+	summary, err := findTenantSummary(ctx, config.tenantStore, installPlan.Reference)
+	if err != nil {
+		return dnsSetupResult{}, err
+	}
+	if config.dnsApplier == nil {
+		return dnsSetupResult{}, fmt.Errorf("DNS apply executor is not configured")
+	}
+	applyResult, err := config.dnsApplier.Apply(ctx, dnsProject(summary))
+	if err != nil {
+		return dnsSetupResult{}, err
+	}
+	if config.localDNSService == nil {
+		return dnsSetupResult{}, fmt.Errorf("local DNS service executor is not configured")
+	}
+	servicePlan, err := localdns.PlanServiceInstall()
+	if err != nil {
+		return dnsSetupResult{}, err
+	}
+	serviceResult, err := config.localDNSService.InstallService(ctx, servicePlan)
+	if err != nil {
+		return dnsSetupResult{}, err
+	}
+	if config.localDNS == nil {
+		return dnsSetupResult{}, fmt.Errorf("local DNS executor is not configured")
+	}
+	installResult, installElevated, err := runLocalDNSWithSudoFallback(ctx, config, "install", installPlan)
+	if err != nil {
+		return dnsSetupResult{}, err
+	}
+	refreshPlan, err := localdns.PlanRefresh(ctx, config.adminConfig, config.tenantStore, localdns.Request{Reference: installPlan.Reference})
+	if err != nil {
+		return dnsSetupResult{}, err
+	}
+	refreshResult, refreshElevated, err := runLocalDNSWithSudoFallback(ctx, config, "refresh", refreshPlan)
+	if err != nil {
+		return dnsSetupResult{}, err
+	}
+	return dnsSetupResult{
+		Reference: installPlan.Reference,
+		Apply:     applyResult,
+		Service:   serviceResult,
+		Install:   installResult,
+		Refresh:   refreshResult,
+		Elevated:  elevatedActions([]string{"install", "refresh"}, installElevated, refreshElevated),
+	}, nil
 }
 
 func newDNSTeardownCommand(config commandConfig, opts *rootOptions) *cobra.Command {
