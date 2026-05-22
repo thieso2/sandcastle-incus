@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/naming"
+	"golang.org/x/crypto/ssh"
 )
 
 type User struct {
@@ -195,6 +196,71 @@ ORDER BY github_username_normalized
 		return nil, err
 	}
 	return users, nil
+}
+
+type UserSSHKey struct {
+	PublicKey   string
+	Fingerprint string
+}
+
+func SetUserSSHKey(ctx context.Context, db *sql.DB, userKey string, publicKey string) (UserSSHKey, bool, error) {
+	key, err := normalizeUserSSHPublicKey(publicKey)
+	if err != nil {
+		return UserSSHKey{}, false, err
+	}
+	normalizedUser := NormalizeGitHubUsername(userKey)
+	if normalizedUser == "" {
+		return UserSSHKey{}, false, fmt.Errorf("user key is required")
+	}
+	existing, err := GetUserSSHKey(ctx, db, normalizedUser)
+	if err != nil {
+		return UserSSHKey{}, false, err
+	}
+	if existing.PublicKey == key.PublicKey {
+		return existing, false, nil
+	}
+	result, err := db.ExecContext(ctx, `
+UPDATE users
+SET ssh_public_key = ?, ssh_key_fingerprint = ?, updated_at = datetime('now')
+WHERE user_key = ?
+`, key.PublicKey, key.Fingerprint, normalizedUser)
+	if err != nil {
+		return UserSSHKey{}, false, fmt.Errorf("store User SSH Public Key for %s: %w", normalizedUser, err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows != 1 {
+		return UserSSHKey{}, false, fmt.Errorf("user %s not found", normalizedUser)
+	}
+	return key, true, nil
+}
+
+func GetUserSSHKey(ctx context.Context, db *sql.DB, userKey string) (UserSSHKey, error) {
+	normalizedUser := NormalizeGitHubUsername(userKey)
+	row := db.QueryRowContext(ctx, `
+SELECT ssh_public_key, ssh_key_fingerprint
+FROM users
+WHERE user_key = ?
+`, normalizedUser)
+	var key UserSSHKey
+	if err := row.Scan(&key.PublicKey, &key.Fingerprint); err != nil {
+		if err == sql.ErrNoRows {
+			return UserSSHKey{}, fmt.Errorf("user %s not found", normalizedUser)
+		}
+		return UserSSHKey{}, err
+	}
+	return key, nil
+}
+
+func normalizeUserSSHPublicKey(value string) (UserSSHKey, error) {
+	key := strings.TrimSpace(value)
+	if key == "" {
+		return UserSSHKey{}, fmt.Errorf("User SSH Public Key is required")
+	}
+	parsed, _, _, _, err := ssh.ParseAuthorizedKey([]byte(key))
+	if err != nil {
+		return UserSSHKey{}, fmt.Errorf("parse User SSH Public Key: %w", err)
+	}
+	return UserSSHKey{PublicKey: key, Fingerprint: ssh.FingerprintSHA256(parsed)}, nil
 }
 
 func CreateSession(ctx context.Context, db *sql.DB, userKey string, now time.Time) (string, error) {

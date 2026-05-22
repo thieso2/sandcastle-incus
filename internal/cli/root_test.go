@@ -105,6 +105,7 @@ type fakeAuthDeviceClient struct {
 	start            authapp.DeviceStartResult
 	polls            []authapp.DevicePollResult
 	polledDeviceCode string
+	pollRequests     []authapp.DevicePollRequest
 }
 
 type fakeLoginRemoteInstaller struct {
@@ -120,8 +121,9 @@ func (c *fakeAuthDeviceClient) Start(ctx context.Context) (authapp.DeviceStartRe
 	return c.start, nil
 }
 
-func (c *fakeAuthDeviceClient) Poll(ctx context.Context, deviceCode string) (authapp.DevicePollResult, error) {
+func (c *fakeAuthDeviceClient) Poll(ctx context.Context, deviceCode string, request authapp.DevicePollRequest) (authapp.DevicePollResult, error) {
 	c.polledDeviceCode = deviceCode
+	c.pollRequests = append(c.pollRequests, request)
 	if len(c.polls) == 0 {
 		return authapp.DevicePollResult{Status: authapp.DeviceStatusExpired}, nil
 	}
@@ -223,6 +225,9 @@ func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 	}
 	if client.polledDeviceCode != "device" {
 		t.Fatalf("polled device code = %q", client.polledDeviceCode)
+	}
+	if len(client.pollRequests) != 1 || !strings.HasPrefix(client.pollRequests[0].SSHPublicKey, "ssh-ed25519 ") {
+		t.Fatalf("poll requests = %#v", client.pollRequests)
 	}
 	if len(installer.requests) != 1 || installer.requests[0].Token != "token" || installer.requests[0].Tenant != "octocat" {
 		t.Fatalf("installer requests = %#v", installer.requests)

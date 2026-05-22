@@ -62,7 +62,9 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				maxPolls = 300
 			}
 			for attempt := 0; attempt < maxPolls; attempt++ {
-				result, err := client.Poll(cmd.Context(), start.DeviceCode)
+				result, err := client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
+					SSHPublicKey: sshKey.PublicKey,
+				})
 				if err != nil {
 					return err
 				}

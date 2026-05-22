@@ -26,14 +26,24 @@ type DeviceStartResult struct {
 }
 
 type DevicePollResult struct {
-	Status            string
-	Message           string
-	UserKey           string
-	Token             string
-	RemoteName        string
-	AccessibleTenants []string
-	Projects          []string
-	ExpiresIn         int
+	Status             string
+	Message            string
+	UserKey            string
+	Token              string
+	RemoteName         string
+	AccessibleTenants  []string
+	Projects           []string
+	CurrentTenant      string
+	CurrentProject     string
+	SSHKeyFingerprint  string
+	TenantTailnetState string
+	NextCommand        string
+	LoginResult        *CLILoginResult
+	ExpiresIn          int
+}
+
+type DevicePollRequest struct {
+	SSHPublicKey string
 }
 
 func (c DeviceClient) Start(ctx context.Context) (DeviceStartResult, error) {
@@ -64,8 +74,11 @@ func (c DeviceClient) Start(ctx context.Context) (DeviceStartResult, error) {
 	}, nil
 }
 
-func (c DeviceClient) Poll(ctx context.Context, deviceCode string) (DevicePollResult, error) {
-	body, _ := json.Marshal(map[string]string{"device_code": deviceCode})
+func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePollRequest) (DevicePollResult, error) {
+	body, _ := json.Marshal(map[string]string{
+		"device_code":    deviceCode,
+		"ssh_public_key": poll.SSHPublicKey,
+	})
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/device/poll"), bytes.NewReader(body))
 	if err != nil {
 		return DevicePollResult{}, err
@@ -84,14 +97,20 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string) (DevicePollRe
 		return DevicePollResult{}, err
 	}
 	return DevicePollResult{
-		Status:            payload.Status,
-		Message:           payload.Message,
-		UserKey:           payload.UserKey,
-		Token:             payload.Token,
-		RemoteName:        payload.RemoteName,
-		AccessibleTenants: append([]string{}, payload.AccessibleTenants...),
-		Projects:          append([]string{}, payload.Projects...),
-		ExpiresIn:         payload.ExpiresIn,
+		Status:             payload.Status,
+		Message:            payload.Message,
+		UserKey:            payload.UserKey,
+		Token:              payload.Token,
+		RemoteName:         payload.RemoteName,
+		AccessibleTenants:  append([]string{}, payload.AccessibleTenants...),
+		Projects:           append([]string{}, payload.Projects...),
+		CurrentTenant:      payload.CurrentTenant,
+		CurrentProject:     payload.CurrentProject,
+		SSHKeyFingerprint:  payload.SSHKeyFingerprint,
+		TenantTailnetState: payload.TenantTailnetState,
+		NextCommand:        payload.NextCommand,
+		LoginResult:        payload.LoginResult,
+		ExpiresIn:          payload.ExpiresIn,
 	}, nil
 }
 

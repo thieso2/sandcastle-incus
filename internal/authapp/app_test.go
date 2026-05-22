@@ -2,6 +2,8 @@ package authapp
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -16,6 +18,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
+	"golang.org/x/crypto/ssh"
 )
 
 func TestPlanServeRequiresDatabasePath(t *testing.T) {
@@ -512,6 +515,64 @@ func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
 	}
 }
 
+func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
+	db := authDBForTest(t)
+	cookie := adminSessionCookieForTest(t, db)
+	provisioner := &fakePersonalTenantProvisioner{}
+	handler := NewHandler(db, HandlerOptions{
+		AuthHostname: "auth.example.com",
+		Provisioner:  provisioner,
+	})
+	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveRequest := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
+	approveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approveRequest.AddCookie(cookie)
+	handler.ServeHTTP(httptest.NewRecorder(), approveRequest)
+
+	key := validAuthAuthorizedKeyForTest(t)
+	approved := pollDeviceWithSSHKeyForTest(t, handler, login.DeviceCode, key)
+	if approved.Status != DeviceStatusApproved || approved.LoginResult == nil {
+		t.Fatalf("approved = %#v", approved)
+	}
+	if approved.LoginResult.SelectedUser != "admin" ||
+		approved.LoginResult.CurrentTenant != "admin" ||
+		approved.LoginResult.CurrentProject != "default" ||
+		approved.LoginResult.CredentialEnrollment.IncusCertificateAddToken != "token-admin" ||
+		approved.LoginResult.CredentialEnrollment.RemoteName != "sandcastle-admin" ||
+		approved.LoginResult.SSHKeyFingerprint == "" ||
+		approved.LoginResult.TenantTailnetStatus.State != "pending" ||
+		approved.LoginResult.NextCommand != "sandcastle create dev" {
+		t.Fatalf("login result = %#v", approved.LoginResult)
+	}
+	stored, err := GetUserSSHKey(context.Background(), db, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PublicKey != key || stored.Fingerprint != approved.LoginResult.SSHKeyFingerprint {
+		t.Fatalf("stored key = %#v approved=%#v", stored, approved.LoginResult)
+	}
+	if strings.Contains(approved.raw, "PRIVATE KEY") || strings.Contains(strings.ToLower(approved.raw), "private_key") {
+		t.Fatalf("poll response leaked private key material: %s", approved.raw)
+	}
+
+	repeated := pollDeviceWithSSHKeyForTest(t, handler, login.DeviceCode, key)
+	if repeated.LoginResult.SSHKeyFingerprint != approved.LoginResult.SSHKeyFingerprint {
+		t.Fatalf("same key changed fingerprint: %#v then %#v", approved.LoginResult, repeated.LoginResult)
+	}
+	replacement := validAuthAuthorizedKeyForTest(t)
+	replaced := pollDeviceWithSSHKeyForTest(t, handler, login.DeviceCode, replacement)
+	stored, err = GetUserSSHKey(context.Background(), db, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PublicKey != replacement || stored.Fingerprint != replaced.LoginResult.SSHKeyFingerprint || stored.Fingerprint == approved.LoginResult.SSHKeyFingerprint {
+		t.Fatalf("replacement stored=%#v initial=%#v replaced=%#v", stored, approved.LoginResult, replaced.LoginResult)
+	}
+}
+
 func TestDevicePollRetriesPersonalTenantProvisioningFailure(t *testing.T) {
 	db := authDBForTest(t)
 	cookie := adminSessionCookieForTest(t, db)
@@ -640,6 +701,23 @@ type devicePollPayloadForTest struct {
 func pollDeviceForTest(t *testing.T, handler http.Handler, deviceCode string) devicePollPayloadForTest {
 	t.Helper()
 	body := `{"device_code":"` + deviceCode + `"}`
+	return pollDeviceBodyForTest(t, handler, body)
+}
+
+func pollDeviceWithSSHKeyForTest(t *testing.T, handler http.Handler, deviceCode string, publicKey string) devicePollPayloadForTest {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{
+		"device_code":    deviceCode,
+		"ssh_public_key": publicKey,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pollDeviceBodyForTest(t, handler, string(body))
+}
+
+func pollDeviceBodyForTest(t *testing.T, handler http.Handler, body string) devicePollPayloadForTest {
+	t.Helper()
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/device/poll", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
@@ -653,6 +731,19 @@ func pollDeviceForTest(t *testing.T, handler http.Handler, deviceCode string) de
 	}
 	payload.raw = response.Body.String()
 	return payload
+}
+
+func validAuthAuthorizedKeyForTest(t *testing.T) string {
+	t.Helper()
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshPublicKey, err := ssh.NewPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublicKey)))
 }
 
 type fakeGitHubClient struct {

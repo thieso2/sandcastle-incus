@@ -160,6 +160,8 @@ CREATE TABLE IF NOT EXISTS users (
     github_username_normalized TEXT NOT NULL UNIQUE,
     github_account_id TEXT NOT NULL DEFAULT '',
     github_email TEXT NOT NULL DEFAULT '',
+    ssh_public_key TEXT NOT NULL DEFAULT '',
+    ssh_key_fingerprint TEXT NOT NULL DEFAULT '',
     allowlisted INTEGER NOT NULL DEFAULT 0,
     sandcastle_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
@@ -228,6 +230,12 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 		return fmt.Errorf("migrate auth database: %w", err)
 	}
 	if err := ensureColumn(ctx, db, "device_logins", "provisioned_at", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "users", "ssh_public_key", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "users", "ssh_key_fingerprint", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil

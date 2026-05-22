@@ -50,14 +50,20 @@ type deviceStartResponse struct {
 }
 
 type devicePollResponse struct {
-	Status            string   `json:"status"`
-	Message           string   `json:"message"`
-	UserKey           string   `json:"user_key,omitempty"`
-	Token             string   `json:"incus_certificate_add_token,omitempty"`
-	RemoteName        string   `json:"remote_name,omitempty"`
-	AccessibleTenants []string `json:"accessible_tenants,omitempty"`
-	Projects          []string `json:"projects,omitempty"`
-	ExpiresIn         int      `json:"expires_in,omitempty"`
+	Status             string          `json:"status"`
+	Message            string          `json:"message"`
+	UserKey            string          `json:"user_key,omitempty"`
+	Token              string          `json:"incus_certificate_add_token,omitempty"`
+	RemoteName         string          `json:"remote_name,omitempty"`
+	AccessibleTenants  []string        `json:"accessible_tenants,omitempty"`
+	Projects           []string        `json:"projects,omitempty"`
+	CurrentTenant      string          `json:"current_tenant,omitempty"`
+	CurrentProject     string          `json:"current_project,omitempty"`
+	SSHKeyFingerprint  string          `json:"ssh_key_fingerprint,omitempty"`
+	TenantTailnetState string          `json:"tenant_tailnet_state,omitempty"`
+	NextCommand        string          `json:"next_command,omitempty"`
+	LoginResult        *CLILoginResult `json:"login_result,omitempty"`
+	ExpiresIn          int             `json:"expires_in,omitempty"`
 }
 
 func (h handler) deviceStart(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +93,8 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		DeviceCode string `json:"device_code"`
+		DeviceCode   string `json:"device_code"`
+		SSHPublicKey string `json:"ssh_public_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -104,20 +111,113 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 			login.Status = DeviceStatusPending
 		}
 	}
+	sshFingerprint := ""
+	if login.Status == DeviceStatusApproved && strings.TrimSpace(request.SSHPublicKey) != "" {
+		stored, _, err := SetUserSSHKey(r.Context(), h.db, login.UserKey, request.SSHPublicKey)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		sshFingerprint = stored.Fingerprint
+	} else if login.Status == DeviceStatusApproved && login.UserKey != "" {
+		if stored, err := GetUserSSHKey(r.Context(), h.db, login.UserKey); err == nil {
+			sshFingerprint = stored.Fingerprint
+		}
+	}
 	expiresIn := int(time.Until(login.ExpiresAt).Seconds())
 	if expiresIn < 0 {
 		expiresIn = 0
 	}
+	loginResult := loginResultForDeviceLogin(login, sshFingerprint)
 	writeJSON(w, http.StatusOK, devicePollResponse{
-		Status:            login.Status,
-		Message:           login.Message,
-		UserKey:           login.UserKey,
-		Token:             login.Token,
-		RemoteName:        login.RemoteName,
-		AccessibleTenants: login.AccessibleTenants,
-		Projects:          login.Projects,
-		ExpiresIn:         expiresIn,
+		Status:             login.Status,
+		Message:            login.Message,
+		UserKey:            login.UserKey,
+		Token:              login.Token,
+		RemoteName:         login.RemoteName,
+		AccessibleTenants:  login.AccessibleTenants,
+		Projects:           login.Projects,
+		CurrentTenant:      currentTenantForDeviceLogin(login),
+		CurrentProject:     currentProjectForDeviceLogin(login),
+		SSHKeyFingerprint:  sshFingerprint,
+		TenantTailnetState: tenantTailnetStateForDeviceLogin(login),
+		NextCommand:        nextCommandForDeviceLogin(login),
+		LoginResult:        loginResult,
+		ExpiresIn:          expiresIn,
 	})
+}
+
+type CLILoginResult struct {
+	SelectedUser         string               `json:"selected_user"`
+	CurrentTenant        string               `json:"current_tenant,omitempty"`
+	CurrentProject       string               `json:"current_project,omitempty"`
+	CredentialEnrollment CredentialEnrollment `json:"credential_enrollment"`
+	SSHKeyFingerprint    string               `json:"ssh_key_fingerprint,omitempty"`
+	TenantTailnetStatus  TenantTailnetStatus  `json:"tenant_tailnet_status"`
+	AccessibleTenants    []string             `json:"accessible_tenants,omitempty"`
+	Projects             []string             `json:"projects,omitempty"`
+	Message              string               `json:"message"`
+	NextCommand          string               `json:"next_command,omitempty"`
+}
+
+type CredentialEnrollment struct {
+	IncusCertificateAddToken string `json:"incus_certificate_add_token,omitempty"`
+	RemoteName               string `json:"remote_name,omitempty"`
+}
+
+type TenantTailnetStatus struct {
+	State string `json:"state,omitempty"`
+}
+
+func loginResultForDeviceLogin(login DeviceLogin, sshFingerprint string) *CLILoginResult {
+	if login.Status != DeviceStatusApproved {
+		return nil
+	}
+	return &CLILoginResult{
+		SelectedUser:   login.UserKey,
+		CurrentTenant:  currentTenantForDeviceLogin(login),
+		CurrentProject: currentProjectForDeviceLogin(login),
+		CredentialEnrollment: CredentialEnrollment{
+			IncusCertificateAddToken: login.Token,
+			RemoteName:               login.RemoteName,
+		},
+		SSHKeyFingerprint: sshFingerprint,
+		TenantTailnetStatus: TenantTailnetStatus{
+			State: tenantTailnetStateForDeviceLogin(login),
+		},
+		AccessibleTenants: append([]string{}, login.AccessibleTenants...),
+		Projects:          append([]string{}, login.Projects...),
+		Message:           login.Message,
+		NextCommand:       nextCommandForDeviceLogin(login),
+	}
+}
+
+func currentTenantForDeviceLogin(login DeviceLogin) string {
+	if len(login.AccessibleTenants) == 1 {
+		return login.AccessibleTenants[0]
+	}
+	return ""
+}
+
+func currentProjectForDeviceLogin(login DeviceLogin) string {
+	if login.Status == DeviceStatusApproved && currentTenantForDeviceLogin(login) != "" {
+		return "default"
+	}
+	return ""
+}
+
+func tenantTailnetStateForDeviceLogin(login DeviceLogin) string {
+	if login.Status == DeviceStatusApproved {
+		return "pending"
+	}
+	return ""
+}
+
+func nextCommandForDeviceLogin(login DeviceLogin) string {
+	if login.Status == DeviceStatusApproved && currentTenantForDeviceLogin(login) != "" {
+		return "sandcastle create dev"
+	}
+	return ""
 }
 
 func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin) (DeviceLogin, error) {
