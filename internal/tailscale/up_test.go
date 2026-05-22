@@ -149,6 +149,27 @@ func TestParseStatusDoesNotPersistLoginURLs(t *testing.T) {
 	}
 }
 
+func TestParseStatusFallsBackToAllowedIPSubnetRoutes(t *testing.T) {
+	result, err := ParseStatus("acme", tenant.Summary{
+		Tenant:    "acme",
+		IncusName: "sc-acme",
+	}, []byte(`{
+		"BackendState": "Running",
+		"CurrentTailnet": {"Name": "example.com"},
+		"Self": {
+			"HostName": "sc-acme",
+			"TailscaleIPs": ["100.80.12.34", "fd7a:115c:a1e0::1"],
+			"AllowedIPs": ["100.80.12.34/32", "fd7a:115c:a1e0::1/128", "10.248.0.0/24"]
+		}
+	}`), time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Tailscale.AdvertisedRoutes) != 1 || result.Tailscale.AdvertisedRoutes[0] != "10.248.0.0/24" {
+		t.Fatalf("AdvertisedRoutes = %#v", result.Tailscale.AdvertisedRoutes)
+	}
+}
+
 func TestPlanDown(t *testing.T) {
 	plan, err := PlanDown(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), DownRequest{Reference: "acme"})
 	if err != nil {

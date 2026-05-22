@@ -24,6 +24,12 @@ const (
 	RouteBrokerEnvPath         = "/etc/sandcastle/route-broker/env"
 	RouteBrokerUnitPath        = "/etc/systemd/system/sandcastle-route-broker.service"
 	RouteBrokerIncusSocketPath = "/var/lib/incus/unix.socket"
+	AuthAppName                = "sc-auth-app"
+	AuthAppListen              = ":9444"
+	AuthAppBinaryPath          = "/usr/local/bin/sandcastle-admin"
+	AuthAppDatabasePath        = "/var/lib/sandcastle/auth/auth.db"
+	AuthAppEnvPath             = "/etc/sandcastle/auth-app/env"
+	AuthAppUnitPath            = "/etc/systemd/system/sandcastle-auth-app.service"
 )
 
 type CreateRequest struct{}
@@ -37,6 +43,7 @@ type CreatePlan struct {
 	StoragePool           string             `json:"storagePool"`
 	CaddyInstance         string             `json:"caddyInstance"`
 	RouteBrokerInstance   string             `json:"routeBrokerInstance"`
+	AuthAppInstance       string             `json:"authAppInstance"`
 	ProjectMetadataConfig map[string]string  `json:"projectMetadataConfig"`
 	Instances             []InstancePlan     `json:"instances"`
 	RuntimeDirectories    []RuntimeDirectory `json:"runtimeDirectories"`
@@ -118,10 +125,12 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		StoragePool:           admin.StoragePool,
 		CaddyInstance:         route.InfrastructureCaddyName,
 		RouteBrokerInstance:   RouteBrokerName,
+		AuthAppInstance:       AuthAppName,
 		ProjectMetadataConfig: projectConfig,
 		Instances: []InstancePlan{
 			instancePlan(admin, route.InfrastructureCaddyName, "caddy"),
 			instancePlan(admin, RouteBrokerName, "route-broker"),
+			instancePlan(admin, AuthAppName, "auth-app"),
 		},
 		RuntimeDirectories: runtimeDirectories(),
 		RuntimeFiles:       runtimeFiles(admin, brokerTLS),
@@ -135,11 +144,18 @@ func runtimeDirectories() []RuntimeDirectory {
 		{Instance: route.InfrastructureCaddyName, Path: "/etc/caddy", Mode: 0o755},
 		{Instance: RouteBrokerName, Path: "/etc/sandcastle", Mode: 0o755},
 		{Instance: RouteBrokerName, Path: "/etc/sandcastle/route-broker", Mode: 0o700},
+		{Instance: AuthAppName, Path: "/etc/sandcastle", Mode: 0o755},
+		{Instance: AuthAppName, Path: "/etc/sandcastle/auth-app", Mode: 0o700},
+		{Instance: AuthAppName, Path: "/var/lib/sandcastle/auth", Mode: 0o700},
 	}
 }
 
 func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
-	caddyFile := caddy.RenderInfrastructureWithOptions(nil, caddy.InfrastructureOptions{LetsEncryptEmail: admin.LetsEncryptEmail})
+	caddyFile := caddy.RenderInfrastructureWithOptions(nil, caddy.InfrastructureOptions{
+		LetsEncryptEmail: admin.LetsEncryptEmail,
+		AuthHostname:     admin.AuthHostname,
+		AuthUpstream:     "http://" + AuthAppName + AuthAppListen,
+	})
 	return []RuntimeFile{
 		{
 			Instance: route.InfrastructureCaddyName,
@@ -185,6 +201,33 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 			Content:  "[Unit]\nDescription=Sandcastle route broker\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + RouteBrokerEnvPath + "\nExecStart=" + RouteBrokerBinaryPath + " route-broker serve --listen ${SANDCASTLE_ROUTE_BROKER_LISTEN} --cert ${SANDCASTLE_ROUTE_BROKER_CERT} --key ${SANDCASTLE_ROUTE_BROKER_KEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
 			Mode:     0o644,
 		},
+		{
+			Instance: AuthAppName,
+			Path:     AuthAppEnvPath,
+			Content: strings.Join([]string{
+				envLine("SANDCASTLE_AUTH_LISTEN", AuthAppListen),
+				envLine("SANDCASTLE_AUTH_DB", AuthAppDatabasePath),
+				envLine("SANDCASTLE_AUTH_HOSTNAME", admin.AuthHostname),
+				envLine("SANDCASTLE_AUTH_GITHUB_CLIENT_ID", admin.AuthGitHubClientID),
+				envLine("SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", admin.AuthGitHubClientSecret),
+				envLine("SANDCASTLE_AUTH_ADMIN_GITHUB_USERS", strings.Join(admin.AuthAdminGitHubUsers, ",")),
+				envLine("SANDCASTLE_REMOTE", admin.Remote),
+				envLine("SANDCASTLE_STORAGE_POOL", admin.StoragePool),
+				envLine("SANDCASTLE_CIDR_POOL", admin.CIDRPool),
+				envLine("SANDCASTLE_INCUS_PROJECT_PREFIX", admin.IncusProjectPrefix),
+				envLine("SANDCASTLE_INFRA_PROJECT", admin.InfrastructureProject),
+				envLine("SANDCASTLE_BASE_IMAGE", admin.Images.Base),
+				envLine("SANDCASTLE_AI_IMAGE", admin.Images.AI),
+				"",
+			}, "\n"),
+			Mode: 0o600,
+		},
+		{
+			Instance: AuthAppName,
+			Path:     AuthAppUnitPath,
+			Content:  "[Unit]\nDescription=Sandcastle auth app\nAfter=network.target\n\n[Service]\nEnvironmentFile=" + AuthAppEnvPath + "\nExecStart=" + AuthAppBinaryPath + " auth-app serve --listen ${SANDCASTLE_AUTH_LISTEN} --database ${SANDCASTLE_AUTH_DB} --auth-hostname ${SANDCASTLE_AUTH_HOSTNAME} --github-client-id ${SANDCASTLE_AUTH_GITHUB_CLIENT_ID} --github-client-secret ${SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET} --admin-github-users ${SANDCASTLE_AUTH_ADMIN_GITHUB_USERS}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			Mode:     0o644,
+		},
 	}
 }
 
@@ -211,6 +254,7 @@ func runtimeBinaries() []RuntimeBinary {
 	}
 	return []RuntimeBinary{
 		{Instance: RouteBrokerName, SourcePath: source, TargetPath: RouteBrokerBinaryPath, Mode: 0o755},
+		{Instance: AuthAppName, SourcePath: source, TargetPath: AuthAppBinaryPath, Mode: 0o755},
 	}
 }
 
@@ -237,6 +281,17 @@ func runtimeCommands() []RuntimeCommand {
 				"systemctl is-active sandcastle-route-broker",
 			}, "; ")},
 		},
+		{
+			Instance:    AuthAppName,
+			Description: "start auth app service",
+			Command: []string{"/bin/sh", "-lc", strings.Join([]string{
+				"systemctl daemon-reload",
+				"systemctl enable sandcastle-auth-app",
+				"systemctl restart sandcastle-auth-app",
+				"for i in $(seq 1 50); do systemctl is-active sandcastle-auth-app >/dev/null 2>&1 && exit 0; sleep 0.1; done",
+				"systemctl is-active sandcastle-auth-app",
+			}, "; ")},
+		},
 	}
 }
 
@@ -254,7 +309,7 @@ func instancePlan(admin config.Admin, name string, role string) InstancePlan {
 			"path": "/",
 		},
 	}
-	if name == RouteBrokerName && strings.TrimSpace(admin.RouteBrokerIncusSocket) != "" {
+	if (name == RouteBrokerName || name == AuthAppName) && strings.TrimSpace(admin.RouteBrokerIncusSocket) != "" {
 		devices["incus-socket"] = Device{
 			"type":   "disk",
 			"source": strings.TrimSpace(admin.RouteBrokerIncusSocket),
@@ -288,6 +343,6 @@ func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 	}
 	return DeletePlan{
 		Project:          project,
-		RuntimeInstances: []string{route.InfrastructureCaddyName, RouteBrokerName},
+		RuntimeInstances: []string{route.InfrastructureCaddyName, RouteBrokerName, AuthAppName},
 	}, nil
 }

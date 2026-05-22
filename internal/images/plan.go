@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -43,6 +44,7 @@ type BuildRequest struct {
 type BuildPlan struct {
 	Template      string   `json:"template"`
 	Tag           string   `json:"tag"`
+	WorkDir       string   `json:"workDir,omitempty"`
 	ContextDir    string   `json:"contextDir"`
 	Dockerfile    string   `json:"dockerfile"`
 	Tool          string   `json:"tool"`
@@ -124,6 +126,7 @@ func PlanBuild(admin config.Admin, request BuildRequest) (BuildPlan, error) {
 	plan := BuildPlan{
 		Template:   template,
 		Tool:       tool,
+		WorkDir:    repoRoot(),
 		ContextDir: filepath.Join("images", template),
 		Dockerfile: filepath.Join("images", template, "Dockerfile"),
 	}
@@ -200,10 +203,12 @@ type CommandRunner interface {
 	Run(context.Context, string, ...string) error
 }
 
-type ExecRunner struct{}
+type ExecRunner struct {
+	Dir string
+}
 
 func (b LocalBuilder) BuildImage(ctx context.Context, plan BuildPlan) (BuildResult, error) {
-	var runner CommandRunner = ExecRunner{}
+	var runner CommandRunner = ExecRunner{Dir: plan.WorkDir}
 	if b.Runner != nil {
 		runner = b.Runner
 	}
@@ -232,11 +237,22 @@ func (i LocalImporter) ImportImage(ctx context.Context, plan ImportPlan) (Import
 
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) error {
 	command := exec.CommandContext(ctx, name, args...)
+	if r.Dir != "" {
+		command.Dir = r.Dir
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func repoRoot() string {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return ""
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
 }
 
 func buildCommand(plan BuildPlan) []string {

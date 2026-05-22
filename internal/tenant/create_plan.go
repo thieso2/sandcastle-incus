@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/certs"
@@ -46,6 +47,8 @@ type CreateRequest struct {
 	Reference     string
 	SSHPublicKey  string
 	OccupiedCIDRs []string
+	Personal      bool
+	CreatedBy     string
 }
 
 type CreatePlan struct {
@@ -98,7 +101,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err
 	}
-	ref, err := naming.ParseTenantRef(request.Reference)
+	ref, incusName, err := createTenantIdentity(admin, request)
 	if err != nil {
 		return CreatePlan{}, err
 	}
@@ -106,10 +109,6 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		AllowedSuffixes: admin.AllowedDomainSuffixes,
 		DeniedSuffixes:  admin.DeniedDomainSuffixes,
 	})
-	if err != nil {
-		return CreatePlan{}, err
-	}
-	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
 	if err != nil {
 		return CreatePlan{}, err
 	}
@@ -128,6 +127,8 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 
 	tenantMetadata := meta.Tenant{
 		Tenant:       ref.Tenant,
+		Personal:     request.Personal,
+		CreatedBy:    request.CreatedBy,
 		PrivateCIDR:  tenantCIDR.String(),
 		Projects:     []meta.Project{{Name: naming.DefaultProjectName}},
 		SSHPublicKey: request.SSHPublicKey,
@@ -178,6 +179,29 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		},
 		TenantMetadataConfig: metadataConfig,
 	}, nil
+}
+
+func createTenantIdentity(admin config.Admin, request CreateRequest) (naming.TenantRef, string, error) {
+	if request.Personal {
+		tenantName := strings.ToLower(strings.TrimSpace(request.Reference))
+		if err := naming.ValidateGitHubUsernameTenantName(tenantName); err != nil {
+			return naming.TenantRef{}, "", err
+		}
+		incusName, err := naming.PersonalTenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, tenantName)
+		if err != nil {
+			return naming.TenantRef{}, "", err
+		}
+		return naming.TenantRef{Tenant: tenantName}, incusName, nil
+	}
+	ref, err := naming.ParseTenantRef(request.Reference)
+	if err != nil {
+		return naming.TenantRef{}, "", err
+	}
+	incusName, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
+	if err != nil {
+		return naming.TenantRef{}, "", err
+	}
+	return ref, incusName, nil
 }
 
 func uniqueImageAliases(aliases ...string) []string {

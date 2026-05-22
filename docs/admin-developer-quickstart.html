@@ -309,11 +309,18 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
       <pre><code>./bin/sc-adm image import ai SOURCE_REF</code></pre>
 
       <h3>3a. Create shared route infrastructure (optional)</h3>
-      <p>Set the host Incus socket and admin binary when this environment will serve public route mutations through the broker sidecar.</p>
-      <pre><code>export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
+      <p>Set the Auth Hostname, GitHub OAuth credentials, initial Sandcastle Admin GitHub usernames, host Incus socket, and admin binary when this environment will serve the Auth App and public route mutations through infrastructure sidecars.</p>
+      <pre><code>export SANDCASTLE_AUTH_HOSTNAME=auth.example.com
+export SANDCASTLE_AUTH_GITHUB_CLIENT_ID=...
+export SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=...
+export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot
+export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
 export SANDCASTLE_ADMIN_BIN=$PWD/bin/sc-adm
 ./bin/sc-adm infra create</code></pre>
-      <p>The route broker sidecar runs <code>sandcastle-admin route-broker serve</code> and uses the mounted Incus socket to map mTLS client certificates to restricted Incus project grants.</p>
+      <p>The Auth App sidecar runs <code>sandcastle-admin auth-app serve</code> with a persistent SQLite database. Initial admins can sign in with GitHub, manage explicit GitHub users at <code>/admin/allowlist</code>, and manage Tenant Access at <code>/admin/access</code>. The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. Both sidecars use the mounted Incus socket when route infrastructure is configured this way.</p>
+      <p>The Auth App publishes OIDC discovery and JWKS endpoints under the Auth Hostname. Signing keys are bootstrapped into the SQLite database with encrypted private key storage.</p>
+      <p>Workload identity uses per-Machine runtime secrets. The Auth App stores only verifiers, mints 15-minute tokens, and lets users manage User-owned GCP Cloud Identity Configs at <code>/cloud-identities</code>.</p>
+      <p>Allowlisted users start browser-assisted CLI Device Login with <code>sc login https://auth.example.com</code>. The CLI prints a verification URL and user code, then polls while the Auth App creates or ensures the user's Personal Tenant, Default Project, and restricted Incus certificate add token. The CLI enrolls the Incus remote with its own local client key.</p>
 
       <h3>4. Create the tenant</h3>
       <pre><code>./bin/sc-adm tenant create acme</code></pre>

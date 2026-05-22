@@ -11,7 +11,10 @@ const (
 	DefaultProjectName        = "default"
 )
 
-var safeNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
+var (
+	safeNamePattern           = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
+	githubUsernameNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$`)
+)
 
 type TenantRef struct {
 	Tenant string
@@ -131,14 +134,24 @@ func TenantIncusProjectName(ref TenantRef) (string, error) {
 }
 
 func TenantIncusProjectNameWithPrefix(prefix string, ref TenantRef) (string, error) {
+	return tenantIncusProjectNameWithPrefix(prefix, ref.Tenant, ref.Validate)
+}
+
+func PersonalTenantIncusProjectNameWithPrefix(prefix string, tenant string) (string, error) {
+	return tenantIncusProjectNameWithPrefix(prefix, tenant, func() error {
+		return ValidateGitHubUsernameTenantName(tenant)
+	})
+}
+
+func tenantIncusProjectNameWithPrefix(prefix string, tenant string, validate func() error) (string, error) {
 	prefix = strings.TrimSpace(prefix)
 	if err := ValidateIncusProjectPrefix(prefix); err != nil {
 		return "", err
 	}
-	if err := ref.Validate(); err != nil {
+	if err := validate(); err != nil {
 		return "", err
 	}
-	name := prefix + "-" + ref.Tenant
+	name := prefix + "-" + tenant
 	if len(name) > 63 {
 		return "", fmt.Errorf("incus project name %q exceeds 63 characters", name)
 	}
@@ -159,6 +172,17 @@ func MachineIncusInstanceName(ref MachineRef) (string, error) {
 func ValidateTenantName(name string) error {
 	if !safeNamePattern.MatchString(name) {
 		return fmt.Errorf("invalid tenant %q", name)
+	}
+	return nil
+}
+
+func ValidateGitHubUsernameTenantName(name string) error {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "" {
+		return fmt.Errorf("GitHub username tenant name is required")
+	}
+	if !githubUsernameNamePattern.MatchString(normalized) || strings.Contains(normalized, "--") {
+		return fmt.Errorf("invalid GitHub username tenant name %q", name)
 	}
 	return nil
 }

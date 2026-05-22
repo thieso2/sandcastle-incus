@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/domain"
@@ -100,6 +101,35 @@ func testAdminConfig() scconfig.Admin {
 	return admin
 }
 
+type fakeAuthDeviceClient struct {
+	start            authapp.DeviceStartResult
+	polls            []authapp.DevicePollResult
+	polledDeviceCode string
+}
+
+type fakeLoginRemoteInstaller struct {
+	requests []loginRemoteInstallRequest
+}
+
+func (i *fakeLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, request loginRemoteInstallRequest) (loginRemoteInstallResult, error) {
+	i.requests = append(i.requests, request)
+	return loginRemoteInstallResult{RemoteName: request.RemoteName, Tenant: request.Tenant, IncusConfig: "/tmp/incus"}, nil
+}
+
+func (c *fakeAuthDeviceClient) Start(ctx context.Context) (authapp.DeviceStartResult, error) {
+	return c.start, nil
+}
+
+func (c *fakeAuthDeviceClient) Poll(ctx context.Context, deviceCode string) (authapp.DevicePollResult, error) {
+	c.polledDeviceCode = deviceCode
+	if len(c.polls) == 0 {
+		return authapp.DevicePollResult{Status: authapp.DeviceStatusExpired}, nil
+	}
+	next := c.polls[0]
+	c.polls = c.polls[1:]
+	return next, nil
+}
+
 func TestVersionText(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "version")
 	if err != nil {
@@ -148,6 +178,95 @@ func TestJSONFlagRejectsExplicitTextOutput(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--json") {
 		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
+	installer := &fakeLoginRemoteInstaller{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{
+			DeviceCode:      "device",
+			UserCode:        "ABCD-1234",
+			VerificationURI: "https://auth.example.com/device?user_code=ABCD-1234",
+			Interval:        1,
+			Message:         "Waiting for browser approval.",
+		},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			Message:           "Personal tenant octocat is ready.",
+			UserKey:           "octocat",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+		}},
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Open: https://auth.example.com/device?user_code=ABCD-1234",
+		"Code: ABCD-1234",
+		"Approved as octocat.",
+		"Remote \"sandcastle-octocat\" enrolled.",
+		"Default tenant set to \"octocat\".",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if client.polledDeviceCode != "device" {
+		t.Fatalf("polled device code = %q", client.polledDeviceCode)
+	}
+	if len(installer.requests) != 1 || installer.requests[0].Token != "token" || installer.requests[0].Tenant != "octocat" {
+		t.Fatalf("installer requests = %#v", installer.requests)
+	}
+}
+
+func TestLoginDoesNotSetTenantWhenNoAccessibleTenants(t *testing.T) {
+	installer := &fakeLoginRemoteInstaller{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status:     authapp.DeviceStatusApproved,
+			UserKey:    "octocat",
+			Token:      "token",
+			RemoteName: "sandcastle-octocat",
+		}},
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(installer.requests) != 1 || installer.requests[0].Tenant != "" {
+		t.Fatalf("installer requests = %#v", installer.requests)
+	}
+	if !strings.Contains(stdout, "No default tenant set; no accessible tenants were returned.") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestLoginReportsDeniedDeviceFlow(t *testing.T) {
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status: authapp.DeviceStatusDenied,
+		}},
+	}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:       "sandcastle",
+		authDevice: client,
+	}, "login", "https://auth.example.com")
+	if err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

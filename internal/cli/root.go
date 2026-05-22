@@ -13,6 +13,7 @@ import (
 
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
@@ -74,7 +75,15 @@ type commandConfig struct {
 	routes              route.Manager
 	routeMachine        route.MachineStore
 	routeBroker         routebroker.Runner
+	authApp             authapp.Runner
+	authDevice          authDeviceClient
+	loginRemote         loginRemoteInstaller
 	incusRunner         incusRunner
+}
+
+type authDeviceClient interface {
+	Start(context.Context) (authapp.DeviceStartResult, error)
+	Poll(context.Context, string) (authapp.DevicePollResult, error)
 }
 
 type rootOptions struct {
@@ -233,6 +242,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newRouteCommand(config, opts))
 	root.AddCommand(newRemoteCommand(config, opts))
 	root.AddCommand(newIncusCommand(config, opts))
+	root.AddCommand(newLoginCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))
 
 	return root

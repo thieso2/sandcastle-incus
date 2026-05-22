@@ -277,5 +277,6 @@ func sandcastleCLIEnv(fixture cliCreateFixture) []string {
 		"SANDCASTLE_INFRA_PROJECT=" + config.DefaultInfrastructureProject,
 		"SANDCASTLE_BASE_IMAGE=" + fixture.BaseAlias,
 		"SANDCASTLE_AI_IMAGE=" + fixture.AIAlias,
+		"SSH_AUTH_SOCK=",
 	}
 }

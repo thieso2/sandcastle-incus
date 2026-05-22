@@ -86,6 +86,7 @@ func TestCLIConnectCommandE2E(t *testing.T) {
 	}
 	createTenantPlan, err := tenant.PlanCreate(adminConfig, tenant.CreateRequest{
 		Reference:     ref,
+		SSHPublicKey:  e2eConfig.SSHPublicKey,
 		OccupiedCIDRs: tenant.OccupiedCIDRs(existing),
 	})
 	if err != nil {
@@ -111,6 +112,7 @@ func TestCLIConnectCommandE2E(t *testing.T) {
 	t.Setenv("SANDCASTLE_INFRA_PROJECT", config.DefaultInfrastructureProject)
 	t.Setenv("SANDCASTLE_BASE_IMAGE", baseAlias)
 	t.Setenv("SANDCASTLE_AI_IMAGE", aiAlias)
+	t.Setenv("SSH_AUTH_SOCK", "")
 	if exitCode := cli.Execute("sandcastle", []string{"connect", machineRef, "pwd"}); exitCode != 0 {
 		t.Fatalf("sandcastle connect pwd exit code = %d", exitCode)
 	}

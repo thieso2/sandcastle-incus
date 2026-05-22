@@ -29,6 +29,10 @@ func NewTrustManager(remote string) TrustManager {
 	return TrustManager{Remote: remote}
 }
 
+func NewTrustManagerForServer(server incus.InstanceServer) TrustManager {
+	return TrustManager{Server: server}
+}
+
 func (m TrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) error {
 	server, err := m.server()
 	if err != nil {

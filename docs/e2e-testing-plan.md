@@ -53,6 +53,7 @@ SANDCASTLE_E2E_IMAGE_BUILD=1
 SANDCASTLE_E2E_CODEX_VERSION=...
 SANDCASTLE_E2E_CLAUDE_CODE_VERSION=...
 SANDCASTLE_E2E_GEMINI_CLI_VERSION=...
+SANDCASTLE_E2E_SSH_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)"
 SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com
 SANDCASTLE_E2E_INFRA_HOST=203.0.113.10
 SANDCASTLE_E2E_LETSENCRYPT_EMAIL=ops@example.com
@@ -81,9 +82,11 @@ SANDCASTLE_E2E=1 SANDCASTLE_E2E_RUN_ID=e2e-20260520-120000 scripts/e2e.sh cleanu
 
 Tier meanings:
 
-- `unit`: all Incus-free Go tests.
-- `gated`: the e2e package with default environment gates, useful for compile
-  and skip behavior.
+- `unit`: all Incus-free Go tests. The runner uses a sanitized environment and
+  forces `SANDCASTLE_E2E=0` for this tier so it remains a unit pass even when
+  invoked from a shell that has sourced a destructive e2e `.env`.
+- `gated`: the e2e package with `SANDCASTLE_E2E=0`, useful for compile and
+  skip behavior even from a shell with destructive e2e variables loaded.
 - `local`: unprivileged local flows with temporary local DNS state.
 - `local-vm`: disposable-VM local mutation flows for resolver state, user
   services, platform trust, and host overrides.

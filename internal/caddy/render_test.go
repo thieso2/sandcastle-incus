@@ -70,3 +70,15 @@ func TestRenderInfrastructureIncludesLetsEncryptEmail(t *testing.T) {
 		t.Fatalf("content missing app route: %q", file.Content)
 	}
 }
+
+func TestRenderInfrastructureRoutesAuthHostname(t *testing.T) {
+	file := RenderInfrastructureWithOptions(nil, InfrastructureOptions{
+		AuthHostname: " auth.example.com. ",
+		AuthUpstream: "http://sc-auth-app:9444",
+	})
+	if !strings.Contains(file.Content, "http://auth.example.com {") ||
+		!strings.Contains(file.Content, "https://auth.example.com {") ||
+		!strings.Contains(file.Content, "reverse_proxy http://sc-auth-app:9444") {
+		t.Fatalf("Caddyfile = %q", file.Content)
+	}
+}

@@ -160,11 +160,12 @@ func TestRestrictedUserMachineLifecycleE2E(t *testing.T) {
 	user := safeTenantResourceName("user-" + runID)
 	name := safeTenantResourceName("restricted-" + runID)
 	machineName := safeTenantResourceName("box-" + runID)
-	ref := user + "/" + name
+	ref := name
 	machineRef := machineName
 	baseAlias := "sandcastle/base:" + safeToken(runID) + "-restricted"
 	aiAlias := "sandcastle/ai:" + safeToken(runID) + "-restricted"
 	adminConfig := config.Admin{
+		Tenant:                ref,
 		Remote:                e2eConfig.Remote,
 		StoragePool:           e2eConfig.StoragePool,
 		CIDRPool:              e2eConfig.CIDRPool,
@@ -245,7 +246,7 @@ func TestRestrictedUserMachineLifecycleE2E(t *testing.T) {
 
 	projectServer := restricted.UseProject(createTenantPlan.IncusProject)
 	assertInstanceExists(t, projectServer, createMachinePlan.InstanceName)
-	hostname := machineName + "." + createTenantPlan.DNSSuffix
+	hostname := machineName + ".default." + createTenantPlan.DNSSuffix
 	assertMachineIngressFiles(t, projectServer, createMachinePlan.InstanceName, hostname, createMachinePlan.AppPort)
 	startMachineHTTPApp(t, projectServer, createMachinePlan.InstanceName, createMachinePlan.AppPort, "sandcastle-restricted")
 	assertMachineCaddyProxy(t, projectServer, createMachinePlan.InstanceName, hostname, "sandcastle-restricted")

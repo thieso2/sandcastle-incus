@@ -165,7 +165,9 @@ func readTenantSSHKey(server TenantMetadataResourceServer, incusProjectName stri
 }
 
 func isMissingTenantMetadata(err error) bool {
-	return api.StatusErrorCheck(err, http.StatusNotFound) || errors.Is(err, os.ErrNotExist)
+	return api.StatusErrorCheck(err, http.StatusNotFound) ||
+		errors.Is(err, os.ErrNotExist) ||
+		errors.Is(err, os.ErrPermission)
 }
 
 type sdkTenantMetadataServer struct {

@@ -102,6 +102,30 @@ func TestPlanCreateRejectsInvalidReference(t *testing.T) {
 	}
 }
 
+func TestPlanCreatePersonalTenantAllowsGitHubUsernameTenantName(t *testing.T) {
+	plan, err := PlanCreate(config.LoadAdminFromEnv(), CreateRequest{Reference: "1octocat", Personal: true, CreatedBy: "1octocat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Reference != "1octocat" || plan.IncusProject != "sc-1octocat" {
+		t.Fatalf("plan identity = %#v", plan)
+	}
+	metadata, err := meta.ParseTenantConfig(plan.TenantMetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metadata.Personal || metadata.CreatedBy != "1octocat" {
+		t.Fatalf("metadata = %#v", metadata)
+	}
+}
+
+func TestPlanCreatePersonalTenantRejectsInvalidGitHubUsernameTenantName(t *testing.T) {
+	_, err := PlanCreate(config.LoadAdminFromEnv(), CreateRequest{Reference: "bad--name", Personal: true})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestPlanCreateRejectsDeniedTenantSuffix(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.DeniedDomainSuffixes = []string{"corp"}

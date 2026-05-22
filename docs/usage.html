@@ -197,7 +197,17 @@ remote: sc-alice</code></pre>
 <span class="comment"># Infrastructure Incus project name (for route broker / shared Caddy)</span>
 <span class="env">export SANDCASTLE_INFRA_PROJECT</span>=sc-infra
 
-<span class="comment"># Optional host Incus socket mount for route broker mutation service</span>
+<span class="comment"># Optional public Auth App hostname reserved by shared Caddy</span>
+<span class="env">export SANDCASTLE_AUTH_HOSTNAME</span>=auth.example.com
+
+<span class="comment"># GitHub OAuth app credentials for Auth App login</span>
+<span class="env">export SANDCASTLE_AUTH_GITHUB_CLIENT_ID</span>=...
+<span class="env">export SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET</span>=...
+
+<span class="comment"># Initial Sandcastle Admin GitHub usernames, comma-separated</span>
+<span class="env">export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</span>=octocat,hubot
+
+<span class="comment"># Optional host Incus socket mount for Auth App provisioning and route broker mutation service</span>
 <span class="env">export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</span>=/var/lib/incus/unix.socket
 
 <span class="comment"># Optional prebuilt admin binary uploaded into infrastructure sidecars</span>
@@ -314,6 +324,13 @@ Bootstrap:
     <h3>Delete a restricted user certificate</h3>
     <p>Removes the user's restricted Incus certificate entirely. This revokes all tenant access for that certificate.</p>
     <pre><code><span class="cmd">sandcastle-admin user delete</span> <span class="arg">alice</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>CLI Device Login</h3>
+    <p>Starts browser-assisted sign-in against the Auth App. The CLI prints a verification URL and user code, then polls until the browser approval completes, expires, or is denied.</p>
+    <pre><code><span class="cmd">sandcastle login</span> <span class="arg">https://auth.example.com</span></code></pre>
+    <p>After browser approval, the Auth App creates or ensures the user's Personal Tenant, ensures its Default Project, returns a restricted Incus certificate add token, and streams provisioning status through CLI polling. The CLI enrolls the remote with its own local client key and sets the default tenant only when exactly one accessible Tenant is returned.</p>
   </div>
 
   <div class="step">
@@ -527,8 +544,12 @@ Bootstrap:
 
   <div class="step">
     <h3>Create shared infrastructure</h3>
-    <p>Provisions the shared Caddy reverse proxy and route broker inside a dedicated Incus project.</p>
-    <p>The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. When <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> is set, the sidecar mounts the host Incus socket and uses the uploaded <code>sandcastle-admin</code> binary from <code>SANDCASTLE_ADMIN_BIN</code>, falling back to <code>SANDCASTLE_BIN</code>.</p>
+    <p>Provisions the shared Caddy reverse proxy, Auth App, and route broker inside a dedicated Incus project.</p>
+    <p>The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. When <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> is set, the route broker and Auth App sidecars mount the host Incus socket and use the uploaded <code>sandcastle-admin</code> binary from <code>SANDCASTLE_ADMIN_BIN</code>, falling back to <code>SANDCASTLE_BIN</code>.</p>
+    <p>The Auth App sidecar runs <code>sandcastle-admin auth-app serve</code> with a persistent SQLite database at <code>/var/lib/sandcastle/auth/auth.db</code>. When <code>SANDCASTLE_AUTH_HOSTNAME</code> is set, shared Caddy reserves that hostname and routes it to the Auth App. CLI Device Login provisions Personal Tenants only after browser approval, not at allowlist add time or browser-only GitHub login time.</p>
+    <p>Initial Sandcastle Admins from <code>SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</code> can sign in through GitHub and manage the Login Allowlist at <code>/admin/allowlist</code> and Tenant Access at <code>/admin/access</code>. The allowlist accepts explicit GitHub users only; password login is not available.</p>
+    <p>The Auth App also serves public OIDC provider metadata at <code>/.well-known/openid-configuration</code> and public signing keys at <code>/.well-known/jwks.json</code>. The configured Auth Hostname is the issuer URL; private signing keys are stored encrypted in the Auth Database.</p>
+    <p>Users can manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. Machines that opt into workload identity receive a rotated runtime secret, Auth App token endpoint metadata, and, when a GCP config is selected, an external account credential file plus <code>GOOGLE_APPLICATION_CREDENTIALS</code> and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code> environment variables. Cloud Identity Configs are not applied automatically at Tenant or Project level.</p>
     <pre><code><span class="cmd">sandcastle-admin infra create</span>
 <span class="cmd">sandcastle-admin infra create</span> <span class="flag">--dry-run</span>   <span class="comment"># preview only</span></code></pre>
   </div>
@@ -544,6 +565,27 @@ Bootstrap:
   <span class="flag">--listen</span> <span class="arg">:9443</span> \
   <span class="flag">--cert</span>   <span class="arg">/etc/caddy/certs/broker.crt</span> \
   <span class="flag">--key</span>    <span class="arg">/etc/caddy/certs/broker.key</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Serve the Auth App</h3>
+    <pre><code><span class="cmd">sandcastle-admin auth-app serve</span> \
+  <span class="flag">--listen</span> <span class="arg">:9444</span> \
+  <span class="flag">--database</span> <span class="arg">/var/lib/sandcastle/auth/auth.db</span> \
+  <span class="flag">--auth-hostname</span> <span class="arg">auth.example.com</span> \
+  <span class="flag">--github-client-id</span> <span class="arg">...</span> \
+  <span class="flag">--github-client-secret</span> <span class="arg">...</span> \
+  <span class="flag">--admin-github-users</span> <span class="arg">octocat,hubot</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Manage the Login Allowlist</h3>
+    <p>Open <code>https://auth.example.com/admin/allowlist</code> as a Sandcastle Admin. Adding a user verifies the GitHub username and stores the normalized username plus GitHub numeric account ID. Removing a user blocks future GitHub and CLI login and revokes their restricted Incus certificate grants without deleting their Personal Tenant or Machines.</p>
+  </div>
+
+  <div class="step">
+    <h3>Manage Tenant Access</h3>
+    <p>Open <code>https://auth.example.com/admin/access</code> as a Sandcastle Admin to view Users, Tenants, and restricted Incus certificate grants. Grant and revoke actions use the same project grant model as <code>sandcastle-admin tenant grant</code> and <code>sandcastle-admin tenant revoke</code>.</p>
   </div>
 </section>
 
@@ -641,6 +683,7 @@ Bootstrap:
       </thead>
       <tbody>
         <tr><td>sandcastle list</td><td>List machines in the current tenant</td></tr>
+        <tr><td>sandcastle login &lt;auth-host&gt;</td><td>Start CLI Device Login through the Auth App</td></tr>
         <tr><td>sandcastle config show/set/unset</td><td>Manage local CLI defaults</td></tr>
         <tr><td>sandcastle status [machine]</td><td>Show tenant or machine status</td></tr>
         <tr><td>sandcastle create &lt;ref&gt;</td><td>Create and connect to a machine</td></tr>

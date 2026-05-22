@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -192,12 +193,17 @@ func assertMachineCaddyProxy(t *testing.T, server interface {
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }, instance string, hostname string, want string) {
 	t.Helper()
-	output := execInstanceOutput(t, server, instance, []string{
-		"curl", "-ksS", "--resolve", hostname + ":443:127.0.0.1", "https://" + hostname + "/",
-	})
-	if !strings.Contains(output, want) {
-		t.Fatalf("machine Caddy proxy output = %q, want %q", output, want)
+	var output string
+	for i := 0; i < 50; i++ {
+		output = execInstanceOutput(t, server, instance, []string{
+			"curl", "-ksS", "--resolve", hostname + ":443:127.0.0.1", "https://" + hostname + "/",
+		})
+		if strings.Contains(output, want) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
+	t.Fatalf("machine Caddy proxy output = %q, want %q", output, want)
 }
 
 func shellQuote(value string) string {

@@ -280,6 +280,8 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan) e
 		"/etc/caddy",
 		"/etc/caddy/certs",
 		"/etc/systemd/system/caddy.service.d",
+		machine.WorkloadDir,
+		"/etc/profile.d",
 	} {
 		err := server.CreateInstanceFile(plan.InstanceName, directory, incus.InstanceFileArgs{
 			Type: "directory",
@@ -313,6 +315,16 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan) e
 			WriteMode: "overwrite",
 		}); err != nil {
 			return fmt.Errorf("write machine certificate file %s: %w", file.Path, err)
+		}
+	}
+	for _, file := range plan.WorkloadFiles {
+		if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
+			Content:   strings.NewReader(string(file.Content)),
+			Type:      "file",
+			Mode:      file.Mode,
+			WriteMode: "overwrite",
+		}); err != nil {
+			return fmt.Errorf("write workload identity file %s: %w", file.Path, err)
 		}
 	}
 	ipWithPrefix, gateway, err := machineNetworkParams(plan)

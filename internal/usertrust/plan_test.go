@@ -48,6 +48,20 @@ func TestPlanGrant(t *testing.T) {
 	}
 }
 
+func TestPlanGrantPersonalTenantAllowsGitHubUsernameNames(t *testing.T) {
+	plan, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{
+		User:     "1octocat",
+		Projects: []string{"1octocat"},
+		Personal: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CertificateName != "sandcastle-1octocat" || len(plan.Projects) != 1 || plan.Projects[0] != "sc-1octocat" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestPlanGrantDeduplicatesProjects(t *testing.T) {
 	plan, err := PlanGrant(config.LoadAdminFromEnv(), GrantRequest{
 		User:     "alice",

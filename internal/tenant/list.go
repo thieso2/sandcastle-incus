@@ -22,6 +22,7 @@ type IncusTenantStore interface {
 type Summary struct {
 	IncusName       string             `json:"incusName"`
 	Tenant          string             `json:"tenant"`
+	Personal        bool               `json:"personal,omitempty"`
 	DNSSuffix       string             `json:"dnsSuffix,omitempty"`
 	PrivateCIDR     string             `json:"privateCIDR,omitempty"`
 	DNSAddress      string             `json:"dnsAddress,omitempty"`
@@ -53,6 +54,7 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 		summaries = append(summaries, Summary{
 			IncusName:       incusProject.Name,
 			Tenant:          tenant.Tenant,
+			Personal:        tenant.Personal,
 			DNSSuffix:       tenant.Tenant,
 			PrivateCIDR:     tenant.PrivateCIDR,
 			DNSAddress:      dnsAddressFromCIDR(tenant.PrivateCIDR),

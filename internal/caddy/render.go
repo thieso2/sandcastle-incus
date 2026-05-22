@@ -16,6 +16,8 @@ type File struct {
 
 type InfrastructureOptions struct {
 	LetsEncryptEmail string
+	AuthHostname     string
+	AuthUpstream     string
 }
 
 func RenderMachine(hostname string, appPort int, certPath string, keyPath string) File {
@@ -68,6 +70,19 @@ func RenderInfrastructureWithOptions(routes []meta.Route, options Infrastructure
 }
 
 `
+	authHostname := strings.Trim(strings.TrimSpace(options.AuthHostname), ".")
+	authUpstream := strings.TrimSpace(options.AuthUpstream)
+	if authHostname != "" && authUpstream != "" {
+		content += fmt.Sprintf(`http://%s {
+    reverse_proxy %s
+}
+
+https://%s {
+    reverse_proxy %s
+}
+
+`, authHostname, authUpstream, authHostname, authUpstream)
+	}
 	hasRoutes := false
 	for _, route := range routes {
 		if route.Hostname == "" || route.TargetIP == "" || route.RoutePort == 0 {

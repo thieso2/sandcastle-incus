@@ -129,6 +129,18 @@ func TestPlanCreateRequiresInfrastructureHost(t *testing.T) {
 	}
 }
 
+func TestPlanCreateRejectsAuthHostname(t *testing.T) {
+	admin := routeAdminForTest()
+	admin.AuthHostname = "auth.example.com"
+	_, err := PlanCreate(context.Background(), admin, tenantStoreForTest(t), fakeMachineStore{}, CreateRequest{
+		Hostname:        "auth.example.com",
+		TargetReference: "acme/default/codex",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestPlanDelete(t *testing.T) {
 	plan, err := PlanDelete(scconfig.LoadAdminFromEnv(), DeleteRequest{Hostname: "App.Example.COM."})
 	if err != nil {

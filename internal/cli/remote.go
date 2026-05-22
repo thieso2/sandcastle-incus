@@ -46,60 +46,99 @@ Use --tenant to also set your default tenant name in one step:
   sc remote add sc-acme JOIN_TOKEN --tenant acme`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name, joinToken := args[0], args[1]
-			incusDir := scconfig.RemoteIncusDir(name)
-			if err := os.MkdirAll(incusDir, 0o700); err != nil {
-				return fmt.Errorf("create incus config dir: %w", err)
-			}
-
-			// Pass the join token as the address argument — incus detects it is
-			// a JSON token and extracts the server address from it automatically.
-			env := append(os.Environ(), "INCUS_CONF="+incusDir)
-
-			addCmd := exec.CommandContext(cmd.Context(), "incus", "remote", "add", name, joinToken)
-			addCmd.Env = env
-			addCmd.Stdin = config.stdin
-			addCmd.Stdout = config.stdout
-			addCmd.Stderr = config.stderr
-			if err := addCmd.Run(); err != nil {
-				return fmt.Errorf("incus remote add: %w", err)
-			}
-
-			switchCmd := exec.CommandContext(cmd.Context(), "incus", "remote", "switch", name)
-			switchCmd.Env = env
-			switchCmd.Stdout = config.stdout
-			switchCmd.Stderr = config.stderr
-			if err := switchCmd.Run(); err != nil {
-				return fmt.Errorf("incus remote switch: %w", err)
-			}
-			if err := normalizeRemoteURL(cmd.Context(), name, incusDir, env, config.stderr); err != nil {
+			result, err := addIncusRemoteWithToken(cmd.Context(), remoteAddIO{
+				stdin:  config.stdin,
+				stdout: config.stdout,
+				stderr: config.stderr,
+			}, args[0], args[1], tenant)
+			if err != nil {
 				return err
 			}
-
-			cfgPath := scconfig.DefaultConfigPath()
-			cfg, err := scconfig.LoadSandcastleConfig(cfgPath)
-			if err != nil {
-				return fmt.Errorf("load sandcastle config: %w", err)
+			if result.DefaultRemoteSet {
+				fmt.Fprintf(config.stdout, "Default remote set to %q\n", result.RemoteName)
 			}
-			if cfg.Remote == "" {
-				cfg.Remote = name
-				fmt.Fprintf(config.stdout, "Default remote set to %q\n", name)
-			}
-			if tenant != "" {
-				cfg.Tenant = tenant
-			}
-			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
-				return fmt.Errorf("save sandcastle config: %w", err)
-			}
-			fmt.Fprintf(config.stdout, "Remote %q added. Incus config: %s\n", name, incusDir)
-			if cfg.Tenant != "" {
-				fmt.Fprintf(config.stdout, "Default tenant set to %q\n", cfg.Tenant)
+			fmt.Fprintf(config.stdout, "Remote %q added. Incus config: %s\n", result.RemoteName, result.IncusConfig)
+			if result.Tenant != "" {
+				fmt.Fprintf(config.stdout, "Default tenant set to %q\n", result.Tenant)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&tenant, "tenant", "", "Set the default tenant name in ~/.config/sandcastle/config.yml")
 	return cmd
+}
+
+type remoteAddIO struct {
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+}
+
+type remoteAddResult struct {
+	RemoteName       string
+	IncusConfig      string
+	Tenant           string
+	DefaultRemoteSet bool
+}
+
+type incusLoginRemoteInstaller struct {
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+}
+
+func (i incusLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, request loginRemoteInstallRequest) (loginRemoteInstallResult, error) {
+	result, err := addIncusRemoteWithToken(ctx, remoteAddIO{stdin: i.stdin, stdout: i.stdout, stderr: i.stderr}, request.RemoteName, request.Token, request.Tenant)
+	if err != nil {
+		return loginRemoteInstallResult{}, err
+	}
+	return loginRemoteInstallResult{RemoteName: result.RemoteName, IncusConfig: result.IncusConfig, Tenant: result.Tenant}, nil
+}
+
+func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name string, joinToken string, tenant string) (remoteAddResult, error) {
+	incusDir := scconfig.RemoteIncusDir(name)
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		return remoteAddResult{}, fmt.Errorf("create incus config dir: %w", err)
+	}
+
+	env := append(os.Environ(), "INCUS_CONF="+incusDir)
+	addCmd := exec.CommandContext(ctx, "incus", "remote", "add", name, joinToken)
+	addCmd.Env = env
+	addCmd.Stdin = ioConfig.stdin
+	addCmd.Stdout = ioConfig.stdout
+	addCmd.Stderr = ioConfig.stderr
+	if err := addCmd.Run(); err != nil {
+		return remoteAddResult{}, fmt.Errorf("incus remote add: %w", err)
+	}
+
+	switchCmd := exec.CommandContext(ctx, "incus", "remote", "switch", name)
+	switchCmd.Env = env
+	switchCmd.Stdout = ioConfig.stdout
+	switchCmd.Stderr = ioConfig.stderr
+	if err := switchCmd.Run(); err != nil {
+		return remoteAddResult{}, fmt.Errorf("incus remote switch: %w", err)
+	}
+	if err := normalizeRemoteURL(ctx, name, incusDir, env, ioConfig.stderr); err != nil {
+		return remoteAddResult{}, err
+	}
+
+	cfgPath := scconfig.DefaultConfigPath()
+	cfg, err := scconfig.LoadSandcastleConfig(cfgPath)
+	if err != nil {
+		return remoteAddResult{}, fmt.Errorf("load sandcastle config: %w", err)
+	}
+	defaultRemoteSet := false
+	if cfg.Remote == "" {
+		cfg.Remote = name
+		defaultRemoteSet = true
+	}
+	if tenant != "" {
+		cfg.Tenant = tenant
+	}
+	if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
+		return remoteAddResult{}, fmt.Errorf("save sandcastle config: %w", err)
+	}
+	return remoteAddResult{RemoteName: name, IncusConfig: incusDir, Tenant: cfg.Tenant, DefaultRemoteSet: defaultRemoteSet}, nil
 }
 
 func normalizeRemoteURL(ctx context.Context, name string, incusDir string, env []string, stderr io.Writer) error {

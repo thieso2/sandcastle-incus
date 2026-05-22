@@ -102,6 +102,10 @@ func PlanCreate(ctx context.Context, admin config.Admin, tenantStore tenant.Incu
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	authHostname := strings.ToLower(strings.Trim(strings.TrimSpace(admin.AuthHostname), "."))
+	if authHostname != "" && hostname == strings.ToLower(authHostname) {
+		return CreatePlan{}, fmt.Errorf("auth hostname %s is reserved infrastructure routing and cannot be claimed as a public route", hostname)
+	}
 	machineRef, err := parseMachineRef(request.TargetReference, admin.Tenant, admin.Project)
 	if err != nil {
 		return CreatePlan{}, err

@@ -123,6 +123,38 @@ func TestTenantStoreIgnoresMissingProjectNamespaceFile(t *testing.T) {
 	}
 }
 
+func TestTenantStoreIgnoresInaccessibleProjectNamespaceFile(t *testing.T) {
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := TenantStore{
+		Server: fakeTenantListServer{projects: []api.Project{{
+			Name: "sc-acme",
+			ProjectPut: api.ProjectPut{
+				Config: api.ConfigMap(config),
+			},
+		}}},
+		Metadata: fakeTenantMetadataServer{err: os.ErrPermission},
+	}
+
+	projects, err := store.ListProjects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant, err := meta.ParseTenantConfig(projects[0].Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tenant.Projects) != 1 || tenant.Projects[0].Name != "default" {
+		t.Fatalf("projects = %#v", tenant.Projects)
+	}
+}
+
 func TestTenantStoreMergesSSHKeyMetadataFile(t *testing.T) {
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",

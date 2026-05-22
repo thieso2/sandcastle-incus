@@ -31,14 +31,17 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	if server.createdProject.Name != config.DefaultInfrastructureProject {
 		t.Fatalf("created Incus project = %q", server.createdProject.Name)
 	}
-	if len(resourceServer.createdInstances) != 2 {
-		t.Fatalf("created instances = %d, want 2", len(resourceServer.createdInstances))
+	if len(resourceServer.createdInstances) != 3 {
+		t.Fatalf("created instances = %d, want 3", len(resourceServer.createdInstances))
 	}
 	if resourceServer.createdInstances[0].Name != route.InfrastructureCaddyName {
 		t.Fatalf("first instance = %q", resourceServer.createdInstances[0].Name)
 	}
 	if resourceServer.createdInstances[1].Name != infra.RouteBrokerName {
 		t.Fatalf("second instance = %q", resourceServer.createdInstances[1].Name)
+	}
+	if resourceServer.createdInstances[2].Name != infra.AuthAppName {
+		t.Fatalf("third instance = %q", resourceServer.createdInstances[2].Name)
 	}
 	if resourceServer.createdFiles[route.InfrastructureCaddyName+":/etc/caddy/Caddyfile"] == "" {
 		t.Fatal("expected bootstrap Caddyfile")
@@ -55,7 +58,16 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerBinaryPath] == "" {
 		t.Fatal("expected route broker binary file")
 	}
-	if len(resourceServer.execCommands) != 2 {
+	if resourceServer.createdFiles[infra.AuthAppName+":"+infra.AuthAppEnvPath] == "" {
+		t.Fatal("expected auth app env file")
+	}
+	if resourceServer.createdFiles[infra.AuthAppName+":"+infra.AuthAppUnitPath] == "" {
+		t.Fatal("expected auth app unit file")
+	}
+	if resourceServer.createdFiles[infra.AuthAppName+":"+infra.AuthAppBinaryPath] == "" {
+		t.Fatal("expected auth app binary file")
+	}
+	if len(resourceServer.execCommands) != 3 {
 		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
 	}
 	if resourceServer.execInstances[0] != route.InfrastructureCaddyName || !strings.Contains(strings.Join(resourceServer.execCommands[0], " "), "systemctl restart caddy") {
@@ -63,6 +75,9 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	}
 	if resourceServer.execInstances[1] != infra.RouteBrokerName || !strings.Contains(strings.Join(resourceServer.execCommands[1], " "), "sandcastle-route-broker") {
 		t.Fatalf("second exec = %s %#v", resourceServer.execInstances[1], resourceServer.execCommands[1])
+	}
+	if resourceServer.execInstances[2] != infra.AuthAppName || !strings.Contains(strings.Join(resourceServer.execCommands[2], " "), "sandcastle-auth-app") {
+		t.Fatalf("third exec = %s %#v", resourceServer.execInstances[2], resourceServer.execCommands[2])
 	}
 }
 
@@ -74,6 +89,7 @@ func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {
 		instances: map[string]*api.Instance{
 			route.InfrastructureCaddyName: {Name: route.InfrastructureCaddyName, Status: "Stopped", StatusCode: api.Stopped},
 			infra.RouteBrokerName:         {Name: infra.RouteBrokerName, Status: "Running", StatusCode: api.Running},
+			infra.AuthAppName:             {Name: infra.AuthAppName, Status: "Running", StatusCode: api.Running},
 		},
 	}
 	server := &fakeCreateServer{
@@ -96,12 +112,13 @@ func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {
 func TestInfrastructureDeleterDeletesRuntimeAndProject(t *testing.T) {
 	plan := infra.DeletePlan{
 		Project:          config.DefaultInfrastructureProject,
-		RuntimeInstances: []string{route.InfrastructureCaddyName, infra.RouteBrokerName},
+		RuntimeInstances: []string{route.InfrastructureCaddyName, infra.RouteBrokerName, infra.AuthAppName},
 	}
 	resourceServer := &fakeDeleteResourceServer{
 		instances: map[string]*api.Instance{
 			route.InfrastructureCaddyName: {Name: route.InfrastructureCaddyName, Status: "Running", StatusCode: api.Running},
 			infra.RouteBrokerName:         {Name: infra.RouteBrokerName, Status: "Stopped", StatusCode: api.Stopped},
+			infra.AuthAppName:             {Name: infra.AuthAppName, Status: "Stopped", StatusCode: api.Stopped},
 		},
 	}
 	server := &fakeDeleteServer{resourceServer: resourceServer}
@@ -109,7 +126,7 @@ func TestInfrastructureDeleterDeletesRuntimeAndProject(t *testing.T) {
 	if err := deleter.DeleteInfrastructure(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	if len(resourceServer.deletedInstances) != 2 {
+	if len(resourceServer.deletedInstances) != 3 {
 		t.Fatalf("deleted instances = %#v", resourceServer.deletedInstances)
 	}
 	if server.deletedProject != config.DefaultInfrastructureProject {

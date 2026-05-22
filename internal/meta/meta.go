@@ -35,6 +35,8 @@ const (
 
 type Tenant struct {
 	Tenant       string        `json:"tenant"`
+	Personal     bool          `json:"personal,omitempty"`
+	CreatedBy    string        `json:"createdBy,omitempty"`
 	Projects     []Project     `json:"projects"`
 	PrivateCIDR  string        `json:"privateCIDR"`
 	SSHPublicKey string        `json:"sshPublicKey,omitempty"`

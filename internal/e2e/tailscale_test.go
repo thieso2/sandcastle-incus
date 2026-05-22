@@ -114,7 +114,7 @@ func TestTailscaleAttachmentE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectServer := server.UseProject(createPlan.IncusProject)
-	hostname := machineName + "." + createPlan.DNSSuffix
+	hostname := machineName + ".default." + createPlan.DNSSuffix
 	startMachineHTTPApp(t, projectServer, createMachinePlan.InstanceName, createMachinePlan.AppPort, "sandcastle-tailscale")
 
 	if _, err := incusx.NewDNSManager(e2eConfig.Remote).Apply(ctx, dns.Tenant{

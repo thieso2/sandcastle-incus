@@ -44,6 +44,7 @@ type CreateRequest struct {
 	ContainerTools         bool
 	TenantCACertificatePEM []byte
 	TenantCAPrivateKeyPEM  []byte
+	WorkloadIdentity       *WorkloadIdentityRequest
 }
 
 type CreatePlan struct {
@@ -69,6 +70,7 @@ type CreatePlan struct {
 	StartsByDefault  bool              `json:"startsByDefault"`
 	CaddyFile        caddy.File        `json:"caddyFile"`
 	CertificateFiles []File            `json:"certificateFiles,omitempty"`
+	WorkloadFiles    []File            `json:"workloadFiles,omitempty"`
 }
 
 type Device map[string]string
@@ -187,6 +189,10 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	workloadFiles, err := WorkloadIdentityFiles(request.WorkloadIdentity)
+	if err != nil {
+		return CreatePlan{}, err
+	}
 	return CreatePlan{
 		Reference:      request.Reference,
 		Tenant:         summary,
@@ -233,6 +239,7 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 		StartsByDefault:  true,
 		CaddyFile:        caddyFile,
 		CertificateFiles: certificateFiles,
+		WorkloadFiles:    workloadFiles,
 		SSHPublicKey:     summary.SSHPublicKey,
 	}, nil
 }

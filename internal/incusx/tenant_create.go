@@ -58,6 +58,10 @@ func NewTenantCreator(remote string) TenantCreator {
 	return TenantCreator{Remote: remote}
 }
 
+func NewTenantCreatorForServer(server incus.InstanceServer) TenantCreator {
+	return TenantCreator{Server: sdkTenantCreateServer{inner: server}}
+}
+
 func (c TenantCreator) WithVerbose(enabled bool, w io.Writer) TenantCreator {
 	if enabled {
 		c.Log = func(msg string) { fmt.Fprintln(w, "[tenant-create] "+msg) }
@@ -399,8 +403,9 @@ func configureSidecarNetwork(server TenantResourceServer, sidecar tenant.Sidecar
 		"printf '%s\n' '#!/bin/sh' 'set -eu' '/usr/sbin/ip link set eth0 up' '/usr/sbin/ip addr replace " + ipWithPrefix + " dev eth0' '/usr/sbin/ip route replace default via " + gateway + "' > /usr/local/sbin/sandcastle-sidecar-network",
 		"chmod 0755 /usr/local/sbin/sandcastle-sidecar-network",
 		"printf '%s\n' '[Unit]' 'Description=Sandcastle sidecar static network' 'After=network-pre.target' 'Before=network-online.target' '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/sbin/sandcastle-sidecar-network' 'RemainAfterExit=yes' '' '[Install]' 'WantedBy=multi-user.target' > /etc/systemd/system/sandcastle-sidecar-network.service",
+		"/usr/local/sbin/sandcastle-sidecar-network",
 		"systemctl daemon-reload",
-		"systemctl enable --now sandcastle-sidecar-network.service",
+		"systemctl enable sandcastle-sidecar-network.service",
 	}
 	if sidecar.Role == "dns" {
 		cmds = append(cmds,

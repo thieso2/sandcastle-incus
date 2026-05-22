@@ -1,0 +1,696 @@
+package authapp
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/tenant"
+	"github.com/thieso2/sandcastle-incus/internal/usertrust"
+)
+
+func TestPlanServeRequiresDatabasePath(t *testing.T) {
+	_, err := PlanServe(ServeRequest{Address: ":9444"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestHealthAndStatusUseSQLiteDatabase(t *testing.T) {
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "auth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	assertSchemaVersion(t, db)
+	handler := NewHandler(db, "auth.example.com")
+
+	health := httptest.NewRecorder()
+	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if health.Code != http.StatusOK || strings.TrimSpace(health.Body.String()) != "ok" {
+		t.Fatalf("health = %d %q", health.Code, health.Body.String())
+	}
+
+	status := httptest.NewRecorder()
+	handler.ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/", nil))
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Sandcastle Auth") || !strings.Contains(status.Body.String(), "auth.example.com") {
+		t.Fatalf("status = %d %q", status.Code, status.Body.String())
+	}
+}
+
+func TestBootstrapAdminsCreatesAllowlistedAdminUsers(t *testing.T) {
+	db := authDBForTest(t)
+	if err := BootstrapAdmins(context.Background(), db, []string{"OctoCat", "octocat", "hubot"}); err != nil {
+		t.Fatal(err)
+	}
+	user := findUserForTest(t, db, "octocat")
+	if user.UserKey != "octocat" || !user.Allowlisted || !user.SandcastleAdmin {
+		t.Fatalf("user = %#v", user)
+	}
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM users").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("users = %d, want 2", count)
+	}
+}
+
+func TestGitHubOAuthCallbackCreatesSessionForAllowlistedUser(t *testing.T) {
+	db := authDBForTest(t)
+	if err := BootstrapAdmins(context.Background(), db, []string{"OctoCat"}); err != nil {
+		t.Fatal(err)
+	}
+	state := createStateForTest(t, db)
+	handler := NewHandler(db, HandlerOptions{
+		AuthHostname:       "auth.example.com",
+		GitHubClientID:     "client",
+		GitHubClientSecret: "secret",
+		GitHub: fakeGitHubClient{
+			token: "token",
+			profile: GitHubProfile{
+				Login: "OctoCat",
+				ID:    "583231",
+				Email: "octo@example.com",
+			},
+		},
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/oauth/github/callback?code=abc&state="+state, nil))
+	if response.Code != http.StatusFound {
+		t.Fatalf("callback = %d %q", response.Code, response.Body.String())
+	}
+	if len(response.Result().Cookies()) != 1 || response.Result().Cookies()[0].Name != "sandcastle_session" {
+		t.Fatalf("cookies = %#v", response.Result().Cookies())
+	}
+	user := findUserForTest(t, db, "octocat")
+	if user.GitHubAccountID != "583231" || user.GitHubEmail != "octo@example.com" {
+		t.Fatalf("user metadata = %#v", user)
+	}
+	var sessions int
+	if err := db.QueryRow("SELECT count(*) FROM web_sessions WHERE user_key = 'octocat'").Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if sessions != 1 {
+		t.Fatalf("sessions = %d", sessions)
+	}
+	assertNoPersonalTenantProvisioningTables(t, db)
+}
+
+func TestGitHubOAuthCallbackRejectsNonAllowlistedUser(t *testing.T) {
+	db := authDBForTest(t)
+	state := createStateForTest(t, db)
+	handler := NewHandler(db, HandlerOptions{
+		GitHubClientID:     "client",
+		GitHubClientSecret: "secret",
+		GitHub: fakeGitHubClient{
+			token:   "token",
+			profile: GitHubProfile{Login: "notallowed", ID: "123"},
+		},
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/oauth/github/callback?code=abc&state="+state, nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("callback = %d %q", response.Code, response.Body.String())
+	}
+	var sessions int
+	if err := db.QueryRow("SELECT count(*) FROM web_sessions").Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if sessions != 0 {
+		t.Fatalf("sessions = %d", sessions)
+	}
+}
+
+func TestGitHubRenameBlocksLogin(t *testing.T) {
+	db := authDBForTest(t)
+	if err := BootstrapAdmins(context.Background(), db, []string{"oldname"}); err != nil {
+		t.Fatal(err)
+	}
+	state := createStateForTest(t, db)
+	handler := NewHandler(db, HandlerOptions{
+		GitHubClientID:     "client",
+		GitHubClientSecret: "secret",
+		GitHub: fakeGitHubClient{
+			token:   "token",
+			profile: GitHubProfile{Login: "newname", ID: "583231"},
+		},
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/oauth/github/callback?code=abc&state="+state, nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("callback = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestGitHubLoginRedirectsOnlyToGitHub(t *testing.T) {
+	db := authDBForTest(t)
+	handler := NewHandler(db, HandlerOptions{GitHubClientID: "client"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/login/github", nil))
+	if response.Code != http.StatusFound {
+		t.Fatalf("login = %d %q", response.Code, response.Body.String())
+	}
+	location := response.Header().Get("Location")
+	if !strings.HasPrefix(location, "https://github.com/login/oauth/authorize?") || !strings.Contains(location, "client_id=client") {
+		t.Fatalf("Location = %q", location)
+	}
+}
+
+func TestPasswordLoginPathDoesNotExist(t *testing.T) {
+	db := authDBForTest(t)
+	handler := NewHandler(db, HandlerOptions{})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/login/password", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("password login = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestAllowlistAdminCanAddGitHubUser(t *testing.T) {
+	db := authDBForTest(t)
+	adminCookie := adminSessionCookieForTest(t, db)
+	handler := NewHandler(db, HandlerOptions{
+		GitHub: fakeGitHubClient{
+			verified: GitHubProfile{Login: "NewUser", ID: "42"},
+		},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/admin/allowlist", strings.NewReader("github_username=NewUser"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(adminCookie)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("allowlist add = %d %q", response.Code, response.Body.String())
+	}
+	user := findUserForTest(t, db, "newuser")
+	if !user.Allowlisted || user.SandcastleAdmin || user.GitHubAccountID != "42" {
+		t.Fatalf("user = %#v", user)
+	}
+}
+
+func TestAllowlistDuplicateUpdatesSingleUser(t *testing.T) {
+	db := authDBForTest(t)
+	if _, err := AllowlistGitHubUser(context.Background(), db, GitHubProfile{Login: "OctoCat", ID: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/admin/allowlist", strings.NewReader("github_username=octocat"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(adminSessionCookieForTest(t, db))
+	response := httptest.NewRecorder()
+	NewHandler(db, HandlerOptions{GitHub: fakeGitHubClient{verified: GitHubProfile{Login: "octocat", ID: "1"}}}).ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("allowlist add = %d %q", response.Code, response.Body.String())
+	}
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM users WHERE github_username_normalized = 'octocat'").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("octocat rows = %d", count)
+	}
+}
+
+func TestAllowlistRejectsInvalidUsername(t *testing.T) {
+	db := authDBForTest(t)
+	request := httptest.NewRequest(http.MethodPost, "/admin/allowlist", strings.NewReader("github_username=-bad"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(adminSessionCookieForTest(t, db))
+	response := httptest.NewRecorder()
+	NewHandler(db, HandlerOptions{GitHub: fakeGitHubClient{}}).ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("allowlist add = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestAllowlistRejectsNonAdmin(t *testing.T) {
+	db := authDBForTest(t)
+	if err := UpsertUser(context.Background(), db, User{
+		UserKey:                  "alice",
+		GitHubUsername:           "alice",
+		GitHubUsernameNormalized: "alice",
+		Allowlisted:              true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := CreateSession(context.Background(), db, "alice", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/admin/allowlist", nil)
+	request.AddCookie(&http.Cookie{Name: "sandcastle_session", Value: sessionID})
+	response := httptest.NewRecorder()
+
+	NewHandler(db, HandlerOptions{}).ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("allowlist = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestAllowlistAddRejectsOrganization(t *testing.T) {
+	db := authDBForTest(t)
+	request := httptest.NewRequest(http.MethodPost, "/admin/allowlist", strings.NewReader("github_username=acme"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(adminSessionCookieForTest(t, db))
+	response := httptest.NewRecorder()
+
+	NewHandler(db, HandlerOptions{
+		GitHub: fakeGitHubClient{verifyErr: errors.New("GitHub login acme is Organization, want User")},
+	}).ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("allowlist add = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestAllowlistRemoveBlocksLoginAndRevokesRestrictedCertificate(t *testing.T) {
+	db := authDBForTest(t)
+	if _, err := AllowlistGitHubUser(context.Background(), db, GitHubProfile{Login: "alice", ID: "123"}); err != nil {
+		t.Fatal(err)
+	}
+	revoker := &fakeRestrictedRevoker{}
+	request := httptest.NewRequest(http.MethodPost, "/admin/allowlist/remove", strings.NewReader("github_username=alice"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(adminSessionCookieForTest(t, db))
+	response := httptest.NewRecorder()
+
+	NewHandler(db, HandlerOptions{RestrictedUsers: revoker}).ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("allowlist remove = %d %q", response.Code, response.Body.String())
+	}
+	user := findUserForTest(t, db, "alice")
+	if user.Allowlisted {
+		t.Fatalf("user still allowlisted = %#v", user)
+	}
+	if len(revoker.deleted) != 1 || revoker.deleted[0] != "alice" {
+		t.Fatalf("deleted users = %#v", revoker.deleted)
+	}
+	if _, err := FindLoginUser(context.Background(), db, "alice"); err == nil {
+		t.Fatal("expected removed user to be blocked from login")
+	}
+}
+
+func TestTenantAccessAdminRequiresSandcastleAdmin(t *testing.T) {
+	db := authDBForTest(t)
+	if err := UpsertUser(context.Background(), db, User{
+		UserKey:                  "alice",
+		GitHubUsername:           "alice",
+		GitHubUsernameNormalized: "alice",
+		Allowlisted:              true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := CreateSession(context.Background(), db, "alice", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/admin/access", nil)
+	request.AddCookie(&http.Cookie{Name: "sandcastle_session", Value: sessionID})
+	response := httptest.NewRecorder()
+
+	NewHandler(db, HandlerOptions{}).ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("tenant access = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestTenantAccessAdminListsUsersTenantsAndGrants(t *testing.T) {
+	db := authDBForTest(t)
+	if _, err := AllowlistGitHubUser(context.Background(), db, GitHubProfile{Login: "alice", ID: "123"}); err != nil {
+		t.Fatal(err)
+	}
+	access := &fakeTenantAccessManager{usersByTenant: map[string][]string{"acme": []string{"alice"}}}
+	handler := NewHandler(db, HandlerOptions{
+		Admin:        testAuthAdminConfig(),
+		Tenants:      tenant.MemoryStore{Projects: []tenant.IncusProject{{Name: "sc-acme", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.0.0/24"})}}},
+		TenantAccess: access,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/admin/access", nil)
+	request.AddCookie(adminSessionCookieForTest(t, db))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "alice") || !strings.Contains(response.Body.String(), "acme") {
+		t.Fatalf("tenant access list = %d %q", response.Code, response.Body.String())
+	}
+
+	grantRequest := httptest.NewRequest(http.MethodPost, "/admin/access/grant", strings.NewReader("tenant=acme&user=alice"))
+	grantRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	grantRequest.AddCookie(adminSessionCookieForTest(t, db))
+	grantResponse := httptest.NewRecorder()
+	handler.ServeHTTP(grantResponse, grantRequest)
+	if grantResponse.Code != http.StatusSeeOther {
+		t.Fatalf("grant = %d %q", grantResponse.Code, grantResponse.Body.String())
+	}
+	if len(access.grants) != 1 || access.grants[0].User != "alice" || access.grants[0].Projects[0] != "sc-acme" {
+		t.Fatalf("grants = %#v", access.grants)
+	}
+}
+
+func TestTenantAccessAdminRevokesPersonalTenantAccess(t *testing.T) {
+	db := authDBForTest(t)
+	access := &fakeTenantAccessManager{}
+	handler := NewHandler(db, HandlerOptions{
+		Admin:        testAuthAdminConfig(),
+		TenantAccess: access,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/admin/access/revoke", strings.NewReader("tenant=1octocat&user=1octocat&personal=1"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(adminSessionCookieForTest(t, db))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("revoke = %d %q", response.Code, response.Body.String())
+	}
+	if len(access.revokes) != 1 || access.revokes[0].User != "1octocat" || access.revokes[0].Projects[0] != "sc-1octocat" {
+		t.Fatalf("revokes = %#v", access.revokes)
+	}
+}
+
+func TestDeviceLoginLifecycle(t *testing.T) {
+	db := authDBForTest(t)
+	cookie := adminSessionCookieForTest(t, db)
+	handler := NewHandler(db, HandlerOptions{AuthHostname: "auth.example.com"})
+
+	start := httptest.NewRecorder()
+	handler.ServeHTTP(start, httptest.NewRequest(http.MethodPost, "/api/device/start", nil))
+	if start.Code != http.StatusOK {
+		t.Fatalf("start = %d %q", start.Code, start.Body.String())
+	}
+	var started deviceStartResponse
+	if err := json.Unmarshal(start.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	if started.DeviceCode == "" || started.UserCode == "" || !strings.Contains(started.VerificationURI, started.UserCode) {
+		t.Fatalf("started = %#v", started)
+	}
+
+	pending := pollDeviceForTest(t, handler, started.DeviceCode)
+	if pending.Status != DeviceStatusPending {
+		t.Fatalf("pending = %#v", pending)
+	}
+
+	approveRequest := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+started.UserCode+"&action=approve"))
+	approveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approveRequest.AddCookie(cookie)
+	approve := httptest.NewRecorder()
+	handler.ServeHTTP(approve, approveRequest)
+	if approve.Code != http.StatusOK {
+		t.Fatalf("approve = %d %q", approve.Code, approve.Body.String())
+	}
+
+	approved := pollDeviceForTest(t, handler, started.DeviceCode)
+	if approved.Status != DeviceStatusApproved || approved.UserKey != "admin" {
+		t.Fatalf("approved = %#v", approved)
+	}
+}
+
+func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
+	db := authDBForTest(t)
+	cookie := adminSessionCookieForTest(t, db)
+	provisioner := &fakePersonalTenantProvisioner{}
+	handler := NewHandler(db, HandlerOptions{
+		AuthHostname: "auth.example.com",
+		Provisioner:  provisioner,
+	})
+
+	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveRequest := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
+	approveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approveRequest.AddCookie(cookie)
+	handler.ServeHTTP(httptest.NewRecorder(), approveRequest)
+
+	approved := pollDeviceForTest(t, handler, login.DeviceCode)
+	if approved.Status != DeviceStatusApproved || approved.UserKey != "admin" || approved.Token != "token-admin" || !strings.Contains(approved.Message, "Personal tenant admin is ready") {
+		t.Fatalf("approved = %#v", approved)
+	}
+	if strings.Contains(strings.ToLower(approved.raw), "private_key") || strings.Contains(strings.ToLower(approved.raw), "client_key") {
+		t.Fatalf("poll response leaked private key material: %s", approved.raw)
+	}
+	approved = pollDeviceForTest(t, handler, login.DeviceCode)
+	if provisioner.calls != 1 {
+		t.Fatalf("provisioner calls = %d, want 1", provisioner.calls)
+	}
+}
+
+func TestDevicePollRetriesPersonalTenantProvisioningFailure(t *testing.T) {
+	db := authDBForTest(t)
+	cookie := adminSessionCookieForTest(t, db)
+	provisioner := &fakePersonalTenantProvisioner{failures: 1}
+	handler := NewHandler(db, HandlerOptions{Provisioner: provisioner})
+	login, err := CreateDeviceLogin(context.Background(), db, "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveRequest := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
+	approveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approveRequest.AddCookie(cookie)
+	handler.ServeHTTP(httptest.NewRecorder(), approveRequest)
+
+	failed := pollDeviceForTest(t, handler, login.DeviceCode)
+	if failed.Status != DeviceStatusPending || !strings.Contains(failed.Message, "provisioning failed") {
+		t.Fatalf("failed poll = %#v", failed)
+	}
+	approved := pollDeviceForTest(t, handler, login.DeviceCode)
+	if approved.Status != DeviceStatusApproved || provisioner.calls != 2 {
+		t.Fatalf("approved poll = %#v calls=%d", approved, provisioner.calls)
+	}
+}
+
+func TestDeviceApprovalRequiresGitHubSession(t *testing.T) {
+	db := authDBForTest(t)
+	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	NewHandler(db, HandlerOptions{}).ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("approve = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestDeviceCodeExpires(t *testing.T) {
+	db := authDBForTest(t)
+	login, err := CreateDeviceLogin(context.Background(), db, "", time.Now().Add(-20*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := PollDeviceLogin(context.Background(), db, login.DeviceCode, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != DeviceStatusExpired {
+		t.Fatalf("status = %q", result.Status)
+	}
+}
+
+func assertSchemaVersion(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var version string
+	if err := db.QueryRow("SELECT value FROM auth_app_meta WHERE key = 'schema_version'").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != "1" {
+		t.Fatalf("schema version = %q", version)
+	}
+}
+
+func authDBForTest(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "auth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func findUserForTest(t *testing.T, db *sql.DB, normalized string) User {
+	t.Helper()
+	row := db.QueryRow(`
+SELECT user_key, github_username, github_username_normalized, github_account_id, github_email, allowlisted, sandcastle_admin
+FROM users
+WHERE github_username_normalized = ?
+`, normalized)
+	var user User
+	var allowlisted int
+	var admin int
+	if err := row.Scan(&user.UserKey, &user.GitHubUsername, &user.GitHubUsernameNormalized, &user.GitHubAccountID, &user.GitHubEmail, &allowlisted, &admin); err != nil {
+		t.Fatal(err)
+	}
+	user.Allowlisted = allowlisted == 1
+	user.SandcastleAdmin = admin == 1
+	return user
+}
+
+func createStateForTest(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	state, err := createOAuthState(context.Background(), db, timeNowForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
+func timeNowForTest() time.Time {
+	return time.Now()
+}
+
+func assertNoPersonalTenantProvisioningTables(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name LIKE '%tenant%'").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("browser-only login created tenant-related auth tables, count = %d", count)
+	}
+}
+
+type devicePollPayloadForTest struct {
+	devicePollResponse
+	raw string
+}
+
+func pollDeviceForTest(t *testing.T, handler http.Handler, deviceCode string) devicePollPayloadForTest {
+	t.Helper()
+	body := `{"device_code":"` + deviceCode + `"}`
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/device/poll", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("poll = %d %q", response.Code, response.Body.String())
+	}
+	var payload devicePollPayloadForTest
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload.raw = response.Body.String()
+	return payload
+}
+
+type fakeGitHubClient struct {
+	token     string
+	profile   GitHubProfile
+	verified  GitHubProfile
+	verifyErr error
+}
+
+func (c fakeGitHubClient) ExchangeCode(ctx context.Context, oauth GitHubOAuth, code string) (string, error) {
+	return c.token, nil
+}
+
+func (c fakeGitHubClient) Profile(ctx context.Context, accessToken string) (GitHubProfile, error) {
+	return c.profile, nil
+}
+
+func (c fakeGitHubClient) VerifyUsername(ctx context.Context, username string) (GitHubProfile, error) {
+	if c.verifyErr != nil {
+		return GitHubProfile{}, c.verifyErr
+	}
+	if c.verified.Login != "" {
+		return c.verified, nil
+	}
+	return GitHubProfile{Login: username, ID: "1"}, nil
+}
+
+func adminSessionCookieForTest(t *testing.T, db *sql.DB) *http.Cookie {
+	t.Helper()
+	if err := BootstrapAdmins(context.Background(), db, []string{"admin"}); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := CreateSession(context.Background(), db, "admin", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &http.Cookie{Name: "sandcastle_session", Value: sessionID}
+}
+
+type fakeRestrictedRevoker struct {
+	deleted []string
+}
+
+func (r *fakeRestrictedRevoker) Delete(ctx context.Context, plan usertrust.UserPlan) error {
+	r.deleted = append(r.deleted, plan.User)
+	return nil
+}
+
+type fakeTenantAccessManager struct {
+	usersByTenant map[string][]string
+	grants        []usertrust.UserPlan
+	revokes       []usertrust.UserPlan
+}
+
+func (m *fakeTenantAccessManager) Grant(ctx context.Context, plan usertrust.UserPlan) error {
+	m.grants = append(m.grants, plan)
+	return nil
+}
+
+func (m *fakeTenantAccessManager) Revoke(ctx context.Context, plan usertrust.UserPlan) error {
+	m.revokes = append(m.revokes, plan)
+	return nil
+}
+
+func (m *fakeTenantAccessManager) ListTenantUsers(ctx context.Context, plan usertrust.TenantUsersPlan) (usertrust.TenantUsersResult, error) {
+	return usertrust.TenantUsersResult{Tenant: plan.Tenant, IncusProject: plan.IncusProject, Users: append([]string{}, m.usersByTenant[plan.Tenant]...)}, nil
+}
+
+func tenantConfigForAuthTest(t *testing.T, value meta.Tenant) map[string]string {
+	t.Helper()
+	metadata, err := meta.TenantConfig(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return metadata
+}
+
+func testAuthAdminConfig() config.Admin {
+	return config.LoadAdminFromEnv()
+}
+
+type fakePersonalTenantProvisioner struct {
+	calls    int
+	failures int
+}
+
+func (p *fakePersonalTenantProvisioner) EnsurePersonalTenant(ctx context.Context, user User) (PersonalTenantResult, error) {
+	p.calls++
+	if p.calls <= p.failures {
+		return PersonalTenantResult{}, errors.New("boom")
+	}
+	return PersonalTenantResult{
+		UserKey:           user.UserKey,
+		Tenant:            user.UserKey,
+		IncusProject:      "sc-" + user.UserKey,
+		AccessibleTenants: []string{user.UserKey},
+		Token:             "token-" + user.UserKey,
+		RemoteName:        "sandcastle-" + user.UserKey,
+		Projects:          []string{"sc-" + user.UserKey},
+	}, nil
+}

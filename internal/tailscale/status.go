@@ -84,6 +84,10 @@ func ParseStatus(reference string, summary tenant.Summary, data []byte, now time
 	if hostname == "" {
 		hostname = strings.TrimSuffix(payload.Self.DNSName, ".")
 	}
+	advertisedRoutes := append([]string{}, payload.Self.PrimaryRoutes...)
+	if len(advertisedRoutes) == 0 {
+		advertisedRoutes = advertisedRoutesFromAllowedIPs(payload.Self.AllowedIPs, payload.Self.TailscaleIPs)
+	}
 	return StatusResult{
 		Reference: reference,
 		Tenant:    summary,
@@ -91,11 +95,33 @@ func ParseStatus(reference string, summary tenant.Summary, data []byte, now time
 			State:            state,
 			Tailnet:          tailnet,
 			Hostname:         hostname,
-			AdvertisedRoutes: append([]string{}, payload.Self.PrimaryRoutes...),
+			AdvertisedRoutes: advertisedRoutes,
 			TailscaleIPs:     append([]string{}, payload.Self.TailscaleIPs...),
 			LastCheckedAt:    now.UTC().Format(time.RFC3339),
 		},
 	}, nil
+}
+
+func advertisedRoutesFromAllowedIPs(allowedIPs []string, tailscaleIPs []string) []string {
+	self := make(map[string]struct{}, len(tailscaleIPs)*2)
+	for _, ip := range tailscaleIPs {
+		if strings.Contains(ip, ":") {
+			self[ip+"/128"] = struct{}{}
+		} else {
+			self[ip+"/32"] = struct{}{}
+		}
+	}
+	var routes []string
+	for _, allowed := range allowedIPs {
+		if _, ok := self[allowed]; ok {
+			continue
+		}
+		if !strings.Contains(allowed, "/") {
+			continue
+		}
+		routes = append(routes, allowed)
+	}
+	return routes
 }
 
 func normalizeState(state string) string {
@@ -131,6 +157,7 @@ type statusPayload struct {
 	Self struct {
 		DNSName       string   `json:"DNSName"`
 		HostName      string   `json:"HostName"`
+		AllowedIPs    []string `json:"AllowedIPs"`
 		TailscaleIPs  []string `json:"TailscaleIPs"`
 		PrimaryRoutes []string `json:"PrimaryRoutes"`
 	} `json:"Self"`

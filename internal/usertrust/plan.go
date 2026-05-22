@@ -22,11 +22,13 @@ type UserPlan struct {
 type GrantRequest struct {
 	User     string
 	Projects []string
+	Personal bool
 }
 
 type TenantAccessRequest struct {
-	Tenant string
-	User   string
+	Tenant   string
+	User     string
+	Personal bool
 }
 
 type TenantUsersPlan struct {
@@ -82,11 +84,7 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 	seenProjects := map[string]bool{}
 	projects := make([]string, 0, len(request.Projects))
 	for _, raw := range request.Projects {
-		ref, err := naming.ParseTenantRef(raw)
-		if err != nil {
-			return UserPlan{}, err
-		}
-		name, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
+		name, err := grantProjectName(admin, raw, request.Personal)
 		if err != nil {
 			return UserPlan{}, err
 		}
@@ -112,18 +110,18 @@ func PlanTenantRevoke(admin config.Admin, request TenantAccessRequest) (UserPlan
 }
 
 func PlanTenantUsers(admin config.Admin, tenant string) (TenantUsersPlan, error) {
+	return PlanTenantUsersForRequest(admin, TenantAccessRequest{Tenant: tenant})
+}
+
+func PlanTenantUsersForRequest(admin config.Admin, request TenantAccessRequest) (TenantUsersPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return TenantUsersPlan{}, err
 	}
-	ref, err := naming.ParseTenantRef(tenant)
+	incusProject, err := grantProjectName(admin, request.Tenant, request.Personal)
 	if err != nil {
 		return TenantUsersPlan{}, err
 	}
-	incusProject, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
-	if err != nil {
-		return TenantUsersPlan{}, err
-	}
-	return TenantUsersPlan{Tenant: ref.Tenant, IncusProject: incusProject}, nil
+	return TenantUsersPlan{Tenant: request.Tenant, IncusProject: incusProject}, nil
 }
 
 func PlanToken(user string) (UserPlan, error) {
@@ -139,10 +137,21 @@ func RestrictedName(user string) string {
 }
 
 func validateUser(user string) error {
-	if err := naming.ValidateTenantName(user); err != nil {
+	if err := naming.ValidateGitHubUsernameTenantName(user); err != nil {
 		return fmt.Errorf("invalid user %q", user)
 	}
 	return nil
+}
+
+func grantProjectName(admin config.Admin, raw string, personal bool) (string, error) {
+	if personal {
+		return naming.PersonalTenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, raw)
+	}
+	ref, err := naming.ParseTenantRef(raw)
+	if err != nil {
+		return "", err
+	}
+	return naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, ref)
 }
 
 func planTenantAccess(admin config.Admin, request TenantAccessRequest) (UserPlan, error) {
@@ -152,5 +161,6 @@ func planTenantAccess(admin config.Admin, request TenantAccessRequest) (UserPlan
 	return PlanGrant(admin, GrantRequest{
 		User:     request.User,
 		Projects: []string{request.Tenant},
+		Personal: request.Personal,
 	})
 }

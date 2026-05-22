@@ -62,11 +62,11 @@ run() {
 }
 
 run_unit() {
-  run go test ./...
+  run env -i HOME="$HOME" PATH="$PATH" USER="${USER:-}" SANDCASTLE_E2E=0 go test ./...
 }
 
 run_gated() {
-  run go test ./internal/e2e -count=1 -v
+  run env -i HOME="$HOME" PATH="$PATH" USER="${USER:-}" SANDCASTLE_E2E=0 go test ./internal/e2e -count=1 -v
 }
 
 run_local() {

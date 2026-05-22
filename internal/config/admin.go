@@ -17,6 +17,7 @@ const (
 	DefaultInfrastructureProject = "sc-infra"
 	DefaultInfrastructureHost    = ""
 	DefaultLetsEncryptEmail      = ""
+	DefaultAuthHostname          = ""
 	DefaultBaseImageAlias        = "sandcastle/base:latest"
 	DefaultAIImageAlias          = "sandcastle/ai:latest"
 )
@@ -33,6 +34,10 @@ type Admin struct {
 	InfrastructureProject  string
 	InfrastructureHost     string
 	LetsEncryptEmail       string
+	AuthHostname           string
+	AuthGitHubClientID     string
+	AuthGitHubClientSecret string
+	AuthAdminGitHubUsers   []string
 	RouteBrokerIncusSocket string
 	AllowedDomainSuffixes  []string
 	DeniedDomainSuffixes   []string
@@ -55,6 +60,10 @@ func LoadAdminFromEnv() Admin {
 		InfrastructureProject:  getenv("SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
 		InfrastructureHost:     getenv("SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
 		LetsEncryptEmail:       getenv("SANDCASTLE_LETSENCRYPT_EMAIL", DefaultLetsEncryptEmail),
+		AuthHostname:           getenv("SANDCASTLE_AUTH_HOSTNAME", DefaultAuthHostname),
+		AuthGitHubClientID:     getenv("SANDCASTLE_AUTH_GITHUB_CLIENT_ID", ""),
+		AuthGitHubClientSecret: getenv("SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", ""),
+		AuthAdminGitHubUsers:   splitList(os.Getenv("SANDCASTLE_AUTH_ADMIN_GITHUB_USERS")),
 		RouteBrokerIncusSocket: strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET")),
 		AllowedDomainSuffixes:  splitList(os.Getenv("SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES")),
 		DeniedDomainSuffixes:   splitList(os.Getenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES")),

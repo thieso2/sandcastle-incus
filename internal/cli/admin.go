@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
@@ -25,6 +26,7 @@ func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	admin.AddCommand(newAdminImageCommand(config, opts))
 	admin.AddCommand(newAdminTLDCommand(config, opts))
 	admin.AddCommand(newAdminRouteBrokerCommand(config))
+	admin.AddCommand(newAdminAuthAppCommand(config))
 	return admin
 }
 
@@ -761,5 +763,53 @@ func newAdminRouteBrokerServeCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&keyFile, "key", "", "route broker TLS key file")
 	_ = command.MarkFlagRequired("cert")
 	_ = command.MarkFlagRequired("key")
+	return command
+}
+
+func newAdminAuthAppCommand(config commandConfig) *cobra.Command {
+	auth := &cobra.Command{
+		Use:   "auth-app",
+		Short: "Manage the Sandcastle Auth App",
+	}
+	auth.AddCommand(newAdminAuthAppServeCommand(config))
+	return auth
+}
+
+func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
+	var listen string
+	var databasePath string
+	var authHostname string
+	var githubClientID string
+	var githubClientSecret string
+	var adminGitHubUsers string
+	command := &cobra.Command{
+		Use:   "serve",
+		Short: "Serve the Sandcastle Auth App",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := authapp.PlanServe(authapp.ServeRequest{
+				Address:             listen,
+				DatabasePath:        databasePath,
+				AuthHostname:        authHostname,
+				GitHubClientID:      githubClientID,
+				GitHubClientSecret:  githubClientSecret,
+				BootstrapAdminUsers: strings.Split(adminGitHubUsers, ","),
+			})
+			if err != nil {
+				return err
+			}
+			if config.authApp == nil {
+				return fmt.Errorf("auth app server is not configured")
+			}
+			return config.authApp.Serve(cmd.Context(), plan)
+		},
+	}
+	command.Flags().StringVar(&listen, "listen", ":9444", "auth app listen address")
+	command.Flags().StringVar(&databasePath, "database", "", "SQLite auth database path")
+	command.Flags().StringVar(&authHostname, "auth-hostname", "", "public Auth Hostname")
+	command.Flags().StringVar(&githubClientID, "github-client-id", "", "GitHub OAuth client id")
+	command.Flags().StringVar(&githubClientSecret, "github-client-secret", "", "GitHub OAuth client secret")
+	command.Flags().StringVar(&adminGitHubUsers, "admin-github-users", "", "comma-separated initial Sandcastle Admin GitHub usernames")
+	_ = command.MarkFlagRequired("database")
 	return command
 }

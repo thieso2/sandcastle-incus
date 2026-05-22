@@ -14,6 +14,10 @@ func TestPlanCreate(t *testing.T) {
 	t.Setenv("SANDCASTLE_ADMIN_BIN", binaryPath)
 	admin := config.LoadAdminFromEnv()
 	admin.LetsEncryptEmail = "ops@example.com"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthGitHubClientID = "github-client"
+	admin.AuthGitHubClientSecret = "github-secret"
+	admin.AuthAdminGitHubUsers = []string{"OctoCat", "hubot"}
 	plan, err := PlanCreate(admin, CreateRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -27,14 +31,20 @@ func TestPlanCreate(t *testing.T) {
 	if plan.RouteBrokerInstance != RouteBrokerName {
 		t.Fatalf("RouteBrokerInstance = %q", plan.RouteBrokerInstance)
 	}
-	if len(plan.Instances) != 2 {
-		t.Fatalf("instances = %d, want 2", len(plan.Instances))
+	if plan.AuthAppInstance != AuthAppName {
+		t.Fatalf("AuthAppInstance = %q", plan.AuthAppInstance)
+	}
+	if len(plan.Instances) != 3 {
+		t.Fatalf("instances = %d, want 3", len(plan.Instances))
 	}
 	if plan.Instances[0].Name != route.InfrastructureCaddyName || plan.Instances[0].Role != "caddy" {
 		t.Fatalf("caddy instance = %#v", plan.Instances[0])
 	}
 	if plan.Instances[1].Name != RouteBrokerName || plan.Instances[1].Role != "route-broker" {
 		t.Fatalf("route broker instance = %#v", plan.Instances[1])
+	}
+	if plan.Instances[2].Name != AuthAppName || plan.Instances[2].Role != "auth-app" {
+		t.Fatalf("auth app instance = %#v", plan.Instances[2])
 	}
 	if _, ok := plan.Instances[1].Devices["incus-socket"]; ok {
 		t.Fatalf("route broker socket should be opt-in, devices = %#v", plan.Instances[1].Devices)
@@ -50,6 +60,9 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if !strings.Contains(runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile"), "email ops@example.com") {
 		t.Fatalf("Caddyfile = %q", runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile"))
+	}
+	if !strings.Contains(runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile"), "auth.example.com") {
+		t.Fatalf("Caddyfile missing auth host = %q", runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile"))
 	}
 	env := runtimeFileContent(plan, RouteBrokerName, RouteBrokerEnvPath)
 	if !strings.Contains(env, "SANDCASTLE_ROUTE_BROKER_LISTEN=':9443'") {
@@ -75,13 +88,34 @@ func TestPlanCreate(t *testing.T) {
 	if !strings.Contains(runtimeFileContent(plan, RouteBrokerName, RouteBrokerKeyPath), "PRIVATE KEY") {
 		t.Fatal("expected route broker private key PEM")
 	}
-	if len(plan.RuntimeBinaries) != 1 {
+	authEnv := runtimeFileContent(plan, AuthAppName, AuthAppEnvPath)
+	for _, want := range []string{
+		"SANDCASTLE_AUTH_LISTEN=':9444'",
+		"SANDCASTLE_AUTH_DB='" + AuthAppDatabasePath + "'",
+		"SANDCASTLE_AUTH_HOSTNAME='auth.example.com'",
+		"SANDCASTLE_AUTH_GITHUB_CLIENT_ID='github-client'",
+		"SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET='github-secret'",
+		"SANDCASTLE_AUTH_ADMIN_GITHUB_USERS='OctoCat,hubot'",
+		"SANDCASTLE_BASE_IMAGE='" + admin.Images.Base + "'",
+		"SANDCASTLE_AI_IMAGE='" + admin.Images.AI + "'",
+	} {
+		if !strings.Contains(authEnv, want) {
+			t.Fatalf("auth env missing %q:\n%s", want, authEnv)
+		}
+	}
+	if !strings.Contains(runtimeFileContent(plan, AuthAppName, AuthAppUnitPath), "sandcastle-admin auth-app serve") {
+		t.Fatalf("auth app unit = %q", runtimeFileContent(plan, AuthAppName, AuthAppUnitPath))
+	}
+	if len(plan.RuntimeBinaries) != 2 {
 		t.Fatalf("runtime binaries = %#v", plan.RuntimeBinaries)
 	}
 	if plan.RuntimeBinaries[0].SourcePath != binaryPath || plan.RuntimeBinaries[0].TargetPath != RouteBrokerBinaryPath {
 		t.Fatalf("runtime binary = %#v", plan.RuntimeBinaries[0])
 	}
-	if len(plan.RuntimeCommands) != 2 {
+	if plan.RuntimeBinaries[1].SourcePath != binaryPath || plan.RuntimeBinaries[1].TargetPath != AuthAppBinaryPath {
+		t.Fatalf("runtime binary = %#v", plan.RuntimeBinaries[1])
+	}
+	if len(plan.RuntimeCommands) != 3 {
 		t.Fatalf("runtime commands = %#v", plan.RuntimeCommands)
 	}
 	if !strings.Contains(runtimeFileContent(plan, RouteBrokerName, RouteBrokerUnitPath), "sandcastle-admin route-broker serve") {
@@ -93,6 +127,9 @@ func TestPlanCreate(t *testing.T) {
 	if !strings.Contains(strings.Join(plan.RuntimeCommands[1].Command, " "), "sandcastle-route-broker") {
 		t.Fatalf("broker command = %#v", plan.RuntimeCommands[1])
 	}
+	if !strings.Contains(strings.Join(plan.RuntimeCommands[2].Command, " "), "sandcastle-auth-app") {
+		t.Fatalf("auth command = %#v", plan.RuntimeCommands[2])
+	}
 }
 
 func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
@@ -100,6 +137,7 @@ func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
 	admin.Remote = "local remote"
 	admin.InfrastructureHost = "public.example.com"
 	admin.LetsEncryptEmail = "ops+test@example.com"
+	admin.AuthHostname = "auth.example.com"
 	admin.Images.Base = "sandcastle/base:quote'test"
 	plan, err := PlanCreate(admin, CreateRequest{})
 	if err != nil {
@@ -115,6 +153,10 @@ func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
 		if !strings.Contains(env, want) {
 			t.Fatalf("env missing %q:\n%s", want, env)
 		}
+	}
+	authEnv := runtimeFileContent(plan, AuthAppName, AuthAppEnvPath)
+	if !strings.Contains(authEnv, "SANDCASTLE_AUTH_HOSTNAME='auth.example.com'") {
+		t.Fatalf("auth env = %q", authEnv)
 	}
 }
 
@@ -136,6 +178,17 @@ func TestPlanCreateMountsRouteBrokerIncusSocketWhenConfigured(t *testing.T) {
 	if routeBroker.Config["security.privileged"] != "true" {
 		t.Fatalf("route broker with host Incus socket must be privileged, config = %#v", routeBroker.Config)
 	}
+	authApp := plan.Instances[2]
+	authDevice := authApp.Devices["incus-socket"]
+	if authDevice == nil {
+		t.Fatalf("auth app devices = %#v", authApp.Devices)
+	}
+	if authDevice["type"] != "disk" || authDevice["source"] != "/run/incus/unix.socket" || authDevice["path"] != RouteBrokerIncusSocketPath {
+		t.Fatalf("auth app incus socket device = %#v", authDevice)
+	}
+	if authApp.Config["security.privileged"] != "true" {
+		t.Fatalf("auth app with host Incus socket must be privileged, config = %#v", authApp.Config)
+	}
 	if plan.Instances[0].Config["security.privileged"] == "true" {
 		t.Fatalf("caddy should not be privileged, config = %#v", plan.Instances[0].Config)
 	}
@@ -152,10 +205,10 @@ func TestPlanDelete(t *testing.T) {
 	if plan.Project != config.DefaultInfrastructureProject {
 		t.Fatalf("Project = %q", plan.Project)
 	}
-	if len(plan.RuntimeInstances) != 2 {
+	if len(plan.RuntimeInstances) != 3 {
 		t.Fatalf("RuntimeInstances = %#v", plan.RuntimeInstances)
 	}
-	if plan.RuntimeInstances[0] != route.InfrastructureCaddyName || plan.RuntimeInstances[1] != RouteBrokerName {
+	if plan.RuntimeInstances[0] != route.InfrastructureCaddyName || plan.RuntimeInstances[1] != RouteBrokerName || plan.RuntimeInstances[2] != AuthAppName {
 		t.Fatalf("RuntimeInstances = %#v", plan.RuntimeInstances)
 	}
 }

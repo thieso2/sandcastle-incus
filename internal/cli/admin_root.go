@@ -10,6 +10,7 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
@@ -61,6 +62,10 @@ func ExecuteAdmin(name string, args []string) int {
 	routeBrokerTenants := incusx.NewTenantStore(adminConfig.Remote)
 	routeBrokerMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
 	routeBrokerTrust := incusx.NewRouteBrokerTrustMapper(adminConfig.Remote)
+	authAppTenants := incusx.NewTenantStore(adminConfig.Remote)
+	authAppMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
+	authAppCreator := incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
+	authAppTrust := incusx.NewTrustManager(adminConfig.Remote)
 	if routeBrokerServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
 			routeBrokerTenants = incusx.NewTenantStoreForServer(socketServer)
@@ -71,6 +76,16 @@ func ExecuteAdmin(name string, args []string) int {
 			routeBrokerTrust = incusx.NewRouteBrokerTrustMapperForServer(socketServer)
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] route broker unix socket unavailable: %v\n", err)
+		}
+	}
+	if authAppServeArgs(args) {
+		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
+			authAppTenants = incusx.NewTenantStoreForServer(socketServer)
+			authAppMachines = incusx.NewHostOverrideManagerForServer(socketServer)
+			authAppCreator = incusx.NewTenantCreatorForServer(socketServer).WithVerbose(verbose, os.Stderr)
+			authAppTrust = incusx.NewTrustManagerForServer(socketServer)
+		} else if err != nil && verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)
 		}
 	}
 
@@ -106,6 +121,19 @@ func ExecuteAdmin(name string, args []string) int {
 			RouteMetadata: directRouteManager,
 			Trust:         routeBrokerTrust,
 		}},
+		authApp: authapp.HTTPRunner{
+			RestrictedUsers: authAppTrust,
+			Admin:           adminConfig,
+			Tenants:         authAppTenants,
+			TenantAccess:    authAppTrust,
+			Machines:        authAppMachines,
+			Provisioner: authapp.Provisioner{
+				Admin:         adminConfig,
+				Tenants:       authAppTenants,
+				TenantCreator: authAppCreator,
+				Trust:         authAppTrust,
+			},
+		},
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
@@ -132,6 +160,13 @@ func routeBrokerServeArgs(args []string) bool {
 		return false
 	}
 	return args[0] == "route-broker" && args[1] == "serve"
+}
+
+func authAppServeArgs(args []string) bool {
+	if len(args) < 2 {
+		return false
+	}
+	return args[0] == "auth-app" && args[1] == "serve"
 }
 
 // NewAdminRootCommand builds the Sandcastle admin command tree with all admin
@@ -189,6 +224,7 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminImageCommand(config, opts))
 	root.AddCommand(newAdminTLDCommand(config, opts))
 	root.AddCommand(newAdminRouteBrokerCommand(config))
+	root.AddCommand(newAdminAuthAppCommand(config))
 	root.AddCommand(newConfigCommand(config, opts))
 
 	return root
