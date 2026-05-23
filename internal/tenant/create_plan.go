@@ -49,6 +49,7 @@ type CreateRequest struct {
 	OccupiedCIDRs []string
 	Personal      bool
 	CreatedBy     string
+	UnixUser      string
 }
 
 type CreatePlan struct {
@@ -105,6 +106,12 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	unixUser := strings.TrimSpace(request.UnixUser)
+	if unixUser != "" {
+		if err := naming.ValidateUnixUsername(unixUser); err != nil {
+			return CreatePlan{}, err
+		}
+	}
 	tenantSuffix, err := domainrules.ValidateTenantDNSSuffix(ref.Tenant, domainrules.Policy{
 		AllowedSuffixes: admin.AllowedDomainSuffixes,
 		DeniedSuffixes:  admin.DeniedDomainSuffixes,
@@ -129,6 +136,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		Tenant:       ref.Tenant,
 		Personal:     request.Personal,
 		CreatedBy:    request.CreatedBy,
+		UnixUser:     unixUser,
 		PrivateCIDR:  tenantCIDR.String(),
 		Projects:     []meta.Project{{Name: naming.DefaultProjectName}},
 		SSHPublicKey: request.SSHPublicKey,

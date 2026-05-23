@@ -45,7 +45,9 @@ const (
 	StaticNetworkUnitPath      = "/etc/systemd/system/sandcastle-infra-network.service"
 )
 
-type CreateRequest struct{}
+type CreateRequest struct {
+	UnixUser string
+}
 
 type DeleteRequest struct {
 	Project string
@@ -53,6 +55,7 @@ type DeleteRequest struct {
 }
 
 type CreatePlan struct {
+	Remote                string             `json:"remote"`
 	Project               string             `json:"project"`
 	StoragePool           string             `json:"storagePool"`
 	TLSMode               string             `json:"tlsMode"`
@@ -66,6 +69,9 @@ type CreatePlan struct {
 	RuntimeBinaries       []RuntimeBinary    `json:"runtimeBinaries"`
 	RuntimeCommands       []RuntimeCommand   `json:"runtimeCommands"`
 	CaddyDataArchivePath  string             `json:"caddyDataArchivePath,omitempty"`
+	DefaultUnixUser       string             `json:"defaultUnixUser,omitempty"`
+	DeploymentName        string             `json:"deploymentName,omitempty"`
+	SeedPath              string             `json:"seedPath,omitempty"`
 }
 
 type InstancePlan struct {
@@ -130,6 +136,12 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err
 	}
+	unixUser := strings.TrimSpace(request.UnixUser)
+	if unixUser != "" {
+		if err := naming.ValidateUnixUsername(unixUser); err != nil {
+			return CreatePlan{}, err
+		}
+	}
 	project := strings.TrimSpace(admin.InfrastructureProject)
 	if project == "" {
 		return CreatePlan{}, fmt.Errorf("infrastructure project is required")
@@ -163,10 +175,11 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 			instancePlan(admin, AuthAppName, "auth-app"),
 		},
 		RuntimeDirectories:   runtimeDirectories(tlsMode),
-		RuntimeFiles:         runtimeFiles(admin, brokerTLS),
+		RuntimeFiles:         runtimeFiles(admin, brokerTLS, unixUser),
 		RuntimeBinaries:      binaries,
 		RuntimeCommands:      runtimeCommands(),
 		CaddyDataArchivePath: existingCaddyDataArchivePath(admin, tlsMode),
+		DefaultUnixUser:      unixUser,
 	}, nil
 }
 
@@ -185,7 +198,7 @@ func runtimeDirectories(tlsMode string) []RuntimeDirectory {
 	return directories
 }
 
-func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
+func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair, defaultUnixUser string) []RuntimeFile {
 	caddyFile := caddy.RenderInfrastructureWithOptions(nil, caddy.InfrastructureOptions{
 		LetsEncryptEmail: admin.LetsEncryptEmail,
 		TLSMode:          infrastructureTLSMode(admin.InfrastructureTLSMode),
@@ -252,6 +265,7 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 				envLine("SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", admin.AuthGitHubClientSecret),
 				envLine("SANDCASTLE_AUTH_ADMIN_GITHUB_USERS", strings.Join(admin.AuthAdminGitHubUsers, ",")),
 				envLine("SANDCASTLE_AUTH_DEBUG_DEVICE_USER", admin.AuthDebugDeviceUser),
+				envLine("SANDCASTLE_AUTH_DEFAULT_UNIX_USER", defaultUnixUser),
 				envLine("SANDCASTLE_AUTH_TAILSCALE_AUTHKEY", admin.AuthTailscaleAuthKey),
 				envLine("SANDCASTLE_REMOTE", admin.Remote),
 				envLine("SANDCASTLE_STORAGE_POOL", admin.StoragePool),
@@ -268,7 +282,7 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 		RuntimeFile{
 			Instance: AuthAppName,
 			Path:     AuthAppUnitPath,
-			Content:  "[Unit]\nDescription=Sandcastle auth app\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nEnvironmentFile=" + AuthAppEnvPath + "\nExecStart=" + AuthAppBinaryPath + " auth-app serve --listen ${SANDCASTLE_AUTH_LISTEN} --database ${SANDCASTLE_AUTH_DB} --auth-hostname ${SANDCASTLE_AUTH_HOSTNAME} --github-client-id ${SANDCASTLE_AUTH_GITHUB_CLIENT_ID} --github-client-secret ${SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET} --admin-github-users ${SANDCASTLE_AUTH_ADMIN_GITHUB_USERS} --debug-device-user ${SANDCASTLE_AUTH_DEBUG_DEVICE_USER} --tailscale-auth-key ${SANDCASTLE_AUTH_TAILSCALE_AUTHKEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			Content:  "[Unit]\nDescription=Sandcastle auth app\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nEnvironmentFile=" + AuthAppEnvPath + "\nExecStart=" + AuthAppBinaryPath + " auth-app serve --listen ${SANDCASTLE_AUTH_LISTEN} --database ${SANDCASTLE_AUTH_DB} --auth-hostname ${SANDCASTLE_AUTH_HOSTNAME} --github-client-id ${SANDCASTLE_AUTH_GITHUB_CLIENT_ID} --github-client-secret ${SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET} --admin-github-users ${SANDCASTLE_AUTH_ADMIN_GITHUB_USERS} --debug-device-user ${SANDCASTLE_AUTH_DEBUG_DEVICE_USER} --default-unix-user ${SANDCASTLE_AUTH_DEFAULT_UNIX_USER} --tailscale-auth-key ${SANDCASTLE_AUTH_TAILSCALE_AUTHKEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
 			Mode:     0o644,
 		},
 	)

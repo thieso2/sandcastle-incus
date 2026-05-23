@@ -145,7 +145,13 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if appPort < 1 || appPort > 65535 {
 		return CreatePlan{}, fmt.Errorf("invalid app port %d", appPort)
 	}
-	linuxUser := summary.Tenant
+	linuxUser := strings.TrimSpace(summary.UnixUser)
+	if linuxUser == "" {
+		linuxUser = summary.Tenant
+	}
+	if err := naming.ValidateUnixUsername(linuxUser); err != nil {
+		return CreatePlan{}, err
+	}
 	existingMachines, err := listExistingMachines(ctx, machineStore, summary)
 	if err != nil {
 		return CreatePlan{}, err

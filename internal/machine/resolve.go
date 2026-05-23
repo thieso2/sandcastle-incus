@@ -17,7 +17,6 @@ type resolvedMachine struct {
 	Name         string
 	InstanceName string
 	PrivateIP    string
-	TailscaleIP  string
 	Managed      bool
 }
 
@@ -64,19 +63,17 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	if strings.Contains(reference, "/") || strings.TrimSpace(admin.Project) != "" {
 		for _, machine := range machines {
 			if machine.Project == projectRef.Project && machine.Name == machineName {
-				return resolveKnownProjectMachineWithIPs(summary, projectRef.Project, machineName, machine.PrivateIP, machine.TailscaleIP)
+				return resolveKnownProjectMachineWithIP(summary, projectRef.Project, machineName, machine.PrivateIP)
 			}
 		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
 	}
 	matches := []string{}
 	matchIPs := map[string]string{}
-	matchTailscaleIPs := map[string]string{}
 	for _, machine := range machines {
 		if machine.Name == machineName {
 			matches = append(matches, machine.Project)
 			matchIPs[machine.Project] = machine.PrivateIP
-			matchTailscaleIPs[machine.Project] = machine.TailscaleIP
 		}
 	}
 	switch len(matches) {
@@ -86,7 +83,7 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
 	case 1:
-		return resolveKnownProjectMachineWithIPs(summary, matches[0], machineName, matchIPs[matches[0]], matchTailscaleIPs[matches[0]])
+		return resolveKnownProjectMachineWithIP(summary, matches[0], machineName, matchIPs[matches[0]])
 	default:
 		return resolvedMachine{}, AmbiguousMachineError{Name: machineName, Projects: matches}
 	}
@@ -108,7 +105,7 @@ func resolveMachineFQDN(ctx context.Context, machineStore Store, summary tenant.
 		if strings.ToLower(machine.Name+"."+machine.Project+"."+summary.DNSSuffix) != hostname {
 			continue
 		}
-		resolved, err := resolveKnownProjectMachineWithIPs(summary, machine.Project, machine.Name, machine.PrivateIP, machine.TailscaleIP)
+		resolved, err := resolveKnownProjectMachineWithIP(summary, machine.Project, machine.Name, machine.PrivateIP)
 		return resolved, true, err
 	}
 	return resolvedMachine{}, false, nil
@@ -119,10 +116,6 @@ func resolveKnownProjectMachine(summary tenant.Summary, projectName string, mach
 }
 
 func resolveKnownProjectMachineWithIP(summary tenant.Summary, projectName string, machineName string, privateIP string) (resolvedMachine, error) {
-	return resolveKnownProjectMachineWithIPs(summary, projectName, machineName, privateIP, "")
-}
-
-func resolveKnownProjectMachineWithIPs(summary tenant.Summary, projectName string, machineName string, privateIP string, tailscaleIP string) (resolvedMachine, error) {
 	if !tenantHasProject(summary, projectName) {
 		return resolvedMachine{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectName, summary.Tenant)
 	}
@@ -136,7 +129,6 @@ func resolveKnownProjectMachineWithIPs(summary tenant.Summary, projectName strin
 		Name:         machineName,
 		InstanceName: instanceName,
 		PrivateIP:    privateIP,
-		TailscaleIP:  tailscaleIP,
 		Managed:      true,
 	}, nil
 }

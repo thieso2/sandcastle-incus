@@ -19,8 +19,9 @@ func TestProvisionerCreatesPersonalTenantAndReturnsRestrictedToken(t *testing.T)
 			Name:   "sc-existing",
 			Config: tenantConfigForProvisionTest(t, meta.Tenant{Tenant: "existing", PrivateCIDR: "10.248.0.0/24"}),
 		}}},
-		TenantCreator: creator,
-		Trust:         trust,
+		TenantCreator:   creator,
+		Trust:           trust,
+		DefaultUnixUser: "localuser",
 	}
 
 	result, err := provisioner.EnsurePersonalTenant(context.Background(), User{UserKey: "1octocat"})
@@ -30,8 +31,12 @@ func TestProvisionerCreatesPersonalTenantAndReturnsRestrictedToken(t *testing.T)
 	if result.Tenant != "1octocat" || result.IncusProject != "sc-1octocat" {
 		t.Fatalf("result = %#v", result)
 	}
-	if len(creator.plans) != 1 || !tenantMetadataForProvisionTest(t, creator.plans[0]).Personal {
+	metadata := tenantMetadataForProvisionTest(t, creator.plans[0])
+	if len(creator.plans) != 1 || !metadata.Personal {
 		t.Fatalf("created plans = %#v", creator.plans)
+	}
+	if metadata.UnixUser != "localuser" {
+		t.Fatalf("UnixUser = %q", metadata.UnixUser)
 	}
 	if result.Token != "token-1octocat" || result.RemoteName != "sandcastle-1octocat" || len(result.AccessibleTenants) != 1 || result.AccessibleTenants[0] != "1octocat" {
 		t.Fatalf("result token fields = %#v", result)

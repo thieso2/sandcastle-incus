@@ -37,7 +37,6 @@ type fakeMachineResource struct {
 	caFiles           map[string]string
 	execCommands      [][]string
 	execEnvs          []map[string]string
-	tailscaleIP       string
 	volumeFileErr     error
 }
 
@@ -123,15 +122,6 @@ func (r *fakeMachineResource) GetStorageVolumeFile(pool string, volumeType strin
 func (r *fakeMachineResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	r.execCommands = append(r.execCommands, exec.Command)
 	r.execEnvs = append(r.execEnvs, exec.Environment)
-	if len(exec.Command) >= 3 && strings.Contains(exec.Command[2], "tailscale ip -4") && args.Stdout != nil {
-		ip := r.tailscaleIP
-		if ip == "" {
-			ip = "100.64.0.20"
-		}
-		if ip != "<none>" {
-			_, _ = args.Stdout.Write([]byte(ip + "\n"))
-		}
-	}
 	if args.DataDone != nil {
 		close(args.DataDone)
 	}
@@ -182,7 +172,7 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	if resource.createdFiles[machine.MachineCertKeyPath] == "" {
 		t.Fatal("expected private key write")
 	}
-	if len(resource.execCommands) != 7 {
+	if len(resource.execCommands) != 6 {
 		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
 	if strings.Join(resource.execCommands[0], " ") != "hostname codex.default.acme" {
@@ -212,42 +202,13 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	if !strings.Contains(strings.Join(resource.execCommands[5], " "), "caddy") {
 		t.Fatalf("caddy command = %#v", resource.execCommands[5])
 	}
-	if !strings.Contains(strings.Join(resource.execCommands[6], " "), "tailscale ip -4") {
-		t.Fatalf("tailscale command = %#v", resource.execCommands[6])
-	}
-	if resource.updated == nil {
-		t.Fatal("expected machine metadata update")
-	}
-	metadata, err := meta.ParseMachineConfig(resource.updated.Config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if metadata.TailscaleIP != "100.64.0.20" {
-		t.Fatalf("TailscaleIP = %q", metadata.TailscaleIP)
-	}
-}
-
-func TestMachineCreatorContinuesWhenTailscaleMachineIPIsUnavailable(t *testing.T) {
-	oldAttempts := machineTailscaleIPAttempts
-	oldInterval := machineTailscaleIPPollInterval
-	machineTailscaleIPAttempts = 2
-	machineTailscaleIPPollInterval = time.Millisecond
-	t.Cleanup(func() {
-		machineTailscaleIPAttempts = oldAttempts
-		machineTailscaleIPPollInterval = oldInterval
-	})
-	plan := machinePlanForTest(t)
-	resource := fakeMachineResourceWithCA(t)
-	resource.tailscaleIP = "<none>"
-	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
-	if err := creator.CreateMachine(context.Background(), plan); err != nil {
-		t.Fatal(err)
-	}
-	if resource.created == nil {
-		t.Fatal("expected instance creation")
-	}
 	if resource.updated != nil {
-		t.Fatalf("metadata updated despite missing Tailscale IP: %#v", resource.updated)
+		t.Fatalf("machine metadata updated unexpectedly: %#v", resource.updated)
+	}
+	for _, command := range resource.execCommands {
+		if strings.Contains(strings.Join(command, " "), "tailscale") {
+			t.Fatalf("unexpected machine-level Tailscale command: %#v", command)
+		}
 	}
 }
 
@@ -275,11 +236,13 @@ func TestMachineCreatorVerboseLogsDurations(t *testing.T) {
 		"[machine-create] configure instance default-codex: bootstrap Linux user acme ... done (",
 		"[machine-create] configure instance default-codex: issue certificate from tenant CA ... done (",
 		"[machine-create] configure instance default-codex: restart Caddy ... done (",
-		"[machine-create] record Tailscale Machine IP for default-codex ... done (",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("verbose logs missing %q:\n%s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "Tailscale Machine IP") {
+		t.Fatalf("verbose logs should not mention machine-level Tailscale IP:\n%s", joined)
 	}
 }
 

@@ -30,8 +30,8 @@ login flow can be exercised locally without real GitHub OAuth.
 4. #22 CLI Device Login idempotently ensures Personal Tenant readiness
 5. #23 Login reconciles User SSH Public Key onto Personal Tenant Machines
 6. #24 CLI Login verifies selected Tenant Tailnet readiness
-7. #25 Machine create waits for Tailscale Machine IP
-8. #26 Machine connect uses Tailscale Machine IP
+7. #25 Machine create uses tenant private networking
+8. #26 Machine connect uses the private Machine IP
 9. #27 Tenant Access revocation removes Machine SSH Access
 10. #28 First-run login E2E coverage and docs
 
@@ -106,7 +106,7 @@ should be able to run:
 - Tenant Tailnet readiness using local or testable Tailscale behavior, or a
   deterministic mock where real Tailscale is unavailable
 - `sandcastle create dev`
-- connect target planning using the recorded Tailscale Machine IP
+- connect target planning using the private Machine IP
 
 ## Important Implementation Constraints
 
@@ -118,7 +118,7 @@ should be able to run:
 - Multi-tenant login must not silently choose a tenant when ambiguous.
 - CLI Device Login joins and verifies only the selected Current Tenant's Tenant
   Tailnet.
-- Machine SSH Access must use the recorded Tailscale Machine IP directly.
+- Machine SSH Access must use the private Machine IP directly. Tailscale access is provided by the tenant sidecar advertising the tenant CIDR, not by assigning Tailscale IPs to individual Machines.
 - Local DNS can remain useful, but it must not be required for
   `sandcastle connect`.
 - Revoking Tenant Access must remove Machine SSH Access without deleting tenant

@@ -245,7 +245,7 @@ export SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE=~/.config/sandcastle/infra-caddy-data
 export SANDCASTLE_ADMIN_BIN=$PWD/bin/linux-amd64/sc-adm
 export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
 export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
-      <div class="warn">Do not commit <code>.env</code>. It can contain GitHub OAuth secrets, Tailscale auth keys, public route account details, and paths to Caddy ACME archives. Caddy ACME archives contain private TLS key material and must be stored like secrets.</div>
+      <div class="warn">Do not commit <code>.env</code> or infrastructure seed files. They can contain GitHub OAuth secrets, Tailscale auth keys, public route account details, private TLS key material, and Caddy ACME account state.</div>
     </section>
 
     <section id="incus">
@@ -286,12 +286,17 @@ scripts/e2e.sh images</code></pre>
       <p>This creates the infrastructure Incus project, Caddy instance, Route Broker, and Auth App sidecar.</p>
       <pre><code>mise run build:linux-amd64
 export SANDCASTLE_ADMIN_BIN=$PWD/bin/linux-amd64/sc-adm
-sandcastle-admin infra create
+sandcastle-admin infra gen-seed --name prod
+sandcastle-admin infra create --name prod
 
 # Preview only:
-sandcastle-admin infra create --dry-run</code></pre>
-      <p>The Auth App serves on the internal infrastructure network and shared Caddy routes <code>SANDCASTLE_AUTH_HOSTNAME</code> to it. The Auth App database is stored at <code>/var/lib/sandcastle/auth/auth.db</code> inside the Auth App sidecar. In disposable lab environments, <code>SANDCASTLE_AUTH_DEBUG_DEVICE_USER</code> enables <code>POST /debug/device/approve</code> to approve CLI Device Login as that allowlisted user without a browser session, and <code>SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</code> lets approved CLI Device Login clients receive a Tailscale auth key for unattended tenant sidecar attachment. Use short-lived or disposable auth keys for this flow.</p>
-      <p>For debugging public TLS without Let's Encrypt, set <code>SANDCASTLE_INFRA_TLS_MODE=internal</code> before <code>infra create</code>. Caddy then serves certificates from a persistent internal CA cached at <code>~/.config/sandcastle/infra-ca/&lt;remote&gt;/&lt;infra-project&gt;</code>, and <code>infra create</code> installs that CA into local trust after the sidecar starts. The same trusted debug CA is reused across <code>infra delete --purge</code> and later recreates. For production ACME e2e, run <code>sandcastle-admin infra cert export</code> after a successful issuance; later <code>infra create</code> restores that Caddy ACME data archive from <code>SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE</code> or the default cache path before Caddy starts, so it can reuse a known-good Let's Encrypt cert and account. Reinstall or remove internal debug trust with <code>sandcastle-admin infra trust install</code> and <code>sandcastle-admin infra trust uninstall</code>. Tenant CA trust behaves similarly after first approval: the CLI caches trusted tenant CA keypairs at <code>~/.config/sandcastle/tenant-ca/&lt;remote&gt;/&lt;tenant-project&gt;</code> and restores them into recreated tenants before checking local trust.</p>
+sandcastle-admin infra create --dry-run
+
+# Override the Unix user for machines provisioned through this Auth App:
+sandcastle-admin infra create --username alice</code></pre>
+      <p><code>infra gen-seed</code> writes a private YAML seed at <code>~/.config/sandcastle/&lt;deployment&gt;.seed.yml</code>. <code>infra create</code> reads that seed by default, or accepts <code>--seed &lt;file&gt;</code>; CLI flags override environment variables, environment variables override seed values, and seed values override built-in defaults.</p>
+      <p>The Auth App serves on the internal infrastructure network and shared Caddy routes <code>SANDCASTLE_AUTH_HOSTNAME</code> to it. The Auth App database is stored at <code>/var/lib/sandcastle/auth/auth.db</code> inside the Auth App sidecar. In disposable lab environments, <code>SANDCASTLE_AUTH_DEBUG_DEVICE_USER</code> enables <code>POST /debug/device/approve</code> to approve CLI Device Login as that allowlisted user without a browser session, and <code>SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</code> lets approved CLI Device Login clients receive a Tailscale auth key for unattended tenant sidecar attachment. Machines provisioned through this Auth App use the local OS username from <code>infra create</code> as their Unix user unless <code>--username</code> or <code>SANDCASTLE_AUTH_DEFAULT_UNIX_USER</code> is supplied. Use short-lived or disposable auth keys for this flow.</p>
+      <p>For debugging public TLS without Let's Encrypt, set <code>SANDCASTLE_INFRA_TLS_MODE=internal</code> before <code>infra create</code>. Caddy then serves certificates from a persistent internal CA cached at <code>~/.config/sandcastle/infra-ca/&lt;remote&gt;/&lt;infra-project&gt;</code>, and <code>infra create</code> installs that CA into local trust after the sidecar starts. The same trusted debug CA is reused across <code>infra delete --purge</code> and later recreates. For production ACME e2e, <code>infra create</code> restores Caddy ACME data embedded in the seed before Caddy starts, then captures the current Caddy ACME storage back into the seed after successful provisioning. <code>SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE</code> can still point at an external archive and takes precedence over the seed. Reinstall or remove internal debug trust with <code>sandcastle-admin infra trust install</code> and <code>sandcastle-admin infra trust uninstall</code>. Tenant CA trust behaves similarly after first approval: the CLI caches trusted tenant CA keypairs at <code>~/.config/sandcastle/tenant-ca/&lt;remote&gt;/&lt;tenant-project&gt;</code> and restores them into recreated tenants before checking local trust.</p>
       <div class="danger">The public route tier needs real public DNS, an infrastructure host, and a Let's Encrypt email. Tailscale Funnel is not a drop-in replacement for the current wildcard DNS and Caddy/ACME public route model.</div>
     </section>
 
@@ -342,7 +347,7 @@ curl https://auth.example.com/.well-known/jwks.json</code></pre>
       <pre><code>export SANDCASTLE_INFRA_HOST=203.0.113.10
 export SANDCASTLE_LETSENCRYPT_EMAIL=ops@example.com
 export SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com</code></pre>
-      <p>Leave <code>SANDCASTLE_INFRA_TLS_MODE</code> unset or set to <code>acme</code> for public ACME certificates. Use <code>sandcastle-admin infra cert export</code> after the first successful run to cache Caddy's ACME storage for later recreates.</p>
+      <p>Leave <code>SANDCASTLE_INFRA_TLS_MODE</code> unset or set to <code>acme</code> for public ACME certificates. <code>infra create</code> captures Caddy's ACME storage into the infrastructure seed for later recreates; use <code>sandcastle-admin infra cert export</code> only when you need an external archive.</p>
       <p>User-created public routes cannot use the configured Auth Hostname; it is reserved for the Auth App.</p>
     </section>
 

@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	osuser "os/user"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
@@ -301,6 +303,7 @@ func newAdminInfraCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 		Short: "Manage Sandcastle shared infrastructure",
 	}
 	infraCommand.AddCommand(newAdminInfraCreateCommand(config, opts))
+	infraCommand.AddCommand(newAdminInfraGenSeedCommand(config, opts))
 	infraCommand.AddCommand(newAdminInfraDeleteCommand(config, opts))
 	infraCommand.AddCommand(newAdminInfraCertCommand(config, opts))
 	infraCommand.AddCommand(newAdminInfraTrustCommand(config, opts))
@@ -309,32 +312,60 @@ func newAdminInfraCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 
 func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
+	var unixUser string
+	var deploymentName string
+	var seedPath string
 	command := &cobra.Command{
 		Use:   "create",
 		Short: "Create Sandcastle shared infrastructure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := infra.PlanCreate(config.adminConfig, infra.CreateRequest{})
+			seedState, err := loadOrCreateInfraSeed(config.adminConfig, deploymentName, seedPath, resolveInfraSeedUsername(cmd, unixUser, ""))
 			if err != nil {
 				return err
 			}
+			username := resolveInfraSeedUsername(cmd, unixUser, seedState.seed.Auth.DefaultUnixUser)
+			admin := config.adminConfig
+			if seedState.exists {
+				admin = infra.ResolveSeedAdmin(seedState.seed)
+			}
+			plan, err := infra.PlanCreate(admin, infra.CreateRequest{UnixUser: username})
+			if err != nil {
+				return err
+			}
+			plan.Remote = admin.Remote
+			plan.DeploymentName = seedState.deployment
+			plan.SeedPath = seedState.path
+			if seedState.exists && scconfig.AdminEnvValue("SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE") == "" {
+				plan.CaddyDataArchivePath = ""
+			}
+			cleanup, err := applySeedCaddyDataArchive(seedState.seed, admin, &plan)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			runConfig := config
+			runConfig.adminConfig = admin
 			if !dryRun {
-				if config.infraCreator == nil {
+				if err := saveInfraSeedIfMissing(seedState); err != nil {
+					return err
+				}
+				if runConfig.infraCreator == nil {
 					return fmt.Errorf("infrastructure creation executor is not configured")
 				}
 				if shouldInstallInfraTrustAfterCreate(plan) {
-					ca, err := infra.LoadOrCreatePersistentInternalCA(config.adminConfig)
+					ca, err := infra.LoadOrCreatePersistentInternalCA(admin)
 					if err != nil {
 						return err
 					}
 					plan = infra.ApplyInternalCA(plan, ca)
 				}
-				writeInfraConfigBanner(config, opts)
-				if err := config.infraCreator.CreateInfrastructure(cmd.Context(), plan); err != nil {
+				writeInfraConfigBanner(runConfig, opts)
+				if err := runConfig.infraCreator.CreateInfrastructure(cmd.Context(), plan); err != nil {
 					return err
 				}
 				if shouldInstallInfraTrustAfterCreate(plan) {
-					result, err := installInfraTrust(cmd.Context(), config, opts)
+					result, err := installInfraTrust(cmd.Context(), runConfig, opts)
 					if err != nil {
 						return err
 					}
@@ -342,16 +373,250 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 						fmt.Fprintln(config.stdout, formatInfraTrustResult(result))
 					}
 				}
+				if err := captureInfraSeedCaddyData(cmd.Context(), runConfig, seedState.seed, seedState.path, plan); err != nil {
+					return err
+				}
 			}
-			return writeOutput(config.stdout, opts.output, formatInfraCreatePlan(plan), plan)
+			return writeOutput(config.stdout, opts.output, formatInfraCreatePlan(plan), redactedInfraCreatePlan(plan))
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the infrastructure creation plan without mutating resources")
+	command.Flags().StringVar(&unixUser, "username", "", "Unix username assigned to machines provisioned through this Auth App")
+	command.Flags().StringVar(&deploymentName, "name", "", "deployment name for the default seed path")
+	command.Flags().StringVar(&seedPath, "seed", "", "infrastructure seed file path")
 	return command
 }
 
+type infraSeedState struct {
+	deployment string
+	path       string
+	seed       infra.Seed
+	exists     bool
+}
+
+func loadOrCreateInfraSeed(admin scconfig.Admin, deploymentName string, seedPath string, defaultUnixUser string) (infraSeedState, error) {
+	deployment := strings.TrimSpace(deploymentName)
+	if deployment == "" {
+		deployment = infra.DefaultDeploymentName(admin)
+	}
+	if err := infra.ValidateDeploymentName(deployment); err != nil {
+		return infraSeedState{}, err
+	}
+	path := strings.TrimSpace(seedPath)
+	if path == "" {
+		var err error
+		path, err = infra.DefaultSeedPath(deployment)
+		if err != nil {
+			return infraSeedState{}, err
+		}
+	}
+	seed, exists, err := infra.LoadSeed(path)
+	if err != nil {
+		return infraSeedState{}, fmt.Errorf("load infrastructure seed %s: %w", path, err)
+	}
+	if exists {
+		if strings.TrimSpace(seed.Deployment) == "" {
+			seed.Deployment = deployment
+		}
+		if err := infra.ValidateDeploymentName(seed.Deployment); err != nil {
+			return infraSeedState{}, err
+		}
+		return infraSeedState{deployment: seed.Deployment, path: path, seed: seed, exists: true}, nil
+	}
+	seed = infra.SeedFromAdmin(deployment, admin, defaultUnixUser)
+	seed, err = infra.EmbedExistingCaddyDataArchive(seed, admin)
+	if err != nil {
+		return infraSeedState{}, err
+	}
+	return infraSeedState{deployment: deployment, path: path, seed: seed}, nil
+}
+
+func defaultLocalUnixUsername() string {
+	if value := strings.TrimSpace(os.Getenv("USER")); value != "" {
+		return value
+	}
+	if current, err := osuser.Current(); err == nil && current != nil {
+		return strings.TrimSpace(current.Username)
+	}
+	return ""
+}
+
+func resolveInfraSeedUsername(cmd *cobra.Command, flagValue string, seedValue string) string {
+	if cmd != nil && cmd.Flags().Changed("username") {
+		return strings.TrimSpace(flagValue)
+	}
+	if value := strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_DEFAULT_UNIX_USER")); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(seedValue); value != "" {
+		return value
+	}
+	return defaultLocalUnixUsername()
+}
+
 func formatInfraCreatePlan(plan infra.CreatePlan) string {
-	return fmt.Sprintf("Infrastructure project: %s\nRuntime: %s, %s", plan.Project, plan.CaddyInstance, plan.RouteBrokerInstance)
+	return fmt.Sprintf("Infrastructure project: %s\nRuntime: %s, %s\nDefault Unix user: %s\nSeed: %s", plan.Project, plan.CaddyInstance, plan.RouteBrokerInstance, bannerValue(plan.DefaultUnixUser), bannerValue(plan.SeedPath))
+}
+
+func saveInfraSeedIfMissing(state infraSeedState) error {
+	if state.exists {
+		return nil
+	}
+	if err := infra.SaveSeed(state.path, state.seed); err != nil {
+		return fmt.Errorf("write infrastructure seed %s: %w", state.path, err)
+	}
+	return nil
+}
+
+func applySeedCaddyDataArchive(seed infra.Seed, admin scconfig.Admin, plan *infra.CreatePlan) (func(), error) {
+	if !strings.EqualFold(strings.TrimSpace(plan.TLSMode), "acme") {
+		return func() {}, nil
+	}
+	data, ok, err := infra.CaddyDataArchiveBytes(seed, admin.AuthHostname)
+	if err != nil {
+		return func() {}, err
+	}
+	if !ok {
+		return func() {}, nil
+	}
+	if strings.TrimSpace(plan.CaddyDataArchivePath) != "" {
+		return func() {}, nil
+	}
+	file, err := os.CreateTemp("", "sandcastle-caddy-data-*.tgz")
+	if err != nil {
+		return func() {}, err
+	}
+	path := file.Name()
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return func() {}, err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return func() {}, err
+	}
+	plan.CaddyDataArchivePath = path
+	return func() { _ = os.Remove(path) }, nil
+}
+
+func captureInfraSeedCaddyData(ctx context.Context, config commandConfig, seed infra.Seed, seedPath string, plan infra.CreatePlan) error {
+	if !strings.EqualFold(strings.TrimSpace(plan.TLSMode), "acme") || config.infraCaddyData == nil {
+		return nil
+	}
+	file, err := os.CreateTemp("", "sandcastle-caddy-data-export-*.tgz")
+	if err != nil {
+		return err
+	}
+	path := file.Name()
+	_ = file.Close()
+	defer os.Remove(path)
+	_, err = config.infraCaddyData.ExportCaddyData(ctx, infra.CaddyDataExportPlan{
+		Remote:      plan.Remote,
+		Project:     plan.Project,
+		Instance:    plan.CaddyInstance,
+		SourcePath:  infra.CaddyDataDir,
+		ArchivePath: path,
+	})
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	seed = infra.EmbedCaddyDataArchive(seed, config.adminConfig.AuthHostname, data)
+	if err := infra.SaveSeed(seedPath, seed); err != nil {
+		return fmt.Errorf("update infrastructure seed %s: %w", seedPath, err)
+	}
+	return nil
+}
+
+func redactedInfraCreatePlan(plan infra.CreatePlan) infra.CreatePlan {
+	redacted := plan
+	redacted.RuntimeFiles = append([]infra.RuntimeFile{}, plan.RuntimeFiles...)
+	for i := range redacted.RuntimeFiles {
+		if redacted.RuntimeFiles[i].Mode&0o077 == 0 {
+			redacted.RuntimeFiles[i].Content = "redacted"
+			continue
+		}
+		if redacted.RuntimeFiles[i].Path == infra.AuthAppEnvPath {
+			redacted.RuntimeFiles[i].Content = redactEnvContent(redacted.RuntimeFiles[i].Content, []string{
+				"SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET",
+				"SANDCASTLE_AUTH_TAILSCALE_AUTHKEY",
+			})
+		}
+	}
+	return redacted
+}
+
+func redactEnvContent(content string, keys []string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		for _, key := range keys {
+			if strings.HasPrefix(line, key+"=") {
+				lines[i] = key + "='redacted'"
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func newAdminInfraGenSeedCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var deploymentName string
+	var seedPath string
+	var unixUser string
+	command := &cobra.Command{
+		Use:   "gen-seed",
+		Short: "Generate a Sandcastle infrastructure seed file",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			username := resolveInfraSeedUsername(cmd, unixUser, "")
+			state, err := loadOrCreateInfraSeed(config.adminConfig, deploymentName, seedPath, username)
+			if err != nil {
+				return err
+			}
+			generated := infra.SeedFromAdmin(state.deployment, config.adminConfig, username)
+			if state.exists {
+				generated.TLS = state.seed.TLS
+			} else {
+				generated, err = infra.EmbedExistingCaddyDataArchive(generated, config.adminConfig)
+				if err != nil {
+					return err
+				}
+			}
+			state.seed = generated
+			if err := infra.SaveSeed(state.path, state.seed); err != nil {
+				return fmt.Errorf("write infrastructure seed %s: %w", state.path, err)
+			}
+			result := infraSeedResult{
+				Deployment: state.seed.Deployment,
+				SeedPath:   state.path,
+				Written:    true,
+				Exists:     state.exists,
+			}
+			return writeOutput(config.stdout, opts.output, formatInfraSeedResult(result), result)
+		},
+	}
+	command.Flags().StringVar(&deploymentName, "name", "", "deployment name for the default seed path")
+	command.Flags().StringVar(&seedPath, "seed", "", "infrastructure seed file path")
+	command.Flags().StringVar(&unixUser, "username", "", "Unix username assigned to machines provisioned through this Auth App")
+	return command
+}
+
+type infraSeedResult struct {
+	Deployment string `json:"deployment"`
+	SeedPath   string `json:"seedPath"`
+	Written    bool   `json:"written"`
+	Exists     bool   `json:"existed"`
+}
+
+func formatInfraSeedResult(result infraSeedResult) string {
+	status := "Generated"
+	if result.Exists {
+		status = "Updated"
+	}
+	return fmt.Sprintf("%s infrastructure seed\nDeployment: %s\nSeed: %s", status, result.Deployment, result.SeedPath)
 }
 
 func shouldInstallInfraTrustAfterCreate(plan infra.CreatePlan) bool {
@@ -1033,6 +1298,7 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	var githubClientSecret string
 	var adminGitHubUsers string
 	var debugDeviceUser string
+	var defaultUnixUser string
 	var tailscaleAuthKey string
 	command := &cobra.Command{
 		Use:   "serve",
@@ -1047,6 +1313,7 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 				GitHubClientSecret:  githubClientSecret,
 				BootstrapAdminUsers: strings.Split(adminGitHubUsers, ","),
 				DebugDeviceUser:     debugDeviceUser,
+				DefaultUnixUser:     defaultUnixUser,
 				TailscaleAuthKey:    tailscaleAuthKey,
 			})
 			if err != nil {
@@ -1065,6 +1332,7 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&githubClientSecret, "github-client-secret", "", "GitHub OAuth client secret")
 	command.Flags().StringVar(&adminGitHubUsers, "admin-github-users", "", "comma-separated initial Sandcastle Admin GitHub usernames")
 	command.Flags().StringVar(&debugDeviceUser, "debug-device-user", "", "enable debug device approval as this allowlisted GitHub username")
+	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix username for newly provisioned Personal Tenant machines")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key returned to approved CLI device logins for unattended tenant attachment")
 	_ = command.MarkFlagRequired("database")
 	return command

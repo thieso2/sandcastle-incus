@@ -41,6 +41,28 @@ func TestPlanCreateDefaultsToDefaultProject(t *testing.T) {
 	}
 }
 
+func TestPlanCreateUsesTenantUnixUser(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := tenantStoreForTest(t)
+	tenantConfig, err := meta.ParseTenantConfig(store.Projects[0].Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantConfig.UnixUser = "localuser"
+	store.Projects[0].Config, err = meta.TenantConfig(tenantConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanCreate(context.Background(), admin, store, nil, CreateRequest{Reference: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.LinuxUser != "localuser" {
+		t.Fatalf("LinuxUser = %q", plan.LinuxUser)
+	}
+}
+
 func TestPlanCreateUsesConfiguredProject(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
@@ -130,15 +152,15 @@ func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 	if plan.Project != "website" || plan.InstanceName != "website-codex" {
 		t.Fatalf("plan = %#v", plan)
 	}
-	if plan.SSHHost != "100.64.0.42" || plan.HostKeyAlias != "codex.website.acme" || plan.Hostname != "codex.website.acme" {
+	if plan.SSHHost != "10.248.0.42" || plan.HostKeyAlias != "codex.website.acme" || plan.Hostname != "codex.website.acme" {
 		t.Fatalf("ssh target = %q alias %q", plan.SSHHost, plan.HostKeyAlias)
 	}
 }
 
-func TestPlanConnectFallsBackToPrivateIPWithoutTailscaleMachineIP(t *testing.T) {
+func TestPlanConnectUsesPrivateIP(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42"}}}
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42", TailscaleIP: "100.64.0.42"}}}
 	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "website/codex"})
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +174,7 @@ func TestPlanConnectResolvesMachineFQDN(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
 	store := fakeMachineStore{machines: []meta.Machine{
-		{Project: "website", Name: "codex", TailscaleIP: "100.64.0.42"},
+		{Project: "website", Name: "codex", PrivateIP: "10.248.0.42", TailscaleIP: "100.64.0.42"},
 		{Project: "default", Name: "shell"},
 	}}
 	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex.website.acme"})
@@ -167,7 +189,7 @@ func TestPlanConnectResolvesMachineFQDN(t *testing.T) {
 func TestPlanConnectResolvesMachineFQDNWithTrailingDot(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", TailscaleIP: "100.64.0.42"}}}
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42", TailscaleIP: "100.64.0.42"}}}
 	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "codex.website.acme."})
 	if err != nil {
 		t.Fatal(err)

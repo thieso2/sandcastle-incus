@@ -89,6 +89,14 @@ _Avoid_: Tenant cloud config, project cloud setting
 The infrastructure service that handles GitHub login, CLI device login, user registry, and workload identity issuing.
 _Avoid_: Route Broker, Incus metadata app
 
+**Infrastructure Seed File**:
+An operator-supplied, portable, secret-bearing bootstrap bundle for shared infrastructure configuration and reusable working public TLS material.
+_Avoid_: Environment-only deployment, tenant backup, Auth Database backup
+
+**Deployment Name**:
+The local operator name that identifies one Sandcastle shared infrastructure seed and stack.
+_Avoid_: Tenant name, Auth Hostname, Incus project name
+
 **Auth Hostname**:
 The public HTTPS hostname for the Auth App and Sandcastle OIDC Provider issuer.
 _Avoid_: Route hostname, tenant hostname
@@ -233,6 +241,12 @@ _Avoid_: Projectless mode
 - A **Tenant** has one **Tenant Infrastructure** set shared by all its **Projects**.
 - A **Tenant** has exactly one **Tenant Tailnet**.
 - A **Tenant** has **Tenant Storage** shared by all its **Projects**.
+- A **Deployment Name** maps to one default **Infrastructure Seed File** at `~/.config/sandcastle/<deployment-name>.seed.yml`.
+- Shared infrastructure creation may create the default **Infrastructure Seed File** when it does not already exist.
+- Shared infrastructure creation may update the **Infrastructure Seed File** only with captured reusable working TLS material, not with transient CLI or environment overrides.
+- An **Infrastructure Seed File** is YAML with domain-shaped sections for infrastructure, authentication, routing, images, and reusable TLS material.
+- An **Infrastructure Seed File** may contain deployment secrets and must be treated as private operator material.
+- Reusable public TLS material in an **Infrastructure Seed File** belongs to a specific Auth Hostname and must not be restored for a different Auth Hostname.
 - Admin tenant creation requires only the **Tenant** name; infrastructure details are derived from admin configuration.
 - Admin-created non-personal **Tenants** keep the existing Sandcastle tenant naming rule.
 - The Auth App creates a **Personal Tenant** for an allowlisted **User** during first CLI Device Login.
@@ -324,6 +338,7 @@ _Avoid_: Projectless mode
 - The user CLI reads the **Current Tenant** from `SANDCASTLE_TENANT` or local configuration.
 - Local configuration may store default tenant and project selections.
 - Environment variables override local configuration.
+- Shared infrastructure creation resolves input from CLI flags, environment variables, the **Infrastructure Seed File**, and built-in defaults, in that order.
 - Machine creation resolves the **Current Project** from an explicit reference, `SANDCASTLE_PROJECT`, local project configuration, or the **Default Project**, in that order.
 - Machine lookup commands may search across projects when no project is supplied and no `SANDCASTLE_PROJECT` is set, but only act when the machine name is unique.
 - Destructive machine lookup commands require confirmation when the **Project** was inferred, unless the user supplies an explicit confirmation flag.

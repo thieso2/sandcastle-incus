@@ -13,6 +13,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 	_ "modernc.org/sqlite"
@@ -26,6 +27,7 @@ type ServeRequest struct {
 	GitHubClientSecret  string
 	BootstrapAdminUsers []string
 	DebugDeviceUser     string
+	DefaultUnixUser     string
 	TailscaleAuthKey    string
 }
 
@@ -37,6 +39,7 @@ type ServePlan struct {
 	GitHubClientSecret  string   `json:"-"`
 	BootstrapAdminUsers []string `json:"bootstrapAdminUsers,omitempty"`
 	DebugDeviceUser     string   `json:"debugDeviceUser,omitempty"`
+	DefaultUnixUser     string   `json:"defaultUnixUser,omitempty"`
 	TailscaleAuthKey    string   `json:"-"`
 }
 
@@ -87,6 +90,12 @@ func PlanServe(request ServeRequest) (ServePlan, error) {
 	if databasePath == "" {
 		return ServePlan{}, fmt.Errorf("auth database path is required")
 	}
+	defaultUnixUser := strings.TrimSpace(request.DefaultUnixUser)
+	if defaultUnixUser != "" {
+		if err := naming.ValidateUnixUsername(defaultUnixUser); err != nil {
+			return ServePlan{}, err
+		}
+	}
 	return ServePlan{
 		Address:             address,
 		DatabasePath:        databasePath,
@@ -95,6 +104,7 @@ func PlanServe(request ServeRequest) (ServePlan, error) {
 		GitHubClientSecret:  strings.TrimSpace(request.GitHubClientSecret),
 		BootstrapAdminUsers: NormalizeGitHubUsernames(request.BootstrapAdminUsers),
 		DebugDeviceUser:     NormalizeGitHubUsername(request.DebugDeviceUser),
+		DefaultUnixUser:     defaultUnixUser,
 		TailscaleAuthKey:    strings.TrimSpace(request.TailscaleAuthKey),
 	}, nil
 }
@@ -111,6 +121,11 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	if err := BootstrapAdmins(ctx, db, plan.BootstrapAdminUsers); err != nil {
 		return err
 	}
+	provisioner := r.Provisioner
+	if typed, ok := provisioner.(Provisioner); ok && strings.TrimSpace(typed.DefaultUnixUser) == "" {
+		typed.DefaultUnixUser = plan.DefaultUnixUser
+		provisioner = typed
+	}
 	server := &http.Server{
 		Addr: plan.Address,
 		Handler: NewHandler(db, HandlerOptions{
@@ -118,7 +133,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			GitHubClientID:     plan.GitHubClientID,
 			GitHubClientSecret: plan.GitHubClientSecret,
 			RestrictedUsers:    r.RestrictedUsers,
-			Provisioner:        r.Provisioner,
+			Provisioner:        provisioner,
 			Admin:              r.Admin,
 			Tenants:            r.Tenants,
 			TenantAccess:       r.TenantAccess,

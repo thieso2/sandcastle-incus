@@ -21,7 +21,7 @@ func TestPlanCreate(t *testing.T) {
 	admin.AuthAdminGitHubUsers = []string{"OctoCat", "hubot"}
 	admin.AuthDebugDeviceUser = "OctoCat"
 	admin.AuthTailscaleAuthKey = "tskey-auth-secret"
-	plan, err := PlanCreate(admin, CreateRequest{})
+	plan, err := PlanCreate(admin, CreateRequest{UnixUser: "localuser"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +39,9 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if plan.AuthAppInstance != AuthAppName {
 		t.Fatalf("AuthAppInstance = %q", plan.AuthAppInstance)
+	}
+	if plan.DefaultUnixUser != "localuser" {
+		t.Fatalf("DefaultUnixUser = %q", plan.DefaultUnixUser)
 	}
 	if len(plan.Instances) != 3 {
 		t.Fatalf("instances = %d, want 3", len(plan.Instances))
@@ -120,6 +123,7 @@ func TestPlanCreate(t *testing.T) {
 		"SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET='github-secret'",
 		"SANDCASTLE_AUTH_ADMIN_GITHUB_USERS='OctoCat,hubot'",
 		"SANDCASTLE_AUTH_DEBUG_DEVICE_USER='OctoCat'",
+		"SANDCASTLE_AUTH_DEFAULT_UNIX_USER='localuser'",
 		"SANDCASTLE_AUTH_TAILSCALE_AUTHKEY='tskey-auth-secret'",
 		"SANDCASTLE_INFRA_TLS_MODE='acme'",
 		"SANDCASTLE_BASE_IMAGE='" + admin.Images.Base + "'",
@@ -134,6 +138,9 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if !strings.Contains(runtimeFileContent(plan, AuthAppName, AuthAppUnitPath), "--debug-device-user ${SANDCASTLE_AUTH_DEBUG_DEVICE_USER}") {
 		t.Fatalf("auth app unit missing debug device user flag = %q", runtimeFileContent(plan, AuthAppName, AuthAppUnitPath))
+	}
+	if !strings.Contains(runtimeFileContent(plan, AuthAppName, AuthAppUnitPath), "--default-unix-user ${SANDCASTLE_AUTH_DEFAULT_UNIX_USER}") {
+		t.Fatalf("auth app unit missing default unix user flag = %q", runtimeFileContent(plan, AuthAppName, AuthAppUnitPath))
 	}
 	if !strings.Contains(runtimeFileContent(plan, AuthAppName, AuthAppUnitPath), "--tailscale-auth-key ${SANDCASTLE_AUTH_TAILSCALE_AUTHKEY}") {
 		t.Fatalf("auth app unit missing tailscale auth key flag = %q", runtimeFileContent(plan, AuthAppName, AuthAppUnitPath))

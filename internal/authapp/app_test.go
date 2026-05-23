@@ -28,6 +28,16 @@ func TestPlanServeRequiresDatabasePath(t *testing.T) {
 	}
 }
 
+func TestPlanServeAcceptsDefaultUnixUser(t *testing.T) {
+	plan, err := PlanServe(ServeRequest{Address: ":9444", DatabasePath: "/tmp/auth.db", DefaultUnixUser: "localuser"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DefaultUnixUser != "localuser" {
+		t.Fatalf("DefaultUnixUser = %q", plan.DefaultUnixUser)
+	}
+}
+
 func TestHealthAndStatusUseSQLiteDatabase(t *testing.T) {
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "auth.db"))
 	if err != nil {

@@ -125,6 +125,9 @@ func formatVerboseDuration(duration time.Duration) string {
 func (c InfrastructureCreator) CreateInfrastructure(ctx context.Context, plan infra.CreatePlan) error {
 	server := c.Server
 	remote := c.Remote
+	if strings.TrimSpace(plan.Remote) != "" {
+		remote = strings.TrimSpace(plan.Remote)
+	}
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
 		if err != nil {
@@ -478,6 +481,9 @@ func (e InfrastructureCaddyDataExporter) ExportCaddyData(ctx context.Context, pl
 	_ = ctx
 	server := e.Server
 	remote := e.Remote
+	if strings.TrimSpace(plan.Remote) != "" {
+		remote = strings.TrimSpace(plan.Remote)
+	}
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(e.ConfigPath)
 		if err != nil {

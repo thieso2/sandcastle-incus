@@ -314,6 +314,7 @@ admin setup. The minimal base image contains:
 - Caddy;
 - OpenSSH server;
 - tmux;
+- mosh;
 - SSH agent socket handoff for refreshed forwarded-agent sockets;
 - vim;
 - sudo;

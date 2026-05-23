@@ -16,6 +16,10 @@ func loadAdminEnv() map[string]string {
 	return values
 }
 
+func AdminEnvValue(key string) string {
+	return strings.TrimSpace(loadAdminEnv()[key])
+}
+
 func loadProcessEnv() map[string]string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {

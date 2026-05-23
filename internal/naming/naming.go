@@ -14,6 +14,7 @@ const (
 var (
 	safeNamePattern           = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 	githubUsernameNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$`)
+	unixUsernamePattern       = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 )
 
 type TenantRef struct {
@@ -210,6 +211,17 @@ func ValidateMachineName(name string) error {
 	}
 	if IsReservedInfrastructureName(name) {
 		return fmt.Errorf("machine name %q is reserved", name)
+	}
+	return nil
+}
+
+func ValidateUnixUsername(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("Unix username is required")
+	}
+	if !unixUsernamePattern.MatchString(name) {
+		return fmt.Errorf("invalid Unix username %q", name)
 	}
 	return nil
 }

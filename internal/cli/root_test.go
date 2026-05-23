@@ -3212,6 +3212,7 @@ func TestAdminTenantDeleteRequiresConfirmation(t *testing.T) {
 
 func TestAdminInfraCreateDryRunJSON(t *testing.T) {
 	setAdminRuntimeBinaryForTest(t)
+	t.Setenv("USER", "localuser")
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
@@ -3231,6 +3232,28 @@ func TestAdminInfraCreateDryRunJSON(t *testing.T) {
 	}
 	if payload.RouteBrokerInstance != infra.RouteBrokerName {
 		t.Fatalf("RouteBrokerInstance = %q", payload.RouteBrokerInstance)
+	}
+	if payload.DefaultUnixUser != "localuser" {
+		t.Fatalf("DefaultUnixUser = %q", payload.DefaultUnixUser)
+	}
+}
+
+func TestAdminInfraCreateUsernameFlagOverridesLocalUser(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	t.Setenv("USER", "localuser")
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "--output", "json", "infra", "create", "--dry-run", "--username", "override")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload infra.CreatePlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.DefaultUnixUser != "override" {
+		t.Fatalf("DefaultUnixUser = %q", payload.DefaultUnixUser)
 	}
 }
 
@@ -3391,6 +3414,130 @@ func TestAdminInfraCreateACMERestoresCaddyDataArchiveWhenPresent(t *testing.T) {
 	}
 }
 
+func TestAdminInfraGenSeedWritesDefaultDeploymentSeed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	admin := scconfig.LoadAdminFromEnv()
+	admin.Remote = "big"
+	admin.InfrastructureProject = "big-infra"
+	admin.AuthHostname = "auth.example.com"
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
+		adminConfig: admin,
+	}, "infra", "gen-seed", "--name", "lab", "--username", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".config", "sandcastle", "lab.seed.yml")
+	seed, ok, err := infra.LoadSeed(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected seed file")
+	}
+	if seed.Deployment != "lab" || seed.Infra.Remote != "big" || seed.Auth.DefaultUnixUser != "alice" {
+		t.Fatalf("seed = %#v", seed)
+	}
+	if !strings.Contains(stdout, "Generated infrastructure seed") || !strings.Contains(stdout, path) {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestAdminInfraCreateUsesSeedAndEnvOverrides(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	t.Setenv("SANDCASTLE_INFRA_PROJECT", "env-infra")
+	seedPath := filepath.Join(t.TempDir(), "lab.seed.yml")
+	admin := scconfig.AdminDefaults()
+	admin.Remote = "seed-remote"
+	admin.InfrastructureProject = "seed-infra"
+	admin.AuthHostname = "auth.example.com"
+	seed := infra.SeedFromAdmin("lab", admin, "seeduser")
+	if err := infra.SaveSeed(seedPath, seed); err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeInfraCreator{}
+	_, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.AdminDefaults(),
+		infraCreator: creator,
+	}, "infra", "create", "--seed", seedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creator.plan.Remote != "seed-remote" {
+		t.Fatalf("Remote = %q", creator.plan.Remote)
+	}
+	if creator.plan.Project != "env-infra" {
+		t.Fatalf("Project = %q", creator.plan.Project)
+	}
+	if creator.plan.DefaultUnixUser != "seeduser" {
+		t.Fatalf("DefaultUnixUser = %q", creator.plan.DefaultUnixUser)
+	}
+}
+
+func TestAdminInfraCreateRestoresEmbeddedSeedCaddyData(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	seedPath := filepath.Join(t.TempDir(), "lab.seed.yml")
+	admin := scconfig.AdminDefaults()
+	admin.Remote = "seed-remote"
+	admin.AuthHostname = "auth.example.com"
+	seed := infra.SeedFromAdmin("lab", admin, "seeduser")
+	seed = infra.EmbedCaddyDataArchive(seed, "auth.example.com", []byte("archive"))
+	if err := infra.SaveSeed(seedPath, seed); err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeInfraCreator{}
+	_, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.AdminDefaults(),
+		infraCreator: creator,
+	}, "infra", "create", "--seed", seedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creator.plan.CaddyDataArchivePath == "" {
+		t.Fatal("expected embedded archive to be restored through a temp archive path")
+	}
+}
+
+func TestAdminInfraCreateCapturesCaddyDataIntoSeed(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	seedPath := filepath.Join(t.TempDir(), "lab.seed.yml")
+	admin := scconfig.AdminDefaults()
+	admin.Remote = "seed-remote"
+	admin.AuthHostname = "auth.example.com"
+	seed := infra.SeedFromAdmin("lab", admin, "seeduser")
+	if err := infra.SaveSeed(seedPath, seed); err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeInfraCreator{}
+	exporter := &fakeInfraCaddyDataExporter{archiveContent: []byte("captured")}
+	_, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:           "sandcastle-admin",
+		adminConfig:    scconfig.AdminDefaults(),
+		infraCreator:   creator,
+		infraCaddyData: exporter,
+	}, "infra", "create", "--seed", seedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, ok, err := infra.LoadSeed(seedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected seed")
+	}
+	data, ok, err := infra.CaddyDataArchiveBytes(loaded, "auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || string(data) != "captured" {
+		t.Fatalf("captured archive = %q ok=%v", string(data), ok)
+	}
+}
+
 func TestAdminInfraCertExportRunsExecutor(t *testing.T) {
 	exporter := &fakeInfraCaddyDataExporter{}
 	archive := t.TempDir() + "/caddy-data.tgz"
@@ -3450,6 +3597,7 @@ func TestAdminInfraCreateRequiresExecutor(t *testing.T) {
 
 func setAdminRuntimeBinaryForTest(t *testing.T) string {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	adminBin := t.TempDir() + "/sc-adm"
 	if err := os.WriteFile(adminBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -4045,13 +4193,19 @@ func (f *fakeInfraDeleter) DeleteInfrastructure(ctx context.Context, plan infra.
 }
 
 type fakeInfraCaddyDataExporter struct {
-	called bool
-	plan   infra.CaddyDataExportPlan
+	called         bool
+	plan           infra.CaddyDataExportPlan
+	archiveContent []byte
 }
 
 func (f *fakeInfraCaddyDataExporter) ExportCaddyData(ctx context.Context, plan infra.CaddyDataExportPlan) (infra.CaddyDataExportResult, error) {
 	f.called = true
 	f.plan = plan
+	if len(f.archiveContent) > 0 {
+		if err := os.WriteFile(plan.ArchivePath, f.archiveContent, 0o600); err != nil {
+			return infra.CaddyDataExportResult{}, err
+		}
+	}
 	return infra.CaddyDataExportResult{
 		Project:     plan.Project,
 		Instance:    plan.Instance,

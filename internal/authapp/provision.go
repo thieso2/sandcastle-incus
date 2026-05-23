@@ -35,11 +35,12 @@ type TrustTokenCreator interface {
 }
 
 type Provisioner struct {
-	Admin          config.Admin
-	Tenants        tenant.IncusTenantStore
-	TenantCreator  tenant.Creator
-	ProjectUpdater tenant.ProjectUpdater
-	Trust          TrustTokenCreator
+	Admin           config.Admin
+	Tenants         tenant.IncusTenantStore
+	TenantCreator   tenant.Creator
+	ProjectUpdater  tenant.ProjectUpdater
+	Trust           TrustTokenCreator
+	DefaultUnixUser string
 }
 
 func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (PersonalTenantResult, error) {
@@ -78,6 +79,7 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 			OccupiedCIDRs: tenant.OccupiedCIDRs(summaries),
 			Personal:      true,
 			CreatedBy:     userKey,
+			UnixUser:      strings.TrimSpace(p.DefaultUnixUser),
 		})
 		if err != nil {
 			return PersonalTenantResult{}, err

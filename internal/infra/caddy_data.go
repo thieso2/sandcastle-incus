@@ -16,6 +16,7 @@ type CaddyDataExportRequest struct {
 }
 
 type CaddyDataExportPlan struct {
+	Remote      string `json:"remote"`
 	Project     string `json:"project"`
 	Instance    string `json:"instance"`
 	SourcePath  string `json:"sourcePath"`
@@ -45,6 +46,7 @@ func PlanCaddyDataExport(admin config.Admin, request CaddyDataExportRequest) (Ca
 		return CaddyDataExportPlan{}, fmt.Errorf("Caddy data archive path is required")
 	}
 	return CaddyDataExportPlan{
+		Remote:      admin.Remote,
 		Project:     admin.InfrastructureProject,
 		Instance:    route.InfrastructureCaddyName,
 		SourcePath:  CaddyDataDir,

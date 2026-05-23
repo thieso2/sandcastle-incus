@@ -152,7 +152,7 @@ func TestFirstRunLoginWithMockGitHubOAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if connectPlan.SSHHost != "100.64.1.20" || connectPlan.HostKeyAlias != "dev.default.octocat" {
+	if connectPlan.SSHHost != "10.248.1.20" || connectPlan.HostKeyAlias != "dev.default.octocat" {
 		t.Fatalf("connect plan = %#v", connectPlan)
 	}
 }

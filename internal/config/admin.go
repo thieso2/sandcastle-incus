@@ -54,18 +54,41 @@ type Images struct {
 
 func LoadAdminFromEnv() Admin {
 	env := loadAdminEnv()
+	return MergeAdmin(AdminDefaults(), adminOverridesFromEnv(env))
+}
+
+func AdminDefaults() Admin {
+	return Admin{
+		Remote:                DefaultRemote,
+		StoragePool:           DefaultStoragePool,
+		CIDRPool:              DefaultCIDRPool,
+		IncusProjectPrefix:    DefaultIncusProjectPrefix,
+		InfrastructureProject: DefaultInfrastructureProject,
+		InfrastructureTLSMode: DefaultInfrastructureTLSMode,
+		Images: Images{
+			Base: DefaultBaseImageAlias,
+			AI:   DefaultAIImageAlias,
+		},
+	}
+}
+
+func LoadAdminEnvOverrides() Admin {
+	return adminOverridesFromEnv(loadAdminEnv())
+}
+
+func adminOverridesFromEnv(env map[string]string) Admin {
 	return Admin{
 		Tenant:                 strings.TrimSpace(env["SANDCASTLE_TENANT"]),
 		Project:                strings.TrimSpace(env["SANDCASTLE_PROJECT"]),
-		Remote:                 getenvFrom(env, "SANDCASTLE_REMOTE", DefaultRemote),
-		StoragePool:            getenvFrom(env, "SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
-		CIDRPool:               getenvFrom(env, "SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
-		IncusProjectPrefix:     incusProjectPrefixFromEnv(env),
-		InfrastructureProject:  getenvFrom(env, "SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
-		InfrastructureHost:     getenvFrom(env, "SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
-		LetsEncryptEmail:       getenvFrom(env, "SANDCASTLE_LETSENCRYPT_EMAIL", DefaultLetsEncryptEmail),
-		InfrastructureTLSMode:  getenvFrom(env, "SANDCASTLE_INFRA_TLS_MODE", DefaultInfrastructureTLSMode),
-		AuthHostname:           getenvFrom(env, "SANDCASTLE_AUTH_HOSTNAME", DefaultAuthHostname),
+		Remote:                 strings.TrimSpace(env["SANDCASTLE_REMOTE"]),
+		StoragePool:            strings.TrimSpace(env["SANDCASTLE_STORAGE_POOL"]),
+		CIDRPool:               strings.TrimSpace(env["SANDCASTLE_CIDR_POOL"]),
+		IncusProjectPrefix:     incusProjectPrefixOverrideFromEnv(env),
+		InfrastructureProject:  strings.TrimSpace(env["SANDCASTLE_INFRA_PROJECT"]),
+		InfrastructureHost:     strings.TrimSpace(env["SANDCASTLE_INFRA_HOST"]),
+		LetsEncryptEmail:       strings.TrimSpace(env["SANDCASTLE_LETSENCRYPT_EMAIL"]),
+		InfrastructureTLSMode:  strings.TrimSpace(env["SANDCASTLE_INFRA_TLS_MODE"]),
+		AuthHostname:           strings.TrimSpace(env["SANDCASTLE_AUTH_HOSTNAME"]),
 		AuthGitHubClientID:     getenvFrom(env, "SANDCASTLE_AUTH_GITHUB_CLIENT_ID", ""),
 		AuthGitHubClientSecret: getenvFrom(env, "SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", ""),
 		AuthAdminGitHubUsers:   splitListFrom(env, "SANDCASTLE_AUTH_ADMIN_GITHUB_USERS"),
@@ -75,10 +98,84 @@ func LoadAdminFromEnv() Admin {
 		AllowedDomainSuffixes:  splitListFrom(env, "SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES"),
 		DeniedDomainSuffixes:   splitListFrom(env, "SANDCASTLE_DENIED_DOMAIN_SUFFIXES"),
 		Images: Images{
-			Base: getenvFrom(env, "SANDCASTLE_BASE_IMAGE", DefaultBaseImageAlias),
-			AI:   getenvFrom(env, "SANDCASTLE_AI_IMAGE", DefaultAIImageAlias),
+			Base: strings.TrimSpace(env["SANDCASTLE_BASE_IMAGE"]),
+			AI:   strings.TrimSpace(env["SANDCASTLE_AI_IMAGE"]),
 		},
 	}
+}
+
+func MergeAdmin(base Admin, overrides Admin) Admin {
+	out := base
+	if strings.TrimSpace(overrides.Tenant) != "" {
+		out.Tenant = strings.TrimSpace(overrides.Tenant)
+	}
+	if strings.TrimSpace(overrides.Project) != "" {
+		out.Project = strings.TrimSpace(overrides.Project)
+	}
+	if strings.TrimSpace(overrides.Remote) != "" {
+		out.Remote = strings.TrimSpace(overrides.Remote)
+	}
+	if strings.TrimSpace(overrides.AdminRemote) != "" {
+		out.AdminRemote = strings.TrimSpace(overrides.AdminRemote)
+	}
+	if strings.TrimSpace(overrides.ConfigPath) != "" {
+		out.ConfigPath = strings.TrimSpace(overrides.ConfigPath)
+	}
+	if strings.TrimSpace(overrides.StoragePool) != "" {
+		out.StoragePool = strings.TrimSpace(overrides.StoragePool)
+	}
+	if strings.TrimSpace(overrides.CIDRPool) != "" {
+		out.CIDRPool = strings.TrimSpace(overrides.CIDRPool)
+	}
+	if strings.TrimSpace(overrides.IncusProjectPrefix) != "" {
+		out.IncusProjectPrefix = strings.TrimSpace(overrides.IncusProjectPrefix)
+	}
+	if strings.TrimSpace(overrides.InfrastructureProject) != "" {
+		out.InfrastructureProject = strings.TrimSpace(overrides.InfrastructureProject)
+	}
+	if strings.TrimSpace(overrides.InfrastructureHost) != "" {
+		out.InfrastructureHost = strings.TrimSpace(overrides.InfrastructureHost)
+	}
+	if strings.TrimSpace(overrides.LetsEncryptEmail) != "" {
+		out.LetsEncryptEmail = strings.TrimSpace(overrides.LetsEncryptEmail)
+	}
+	if strings.TrimSpace(overrides.InfrastructureTLSMode) != "" {
+		out.InfrastructureTLSMode = strings.TrimSpace(overrides.InfrastructureTLSMode)
+	}
+	if strings.TrimSpace(overrides.AuthHostname) != "" {
+		out.AuthHostname = strings.TrimSpace(overrides.AuthHostname)
+	}
+	if strings.TrimSpace(overrides.AuthGitHubClientID) != "" {
+		out.AuthGitHubClientID = strings.TrimSpace(overrides.AuthGitHubClientID)
+	}
+	if strings.TrimSpace(overrides.AuthGitHubClientSecret) != "" {
+		out.AuthGitHubClientSecret = strings.TrimSpace(overrides.AuthGitHubClientSecret)
+	}
+	if len(overrides.AuthAdminGitHubUsers) > 0 {
+		out.AuthAdminGitHubUsers = append([]string{}, overrides.AuthAdminGitHubUsers...)
+	}
+	if strings.TrimSpace(overrides.AuthDebugDeviceUser) != "" {
+		out.AuthDebugDeviceUser = strings.TrimSpace(overrides.AuthDebugDeviceUser)
+	}
+	if strings.TrimSpace(overrides.AuthTailscaleAuthKey) != "" {
+		out.AuthTailscaleAuthKey = strings.TrimSpace(overrides.AuthTailscaleAuthKey)
+	}
+	if strings.TrimSpace(overrides.RouteBrokerIncusSocket) != "" {
+		out.RouteBrokerIncusSocket = strings.TrimSpace(overrides.RouteBrokerIncusSocket)
+	}
+	if len(overrides.AllowedDomainSuffixes) > 0 {
+		out.AllowedDomainSuffixes = append([]string{}, overrides.AllowedDomainSuffixes...)
+	}
+	if len(overrides.DeniedDomainSuffixes) > 0 {
+		out.DeniedDomainSuffixes = append([]string{}, overrides.DeniedDomainSuffixes...)
+	}
+	if strings.TrimSpace(overrides.Images.Base) != "" {
+		out.Images.Base = strings.TrimSpace(overrides.Images.Base)
+	}
+	if strings.TrimSpace(overrides.Images.AI) != "" {
+		out.Images.AI = strings.TrimSpace(overrides.Images.AI)
+	}
+	return out
 }
 
 func authTailscaleAuthKeyFromEnv(env map[string]string) string {
@@ -153,6 +250,10 @@ func getenv(key, fallback string) string {
 
 func incusProjectPrefixFromEnv(env map[string]string) string {
 	return firstNonEmpty(env["SANDCASTLE_INCUS_PROJECT_PREFIX"], env["SANDCASTLE_PROJECT_PREFIX"], DefaultIncusProjectPrefix)
+}
+
+func incusProjectPrefixOverrideFromEnv(env map[string]string) string {
+	return firstNonEmpty(env["SANDCASTLE_INCUS_PROJECT_PREFIX"], env["SANDCASTLE_PROJECT_PREFIX"])
 }
 
 func splitList(value string) []string {

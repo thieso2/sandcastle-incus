@@ -88,19 +88,19 @@ func loadUserFromFileAndEnv(cfg SandcastleConfig) Admin {
 }
 
 func adminFromConfigAndEnv(cfg SandcastleConfig, env map[string]string) Admin {
-	return Admin{
+	return MergeAdmin(AdminDefaults(), Admin{
 		Tenant:                 firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_TENANT"]), cfg.Tenant),
 		Project:                firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_PROJECT"]), cfg.Project),
-		Remote:                 firstNonEmpty(getenvFrom(env, "SANDCASTLE_REMOTE", ""), cfg.Remote, DefaultRemote),
+		Remote:                 firstNonEmpty(getenvFrom(env, "SANDCASTLE_REMOTE", ""), cfg.Remote),
 		AdminRemote:            firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_ADMIN_REMOTE"]), cfg.AdminRemote),
-		StoragePool:            getenvFrom(env, "SANDCASTLE_STORAGE_POOL", DefaultStoragePool),
-		CIDRPool:               getenvFrom(env, "SANDCASTLE_CIDR_POOL", DefaultCIDRPool),
-		IncusProjectPrefix:     incusProjectPrefixFromEnv(env),
-		InfrastructureProject:  getenvFrom(env, "SANDCASTLE_INFRA_PROJECT", DefaultInfrastructureProject),
-		InfrastructureHost:     getenvFrom(env, "SANDCASTLE_INFRA_HOST", DefaultInfrastructureHost),
-		LetsEncryptEmail:       getenvFrom(env, "SANDCASTLE_LETSENCRYPT_EMAIL", DefaultLetsEncryptEmail),
-		InfrastructureTLSMode:  getenvFrom(env, "SANDCASTLE_INFRA_TLS_MODE", DefaultInfrastructureTLSMode),
-		AuthHostname:           getenvFrom(env, "SANDCASTLE_AUTH_HOSTNAME", DefaultAuthHostname),
+		StoragePool:            strings.TrimSpace(env["SANDCASTLE_STORAGE_POOL"]),
+		CIDRPool:               strings.TrimSpace(env["SANDCASTLE_CIDR_POOL"]),
+		IncusProjectPrefix:     incusProjectPrefixOverrideFromEnv(env),
+		InfrastructureProject:  strings.TrimSpace(env["SANDCASTLE_INFRA_PROJECT"]),
+		InfrastructureHost:     strings.TrimSpace(env["SANDCASTLE_INFRA_HOST"]),
+		LetsEncryptEmail:       strings.TrimSpace(env["SANDCASTLE_LETSENCRYPT_EMAIL"]),
+		InfrastructureTLSMode:  strings.TrimSpace(env["SANDCASTLE_INFRA_TLS_MODE"]),
+		AuthHostname:           strings.TrimSpace(env["SANDCASTLE_AUTH_HOSTNAME"]),
 		AuthGitHubClientID:     getenvFrom(env, "SANDCASTLE_AUTH_GITHUB_CLIENT_ID", ""),
 		AuthGitHubClientSecret: getenvFrom(env, "SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", ""),
 		AuthAdminGitHubUsers:   splitListFrom(env, "SANDCASTLE_AUTH_ADMIN_GITHUB_USERS"),
@@ -110,10 +110,10 @@ func adminFromConfigAndEnv(cfg SandcastleConfig, env map[string]string) Admin {
 		AllowedDomainSuffixes:  splitListFrom(env, "SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES"),
 		DeniedDomainSuffixes:   splitListFrom(env, "SANDCASTLE_DENIED_DOMAIN_SUFFIXES"),
 		Images: Images{
-			Base: getenvFrom(env, "SANDCASTLE_BASE_IMAGE", DefaultBaseImageAlias),
-			AI:   getenvFrom(env, "SANDCASTLE_AI_IMAGE", DefaultAIImageAlias),
+			Base: strings.TrimSpace(env["SANDCASTLE_BASE_IMAGE"]),
+			AI:   strings.TrimSpace(env["SANDCASTLE_AI_IMAGE"]),
 		},
-	}
+	})
 }
 
 // ResolveConfigPath returns the per-remote Sandcastle incus dir if it exists, otherwise empty string.

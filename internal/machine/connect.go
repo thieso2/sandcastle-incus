@@ -76,9 +76,6 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 	if resolved.Managed {
 		hostname = resolved.Name + "." + resolved.Project + "." + resolved.Summary.DNSSuffix
 		hostKeyAlias = hostname
-		if resolved.TailscaleIP != "" {
-			sshHost = resolved.TailscaleIP
-		}
 	}
 	return ConnectPlan{
 		Reference:    request.Reference,

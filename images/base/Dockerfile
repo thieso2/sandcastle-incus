@@ -18,6 +18,7 @@ RUN apt-get update \
         iputils-ping \
         locales \
         lsof \
+        mosh \
         netcat-openbsd \
         net-tools \
         openssh-server \

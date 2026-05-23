@@ -7,7 +7,7 @@ This document describes the end-to-end first-run login process for a GitHub-auth
 - Let a user register in the browser with GitHub.
 - Keep browser registration separate from tenant provisioning.
 - Use the CLI to provision the user's Personal Tenant and upload the user's SSH public key.
-- Prefer Tailscale Machine IPs for Machine SSH Access when they are available, while still allowing private-IP SSH in environments where the tenant private network is directly reachable.
+- Use private tenant-network IPs for Machine SSH Access; the tenant Tailscale sidecar advertises the tenant CIDR instead of assigning Tailscale IPs to individual Machines.
 - Finish login only when the user can create and connect to a Machine.
 
 ## Flow
@@ -51,8 +51,8 @@ This document describes the end-to-end first-run login process for a GitHub-auth
     sandcastle create dev
     ```
 
-13. Machine creation records the Machine's Tailscale IP when one is available.
-14. The CLI connects with Machine SSH Access over the recorded Tailscale Machine IP, or over the private Machine IP when no Tailscale Machine IP is recorded.
+13. Machine creation configures the Machine on the tenant private network.
+14. The CLI connects with Machine SSH Access over the private Machine IP.
 
 ## Browser Responsibilities
 
@@ -78,7 +78,7 @@ When Tenant Access is revoked, Sandcastle revokes Machine SSH Access by removing
 
 Each Tenant has exactly one Tenant Tailnet. Sandcastle does not use a shared Sandcastle tailnet for all tenants.
 
-Machine SSH Access uses the Machine's Tailscale Machine IP when recorded, otherwise it falls back to the private Machine IP. Local DNS is useful for private hostnames, but it is not required for Machine SSH Access.
+Machine SSH Access uses the Machine's private IP. Tailscale access is provided by the tenant sidecar advertising the tenant CIDR. Local DNS is useful for private hostnames, but it is not required for Machine SSH Access.
 
 For multi-tenant users, CLI Device Login joins only the selected Current Tenant's Tenant Tailnet. First-time onboarding defaults the selected tenant to the user's Personal Tenant.
 
