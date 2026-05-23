@@ -8,4 +8,5 @@ Sandcastle infrastructure creation uses a portable Infrastructure Seed File as t
 - `infra create` reads the seed, restores embedded Caddy ACME data before Caddy starts, and in ACME mode automatically writes back captured reusable TLS material after successful provisioning.
 - `infra create` must not write transient CLI or environment overrides back to the seed.
 - Embedded public TLS material records the Auth Hostname it belongs to, and `infra create` fails rather than restoring it for a different Auth Hostname.
+- `infra create` prepares the configured Sandcastle base and AI images before launch; full `oci:` image references opt out of local build/upload.
 - Seed files must be written with private file permissions and treated as operator secrets.

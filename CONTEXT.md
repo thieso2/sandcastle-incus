@@ -247,6 +247,7 @@ _Avoid_: Projectless mode
 - An **Infrastructure Seed File** is YAML with domain-shaped sections for infrastructure, authentication, routing, images, and reusable TLS material.
 - An **Infrastructure Seed File** may contain deployment secrets and must be treated as private operator material.
 - Reusable public TLS material in an **Infrastructure Seed File** belongs to a specific Auth Hostname and must not be restored for a different Auth Hostname.
+- Shared infrastructure creation prepares configured Sandcastle images unless the image reference is a full external OCI source.
 - Admin tenant creation requires only the **Tenant** name; infrastructure details are derived from admin configuration.
 - Admin-created non-personal **Tenants** keep the existing Sandcastle tenant naming rule.
 - The Auth App creates a **Personal Tenant** for an allowlisted **User** during first CLI Device Login.

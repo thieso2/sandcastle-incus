@@ -3,6 +3,7 @@ package images
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -36,6 +37,7 @@ type BuildRequest struct {
 	Template      string
 	Tag           string
 	Tool          string
+	Platform      string
 	CodexVersion  string
 	ClaudeVersion string
 	GeminiVersion string
@@ -48,6 +50,7 @@ type BuildPlan struct {
 	ContextDir    string   `json:"contextDir"`
 	Dockerfile    string   `json:"dockerfile"`
 	Tool          string   `json:"tool"`
+	Platform      string   `json:"platform,omitempty"`
 	BuildArgs     []string `json:"buildArgs,omitempty"`
 	Command       []string `json:"command"`
 	CodexVersion  string   `json:"codexVersion,omitempty"`
@@ -88,6 +91,32 @@ type Importer interface {
 	ImportImage(context.Context, ImportPlan) (ImportResult, error)
 }
 
+type UploadRequest struct {
+	Template  string
+	SourceRef string
+	Alias     string
+	Remote    string
+	Script    string
+}
+
+type UploadPlan struct {
+	Template  string   `json:"template"`
+	SourceRef string   `json:"sourceRef"`
+	Remote    string   `json:"remote"`
+	Alias     string   `json:"alias"`
+	Script    string   `json:"script"`
+	Command   []string `json:"command"`
+}
+
+type UploadResult struct {
+	UploadPlan
+	Uploaded bool `json:"uploaded"`
+}
+
+type Uploader interface {
+	UploadImage(context.Context, UploadPlan) (UploadResult, error)
+}
+
 func PlanSync(admin config.Admin, request SyncRequest) (SyncPlan, error) {
 	if err := admin.Validate(); err != nil {
 		return SyncPlan{}, err
@@ -126,6 +155,7 @@ func PlanBuild(admin config.Admin, request BuildRequest) (BuildPlan, error) {
 	plan := BuildPlan{
 		Template:   template,
 		Tool:       tool,
+		Platform:   strings.TrimSpace(request.Platform),
 		WorkDir:    repoRoot(),
 		ContextDir: filepath.Join("images", template),
 		Dockerfile: filepath.Join("images", template, "Dockerfile"),
@@ -191,11 +221,57 @@ func PlanImport(admin config.Admin, request ImportRequest) (ImportPlan, error) {
 	return plan, nil
 }
 
+func PlanUpload(admin config.Admin, request UploadRequest) (UploadPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return UploadPlan{}, err
+	}
+	template := strings.ToLower(strings.TrimSpace(request.Template))
+	if template == "" {
+		return UploadPlan{}, fmt.Errorf("image template is required")
+	}
+	alias := strings.TrimSpace(request.Alias)
+	if alias == "" {
+		var err error
+		alias, err = aliasForTemplate(admin, template)
+		if err != nil {
+			return UploadPlan{}, err
+		}
+	}
+	source := strings.TrimSpace(request.SourceRef)
+	if source == "" {
+		source = alias
+	}
+	remote := strings.TrimSpace(request.Remote)
+	if remote == "" {
+		remote = strings.TrimSpace(admin.Remote)
+	}
+	if remote == "" {
+		return UploadPlan{}, fmt.Errorf("remote is required")
+	}
+	script := strings.TrimSpace(request.Script)
+	if script == "" {
+		script = filepath.Join(repoRoot(), "scripts", "import-docker-image-to-incus.sh")
+	}
+	plan := UploadPlan{
+		Template:  template,
+		SourceRef: source,
+		Remote:    remote,
+		Alias:     alias,
+		Script:    script,
+	}
+	plan.Command = []string{"bash", script, source, alias, remote}
+	return plan, nil
+}
+
 type LocalBuilder struct {
 	Runner CommandRunner
 }
 
 type LocalImporter struct {
+	Runner CommandRunner
+}
+
+type LocalUploader struct {
 	Runner CommandRunner
 }
 
@@ -235,10 +311,32 @@ func (i LocalImporter) ImportImage(ctx context.Context, plan ImportPlan) (Import
 	return ImportResult{ImportPlan: plan, Imported: true}, nil
 }
 
+func (u LocalUploader) UploadImage(ctx context.Context, plan UploadPlan) (UploadResult, error) {
+	var runner CommandRunner = ExecRunner{}
+	if u.Runner != nil {
+		runner = u.Runner
+	}
+	if len(plan.Command) == 0 {
+		return UploadResult{}, fmt.Errorf("image upload command is required")
+	}
+	if err := runner.Run(ctx, plan.Command[0], plan.Command[1:]...); err != nil {
+		return UploadResult{}, err
+	}
+	return UploadResult{UploadPlan: plan, Uploaded: true}, nil
+}
+
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) error {
 	command := exec.CommandContext(ctx, name, args...)
 	if r.Dir != "" {
 		command.Dir = r.Dir
+	}
+	if os.Getenv("VERBOSE") == "1" {
+		command.Stdout = os.Stderr
+		command.Stderr = os.Stderr
+		if err := command.Run(); err != nil {
+			return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+		}
+		return nil
 	}
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -257,6 +355,9 @@ func repoRoot() string {
 
 func buildCommand(plan BuildPlan) []string {
 	args := []string{plan.Tool, "build", "-t", plan.Tag, "-f", plan.Dockerfile}
+	if plan.Platform != "" {
+		args = append(args, "--platform", plan.Platform)
+	}
 	for _, buildArg := range plan.BuildArgs {
 		args = append(args, "--build-arg", buildArg)
 	}

@@ -57,6 +57,7 @@ type commandConfig struct {
 	imageManager        images.Manager
 	imageBuilder        images.Builder
 	imageImporter       images.Importer
+	imageUploader       images.Uploader
 	topologyStore       tenant.TopologyStore
 	trustManager        usertrust.Manager
 	machineCreator      machine.Creator
@@ -134,6 +135,7 @@ func Execute(name string, args []string) int {
 		imageManager:        incusx.NewImageManager(adminConfig.Remote),
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},
+		imageUploader:       images.LocalUploader{},
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),

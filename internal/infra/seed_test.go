@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -11,7 +12,7 @@ import (
 
 func TestSeedRoundTripWritesPrivateFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lab.seed.yml")
-	seed := SeedFromAdmin("lab", config.AdminDefaults(), "alice")
+	seed := SeedFromAdmin("lab", config.AdminDefaults())
 	seed = EmbedCaddyDataArchive(seed, "auth.example.com", []byte("archive"))
 
 	if err := SaveSeed(path, seed); err != nil {
@@ -24,6 +25,21 @@ func TestSeedRoundTripWritesPrivateFile(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %v, want 0600", info.Mode().Perm())
 	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# Sandcastle infrastructure seed.",
+		"# Precedence during infra create: CLI flags > env/.env > this seed > built-in defaults.",
+		"# Incus remote used by admin operations.",
+		"# Debug device login, Tailscale auth keys, and default Unix user are not seed fields.",
+		"# Base64 encoded Caddy ACME storage archive.",
+	} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("seed missing comment %q:\n%s", want, string(content))
+		}
+	}
 	loaded, ok, err := LoadSeed(path)
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +47,7 @@ func TestSeedRoundTripWritesPrivateFile(t *testing.T) {
 	if !ok {
 		t.Fatal("expected seed to load")
 	}
-	if loaded.Deployment != "lab" || loaded.Auth.DefaultUnixUser != "alice" {
+	if loaded.Deployment != "lab" {
 		t.Fatalf("loaded seed = %#v", loaded)
 	}
 	if loaded.TLS.CaddyDataArchiveBase64 != base64.StdEncoding.EncodeToString([]byte("archive")) {
@@ -47,7 +63,7 @@ func TestResolveSeedAdminEnvironmentOverridesSeed(t *testing.T) {
 	admin := config.AdminDefaults()
 	admin.Remote = "seed-remote"
 	admin.InfrastructureProject = "seed-infra"
-	seed := SeedFromAdmin("lab", admin, "alice")
+	seed := SeedFromAdmin("lab", admin)
 
 	resolved := ResolveSeedAdmin(seed)
 	if resolved.Remote != "env-remote" {
@@ -62,7 +78,7 @@ func TestResolveSeedAdminEnvironmentOverridesSeed(t *testing.T) {
 }
 
 func TestCaddyDataArchiveBytesRejectsHostnameMismatch(t *testing.T) {
-	seed := EmbedCaddyDataArchive(SeedFromAdmin("lab", config.AdminDefaults(), "alice"), "auth.example.com", []byte("archive"))
+	seed := EmbedCaddyDataArchive(SeedFromAdmin("lab", config.AdminDefaults()), "auth.example.com", []byte("archive"))
 	_, _, err := CaddyDataArchiveBytes(seed, "other.example.com")
 	if err == nil {
 		t.Fatal("expected hostname mismatch error")

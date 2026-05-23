@@ -78,6 +78,20 @@ func TestPlanBuildAllowsDockerOrPodmanTools(t *testing.T) {
 	}
 }
 
+func TestPlanBuildAddsPlatformWhenRequested(t *testing.T) {
+	plan, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
+		Template: "base",
+		Tag:      "sandcastle/base:test",
+		Platform: "linux/amd64",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(plan.Command, " ") != "docker build -t sandcastle/base:test -f images/base/Dockerfile --platform linux/amd64 images/base" {
+		t.Fatalf("Command = %#v", plan.Command)
+	}
+}
+
 func TestPlanBuildRejectsUnsupportedTool(t *testing.T) {
 	_, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
 		Template: "base",
@@ -231,6 +245,42 @@ func TestLocalImporterRunsPlannedCommand(t *testing.T) {
 		t.Fatal("expected imported result")
 	}
 	if runner.name != "incus" || strings.Join(runner.args, " ") != "image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --copy-aliases --reuse" {
+		t.Fatalf("runner = %#v", runner)
+	}
+}
+
+func TestPlanUploadBuiltDockerImage(t *testing.T) {
+	plan, err := PlanUpload(config.LoadAdminFromEnv(), UploadRequest{
+		Template:  "base",
+		SourceRef: "sandcastle/base:latest",
+		Alias:     "sandcastle/base:latest",
+		Remote:    "big",
+		Script:    "scripts/import-docker-image-to-incus.sh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(plan.Command, " ") != "bash scripts/import-docker-image-to-incus.sh sandcastle/base:latest sandcastle/base:latest big" {
+		t.Fatalf("Command = %#v", plan.Command)
+	}
+}
+
+func TestLocalUploaderRunsPlannedCommand(t *testing.T) {
+	runner := &fakeCommandRunner{}
+	result, err := (LocalUploader{Runner: runner}).UploadImage(context.Background(), UploadPlan{
+		Template:  "base",
+		SourceRef: "sandcastle/base:test",
+		Alias:     "sandcastle/base:test",
+		Remote:    "local",
+		Command:   []string{"bash", "upload.sh", "sandcastle/base:test", "sandcastle/base:test", "local"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Uploaded {
+		t.Fatal("expected uploaded result")
+	}
+	if runner.name != "bash" || strings.Join(runner.args, " ") != "upload.sh sandcastle/base:test sandcastle/base:test local" {
 		t.Fatalf("runner = %#v", runner)
 	}
 }

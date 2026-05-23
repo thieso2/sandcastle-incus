@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -3238,6 +3239,24 @@ func TestAdminInfraCreateDryRunJSON(t *testing.T) {
 	}
 }
 
+func TestAdminInfraCreateVerbosePrintsSeedFile(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	t.Setenv("VERBOSE", "1")
+	_, stderr, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle-admin",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "infra", "create", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "[verbose] seed file:") {
+		t.Fatalf("stderr missing seed file:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, ".seed.yml") {
+		t.Fatalf("stderr missing seed path:\n%s", stderr)
+	}
+}
+
 func TestAdminInfraCreateUsernameFlagOverridesLocalUser(t *testing.T) {
 	setAdminRuntimeBinaryForTest(t)
 	t.Setenv("USER", "localuser")
@@ -3371,6 +3390,32 @@ func TestAdminInfraCreateInternalTLSInstallsDebugCA(t *testing.T) {
 	}
 }
 
+func TestAdminInfraCreateContinuesWhenDebugCATrustInstallFails(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	t.Setenv("SANDCASTLE_INFRA_CA_DIR", t.TempDir())
+	manager := &fakeLocalTrustManager{installErr: fmt.Errorf("authorization denied")}
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "internal"
+	stdout, stderr, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  admin,
+		infraCreator: &fakeInfraCreator{},
+		localTrust:   manager,
+	}, "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.installed {
+		t.Fatal("expected infrastructure debug CA trust install attempt")
+	}
+	if !strings.Contains(stderr, "infrastructure debug CA trust install failed") {
+		t.Fatalf("stderr missing trust warning:\n%s", stderr)
+	}
+	if !strings.Contains(stdout, "Infrastructure project: "+scconfig.DefaultInfrastructureProject) {
+		t.Fatalf("stdout missing create result:\n%s", stdout)
+	}
+}
+
 func TestAdminInfraCreateACMEDoesNotInstallDebugCA(t *testing.T) {
 	setAdminRuntimeBinaryForTest(t)
 	creator := &fakeInfraCreator{}
@@ -3436,7 +3481,7 @@ func TestAdminInfraGenSeedWritesDefaultDeploymentSeed(t *testing.T) {
 	if !ok {
 		t.Fatal("expected seed file")
 	}
-	if seed.Deployment != "lab" || seed.Infra.Remote != "big" || seed.Auth.DefaultUnixUser != "alice" {
+	if seed.Deployment != "lab" || seed.Infra.Remote != "big" {
 		t.Fatalf("seed = %#v", seed)
 	}
 	if !strings.Contains(stdout, "Generated infrastructure seed") || !strings.Contains(stdout, path) {
@@ -3452,7 +3497,7 @@ func TestAdminInfraCreateUsesSeedAndEnvOverrides(t *testing.T) {
 	admin.Remote = "seed-remote"
 	admin.InfrastructureProject = "seed-infra"
 	admin.AuthHostname = "auth.example.com"
-	seed := infra.SeedFromAdmin("lab", admin, "seeduser")
+	seed := infra.SeedFromAdmin("lab", admin)
 	if err := infra.SaveSeed(seedPath, seed); err != nil {
 		t.Fatal(err)
 	}
@@ -3471,8 +3516,8 @@ func TestAdminInfraCreateUsesSeedAndEnvOverrides(t *testing.T) {
 	if creator.plan.Project != "env-infra" {
 		t.Fatalf("Project = %q", creator.plan.Project)
 	}
-	if creator.plan.DefaultUnixUser != "seeduser" {
-		t.Fatalf("DefaultUnixUser = %q", creator.plan.DefaultUnixUser)
+	if creator.plan.DefaultUnixUser == "seeduser" {
+		t.Fatalf("DefaultUnixUser unexpectedly came from seed: %q", creator.plan.DefaultUnixUser)
 	}
 }
 
@@ -3482,7 +3527,7 @@ func TestAdminInfraCreateRestoresEmbeddedSeedCaddyData(t *testing.T) {
 	admin := scconfig.AdminDefaults()
 	admin.Remote = "seed-remote"
 	admin.AuthHostname = "auth.example.com"
-	seed := infra.SeedFromAdmin("lab", admin, "seeduser")
+	seed := infra.SeedFromAdmin("lab", admin)
 	seed = infra.EmbedCaddyDataArchive(seed, "auth.example.com", []byte("archive"))
 	if err := infra.SaveSeed(seedPath, seed); err != nil {
 		t.Fatal(err)
@@ -3507,7 +3552,7 @@ func TestAdminInfraCreateCapturesCaddyDataIntoSeed(t *testing.T) {
 	admin := scconfig.AdminDefaults()
 	admin.Remote = "seed-remote"
 	admin.AuthHostname = "auth.example.com"
-	seed := infra.SeedFromAdmin("lab", admin, "seeduser")
+	seed := infra.SeedFromAdmin("lab", admin)
 	if err := infra.SaveSeed(seedPath, seed); err != nil {
 		t.Fatal(err)
 	}
@@ -3535,6 +3580,79 @@ func TestAdminInfraCreateCapturesCaddyDataIntoSeed(t *testing.T) {
 	}
 	if !ok || string(data) != "captured" {
 		t.Fatalf("captured archive = %q ok=%v", string(data), ok)
+	}
+}
+
+func TestAdminInfraCreateBuildsAndUploadsDefaultImages(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	creator := &fakeInfraCreator{}
+	builder := &fakeImageBuilder{}
+	uploader := &fakeImageUploader{}
+	_, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:          "sandcastle-admin",
+		adminConfig:   scconfig.LoadAdminFromEnv(),
+		infraCreator:  creator,
+		imageBuilder:  builder,
+		imageUploader: uploader,
+	}, "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !builder.called || len(builder.plans) != 2 {
+		t.Fatalf("builder called=%v plans=%d", builder.called, len(builder.plans))
+	}
+	if !uploader.called || len(uploader.plans) != 2 {
+		t.Fatalf("uploader called=%v plans=%d", uploader.called, len(uploader.plans))
+	}
+	if builder.plans[0].Template != "base" || builder.plans[1].Template != "ai" {
+		t.Fatalf("build plans = %#v", builder.plans)
+	}
+	if builder.plans[0].Platform != "linux/amd64" || builder.plans[1].Platform != "linux/amd64" {
+		t.Fatalf("build platforms = %#v", builder.plans)
+	}
+	if uploader.plans[0].Alias != scconfig.DefaultBaseImageAlias || uploader.plans[1].Alias != scconfig.DefaultAIImageAlias {
+		t.Fatalf("upload plans = %#v", uploader.plans)
+	}
+}
+
+func TestAdminInfraCreateBuildPlatformEnvOverride(t *testing.T) {
+	t.Setenv("SANDCASTLE_IMAGE_PLATFORM", "linux/arm64")
+	setAdminRuntimeBinaryForTest(t)
+	builder := &fakeImageBuilder{}
+	_, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:          "sandcastle-admin",
+		adminConfig:   scconfig.LoadAdminFromEnv(),
+		infraCreator:  &fakeInfraCreator{},
+		imageBuilder:  builder,
+		imageUploader: &fakeImageUploader{},
+	}, "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(builder.plans) != 2 || builder.plans[0].Platform != "linux/arm64" || builder.plans[1].Platform != "linux/arm64" {
+		t.Fatalf("build plans = %#v", builder.plans)
+	}
+}
+
+func TestAdminInfraCreateSkipsImageBuildForFullOCIRefs(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	admin := scconfig.LoadAdminFromEnv()
+	admin.Images.Base = "oci:registry.example.com/sandcastle/base:latest"
+	admin.Images.AI = "oci:registry.example.com/sandcastle/ai:latest"
+	builder := &fakeImageBuilder{}
+	uploader := &fakeImageUploader{}
+	_, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:          "sandcastle-admin",
+		adminConfig:   admin,
+		infraCreator:  &fakeInfraCreator{},
+		imageBuilder:  builder,
+		imageUploader: uploader,
+	}, "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if builder.called || uploader.called {
+		t.Fatalf("expected no image preparation, builder=%v uploader=%v", builder.called, uploader.called)
 	}
 }
 
@@ -4230,11 +4348,13 @@ func (f *fakeImageManager) SyncImage(ctx context.Context, plan images.SyncPlan) 
 type fakeImageBuilder struct {
 	called bool
 	plan   images.BuildPlan
+	plans  []images.BuildPlan
 }
 
 func (f *fakeImageBuilder) BuildImage(ctx context.Context, plan images.BuildPlan) (images.BuildResult, error) {
 	f.called = true
 	f.plan = plan
+	f.plans = append(f.plans, plan)
 	return images.BuildResult{BuildPlan: plan, Built: true}, nil
 }
 
@@ -4247,6 +4367,19 @@ func (f *fakeImageImporter) ImportImage(ctx context.Context, plan images.ImportP
 	f.called = true
 	f.plan = plan
 	return images.ImportResult{ImportPlan: plan, Imported: true}, nil
+}
+
+type fakeImageUploader struct {
+	called bool
+	plan   images.UploadPlan
+	plans  []images.UploadPlan
+}
+
+func (f *fakeImageUploader) UploadImage(ctx context.Context, plan images.UploadPlan) (images.UploadResult, error) {
+	f.called = true
+	f.plan = plan
+	f.plans = append(f.plans, plan)
+	return images.UploadResult{UploadPlan: plan, Uploaded: true}, nil
 }
 
 type fakeTailscaleRunner struct {
@@ -4479,14 +4612,18 @@ func (f *fakeHostFiles) RemoveHostsEntry(ctx context.Context, plan hostoverride.
 }
 
 type fakeLocalTrustManager struct {
-	installed bool
-	deleted   bool
-	plan      localtrust.Plan
+	installed  bool
+	deleted    bool
+	plan       localtrust.Plan
+	installErr error
 }
 
 func (f *fakeLocalTrustManager) Install(ctx context.Context, plan localtrust.Plan) (localtrust.Result, error) {
 	f.installed = true
 	f.plan = plan
+	if f.installErr != nil {
+		return localtrust.Result{}, f.installErr
+	}
 	return localtrust.Result{Reference: plan.Reference, TrustName: plan.TrustName, Action: "install", Platform: "fake"}, nil
 }
 

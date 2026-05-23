@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	osuser "os/user"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
@@ -320,11 +322,18 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 		Short: "Create Sandcastle shared infrastructure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			seedState, err := loadOrCreateInfraSeed(config.adminConfig, deploymentName, seedPath, resolveInfraSeedUsername(cmd, unixUser, ""))
+			seedState, err := loadOrCreateInfraSeed(config.adminConfig, deploymentName, seedPath, resolveInfraSeedUsername(cmd, unixUser))
 			if err != nil {
 				return err
 			}
-			username := resolveInfraSeedUsername(cmd, unixUser, seedState.seed.Auth.DefaultUnixUser)
+			if os.Getenv("VERBOSE") == "1" {
+				seedStatus := "not found (will create on first run)"
+				if seedState.exists {
+					seedStatus = "loaded"
+				}
+				fmt.Fprintf(config.stderr, "[verbose] seed file: %s (%s)\n", seedState.path, seedStatus)
+			}
+			username := resolveInfraSeedUsername(cmd, unixUser)
 			admin := config.adminConfig
 			if seedState.exists {
 				admin = infra.ResolveSeedAdmin(seedState.seed)
@@ -350,6 +359,9 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 				if err := saveInfraSeedIfMissing(seedState); err != nil {
 					return err
 				}
+				if err := prepareInfrastructureImages(cmd.Context(), runConfig); err != nil {
+					return err
+				}
 				if runConfig.infraCreator == nil {
 					return fmt.Errorf("infrastructure creation executor is not configured")
 				}
@@ -367,9 +379,8 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 				if shouldInstallInfraTrustAfterCreate(plan) {
 					result, err := installInfraTrust(cmd.Context(), runConfig, opts)
 					if err != nil {
-						return err
-					}
-					if opts.output == outputText {
+						fmt.Fprintf(config.stderr, "Warning: infrastructure debug CA trust install failed: %v\nRun ./bin/sc-adm infra trust install interactively to install the cached CA.\n", err)
+					} else if opts.output == outputText {
 						fmt.Fprintln(config.stdout, formatInfraTrustResult(result))
 					}
 				}
@@ -394,7 +405,7 @@ type infraSeedState struct {
 	exists     bool
 }
 
-func loadOrCreateInfraSeed(admin scconfig.Admin, deploymentName string, seedPath string, defaultUnixUser string) (infraSeedState, error) {
+func loadOrCreateInfraSeed(admin scconfig.Admin, deploymentName string, seedPath string, _ string) (infraSeedState, error) {
 	deployment := strings.TrimSpace(deploymentName)
 	if deployment == "" {
 		deployment = infra.DefaultDeploymentName(admin)
@@ -423,7 +434,7 @@ func loadOrCreateInfraSeed(admin scconfig.Admin, deploymentName string, seedPath
 		}
 		return infraSeedState{deployment: seed.Deployment, path: path, seed: seed, exists: true}, nil
 	}
-	seed = infra.SeedFromAdmin(deployment, admin, defaultUnixUser)
+	seed = infra.SeedFromAdmin(deployment, admin)
 	seed, err = infra.EmbedExistingCaddyDataArchive(seed, admin)
 	if err != nil {
 		return infraSeedState{}, err
@@ -441,14 +452,11 @@ func defaultLocalUnixUsername() string {
 	return ""
 }
 
-func resolveInfraSeedUsername(cmd *cobra.Command, flagValue string, seedValue string) string {
+func resolveInfraSeedUsername(cmd *cobra.Command, flagValue string) string {
 	if cmd != nil && cmd.Flags().Changed("username") {
 		return strings.TrimSpace(flagValue)
 	}
 	if value := strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_DEFAULT_UNIX_USER")); value != "" {
-		return value
-	}
-	if value := strings.TrimSpace(seedValue); value != "" {
 		return value
 	}
 	return defaultLocalUnixUsername()
@@ -571,12 +579,12 @@ func newAdminInfraGenSeedCommand(config commandConfig, opts *rootOptions) *cobra
 		Short: "Generate a Sandcastle infrastructure seed file",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			username := resolveInfraSeedUsername(cmd, unixUser, "")
+			username := resolveInfraSeedUsername(cmd, unixUser)
 			state, err := loadOrCreateInfraSeed(config.adminConfig, deploymentName, seedPath, username)
 			if err != nil {
 				return err
 			}
-			generated := infra.SeedFromAdmin(state.deployment, config.adminConfig, username)
+			generated := infra.SeedFromAdmin(state.deployment, config.adminConfig)
 			if state.exists {
 				generated.TLS = state.seed.TLS
 			} else {
@@ -621,6 +629,159 @@ func formatInfraSeedResult(result infraSeedResult) string {
 
 func shouldInstallInfraTrustAfterCreate(plan infra.CreatePlan) bool {
 	return strings.EqualFold(strings.TrimSpace(plan.TLSMode), "internal")
+}
+
+func prepareInfrastructureImages(ctx context.Context, config commandConfig) error {
+	if config.imageBuilder == nil || config.imageUploader == nil {
+		return nil
+	}
+	for _, template := range []string{"base", "ai"} {
+		imageRef, err := infrastructureImageRef(config.adminConfig, template)
+		if err != nil {
+			return err
+		}
+		if isFullImageSource(imageRef) {
+			if os.Getenv("VERBOSE") == "1" {
+				fmt.Fprintf(config.stderr, "[infra-create] prepare image %s: use %s (full OCI source)\n", template, imageRef)
+			}
+			continue
+		}
+		uploadPlan, err := images.PlanUpload(config.adminConfig, images.UploadRequest{Template: template, SourceRef: imageRef, Alias: imageRef})
+		if err != nil {
+			return err
+		}
+		if shouldReuseRemoteInfrastructureImage(ctx, config.imageUploader, uploadPlan.Remote, uploadPlan.Alias) {
+			if os.Getenv("VERBOSE") == "1" {
+				fmt.Fprintf(config.stderr, "[infra-create] prepare image %s: use %s from %s (remote image exists)\n", template, imageRef, uploadPlan.Remote)
+			}
+			continue
+		}
+		buildPlatform := firstNonEmptyEnvOrDefault("linux/amd64", "SANDCASTLE_IMAGE_PLATFORM", "DOCKER_DEFAULT_PLATFORM")
+		buildRequest := images.BuildRequest{Template: template, Tag: imageRef, Platform: buildPlatform}
+		if template == "ai" {
+			buildRequest.CodexVersion = firstNonEmptyEnvOrDefault("latest", "SANDCASTLE_CODEX_VERSION", "SANDCASTLE_E2E_CODEX_VERSION")
+			buildRequest.ClaudeVersion = firstNonEmptyEnvOrDefault("latest", "SANDCASTLE_CLAUDE_VERSION", "SANDCASTLE_E2E_CLAUDE_CODE_VERSION")
+			buildRequest.GeminiVersion = firstNonEmptyEnvOrDefault("latest", "SANDCASTLE_GEMINI_VERSION", "SANDCASTLE_E2E_GEMINI_CLI_VERSION")
+		}
+		buildPlan, err := images.PlanBuild(config.adminConfig, buildRequest)
+		if err != nil {
+			return err
+		}
+		if shouldReuseLocalInfrastructureImage(ctx, config.imageBuilder, buildPlan.Tool, imageRef, buildPlatform) {
+			if os.Getenv("VERBOSE") == "1" {
+				fmt.Fprintf(config.stderr, "[infra-create] prepare image %s: build %s (%s) skipped (local image exists)\n", template, imageRef, buildPlatform)
+			}
+		} else {
+			if err := runInfraCreateVerboseStep(config, fmt.Sprintf("prepare image %s: build %s (%s)", template, imageRef, buildPlatform), func() error {
+				_, err := config.imageBuilder.BuildImage(ctx, buildPlan)
+				return err
+			}); err != nil {
+				return err
+			}
+		}
+		if err := runInfraCreateVerboseStep(config, fmt.Sprintf("prepare image %s: upload %s to %s", template, imageRef, uploadPlan.Remote), func() error {
+			_, err := config.imageUploader.UploadImage(ctx, uploadPlan)
+			return err
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func shouldReuseLocalInfrastructureImage(ctx context.Context, builder images.Builder, tool string, imageRef string, platform string) bool {
+	if os.Getenv("SANDCASTLE_IMAGE_REBUILD") == "1" {
+		return false
+	}
+	switch builder.(type) {
+	case images.LocalBuilder:
+	default:
+		return false
+	}
+	arch, ok := localImageArchitecture(ctx, tool, imageRef)
+	if !ok {
+		return false
+	}
+	want := strings.TrimPrefix(strings.TrimSpace(platform), "linux/")
+	return want != "" && arch == want
+}
+
+func shouldReuseRemoteInfrastructureImage(ctx context.Context, uploader images.Uploader, remote string, alias string) bool {
+	if os.Getenv("SANDCASTLE_IMAGE_REUPLOAD") == "1" {
+		return false
+	}
+	switch uploader.(type) {
+	case images.LocalUploader:
+	default:
+		return false
+	}
+	return remoteImageExists(ctx, remote, alias)
+}
+
+func localImageArchitecture(ctx context.Context, tool string, imageRef string) (string, bool) {
+	if strings.TrimSpace(tool) == "" {
+		tool = "docker"
+	}
+	output, err := exec.CommandContext(ctx, tool, "image", "inspect", imageRef, "--format", "{{.Architecture}}").Output()
+	if err != nil {
+		return "", false
+	}
+	arch := strings.TrimSpace(string(output))
+	return arch, arch != ""
+}
+
+func remoteImageExists(ctx context.Context, remote string, alias string) bool {
+	remote = strings.TrimSpace(remote)
+	alias = strings.TrimSpace(alias)
+	if remote == "" || alias == "" {
+		return false
+	}
+	return exec.CommandContext(ctx, "incus", "image", "info", remote+":"+alias).Run() == nil
+}
+
+func runInfraCreateVerboseStep(config commandConfig, label string, fn func() error) error {
+	if os.Getenv("VERBOSE") != "1" {
+		return fn()
+	}
+	start := time.Now()
+	fmt.Fprintf(config.stderr, "[infra-create] %s ...", label)
+	if err := fn(); err != nil {
+		fmt.Fprintf(config.stderr, " failed (%s)\n", cliVerboseDuration(time.Since(start)))
+		return err
+	}
+	fmt.Fprintf(config.stderr, " done (%s)\n", cliVerboseDuration(time.Since(start)))
+	return nil
+}
+
+func cliVerboseDuration(duration time.Duration) string {
+	if duration < time.Millisecond {
+		return fmt.Sprintf("%dus", duration.Microseconds())
+	}
+	return duration.Round(time.Millisecond).String()
+}
+
+func infrastructureImageRef(admin scconfig.Admin, template string) (string, error) {
+	switch template {
+	case "base":
+		return strings.TrimSpace(admin.Images.Base), nil
+	case "ai":
+		return strings.TrimSpace(admin.Images.AI), nil
+	default:
+		return "", fmt.Errorf("unknown image template %q", template)
+	}
+}
+
+func isFullImageSource(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "oci:")
+}
+
+func firstNonEmptyEnvOrDefault(fallback string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return fallback
 }
 
 func newAdminInfraDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -891,6 +1052,7 @@ func newAdminImageCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 func newAdminImageBuildCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var tag string
 	var tool string
+	var platform string
 	var codexVersion string
 	var claudeVersion string
 	var geminiVersion string
@@ -904,6 +1066,7 @@ func newAdminImageBuildCommand(config commandConfig, opts *rootOptions) *cobra.C
 				Template:      args[0],
 				Tag:           tag,
 				Tool:          tool,
+				Platform:      platform,
 				CodexVersion:  codexVersion,
 				ClaudeVersion: claudeVersion,
 				GeminiVersion: geminiVersion,
@@ -926,6 +1089,7 @@ func newAdminImageBuildCommand(config commandConfig, opts *rootOptions) *cobra.C
 	}
 	command.Flags().StringVar(&tag, "tag", "", "image tag to build, defaulting to the configured Sandcastle image alias")
 	command.Flags().StringVar(&tool, "tool", "docker", "OCI image build tool")
+	command.Flags().StringVar(&platform, "platform", "", "OCI image build platform, for example linux/amd64")
 	command.Flags().StringVar(&codexVersion, "codex-version", "", "pinned Codex CLI version for AI images")
 	command.Flags().StringVar(&claudeVersion, "claude-version", "", "pinned Claude Code version for AI images")
 	command.Flags().StringVar(&geminiVersion, "gemini-version", "", "pinned Gemini CLI version for AI images")
