@@ -415,9 +415,9 @@ sc project status website</code></pre>
       <pre><code>sc tailscale up</code></pre>
       <p>The command runs <code>tailscale up --timeout=60s</code> inside the current tenant's Tailscale sidecar and advertises the tenant private CIDR. For unattended environments, pass an auth key with <code>--auth-key tskey-auth-...</code>; without one, Tailscale may print a browser auth URL but the command remains bounded by the timeout.</p>
 
-      <h3>7. Install local DNS forwarding</h3>
+      <h3>7. Install local DNS</h3>
       <pre><code>sc dns setup</code></pre>
-      <p>The setup command applies tenant DNS records, starts the local DNS forwarder service, and installs the local resolver for the current tenant.</p>
+      <p>The setup command applies tenant DNS records and installs a local resolver for the current tenant suffix. The resolver points directly at the tenant <code>sc-dns</code> sidecar.</p>
 
       <h3>8. Trust the tenant CA for private HTTPS</h3>
       <pre><code>sc trust install</code></pre>
@@ -429,7 +429,7 @@ sc project status website</code></pre>
 # Automation-friendly:
 sc create codex --detach</code></pre>
       <p>By default, Sandcastle uses the AI machine template. Use <code>--template base</code> for a smaller machine.</p>
-      <p>Machine creation refreshes the global <code>~/.ssh/known_hosts</code> entries for the machine FQDN and private IP before connecting, so reused names and addresses get the current SSH host key.</p>
+      <p>Machine creation refreshes the global <code>~/.ssh/known_hosts</code> entries for the machine FQDN and private IP before connecting, so reused names and addresses get the current SSH host key. Connect uses a recorded Tailscale Machine IP when available and otherwise falls back to the private IP.</p>
     </section>
 
     <section id="verify">
@@ -461,7 +461,7 @@ sc connect codex</code></pre>
       <p>For repo-level verification, the destructive <code>scripts/e2e.sh incus</code> tier covers tenant create/purge and listing, tenant DNS, the current <code>sc create</code> and <code>sc connect</code> machine flows, local trust, host override create/list/delete, infrastructure, and image-sync checks.</p>
 
       <h3>Disposable VM local e2e</h3>
-      <p>Use the host-side VM harness for local DNS service, platform trust, and <code>/etc/hosts</code> mutation coverage. The harness creates a 20GiB root disk by default and starts a root systemd user service manager inside the VM so Linux <code>systemctl --user</code> paths are exercised.</p>
+      <p>Use the host-side VM harness for local DNS resolver, platform trust, and <code>/etc/hosts</code> mutation coverage. The harness creates a 20GiB root disk by default.</p>
       <p>Test tenant private DNS suffixes are derived from the disposable tenant names; there is no separate e2e domain-suffix setting.</p>
       <pre><code>scripts/e2e-local-vm.sh
 SANDCASTLE_E2E_VM_KEEP=1 scripts/e2e-local-vm.sh</code></pre>

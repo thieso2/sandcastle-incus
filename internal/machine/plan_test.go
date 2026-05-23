@@ -135,13 +135,16 @@ func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 	}
 }
 
-func TestPlanConnectRejectsManagedMachineWithoutTailscaleMachineIP(t *testing.T) {
+func TestPlanConnectFallsBackToPrivateIPWithoutTailscaleMachineIP(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
 	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42"}}}
-	_, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "website/codex"})
-	if err == nil || !strings.Contains(err.Error(), "no recorded Tailscale Machine IP") {
-		t.Fatalf("error = %v", err)
+	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "website/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.SSHHost != "10.248.0.42" || plan.HostKeyAlias != "codex.website.acme" {
+		t.Fatalf("ssh target = %q alias %q", plan.SSHHost, plan.HostKeyAlias)
 	}
 }
 

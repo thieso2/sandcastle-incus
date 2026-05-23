@@ -58,6 +58,10 @@ type MachineSSHKeyReconciler interface {
 	ReconcileUserSSHKey(context.Context, tenant.Summary, string, string) error
 }
 
+type TenantSSHKeyUpdater interface {
+	SetTenantSSHKey(context.Context, string, string) error
+}
+
 type MachineSSHAccessRevoker interface {
 	RevokeUserSSHKey(context.Context, tenant.Summary, string) error
 }
@@ -70,6 +74,7 @@ type HTTPRunner struct {
 	TenantAccess     TenantAccessManager
 	Machines         machine.Store
 	MachineSSHKeys   MachineSSHKeyReconciler
+	TenantSSHKeys    TenantSSHKeyUpdater
 	MachineSSHAccess MachineSSHAccessRevoker
 }
 
@@ -119,6 +124,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			TenantAccess:       r.TenantAccess,
 			Machines:           r.Machines,
 			MachineSSHKeys:     r.MachineSSHKeys,
+			TenantSSHKeys:      r.TenantSSHKeys,
 			MachineSSHAccess:   r.MachineSSHAccess,
 			DebugDeviceUser:    plan.DebugDeviceUser,
 			TailscaleAuthKey:   plan.TailscaleAuthKey,
@@ -302,6 +308,7 @@ type HandlerOptions struct {
 	TenantAccess       TenantAccessManager
 	Machines           machine.Store
 	MachineSSHKeys     MachineSSHKeyReconciler
+	TenantSSHKeys      TenantSSHKeyUpdater
 	MachineSSHAccess   MachineSSHAccessRevoker
 	DebugDeviceUser    string
 	TailscaleAuthKey   string
@@ -322,6 +329,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		tenantAccess:     handlerOptions.TenantAccess,
 		machines:         handlerOptions.Machines,
 		machineSSHKeys:   handlerOptions.MachineSSHKeys,
+		tenantSSHKeys:    handlerOptions.TenantSSHKeys,
 		machineSSHAccess: handlerOptions.MachineSSHAccess,
 		debugDeviceUser:  NormalizeGitHubUsername(handlerOptions.DebugDeviceUser),
 		tailscaleAuthKey: strings.TrimSpace(handlerOptions.TailscaleAuthKey),
@@ -376,6 +384,7 @@ type handler struct {
 	tenantAccess     TenantAccessManager
 	machines         machine.Store
 	machineSSHKeys   MachineSSHKeyReconciler
+	tenantSSHKeys    TenantSSHKeyUpdater
 	machineSSHAccess MachineSSHAccessRevoker
 	debugDeviceUser  string
 	tailscaleAuthKey string

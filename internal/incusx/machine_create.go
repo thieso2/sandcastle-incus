@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,15 +55,37 @@ func NewMachineCreator(remote string) MachineCreator {
 
 func (c MachineCreator) WithVerbose(enabled bool, w io.Writer) MachineCreator {
 	if enabled {
-		c.Log = func(msg string) { fmt.Fprintln(w, "[machine-create] "+msg) }
+		c.Log = func(msg string) { fmt.Fprint(w, msg) }
 	}
 	return c
 }
 
 func (c MachineCreator) log(msg string) {
 	if c.Log != nil {
-		c.Log(msg)
+		c.Log("[machine-create] " + msg + "\n")
 	}
+}
+
+func (c MachineCreator) runCommand(label string, fn func() error) error {
+	return c.runCommandWithExpectedError(label, nil, fn)
+}
+
+func (c MachineCreator) runCommandWithExpectedError(label string, expected func(error) bool, fn func() error) error {
+	if c.Log == nil {
+		return fn()
+	}
+	start := time.Now()
+	c.Log("[machine-create] " + label + " ...")
+	if err := fn(); err != nil {
+		if expected != nil && expected(err) {
+			c.Log(fmt.Sprintf(" done (%s)\n", formatVerboseDuration(time.Since(start))))
+			return err
+		}
+		c.Log(fmt.Sprintf(" failed (%s)\n", formatVerboseDuration(time.Since(start))))
+		return err
+	}
+	c.Log(fmt.Sprintf(" done (%s)\n", formatVerboseDuration(time.Since(start))))
+	return nil
 }
 
 func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePlan) error {
@@ -76,53 +99,114 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		c.log("connect to Incus remote " + remote)
-		instanceServer, err := loaded.GetInstanceServer(remote)
-		if err != nil {
+		var instanceServer incus.InstanceServer
+		if err := c.runCommand("connect to Incus remote "+remote, func() error {
+			var err error
+			instanceServer, err = loaded.GetInstanceServer(remote)
+			return err
+		}); err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
 		server = sdkMachineServer{inner: instanceServer}
 	}
-	c.log("use project " + plan.Tenant.IncusName)
-	projectServer := server.UseProject(plan.Tenant.IncusName)
-	c.log("get instance " + plan.InstanceName)
-	instance, _, err := projectServer.GetInstance(plan.InstanceName)
+	var projectServer MachineResourceServer
+	if err := c.runCommand("use project "+plan.Tenant.IncusName, func() error {
+		projectServer = server.UseProject(plan.Tenant.IncusName)
+		return nil
+	}); err != nil {
+		return err
+	}
+	var instance *api.Instance
+	err := c.runCommandWithExpectedError("get instance "+plan.InstanceName, func(err error) bool {
+		return api.StatusErrorCheck(err, http.StatusNotFound)
+	}, func() error {
+		var err error
+		instance, _, err = projectServer.GetInstance(plan.InstanceName)
+		return err
+	})
 	if err == nil {
 		if plan.StartsByDefault && !instance.IsActive() {
-			c.log("start instance " + plan.InstanceName)
-			op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
-			if err != nil {
+			if err := c.runCommand("start instance "+plan.InstanceName, func() error {
+				op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
+				if err != nil {
+					return err
+				}
+				return op.Wait()
+			}); err != nil {
 				return fmt.Errorf("start machine %s: %w", plan.InstanceName, err)
 			}
-			if err := op.Wait(); err != nil {
-				return err
-			}
 		}
-		c.log("ensure machine files for " + plan.InstanceName)
-		if err := ensureMachineFiles(projectServer, plan); err != nil {
+		if err := c.configureMachineStep(projectServer, plan); err != nil {
 			return err
 		}
-		return ensureMachineTailscaleIP(ctx, projectServer, plan)
+		return c.recordMachineTailscaleIPStep(ctx, projectServer, plan)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
 	}
-	if err := ensureMachineStorageDirs(projectServer, plan); err != nil {
+	if err := c.runCommand("ensure machine storage dirs for "+plan.InstanceName, func() error {
+		return ensureMachineStorageDirs(projectServer, plan)
+	}); err != nil {
 		return err
 	}
-	c.log("create instance " + plan.InstanceName + " (image: " + plan.ImageAlias + ")")
-	op, err := projectServer.CreateInstance(machineRequest(plan))
-	if err != nil {
+	if err := c.runCommand("create instance "+plan.InstanceName+" (image: "+plan.ImageAlias+")", func() error {
+		op, err := projectServer.CreateInstance(machineRequest(plan))
+		if err != nil {
+			return err
+		}
+		return op.Wait()
+	}); err != nil {
 		return fmt.Errorf("create machine %s: %w", plan.InstanceName, err)
 	}
-	if err := op.Wait(); err != nil {
+	if err := c.configureMachineStep(projectServer, plan); err != nil {
 		return err
 	}
-	c.log("ensure machine files for " + plan.InstanceName)
-	if err := ensureMachineFiles(projectServer, plan); err != nil {
+	return c.recordMachineTailscaleIPStep(ctx, projectServer, plan)
+}
+
+func (c MachineCreator) recordMachineTailscaleIPStep(ctx context.Context, server MachineResourceServer, plan machine.CreatePlan) error {
+	var warning string
+	if err := c.runCommand("record Tailscale Machine IP for "+plan.InstanceName, func() error {
+		var err error
+		warning, err = recordMachineTailscaleIPIfAvailable(ctx, server, plan)
+		return err
+	}); err != nil {
 		return err
 	}
-	return ensureMachineTailscaleIP(ctx, projectServer, plan)
+	if warning != "" {
+		c.log(warning)
+	}
+	return nil
+}
+
+func recordMachineTailscaleIPIfAvailable(ctx context.Context, server MachineResourceServer, plan machine.CreatePlan) (string, error) {
+	if err := ensureMachineTailscaleIP(ctx, server, plan); err != nil {
+		var unavailable machineTailscaleIPUnavailableError
+		if errors.As(err, &unavailable) {
+			return unavailable.Error() + "; continuing with private IP " + plan.PrivateIP, nil
+		}
+		return "", err
+	}
+	return "", nil
+}
+
+func (c MachineCreator) configureMachine(server MachineResourceServer, plan machine.CreatePlan) error {
+	return ensureMachineFiles(server, plan, func(label string, fn func() error) error {
+		return c.runCommand("configure instance "+plan.InstanceName+": "+label, fn)
+	})
+}
+
+func (c MachineCreator) configureMachineStep(server MachineResourceServer, plan machine.CreatePlan) error {
+	if c.Log == nil {
+		return c.configureMachine(server, plan)
+	}
+	start := time.Now()
+	if err := c.configureMachine(server, plan); err != nil {
+		c.log(fmt.Sprintf("configure instance %s failed (%s)", plan.InstanceName, formatVerboseDuration(time.Since(start))))
+		return err
+	}
+	c.log(fmt.Sprintf("configure instance %s done (%s)", plan.InstanceName, formatVerboseDuration(time.Since(start))))
+	return nil
 }
 
 func ensureMachineStorageDirs(server MachineResourceServer, plan machine.CreatePlan) error {
@@ -209,9 +293,26 @@ func waitForMachineTailscaleIP(ctx context.Context, server MachineResourceServer
 		}
 	}
 	if lastErr != nil {
-		return "", fmt.Errorf("machine %s was created but did not report Tailscale Machine IP: %w", instanceName, lastErr)
+		return "", machineTailscaleIPUnavailableError{instanceName: instanceName, cause: lastErr}
 	}
-	return "", fmt.Errorf("machine %s was created but did not report Tailscale Machine IP", instanceName)
+	return "", machineTailscaleIPUnavailableError{instanceName: instanceName}
+}
+
+type machineTailscaleIPUnavailableError struct {
+	instanceName string
+	cause        error
+}
+
+func (e machineTailscaleIPUnavailableError) Error() string {
+	message := fmt.Sprintf("machine %s did not report Tailscale Machine IP", e.instanceName)
+	if e.cause != nil {
+		return message + ": " + e.cause.Error()
+	}
+	return message
+}
+
+func (e machineTailscaleIPUnavailableError) Unwrap() error {
+	return e.cause
 }
 
 func machineTailscaleIP(ctx context.Context, server MachineResourceServer, instanceName string) (string, error) {
@@ -342,91 +443,135 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
-func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan) error {
-	if err := setMachineHostname(server, plan); err != nil {
+type machineConfigStepRunner func(label string, fn func() error) error
+
+func runMachineConfigStep(run machineConfigStepRunner, label string, fn func() error) error {
+	if run == nil {
+		return fn()
+	}
+	return run(label, fn)
+}
+
+func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan, run machineConfigStepRunner) error {
+	if err := runMachineConfigStep(run, "set hostname", func() error {
+		return setMachineHostname(server, plan)
+	}); err != nil {
 		return err
 	}
-	if err := ensureMachineSSHHostKeys(server, plan.InstanceName); err != nil {
+	if err := runMachineConfigStep(run, "ensure SSH host keys", func() error {
+		return ensureMachineSSHHostKeys(server, plan.InstanceName)
+	}); err != nil {
 		return err
 	}
-	if err := bootstrapMachineUser(server, plan); err != nil {
+	if err := runMachineConfigStep(run, "bootstrap Linux user "+plan.LinuxUser, func() error {
+		return bootstrapMachineUser(server, plan)
+	}); err != nil {
 		return err
 	}
-	if err := ensureMachinePrompt(server, plan); err != nil {
+	if err := runMachineConfigStep(run, "configure shell prompt", func() error {
+		return ensureMachinePrompt(server, plan)
+	}); err != nil {
 		return err
 	}
-	if err := ensureMachinePingCapability(server, plan.InstanceName); err != nil {
+	if err := runMachineConfigStep(run, "enable ping capability", func() error {
+		return ensureMachinePingCapability(server, plan.InstanceName)
+	}); err != nil {
 		return err
 	}
 	if plan.Tenant.DNSAddress != "" {
-		if err := writeMachineResolvConf(server, plan.InstanceName, plan.Tenant.DNSAddress); err != nil {
+		if err := runMachineConfigStep(run, "write resolv.conf", func() error {
+			return writeMachineResolvConf(server, plan.InstanceName, plan.Tenant.DNSAddress)
+		}); err != nil {
 			return fmt.Errorf("write machine resolv.conf: %w", err)
 		}
 	}
 	certificateFiles := plan.CertificateFiles
 	if len(certificateFiles) == 0 {
-		var err error
-		certificateFiles, err = issueMachineCertificateFilesFromProjectCA(server, plan)
-		if err != nil {
+		if err := runMachineConfigStep(run, "issue certificate from tenant CA", func() error {
+			var err error
+			certificateFiles, err = issueMachineCertificateFilesFromProjectCA(server, plan)
+			return err
+		}); err != nil {
 			return err
 		}
 	}
-	for _, directory := range []string{
-		"/etc/caddy",
-		"/etc/caddy/certs",
-		"/etc/systemd/system/caddy.service.d",
-		machine.WorkloadDir,
-		"/etc/profile.d",
-	} {
-		err := server.CreateInstanceFile(plan.InstanceName, directory, incus.InstanceFileArgs{
-			Type: "directory",
-			Mode: 0o755,
-		})
-		if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
-			return fmt.Errorf("create machine config directory %s: %w", directory, err)
+	if err := runMachineConfigStep(run, "create config directories", func() error {
+		for _, directory := range []string{
+			"/etc/caddy",
+			"/etc/caddy/certs",
+			"/etc/systemd/system/caddy.service.d",
+			machine.WorkloadDir,
+			"/etc/profile.d",
+		} {
+			err := server.CreateInstanceFile(plan.InstanceName, directory, incus.InstanceFileArgs{
+				Type: "directory",
+				Mode: 0o755,
+			})
+			if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
+				return fmt.Errorf("create machine config directory %s: %w", directory, err)
+			}
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	if err := server.CreateInstanceFile(plan.InstanceName, "/etc/systemd/system/caddy.service.d/machine.conf", incus.InstanceFileArgs{
-		Content:   strings.NewReader("[Service]\nUser=root\nGroup=root\n"),
-		Type:      "file",
-		Mode:      0o644,
-		WriteMode: "overwrite",
+	if err := runMachineConfigStep(run, "write Caddy systemd override", func() error {
+		return server.CreateInstanceFile(plan.InstanceName, "/etc/systemd/system/caddy.service.d/machine.conf", incus.InstanceFileArgs{
+			Content:   strings.NewReader("[Service]\nUser=root\nGroup=root\n"),
+			Type:      "file",
+			Mode:      0o644,
+			WriteMode: "overwrite",
+		})
 	}); err != nil {
 		return fmt.Errorf("write Caddy service override: %w", err)
 	}
-	if err := server.CreateInstanceFile(plan.InstanceName, plan.CaddyFile.Path, incus.InstanceFileArgs{
-		Content:   strings.NewReader(plan.CaddyFile.Content),
-		Type:      "file",
-		Mode:      plan.CaddyFile.Mode,
-		WriteMode: "overwrite",
+	if err := runMachineConfigStep(run, "write Caddyfile", func() error {
+		return server.CreateInstanceFile(plan.InstanceName, plan.CaddyFile.Path, incus.InstanceFileArgs{
+			Content:   strings.NewReader(plan.CaddyFile.Content),
+			Type:      "file",
+			Mode:      plan.CaddyFile.Mode,
+			WriteMode: "overwrite",
+		})
 	}); err != nil {
 		return fmt.Errorf("write machine Caddyfile %s: %w", plan.CaddyFile.Path, err)
 	}
-	for _, file := range certificateFiles {
-		if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
-			Content:   strings.NewReader(string(file.Content)),
-			Type:      "file",
-			Mode:      file.Mode,
-			WriteMode: "overwrite",
-		}); err != nil {
-			return fmt.Errorf("write machine certificate file %s: %w", file.Path, err)
+	if err := runMachineConfigStep(run, fmt.Sprintf("write certificate files (%d)", len(certificateFiles)), func() error {
+		for _, file := range certificateFiles {
+			if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
+				Content:   strings.NewReader(string(file.Content)),
+				Type:      "file",
+				Mode:      file.Mode,
+				WriteMode: "overwrite",
+			}); err != nil {
+				return fmt.Errorf("write machine certificate file %s: %w", file.Path, err)
+			}
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	for _, file := range plan.WorkloadFiles {
-		if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
-			Content:   strings.NewReader(string(file.Content)),
-			Type:      "file",
-			Mode:      file.Mode,
-			WriteMode: "overwrite",
-		}); err != nil {
-			return fmt.Errorf("write workload identity file %s: %w", file.Path, err)
+	if err := runMachineConfigStep(run, fmt.Sprintf("write workload identity files (%d)", len(plan.WorkloadFiles)), func() error {
+		for _, file := range plan.WorkloadFiles {
+			if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
+				Content:   strings.NewReader(string(file.Content)),
+				Type:      "file",
+				Mode:      file.Mode,
+				WriteMode: "overwrite",
+			}); err != nil {
+				return fmt.Errorf("write workload identity file %s: %w", file.Path, err)
+			}
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	ipWithPrefix, gateway, err := machineNetworkParams(plan)
 	if err != nil {
 		return err
 	}
-	return restartMachineCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
+	return runMachineConfigStep(run, "restart Caddy", func() error {
+		return restartMachineCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
+	})
 }
 
 func ensureMachineSSHHostKeys(server MachineResourceServer, instanceName string) error {

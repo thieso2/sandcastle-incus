@@ -125,6 +125,10 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if err := h.setPersonalTenantSSHKey(r.Context(), login.UserKey, stored.PublicKey); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		sshFingerprint = stored.Fingerprint
 	} else if login.Status == DeviceStatusApproved && login.UserKey != "" {
 		if stored, err := GetUserSSHKey(r.Context(), h.db, login.UserKey); err == nil {
@@ -183,6 +187,37 @@ func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey stri
 		}
 	}
 	return fmt.Errorf("cannot reconcile User SSH Public Key: Personal Tenant %s not found", tenantName)
+}
+
+func (h handler) setPersonalTenantSSHKey(ctx context.Context, userKey string, publicKey string) error {
+	if h.tenantSSHKeys == nil {
+		return nil
+	}
+	if h.tenants == nil {
+		return fmt.Errorf("cannot set Personal Tenant SSH metadata: tenant store is not configured")
+	}
+	summary, err := h.findPersonalTenant(ctx, userKey)
+	if err != nil {
+		return fmt.Errorf("cannot set Personal Tenant SSH metadata: %w", err)
+	}
+	if err := h.tenantSSHKeys.SetTenantSSHKey(ctx, summary.IncusName, publicKey); err != nil {
+		return fmt.Errorf("set Personal Tenant SSH metadata for %s: %w", summary.Tenant, err)
+	}
+	return nil
+}
+
+func (h handler) findPersonalTenant(ctx context.Context, userKey string) (tenant.Summary, error) {
+	summaries, err := tenant.List(ctx, h.tenants)
+	if err != nil {
+		return tenant.Summary{}, err
+	}
+	tenantName := NormalizeGitHubUsername(userKey)
+	for _, summary := range summaries {
+		if summary.Tenant == tenantName && summary.Personal {
+			return summary, nil
+		}
+	}
+	return tenant.Summary{}, fmt.Errorf("Personal Tenant %s not found", tenantName)
 }
 
 type CLILoginResult struct {

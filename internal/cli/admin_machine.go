@@ -50,7 +50,7 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 			if err != nil {
 				return err
 			}
-			plan, err := machine.PlanCreate(cmd.Context(), cfg.adminConfig, cfg.tenantStore, cfg.machineStore, machine.CreateRequest{
+			plan, err := machine.PlanCreate(cmd.Context(), cfg.adminConfig, tenantStoreWithSSHKeyMetadata(cfg.tenantStore), cfg.machineStore, machine.CreateRequest{
 				Reference:      userRef,
 				Template:       template,
 				AppPort:        appPort,

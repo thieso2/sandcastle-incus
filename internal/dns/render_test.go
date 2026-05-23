@@ -23,7 +23,7 @@ func TestRenderInitial(t *testing.T) {
 		t.Fatalf("Corefile content = %q", corefile.Content)
 	}
 	if !strings.Contains(corefile.Content, "forward . /etc/coredns/upstream-resolv.conf") {
-		t.Fatalf("Corefile missing upstream forwarder: %q", corefile.Content)
+		t.Fatalf("Corefile missing upstream resolver forwarding: %q", corefile.Content)
 	}
 	if !strings.Contains(corefile.Content, "force_tcp") {
 		t.Fatalf("Corefile missing TCP upstream forwarding: %q", corefile.Content)

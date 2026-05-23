@@ -45,16 +45,11 @@ type TenantState struct {
 	Tenant      string        `yaml:"tenant" json:"tenant"`
 	DNSSuffix   string        `yaml:"dnsSuffix" json:"dnsSuffix"`
 	DNSEndpoint EndpointState `yaml:"dnsEndpoint" json:"dnsEndpoint"`
-	Resolver    ResolverState `yaml:"resolver" json:"resolver"`
 }
 
 type EndpointState struct {
 	IP   string `yaml:"ip" json:"ip"`
 	Port int    `yaml:"port" json:"port"`
-}
-
-type ResolverState struct {
-	Listen string `yaml:"listen" json:"listen"`
 }
 
 func (m FileManager) Install(ctx context.Context, plan Plan) (Result, error) {
@@ -100,7 +95,7 @@ func (m FileManager) syncPlatformResolver(ctx context.Context, plan Plan) error 
 	if err != nil {
 		return err
 	}
-	commands := ResolverSyncCommands(plan.ResolverStrategy, state, plan.Listen)
+	commands := ResolverSyncCommands(plan.ResolverStrategy, state)
 	runner := m.Runner
 	if runner == nil {
 		runner = ExecCommandRunner{}
@@ -188,14 +183,11 @@ func tenantState(plan Plan) (TenantState, error) {
 			IP:   dnsIP,
 			Port: port,
 		},
-		Resolver: ResolverState{
-			Listen: plan.Listen,
-		},
 	}, nil
 }
 
 func resolverContent(plan Plan) (string, error) {
-	host, port, err := net.SplitHostPort(plan.Listen)
+	host, port, err := net.SplitHostPort(plan.DNSEndpoint)
 	if err != nil {
 		return "", err
 	}

@@ -254,21 +254,17 @@ Sandcastle does not create project-wide or tenant-wide wildcards:
 
 ## Local DNS Installation
 
-Developer machines use a local Sandcastle DNS forwarder. Local DNS installation
-is per tenant DNS suffix, not per project.
+Developer machines use per-suffix local resolver configuration. Local DNS
+installation is per tenant DNS suffix, not per project.
 
-On macOS, the CLI installs a resolver for the tenant suffix that points to
-loopback and a stable local port:
+On macOS, the CLI installs a resolver for the tenant suffix that points directly
+at the tenant `sc-dns` sidecar:
 
 ```text
 /etc/resolver/acme
-nameserver 127.0.0.1
-port 53541
+nameserver 10.248.0.3
+port 53
 ```
-
-The local forwarder reads CLI-managed local state and forwards tenant suffix
-queries to that tenant's DNS endpoint over the private network. It should not
-perform live Incus lookups for every DNS query.
 
 ## Tenant CA And TLS
 

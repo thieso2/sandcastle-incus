@@ -151,6 +151,7 @@
     <li><a href="#infra">Shared infrastructure</a></li>
     <li><a href="#images">Manage images</a></li>
     <li><a href="#e2e">E2E scripts</a></li>
+    <li><a href="#env-reference">Environment variable reference</a></li>
     <li><a href="#reference">Quick reference</a></li>
   </ol>
 </nav>
@@ -182,7 +183,7 @@ remote: sc-alice</code></pre>
 
   <div class="step">
     <h3>Admin environment variables</h3>
-    <p>Set these before running any <code>sandcastle-admin</code> command, or put them in a local <code>.env</code> file in the current directory. Exported environment variables override <code>.env</code>, and both override the config file.</p>
+    <p>Set these before running any <code>sandcastle-admin</code> command, or put them in a local <code>.env</code> file in the current directory. Exported environment variables override <code>.env</code>, and both override the config file for admin commands. Normal <code>sandcastle</code> (<code>sc</code>) user commands ignore local <code>.env</code> files and read only the saved Sandcastle config plus explicitly exported environment variables.</p>
     <pre><code><span class="comment"># Incus remote name (default: local)</span>
 <span class="env">export SANDCASTLE_REMOTE</span>=big
 
@@ -235,7 +236,7 @@ remote: sc-alice</code></pre>
     <p><code>sandcastle-admin</code> (<code>sc-adm</code>) always uses the global Incus config (<code>~/.config/incus/</code>)
     which holds admin certificates. <code>sandcastle</code> (<code>sc</code>) user commands use the per-remote
     Sandcastle config directory (<code>~/.config/sandcastle/&lt;remote&gt;/incus/</code>) which holds
-    the restricted user certificate.</p>
+    the restricted user certificate. Local repo <code>.env</code> defaults are intentionally admin-only so they cannot redirect <code>sc</code> to the admin remote.</p>
     <p>The <strong>admin remote</strong> is the Incus remote name as it appears in <code>~/.config/incus/config.yml</code>
     (e.g. <code>big</code>). It may differ from the Sandcastle user remote (e.g. <code>sc-alice</code>).
     Configure it once with:</p>
@@ -249,8 +250,7 @@ remote: sc-alice</code></pre>
 
   <div class="step">
     <h3>Enable verbose output</h3>
-    <p>Set <code>VERBOSE=1</code> to see the Incus config directory and remote being used, plus
-    per-operation detail from executors.</p>
+    <p>Set <code>VERBOSE=1</code> to see the Incus config directory and remote being used, per-operation detail from executors, and Incus API calls with durations.</p>
     <pre><code><span class="env">export VERBOSE</span>=1
 <span class="cmd">sandcastle-admin tenant create</span> <span class="arg">acme</span>
 <span class="comment"># [verbose] incus config: ~/.config/incus (default)</span>
@@ -343,11 +343,12 @@ Bootstrap:
     <h3>CLI Device Login</h3>
     <p>Starts browser-assisted sign-in against the Auth App. The CLI prints a verification URL and user code, then polls until the browser approval completes, expires, or is denied.</p>
     <pre><code><span class="cmd">sandcastle login</span> <span class="arg">https://auth.example.com</span></code></pre>
-    <p>Login prepares the User SSH Public Key used for Machine SSH Access before starting the device flow. Pass <code>--ssh-public-key &lt;path&gt;</code> to choose a public key explicitly. Without that flag, the CLI uses <code>~/.ssh/id_ed25519.pub</code> when it exists, otherwise it creates a local Sandcastle SSH Key at <code>~/.ssh/sandcastle_ed25519</code>. The private key stays local.</p>
+    <p>Login prepares the User SSH Public Key used for Machine SSH Access before starting the device flow. Pass <code>--ssh-public-key &lt;path&gt;</code> to choose a public key explicitly. Without that flag, the CLI uses <code>~/.ssh/id_ed25519.pub</code> when it exists, otherwise it creates a local Sandcastle SSH Key at <code>~/.ssh/sandcastle_ed25519</code>. The private key stays local. On approval, the Auth App stores the public key, reconciles it onto existing Personal Tenant machines, and writes it to Personal Tenant metadata so future machines receive the key during bootstrap.</p>
     <pre><code><span class="cmd">sandcastle login</span> <span class="flag">--ssh-public-key</span> <span class="arg">~/.ssh/id_ed25519.pub</span> <span class="arg">https://auth.example.com</span></code></pre>
     <p>After browser approval, the Auth App creates or ensures the user's Personal Tenant, ensures its Default Project, returns a restricted Incus certificate add token, and streams provisioning status through CLI polling. The CLI enrolls the remote with its own local client key and sets the default tenant only when exactly one accessible Tenant is returned.</p>
-    <p>For a single accessible tenant, CLI login enrolls the restricted Incus remote, applies tenant DNS, installs local DNS forwarding, installs the tenant CA into local trust, and runs <code>tailscale up</code> in the tenant Tailscale sidecar. These post-login steps use the newly enrolled Incus config.</p>
+    <p>For a single accessible tenant, CLI login enrolls the restricted Incus remote, applies tenant DNS, installs local resolver config, installs the tenant CA into local trust, and runs <code>tailscale up</code> in the tenant Tailscale sidecar. These post-login steps use the newly enrolled Incus config.</p>
     <p>When the CLI Login Result includes a Tenant Tailnet, login verifies the local Tailscale client is connected to that selected Tenant Tailnet and has a Tailscale IP before reporting Login Readiness. Multi-tenant login does not silently join every accessible Tenant Tailnet.</p>
+    <p>Set <code>VERBOSE=1</code> to print login step timings for SSH key preparation, device start and poll requests, Incus remote enrollment, DNS, trust, Tailscale, and local tailnet verification.</p>
     <p>Login Readiness means the Incus credential, User SSH Public Key, Personal Tenant, Default Project, Tenant Tailnet, local DNS, local tenant CA trust, local Tailscale Prerequisite, and local Sandcastle config are ready. A successful first-run login prints the next command, currently <code>sandcastle create dev</code>.</p>
   </div>
 
@@ -387,7 +388,7 @@ Bootstrap:
   <div class="step">
     <h3>Create and connect to a machine <span class="badge badge-user">user</span></h3>
     <p>Creates an Incus container machine from the selected template and connects to a shell.</p>
-    <p>Creation waits for the Machine to join the Tenant Tailnet and records its Tailscale Machine IP before reporting success.</p>
+    <p>Creation records the Machine's Tailscale IP when one is available. If the Tenant Tailnet is not attached yet, Sandcastle still finishes creation and connects through the machine's private IP.</p>
     <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span></code></pre>
   </div>
 
@@ -437,7 +438,7 @@ Bootstrap:
 
 <span class="comment"># Run a specific command</span>
 <span class="cmd">sandcastle connect</span> <span class="arg">website/codex</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
-    <p><code>connect</code> uses SSH to the recorded Tailscale Machine IP and keeps using the private machine hostname as the host-key alias. Local DNS is useful for private URLs, but it is not required for Machine SSH Access.</p>
+    <p><code>connect</code> uses SSH to the recorded Tailscale Machine IP when present, otherwise it falls back to the machine's private IP. In both cases it uses the private machine hostname as the host-key alias. Local DNS is useful for private URLs, but it is not required for Machine SSH Access.</p>
     <p>If the machine is missing, <code>connect</code> logs that it is creating the machine, then connects after creation.</p>
   </div>
 
@@ -702,7 +703,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Run the first-run login mock OAuth flow</h3>
-    <p>The mock GitHub OAuth e2e test simulates GitHub authorization without network access, drives the Auth App onboarding and Device Login approval flow, uploads the User SSH Public Key, verifies Personal Tenant and Tenant Tailnet readiness in the CLI Login Result, and checks that connect planning targets the recorded Tailscale Machine IP.</p>
+    <p>The mock GitHub OAuth e2e test simulates GitHub authorization without network access, drives the Auth App onboarding and Device Login approval flow, uploads the User SSH Public Key, verifies Personal Tenant and Tenant Tailnet readiness in the CLI Login Result, and checks that connect planning can target the recorded Tailscale Machine IP when present.</p>
     <pre><code><span class="cmd">go test</span> <span class="arg">./internal/e2e</span> <span class="flag">-run</span> <span class="arg">TestFirstRunLoginWithMockGitHubOAuth</span> <span class="flag">-count</span>=1 <span class="flag">-v</span></code></pre>
   </div>
 
@@ -717,9 +718,152 @@ Bootstrap:
   </div>
 </section>
 
-<!-- ─── 11. Quick reference ───────────────────────────────────────────── -->
+<!-- ─── 11. Environment variable reference ────────────────────────────── -->
+<section id="env-reference">
+  <h2>11. Environment variable reference</h2>
+
+  <div class="step">
+    <h3>Scope and precedence</h3>
+    <p>This is the full environment surface read by Sandcastle code, scripts, and mise tasks. <code>sc-adm</code> and other admin paths load exported env vars plus a local repo <code>.env</code>; exported env vars win over <code>.env</code>. Normal <code>sc</code> user commands ignore local <code>.env</code> and read only saved Sandcastle config plus explicitly exported env vars. Internal rows are generated by Sandcastle for sidecars or machines and normally should not be set by users.</p>
+  </div>
+
+  <div class="step">
+    <h3>User and admin configuration</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Used by</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>SANDCASTLE_TENANT</code></td><td><code>sc</code>, <code>sc-adm</code></td><td>Default tenant for tenant-scoped commands.</td></tr>
+        <tr><td><code>SANDCASTLE_PROJECT</code></td><td><code>sc</code>, <code>sc-adm</code></td><td>Default lightweight project inside the current tenant.</td></tr>
+        <tr><td><code>SANDCASTLE_REMOTE</code></td><td><code>sc</code>, <code>sc-adm</code>, mise image tasks</td><td>Incus remote name. For <code>sc</code>, this is usually the restricted Sandcastle remote.</td></tr>
+        <tr><td><code>SANDCASTLE_ADMIN_REMOTE</code></td><td><code>sc-adm</code>, local DNS setup</td><td>Admin Incus remote when it differs from <code>SANDCASTLE_REMOTE</code>.</td></tr>
+        <tr><td><code>SANDCASTLE_STORAGE_POOL</code></td><td><code>sc-adm</code>, infra sidecars</td><td>Incus storage pool for tenant and infrastructure resources.</td></tr>
+        <tr><td><code>SANDCASTLE_CIDR_POOL</code></td><td><code>sc-adm</code>, infra sidecars</td><td>Private CIDR pool used to allocate tenant bridge networks.</td></tr>
+        <tr><td><code>SANDCASTLE_INCUS_PROJECT_PREFIX</code></td><td><code>sc-adm</code>, infra sidecars</td><td>Prefix for managed Incus project names, default <code>sc</code>.</td></tr>
+        <tr><td><code>SANDCASTLE_PROJECT_PREFIX</code></td><td><code>sc-adm</code></td><td>Legacy fallback for <code>SANDCASTLE_INCUS_PROJECT_PREFIX</code>.</td></tr>
+        <tr><td><code>SANDCASTLE_INFRA_PROJECT</code></td><td><code>sc-adm infra</code>, infra sidecars</td><td>Infrastructure Incus project name, default <code>sc-infra</code>.</td></tr>
+        <tr><td><code>SANDCASTLE_INFRA_HOST</code></td><td><code>sc-adm infra</code></td><td>Public host/IP used by shared infrastructure and route publishing.</td></tr>
+        <tr><td><code>SANDCASTLE_LETSENCRYPT_EMAIL</code></td><td><code>sc-adm infra</code></td><td>Email passed to Caddy ACME for Let's Encrypt certificates.</td></tr>
+        <tr><td><code>SANDCASTLE_INFRA_TLS_MODE</code></td><td><code>sc-adm infra</code></td><td><code>acme</code> for public ACME or <code>internal</code> for Caddy internal debug TLS.</td></tr>
+        <tr><td><code>SANDCASTLE_INFRA_CA_DIR</code></td><td><code>sc-adm infra</code></td><td>Override for the persistent Caddy internal CA cache directory.</td></tr>
+        <tr><td><code>SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE</code></td><td><code>sc-adm infra</code></td><td>Path to a Caddy ACME data archive restored during <code>infra create</code>.</td></tr>
+        <tr><td><code>SANDCASTLE_BASE_IMAGE</code></td><td><code>sc-adm</code>, mise image tasks</td><td>Base sidecar image alias/tag.</td></tr>
+        <tr><td><code>SANDCASTLE_AI_IMAGE</code></td><td><code>sc-adm</code>, mise image tasks</td><td>Default AI machine image alias/tag.</td></tr>
+        <tr><td><code>SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES</code></td><td><code>sc-adm tenant create</code></td><td>Comma-separated suffix allowlist override for lab domains.</td></tr>
+        <tr><td><code>SANDCASTLE_DENIED_DOMAIN_SUFFIXES</code></td><td><code>sc-adm tenant create</code></td><td>Comma-separated extra suffix deny list.</td></tr>
+        <tr><td><code>SANDCASTLE_ADMIN_BIN</code></td><td><code>sc-adm infra</code></td><td>Linux amd64 <code>sandcastle-admin</code> binary uploaded into infrastructure sidecars.</td></tr>
+        <tr><td><code>SANDCASTLE_BIN</code></td><td><code>sc-adm infra</code></td><td>Fallback binary path for infrastructure upload.</td></tr>
+        <tr><td><code>VERBOSE</code></td><td><code>sc</code>, <code>sc-adm</code></td><td>Set to <code>1</code> for diagnostic output, including Incus config directory, remote selection, API call durations, and executor step timings.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h3>Auth App, Tailscale, and route broker</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Used by</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>SANDCASTLE_AUTH_HOSTNAME</code></td><td><code>sc-adm infra</code></td><td>Public Auth App hostname routed by shared Caddy.</td></tr>
+        <tr><td><code>SANDCASTLE_AUTH_GITHUB_CLIENT_ID</code></td><td><code>sc-adm infra</code></td><td>GitHub OAuth client ID for the Auth App.</td></tr>
+        <tr><td><code>SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET</code></td><td><code>sc-adm infra</code></td><td>GitHub OAuth client secret for the Auth App.</td></tr>
+        <tr><td><code>SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</code></td><td><code>sc-adm infra</code></td><td>Comma-separated initial Sandcastle Admin GitHub usernames.</td></tr>
+        <tr><td><code>SANDCASTLE_AUTH_DEBUG_DEVICE_USER</code></td><td><code>sc-adm infra</code></td><td>Lab-only user for browserless <code>/debug/device/approve</code> Device Login approval.</td></tr>
+        <tr><td><code>SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</code></td><td><code>sc-adm infra</code>, Auth App</td><td>Lab-only Tailscale auth key returned to approved CLI Device Login clients.</td></tr>
+        <tr><td><code>SANDCASTLE_TAILSCALE_AUTHKEY</code></td><td><code>sc login</code></td><td>Legacy/local fallback Tailscale auth key used during CLI login when the Auth App does not return one.</td></tr>
+        <tr><td><code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code></td><td><code>sc-adm infra</code>, e2e</td><td>Host Incus Unix socket mounted into route broker/Auth App sidecars.</td></tr>
+        <tr><td><code>SANDCASTLE_ROUTE_BROKER_URL</code></td><td><code>sc route</code></td><td>HTTPS route broker endpoint used instead of direct infrastructure mutation.</td></tr>
+        <tr><td><code>SANDCASTLE_ROUTE_BROKER_CLIENT_CERT</code></td><td><code>sc route</code></td><td>Client certificate for route broker mTLS.</td></tr>
+        <tr><td><code>SANDCASTLE_ROUTE_BROKER_CLIENT_KEY</code></td><td><code>sc route</code></td><td>Client private key for route broker mTLS.</td></tr>
+        <tr><td><code>SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY</code></td><td><code>sc route</code></td><td>Set to <code>1</code> to skip route broker TLS verification in disposable labs only.</td></tr>
+        <tr><td><code>SANDCASTLE_AUTH_LISTEN</code></td><td>internal</td><td>Generated Auth App sidecar listen address.</td></tr>
+        <tr><td><code>SANDCASTLE_AUTH_DB</code></td><td>internal</td><td>Generated Auth App sidecar SQLite database path.</td></tr>
+        <tr><td><code>SANDCASTLE_ROUTE_BROKER_LISTEN</code></td><td>internal</td><td>Generated route broker sidecar listen address.</td></tr>
+        <tr><td><code>SANDCASTLE_ROUTE_BROKER_CERT</code></td><td>internal</td><td>Generated route broker TLS certificate path.</td></tr>
+        <tr><td><code>SANDCASTLE_ROUTE_BROKER_KEY</code></td><td>internal</td><td>Generated route broker TLS private key path.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h3>Local DNS, trust, and Incus CLI</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Used by</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>SANDCASTLE_LOCAL_DNS_STATE</code></td><td><code>sc dns</code></td><td>Override local DNS state file path for tests or disposable VMs.</td></tr>
+        <tr><td><code>SANDCASTLE_RESOLVER_DIR</code></td><td><code>sc dns</code></td><td>Override resolver directory, usually for local DNS tests.</td></tr>
+        <tr><td><code>SANDCASTLE_DARWIN_TRUST_KEYCHAIN</code></td><td><code>sc trust</code>, <code>sc-adm infra trust</code></td><td>macOS keychain path used for trust install/uninstall.</td></tr>
+        <tr><td><code>SANDCASTLE_TRUST_DIR</code></td><td><code>sc trust</code>, tests</td><td>Override Sandcastle trust cache directory.</td></tr>
+        <tr><td><code>SANDCASTLE_HOSTS_FILE</code></td><td><code>sc host override</code>, route fallback</td><td>Override hosts file path for local host override tests.</td></tr>
+        <tr><td><code>INCUS_CONF</code></td><td><code>sc incus</code>, <code>sc login</code>, local DNS sudo handoff</td><td>Incus CLI config directory. <code>sc</code> sets this to the restricted Sandcastle Incus config when needed.</td></tr>
+        <tr><td><code>INCUS_PROJECT</code></td><td><code>sc incus</code></td><td>Incus CLI project selected for wrapped <code>incus</code> commands.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h3>E2E and disposable VM harness</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Used by</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>SANDCASTLE_E2E</code></td><td><code>scripts/e2e.sh</code>, Go e2e tests</td><td>Set to <code>1</code> to enable destructive real-Incus e2e tests.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_REMOTE</code></td><td>e2e</td><td>Admin Incus remote for e2e setup.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_STORAGE_POOL</code></td><td>e2e</td><td>Storage pool for e2e resources.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_CIDR_POOL</code></td><td>e2e</td><td>Disposable tenant CIDR pool for e2e.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_RUN_ID</code></td><td>e2e</td><td>Override generated disposable resource run id.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_KEEP</code></td><td>e2e</td><td>Set to <code>1</code> to keep disposable resources after failure.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_SANDCASTLE_BIN</code></td><td>e2e</td><td>Prebuilt CLI binary used by e2e instead of building one.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_SSH_PUBLIC_KEY</code></td><td>e2e</td><td>SSH public key injected into e2e machines.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_BASE_IMAGE_SOURCE</code></td><td>e2e</td><td>Already-imported base image source alias for image sync and lifecycle tests.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_AI_IMAGE_SOURCE</code></td><td>e2e</td><td>Already-imported AI image source alias for image sync and lifecycle tests.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_IMAGE_BUILD</code></td><td>e2e images tier</td><td>Set to <code>1</code> to run real OCI image build tests.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_IMAGE_BUILD_TOOL</code></td><td>e2e images tier</td><td>Image build tool, default <code>docker</code>.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_CODEX_VERSION</code></td><td>e2e images tier</td><td>Codex version pinned for e2e AI image builds.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_CLAUDE_CODE_VERSION</code></td><td>e2e images tier</td><td>Claude Code version pinned for e2e AI image builds.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_GEMINI_CLI_VERSION</code></td><td>e2e images tier</td><td>Gemini CLI version pinned for e2e AI image builds.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_TAILSCALE_AUTHKEY</code></td><td>e2e tailscale tier, <code>sc login</code> fallback</td><td>Tailscale auth key for real Tailscale e2e attachment.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_TAILSCALE_TAG</code></td><td>e2e tailscale tier</td><td>Tailscale advertise tag, default <code>tag:sandcastle</code>.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_TAILSCALE_ROUTES_APPROVED</code></td><td>e2e tailscale tier</td><td>Set to <code>0</code> when tailnet policy does not auto-approve advertised routes.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_PUBLIC_DOMAIN</code></td><td>e2e public-routes tier</td><td>Public domain suffix for route broker and Caddy e2e.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_INFRA_HOST</code></td><td>e2e public-routes tier</td><td>Public infrastructure host/IP for e2e.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_LETSENCRYPT_EMAIL</code></td><td>e2e public-routes tier</td><td>Let's Encrypt email for public TLS e2e.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_LOCAL_VM</code></td><td>local VM e2e</td><td>Set to <code>1</code> to enable VM-only local DNS/trust/hosts e2e tests.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_VM_NAME</code></td><td><code>scripts/e2e-local-vm.sh</code></td><td>Override disposable VM name.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_VM_IMAGE</code></td><td><code>scripts/e2e-local-vm.sh</code></td><td>Override VM image, default Debian cloud image.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_VM_DISK_SIZE</code></td><td><code>scripts/e2e-local-vm.sh</code></td><td>Override VM root disk size.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_VM_CPUS</code></td><td><code>scripts/e2e-local-vm.sh</code></td><td>Override VM CPU count.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_VM_MEMORY</code></td><td><code>scripts/e2e-local-vm.sh</code></td><td>Override VM memory size.</td></tr>
+        <tr><td><code>SANDCASTLE_E2E_VM_KEEP</code></td><td><code>scripts/e2e-local-vm.sh</code></td><td>Set to <code>1</code> to keep the disposable VM for diagnosis.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h3>Build, helper script, and runtime internals</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Used by</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>SANDCASTLE_CODEX_VERSION</code></td><td><code>mise run image:ai:build-upload</code></td><td>Pin Codex version for AI image builds.</td></tr>
+        <tr><td><code>SANDCASTLE_CLAUDE_VERSION</code></td><td><code>mise run image:ai:build-upload</code></td><td>Pin Claude Code version for AI image builds.</td></tr>
+        <tr><td><code>SANDCASTLE_GEMINI_VERSION</code></td><td><code>mise run image:ai:build-upload</code></td><td>Pin Gemini CLI version for AI image builds.</td></tr>
+        <tr><td><code>DOCKER_DEFAULT_PLATFORM</code></td><td>mise image tasks</td><td>Set by image tasks to <code>linux/amd64</code>.</td></tr>
+        <tr><td><code>GO</code>, <code>GOOS</code>, <code>GOARCH</code>, <code>CGO_ENABLED</code></td><td>Makefile, mise build tasks</td><td>Go command and cross-compilation settings.</td></tr>
+        <tr><td><code>PREFIX</code>, <code>BINDIR</code>, <code>DESTDIR</code>, <code>BIN_DIR</code></td><td>Makefile</td><td>Build and install destination overrides.</td></tr>
+        <tr><td><code>WORKVM_USER</code></td><td><code>scripts/setup-workvm.sh</code></td><td>User account created/configured in the helper work VM.</td></tr>
+        <tr><td><code>SSH_PUBLIC_KEY_FILE</code></td><td><code>scripts/setup-workvm.sh</code></td><td>SSH public key file copied into the helper work VM.</td></tr>
+        <tr><td><code>SKILLS_SOURCE_DIR</code></td><td><code>scripts/setup-workvm.sh</code></td><td>Local skills directory copied into the helper work VM.</td></tr>
+        <tr><td><code>TAILSCALE_HOSTNAME</code></td><td><code>scripts/setup-workvm.sh</code></td><td>Tailscale hostname for the helper work VM.</td></tr>
+        <tr><td><code>TAILSCALE_AUTHKEY</code></td><td><code>scripts/setup-workvm.sh</code></td><td>Tailscale auth key for joining the helper work VM to a tailnet.</td></tr>
+        <tr><td><code>HOME</code>, <code>PATH</code>, <code>USER</code></td><td>scripts, CLI subprocesses</td><td>Conventional shell environment used for file defaults, command lookup, and subprocess execution.</td></tr>
+        <tr><td><code>SANDCASTLE_USER</code>, <code>SANDCASTLE_UID</code>, <code>SANDCASTLE_GID</code>, <code>SANDCASTLE_SSH_PUBLIC_KEY</code></td><td>internal machine bootstrap</td><td>Generated machine environment used while creating the workload user and SSH access.</td></tr>
+        <tr><td><code>SANDCASTLE_WORKLOAD_RUNTIME_SECRET_FILE</code></td><td>internal machine runtime</td><td>Generated path to the workload identity runtime secret file.</td></tr>
+        <tr><td><code>SANDCASTLE_WORKLOAD_TOKEN_ENDPOINT_FILE</code></td><td>internal machine runtime</td><td>Generated path to the workload identity token endpoint file.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── 12. Quick reference ───────────────────────────────────────────── -->
 <section id="reference">
-  <h2>11. Quick reference</h2>
+  <h2>12. Quick reference</h2>
 
   <div class="step">
     <h3>All commands at a glance</h3>
@@ -742,8 +886,8 @@ Bootstrap:
         <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change machine app port</td></tr>
         <tr><td>sandcastle trust install [tenant]</td><td>Trust tenant CA locally</td></tr>
         <tr><td>sandcastle trust uninstall [tenant]</td><td>Remove tenant CA trust</td></tr>
-        <tr><td>sandcastle dns setup [tenant]</td><td>Apply tenant DNS and install local DNS forwarding</td></tr>
-        <tr><td>sandcastle dns teardown [tenant]</td><td>Remove local DNS forwarding</td></tr>
+        <tr><td>sandcastle dns setup [tenant]</td><td>Apply tenant DNS and install local resolver config</td></tr>
+        <tr><td>sandcastle dns teardown [tenant]</td><td>Remove local resolver config</td></tr>
         <tr><td>sandcastle tailscale up [tenant]</td><td>Attach Tailscale to tenant</td></tr>
         <tr><td>sandcastle tailscale status [tenant]</td><td>Check Tailscale state</td></tr>
         <tr><td>sandcastle tailscale down [tenant]</td><td>Detach Tailscale</td></tr>

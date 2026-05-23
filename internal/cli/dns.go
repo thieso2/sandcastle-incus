@@ -27,15 +27,12 @@ func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.AddCommand(newDNSInstallCommand(config, opts))
 	command.AddCommand(newDNSRefreshCommand(config, opts))
 	command.AddCommand(newDNSUninstallCommand(config, opts))
-	command.AddCommand(newDNSForwarderCommand())
-	command.AddCommand(newDNSServiceCommand(config, opts))
 	return command
 }
 
 type dnsSetupResult struct {
 	Reference string                    `json:"reference"`
 	Apply     dns.ApplyResult           `json:"apply"`
-	Service   localdns.ServiceResult    `json:"service"`
 	Install   localdns.Result           `json:"install"`
 	Refresh   localdns.Result           `json:"refresh"`
 	Elevated  []dnsElevatedActionResult `json:"elevated,omitempty"`
@@ -44,7 +41,6 @@ type dnsSetupResult struct {
 type dnsTeardownResult struct {
 	Reference string                    `json:"reference"`
 	Uninstall localdns.Result           `json:"uninstall"`
-	Service   localdns.ServiceResult    `json:"service"`
 	Elevated  []dnsElevatedActionResult `json:"elevated,omitempty"`
 }
 
@@ -55,7 +51,7 @@ type dnsElevatedActionResult struct {
 func newDNSSetupCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "setup [tenant]",
-		Short: "Apply tenant DNS and install local DNS forwarding",
+		Short: "Apply tenant DNS and install local resolver config",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := runDNSSetup(cmd.Context(), config, optionalArg(args))
@@ -84,17 +80,6 @@ func runDNSSetup(ctx context.Context, config commandConfig, reference string) (d
 	if err != nil {
 		return dnsSetupResult{}, err
 	}
-	if config.localDNSService == nil {
-		return dnsSetupResult{}, fmt.Errorf("local DNS service executor is not configured")
-	}
-	servicePlan, err := localdns.PlanServiceInstall()
-	if err != nil {
-		return dnsSetupResult{}, err
-	}
-	serviceResult, err := config.localDNSService.InstallService(ctx, servicePlan)
-	if err != nil {
-		return dnsSetupResult{}, err
-	}
 	if config.localDNS == nil {
 		return dnsSetupResult{}, fmt.Errorf("local DNS executor is not configured")
 	}
@@ -113,7 +98,6 @@ func runDNSSetup(ctx context.Context, config commandConfig, reference string) (d
 	return dnsSetupResult{
 		Reference: installPlan.Reference,
 		Apply:     applyResult,
-		Service:   serviceResult,
 		Install:   installResult,
 		Refresh:   refreshResult,
 		Elevated:  elevatedActions([]string{"install", "refresh"}, installElevated, refreshElevated),
@@ -123,7 +107,7 @@ func runDNSSetup(ctx context.Context, config commandConfig, reference string) (d
 func newDNSTeardownCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "teardown [tenant]",
-		Short: "Remove local DNS forwarding for a tenant",
+		Short: "Remove local resolver config for a tenant",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := optionalArg(args)
@@ -138,21 +122,9 @@ func newDNSTeardownCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			if err != nil {
 				return err
 			}
-			if config.localDNSService == nil {
-				return fmt.Errorf("local DNS service executor is not configured")
-			}
-			servicePlan, err := localdns.PlanServiceUninstall()
-			if err != nil {
-				return err
-			}
-			serviceResult, err := config.localDNSService.UninstallService(cmd.Context(), servicePlan)
-			if err != nil {
-				return err
-			}
 			result := dnsTeardownResult{
 				Reference: uninstallPlan.Reference,
 				Uninstall: uninstallResult,
-				Service:   serviceResult,
 				Elevated:  elevatedActions([]string{"uninstall"}, uninstallElevated),
 			}
 			return writeOutput(config.stdout, opts.output, formatDNSTeardown(result), result)
@@ -286,119 +258,6 @@ func newDNSUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	return command
 }
 
-func newDNSForwarderCommand() *cobra.Command {
-	var statePath string
-	var listen string
-	command := &cobra.Command{
-		Use:   "forwarder",
-		Short: "Run the local DNS forwarder",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return localdns.Forwarder{
-				StatePath: statePath,
-				Listen:    listen,
-			}.Serve(cmd.Context())
-		},
-	}
-	command.Flags().StringVar(&statePath, "state", localdns.DefaultStatePath(), "local DNS state file")
-	command.Flags().StringVar(&listen, "listen", "127.0.0.1:53541", "local UDP listen address")
-	return command
-}
-
-func newDNSServiceCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "service",
-		Short: "Manage the local DNS forwarder service",
-	}
-	command.AddCommand(newDNSServiceInstallCommand(config, opts))
-	command.AddCommand(newDNSServiceReloadCommand(config, opts))
-	command.AddCommand(newDNSServiceUninstallCommand(config, opts))
-	return command
-}
-
-func newDNSServiceInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var dryRun bool
-	command := &cobra.Command{
-		Use:   "install",
-		Short: "Install and start the local DNS forwarder service",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanServiceInstall()
-			if err != nil {
-				return err
-			}
-			if dryRun {
-				return writeOutput(config.stdout, opts.output, formatLocalDNSServicePlan(plan), plan)
-			}
-			if config.localDNSService == nil {
-				return fmt.Errorf("local DNS service executor is not configured")
-			}
-			result, err := config.localDNSService.InstallService(cmd.Context(), plan)
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatLocalDNSServiceResult(result), result)
-		},
-	}
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS service install plan without changing service state")
-	return command
-}
-
-func newDNSServiceReloadCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var dryRun bool
-	command := &cobra.Command{
-		Use:   "reload",
-		Short: "Reload the local DNS forwarder service",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanServiceReload()
-			if err != nil {
-				return err
-			}
-			if dryRun {
-				return writeOutput(config.stdout, opts.output, formatLocalDNSServicePlan(plan), plan)
-			}
-			if config.localDNSService == nil {
-				return fmt.Errorf("local DNS service executor is not configured")
-			}
-			result, err := config.localDNSService.ReloadService(cmd.Context(), plan)
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatLocalDNSServiceResult(result), result)
-		},
-	}
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS service reload plan without changing service state")
-	return command
-}
-
-func newDNSServiceUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var dryRun bool
-	command := &cobra.Command{
-		Use:   "uninstall",
-		Short: "Uninstall the local DNS forwarder service",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanServiceUninstall()
-			if err != nil {
-				return err
-			}
-			if dryRun {
-				return writeOutput(config.stdout, opts.output, formatLocalDNSServicePlan(plan), plan)
-			}
-			if config.localDNSService == nil {
-				return fmt.Errorf("local DNS service executor is not configured")
-			}
-			result, err := config.localDNSService.UninstallService(cmd.Context(), plan)
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatLocalDNSServiceResult(result), result)
-		},
-	}
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS service uninstall plan without changing service state")
-	return command
-}
-
 func findTenantSummary(ctx context.Context, store tenant.IncusTenantStore, reference string) (tenant.Summary, error) {
 	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
@@ -421,7 +280,7 @@ func formatDNSApply(result dns.ApplyResult) string {
 }
 
 func formatLocalDNSPlan(action string, plan localdns.Plan) string {
-	output := fmt.Sprintf("%s local DNS: %s\nDNS suffix: %s\nForwarder: %s\nTenant DNS: %s\nResolver: %s", action, plan.Reference, plan.DNSSuffix, plan.Listen, plan.DNSEndpoint, plan.ResolverStrategy)
+	output := fmt.Sprintf("%s local DNS: %s\nDNS suffix: %s\nTenant DNS: %s\nResolver: %s", action, plan.Reference, plan.DNSSuffix, plan.DNSEndpoint, plan.ResolverStrategy)
 	if len(plan.ResolverCommands) > 0 {
 		output += "\nResolver commands:"
 		for _, command := range plan.ResolverCommands {
@@ -435,16 +294,8 @@ func formatLocalDNSResult(result localdns.Result) string {
 	return fmt.Sprintf("%s local DNS: %s\nState: %s\nResolver: %s", result.Action, result.Reference, result.StatePath, result.ResolverPath)
 }
 
-func formatLocalDNSServicePlan(plan localdns.ServicePlan) string {
-	return fmt.Sprintf("%s local DNS service\nStrategy: %s\nService: %s\nForwarder: %s", plan.Action, plan.Strategy, plan.ServicePath, plan.Listen)
-}
-
-func formatLocalDNSServiceResult(result localdns.ServiceResult) string {
-	return fmt.Sprintf("%s local DNS service\nStrategy: %s\nService: %s", result.Action, result.Strategy, result.ServicePath)
-}
-
 func formatDNSSetup(result dnsSetupResult) string {
-	output := fmt.Sprintf("DNS setup: %s\nDNS records: %d\nService: %s\nResolver: %s\nState: %s", result.Reference, result.Apply.RecordCount, result.Service.ServicePath, result.Install.ResolverPath, result.Install.StatePath)
+	output := fmt.Sprintf("DNS setup: %s\nDNS records: %d\nResolver: %s\nState: %s", result.Reference, result.Apply.RecordCount, result.Install.ResolverPath, result.Install.StatePath)
 	if len(result.Elevated) > 0 {
 		actions := make([]string, 0, len(result.Elevated))
 		for _, action := range result.Elevated {
@@ -456,7 +307,7 @@ func formatDNSSetup(result dnsSetupResult) string {
 }
 
 func formatDNSTeardown(result dnsTeardownResult) string {
-	output := fmt.Sprintf("DNS teardown: %s\nService: %s\nResolver: %s\nState: %s", result.Reference, result.Service.ServicePath, result.Uninstall.ResolverPath, result.Uninstall.StatePath)
+	output := fmt.Sprintf("DNS teardown: %s\nResolver: %s\nState: %s", result.Reference, result.Uninstall.ResolverPath, result.Uninstall.StatePath)
 	if len(result.Elevated) > 0 {
 		actions := make([]string, 0, len(result.Elevated))
 		for _, action := range result.Elevated {
@@ -555,7 +406,6 @@ func sudoPassthroughEnv(config commandConfig) []string {
 		"INCUS_CONF",
 		"SANDCASTLE_LOCAL_DNS_STATE",
 		"SANDCASTLE_RESOLVER_DIR",
-		"SANDCASTLE_LOCAL_DNS_SERVICE_DIR",
 		"SANDCASTLE_BIN",
 	} {
 		add(key, os.Getenv(key))

@@ -181,9 +181,9 @@ sandcastle-admin route-broker serve
 - Tenant-wide wildcard records are intentionally not generated.
 - `sandcastle dns apply|status <tenant>` reconciles sidecar DNS.
 - `sandcastle dns setup|teardown [tenant]` applies tenant DNS and installs or
-  removes local DNS forwarding in one flow.
+  removes local resolver configuration in one flow.
 - `sandcastle dns install|refresh|uninstall <tenant>` manages local resolver
-  state for the local forwarder.
+  state for the tenant DNS sidecar.
 - `sandcastle tailscale up|status|down [tenant]` manages the tenant Tailscale
   sidecar and advertises the tenant private CIDR.
 

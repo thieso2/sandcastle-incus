@@ -206,17 +206,13 @@ func TestLocalDNSDiagnosticLinesIncludeMatchingState(t *testing.T) {
 		"- tenant: tenant-e2e-test\n" +
 		"  dnsSuffix: tenant-e2e-test\n" +
 		"  dnsEndpoint:\n" +
-		"    ip: 127.0.0.1\n" +
-		"    port: 53541\n" +
-		"  resolver:\n" +
-		"    listen: 127.0.0.1:53540\n" +
+		"    ip: 10.248.0.3\n" +
+		"    port: 53\n" +
 		"- tenant: other\n" +
 		"  dnsSuffix: other\n" +
 		"  dnsEndpoint:\n" +
 		"    ip: 127.0.0.1\n" +
-		"    port: 53542\n" +
-		"  resolver:\n" +
-		"    listen: 127.0.0.1:53540\n"
+		"    port: 53542\n"
 	if err := os.WriteFile(statePath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -232,8 +228,7 @@ func TestLocalDNSDiagnosticLinesIncludeMatchingState(t *testing.T) {
 		"local-dns:",
 		"tenant-e2e-test",
 		"dnsSuffix=tenant-e2e-test",
-		"endpoint=127.0.0.1:53541",
-		"resolver=127.0.0.1:53540",
+		"endpoint=10.248.0.3:53",
 	} {
 		if !strings.Contains(lines[0], want) {
 			t.Fatalf("local DNS diagnostic line missing %q:\n%s", want, lines[0])

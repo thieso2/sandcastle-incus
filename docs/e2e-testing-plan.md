@@ -254,23 +254,21 @@ Primary assertions:
 Core e2e must still pass without this phase when no Tailscale auth key is
 provided.
 
-## Phase 6: Local DNS Forwarder
+## Phase 6: Local DNS Resolver
 
 Run only inside a disposable VM. Linux is the first target, using Debian 13 or
 Ubuntu 24.04 with systemd-resolved. macOS resolver tests come later.
 
 Test:
 
-1. Install local DNS state for the test tenant.
-2. Start or reload the local forwarder.
-3. Verify resolver config points to loopback and a stable port.
-4. Resolve a machine hostname through the OS resolver.
-5. Refresh endpoint state and verify the forwarder reloads.
-6. Uninstall and verify resolver state is removed.
+1. Install local DNS resolver state for the test tenant.
+2. Verify resolver config points to the tenant DNS sidecar.
+3. Resolve a machine hostname through the OS resolver.
+4. Uninstall and verify resolver state is removed.
 
 Primary assertions:
 
-- The forwarder uses local state, not live Incus lookups per query.
+- The local resolver targets the tenant DNS sidecar directly.
 - Resolver installation is reversible.
 
 ## Phase 7: Trust And Host Override
@@ -335,7 +333,7 @@ Every e2e test should capture on failure:
 - CoreDNS rendered zone.
 - Caddy rendered configs.
 - Tailscale status output with secrets redacted.
-- Local DNS forwarder state when relevant.
+- Local DNS resolver state when relevant.
 
 Cleanup should remove:
 

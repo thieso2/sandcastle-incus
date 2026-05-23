@@ -189,11 +189,10 @@ func localDNSDiagnosticLines(statePath string, runID string) ([]string, error) {
 			endpoint = net.JoinHostPort(entry.DNSEndpoint.IP, fmt.Sprint(entry.DNSEndpoint.Port))
 		}
 		lines = append(lines, fmt.Sprintf(
-			"local-dns: %s dnsSuffix=%s endpoint=%s resolver=%s",
+			"local-dns: %s dnsSuffix=%s endpoint=%s",
 			entry.Tenant,
 			entry.DNSSuffix,
 			endpoint,
-			entry.Resolver.Listen,
 		))
 	}
 	return lines, nil

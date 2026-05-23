@@ -22,7 +22,8 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Create a Sandcastle container machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, config.tenantStore, config.machineStore, machine.CreateRequest{
+			createTenantStore := tenantStoreWithSSHKeyMetadata(config.tenantStore)
+			plan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, createTenantStore, config.machineStore, machine.CreateRequest{
 				Reference:      args[0],
 				Template:       template,
 				AppPort:        appPort,

@@ -58,19 +58,21 @@ func ExecuteAdmin(name string, args []string) int {
 		fmt.Fprintf(os.Stderr, "[verbose] incus config: %s\n[verbose] incus remote: %s\n", incusConf, adminConfig.Remote)
 	}
 
+	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
 	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
-	routeBrokerTenants := incusx.NewTenantStore(adminConfig.Remote)
-	routeBrokerMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
+	routeBrokerTenants := incusx.NewTenantStoreForSharedRemote(sharedRemote)
+	routeBrokerMachines := incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)
 	routeBrokerTrust := incusx.NewRouteBrokerTrustMapper(adminConfig.Remote)
-	authAppTenants := incusx.NewTenantStore(adminConfig.Remote)
-	authAppMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
+	authAppTenants := incusx.NewTenantStoreForSharedRemote(sharedRemote)
+	authAppMachines := incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)
 	authAppCreator := incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	authAppTrust := incusx.NewTrustManager(adminConfig.Remote)
 	authAppSSHKeys := incusx.NewMachineSSHKeyReconciler(adminConfig.Remote, authAppMachines)
-	var authAppProjectUpdater tenant.ProjectUpdater = incusx.TenantSSHKeyManager{Remote: adminConfig.Remote}
+	authAppMetadataUpdater := incusx.TenantSSHKeyManager{Remote: adminConfig.Remote}
+	var authAppProjectUpdater tenant.ProjectUpdater = authAppMetadataUpdater
 	if routeBrokerServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
 			routeBrokerTenants = incusx.NewTenantStoreForServer(socketServer)
@@ -91,6 +93,8 @@ func ExecuteAdmin(name string, args []string) int {
 			authAppCreator = incusx.NewTenantCreatorForServer(socketServer).WithVerbose(verbose, os.Stderr)
 			authAppTrust = incusx.NewTrustManagerForServer(socketServer)
 			authAppSSHKeys = incusx.NewMachineSSHKeyReconcilerForServer(socketServer, authAppMachines)
+			authAppMetadataUpdater = incusx.NewTenantSSHKeyManagerForServer(socketServer)
+			authAppProjectUpdater = authAppMetadataUpdater
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)
 		}
@@ -102,7 +106,7 @@ func ExecuteAdmin(name string, args []string) int {
 		stdout:              os.Stdout,
 		stderr:              os.Stderr,
 		adminConfig:         adminConfig,
-		tenantStore:         incusx.NewTenantStore(adminConfig.Remote),
+		tenantStore:         incusx.NewTenantStoreForSharedRemote(sharedRemote),
 		tenantCreator:       incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		tenantDeleter:       incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManager(adminConfig.Remote),
@@ -117,7 +121,7 @@ func ExecuteAdmin(name string, args []string) int {
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
-		machineStore:        incusx.NewHostOverrideManager(adminConfig.Remote),
+		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
 		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
@@ -137,6 +141,7 @@ func ExecuteAdmin(name string, args []string) int {
 			TenantAccess:     authAppTrust,
 			Machines:         authAppMachines,
 			MachineSSHKeys:   authAppSSHKeys,
+			TenantSSHKeys:    authAppMetadataUpdater,
 			MachineSSHAccess: authAppSSHKeys,
 			Provisioner: authapp.Provisioner{
 				Admin:          adminConfig,

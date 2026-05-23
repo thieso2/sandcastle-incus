@@ -526,6 +526,7 @@ func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
 	cookie := adminSessionCookieForTest(t, db)
 	provisioner := &fakePersonalTenantProvisioner{}
 	reconciler := &fakeMachineSSHKeyReconciler{}
+	tenantSSHKeys := &fakeTenantSSHKeyUpdater{}
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname: "auth.example.com",
 		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
@@ -534,6 +535,7 @@ func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
 		}}},
 		Provisioner:    provisioner,
 		MachineSSHKeys: reconciler,
+		TenantSSHKeys:  tenantSSHKeys,
 	})
 
 	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
@@ -563,6 +565,7 @@ func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
 	cookie := adminSessionCookieForTest(t, db)
 	provisioner := &fakePersonalTenantProvisioner{}
 	reconciler := &fakeMachineSSHKeyReconciler{}
+	tenantSSHKeys := &fakeTenantSSHKeyUpdater{}
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname: "auth.example.com",
 		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
@@ -571,6 +574,7 @@ func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
 		}}},
 		Provisioner:    provisioner,
 		MachineSSHKeys: reconciler,
+		TenantSSHKeys:  tenantSSHKeys,
 	})
 	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
 	if err != nil {
@@ -606,6 +610,9 @@ func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
 	if len(reconciler.calls) != 1 || reconciler.calls[0].tenant != "admin" || reconciler.calls[0].user != "admin" || reconciler.calls[0].key != key {
 		t.Fatalf("reconciler calls = %#v", reconciler.calls)
 	}
+	if len(tenantSSHKeys.calls) != 1 || tenantSSHKeys.calls[0].project != "sc-admin" || tenantSSHKeys.calls[0].key != key {
+		t.Fatalf("tenant SSH key calls = %#v", tenantSSHKeys.calls)
+	}
 	if strings.Contains(approved.raw, "PRIVATE KEY") || strings.Contains(strings.ToLower(approved.raw), "private_key") {
 		t.Fatalf("poll response leaked private key material: %s", approved.raw)
 	}
@@ -625,6 +632,9 @@ func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
 	}
 	if len(reconciler.calls) != 3 || reconciler.calls[2].key != replacement {
 		t.Fatalf("reconciler calls after replacement = %#v", reconciler.calls)
+	}
+	if len(tenantSSHKeys.calls) != 3 || tenantSSHKeys.calls[2].key != replacement {
+		t.Fatalf("tenant SSH key calls after replacement = %#v", tenantSSHKeys.calls)
 	}
 }
 
@@ -947,6 +957,21 @@ func (r *fakeMachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summ
 		tenant string
 		user   string
 	}{tenant: summary.Tenant, user: userKey})
+	return nil
+}
+
+type fakeTenantSSHKeyUpdater struct {
+	calls []struct {
+		project string
+		key     string
+	}
+}
+
+func (u *fakeTenantSSHKeyUpdater) SetTenantSSHKey(ctx context.Context, incusProjectName string, sshKey string) error {
+	u.calls = append(u.calls, struct {
+		project string
+		key     string
+	}{project: incusProjectName, key: sshKey})
 	return nil
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,8 @@ type realLoginSetupRunner struct {
 }
 
 func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request loginSetupRequest) (loginSetupResult, error) {
+	verbose := os.Getenv("VERBOSE") == "1"
+	steps := newVerboseStepLogger("login setup", verbose, r.config.stderr)
 	incusDir := loginSetupIncusDir(request.IncusConfig)
 	incusConfigFile := loginSetupIncusConfigFile(request.IncusConfig)
 	restoreEnv := setLoginSetupIncusConfig(incusDir)
@@ -67,16 +70,23 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	config.tenantStore = incusx.TenantStore{Remote: request.RemoteName, ConfigPath: incusConfigFile}
 	config.dnsApplier = incusx.DNSManager{Remote: request.RemoteName, ConfigPath: incusConfigFile}
 	config.localDNS = localdns.FileManager{}
-	config.localDNSService = localdns.FileServiceManager{}
 	config.localTrust = incusx.LocalTrustManager{Remote: request.RemoteName, ConfigPath: incusConfigFile, Store: localtrust.NewPlatformStore()}
 	config.tailscale = incusx.TailscaleManager{Remote: request.RemoteName, ConfigPath: incusConfigFile}
 
-	dnsResult, err := runDNSSetup(ctx, config, request.Tenant)
-	if err != nil {
+	var dnsResult dnsSetupResult
+	if err := steps.run("setup DNS", func() error {
+		var err error
+		dnsResult, err = runDNSSetup(ctx, config, request.Tenant)
+		return err
+	}); err != nil {
 		return loginSetupResult{}, err
 	}
-	trustPlan, err := localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, localtrust.Request{Reference: request.Tenant})
-	if err != nil {
+	var trustPlan localtrust.Plan
+	if err := steps.run("plan trust install", func() error {
+		var err error
+		trustPlan, err = localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, localtrust.Request{Reference: request.Tenant})
+		return err
+	}); err != nil {
 		return loginSetupResult{}, err
 	}
 	if config.localTrust == nil {
@@ -85,25 +95,35 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	if err := writeTrustWarning(config, &rootOptions{output: outputText}, trustPlan); err != nil {
 		return loginSetupResult{}, err
 	}
-	trustResult, err := config.localTrust.Install(ctx, trustPlan)
-	if err != nil {
+	var trustResult localtrust.Result
+	if err := steps.run("install trust", func() error {
+		var err error
+		trustResult, err = config.localTrust.Install(ctx, trustPlan)
+		return err
+	}); err != nil {
 		return loginSetupResult{}, err
 	}
-	tailscalePlan, err := tailscale.PlanUp(ctx, config.adminConfig, config.tenantStore, tailscale.UpRequest{
-		Reference:     request.Tenant,
-		AuthKey:       request.TailscaleAuthKey,
-		AdvertiseTags: defaultAdvertiseTags(),
-	})
-	if err != nil {
+	var tailscalePlan tailscale.UpPlan
+	if err := steps.run("plan Tailscale up", func() error {
+		var err error
+		tailscalePlan, err = tailscale.PlanUp(ctx, config.adminConfig, config.tenantStore, tailscale.UpRequest{
+			Reference:     request.Tenant,
+			AuthKey:       request.TailscaleAuthKey,
+			AdvertiseTags: defaultAdvertiseTags(),
+		})
+		return err
+	}); err != nil {
 		return loginSetupResult{}, err
 	}
 	if config.tailscale == nil {
 		return loginSetupResult{}, fmt.Errorf("tailscale executor is not configured")
 	}
-	if err := config.tailscale.RunUp(ctx, tailscalePlan, tailscale.RunSession{
-		Stdin:  config.stdin,
-		Stdout: config.stdout,
-		Stderr: config.stderr,
+	if err := steps.run("run Tailscale up", func() error {
+		return config.tailscale.RunUp(ctx, tailscalePlan, tailscale.RunSession{
+			Stdin:  config.stdin,
+			Stdout: config.stdout,
+			Stderr: config.stderr,
+		})
 	}); err != nil {
 		return loginSetupResult{}, err
 	}
@@ -163,17 +183,22 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			verbose := os.Getenv("VERBOSE") == "1"
+			steps := newVerboseStepLogger("login", verbose, config.stderr)
 			verbosef := func(format string, values ...any) {
 				if verbose {
 					fmt.Fprintf(config.stderr, "[verbose] login: "+format+"\n", values...)
 				}
 			}
 			verbosef("auth host=%s", args[0])
-			sshKey, err := prepareLoginSSHKey(loginSSHKeyRequest{
-				PublicKeyPath: sshPublicKeyPath,
-				ExplicitPath:  cmd.Flags().Changed("ssh-public-key"),
-			})
-			if err != nil {
+			var sshKey loginSSHKeyResult
+			if err := steps.run("prepare SSH key", func() error {
+				var err error
+				sshKey, err = prepareLoginSSHKey(loginSSHKeyRequest{
+					PublicKeyPath: sshPublicKeyPath,
+					ExplicitPath:  cmd.Flags().Changed("ssh-public-key"),
+				})
+				return err
+			}); err != nil {
 				return err
 			}
 			if sshKey.PublicKeyPath != "" {
@@ -184,8 +209,12 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if client == nil {
 				client = authapp.DeviceClient{BaseURL: args[0]}
 			}
-			start, err := client.Start(cmd.Context())
-			if err != nil {
+			var start authapp.DeviceStartResult
+			if err := steps.run("start device login", func() error {
+				var err error
+				start, err = client.Start(cmd.Context())
+				return err
+			}); err != nil {
 				return err
 			}
 			fmt.Fprintf(config.stdout, "Open: %s\nCode: %s\n", start.VerificationURI, start.UserCode)
@@ -203,20 +232,37 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			lastMessage := strings.TrimSpace(start.Message)
 			for attempt := 0; attempt < maxPolls; attempt++ {
 				verbosef("poll attempt=%d/%d", attempt+1, maxPolls)
-				result, err := client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
-					SSHPublicKey: sshKey.PublicKey,
-				})
-				if err != nil {
+				var result authapp.DevicePollResult
+				if err := steps.run(fmt.Sprintf("poll device login %d/%d", attempt+1, maxPolls), func() error {
+					var err error
+					result, err = client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
+						SSHPublicKey: sshKey.PublicKey,
+					})
+					return err
+				}); err != nil {
 					return err
 				}
-				verbosef("poll result: status=%s expires_in=%ds user=%s remote=%s tenants=%s message=%s",
+				verbosef("poll result: status=%s expires_in=%ds user=%s remote=%s tenants=%s projects=%s enrollment_present=%t tailscale_auth_key_present=%t message=%s",
 					result.Status,
 					result.ExpiresIn,
 					result.UserKey,
 					result.RemoteName,
 					strings.Join(result.AccessibleTenants, ","),
+					strings.Join(result.Projects, ","),
+					result.Token != "",
+					result.TailscaleAuthKey != "",
 					strings.TrimSpace(result.Message),
 				)
+				if result.LoginResult != nil {
+					verbosef("login result: current_tenant=%s current_project=%s remote=%s ssh_key=%s tailnet_state=%s next=%s",
+						result.LoginResult.CurrentTenant,
+						result.LoginResult.CurrentProject,
+						result.LoginResult.CredentialEnrollment.RemoteName,
+						result.LoginResult.SSHKeyFingerprint,
+						result.LoginResult.TenantTailnetStatus.State,
+						result.LoginResult.NextCommand,
+					)
+				}
 				message := strings.TrimSpace(result.Message)
 				if message != "" && message != lastMessage {
 					fmt.Fprintln(config.stdout, message)
@@ -245,12 +291,16 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 						if installer == nil {
 							installer = incusLoginRemoteInstaller{stdin: config.stdin, stdout: config.stdout, stderr: config.stderr}
 						}
-						installed, err := installer.InstallLoginRemote(cmd.Context(), loginRemoteInstallRequest{
-							RemoteName: remoteName,
-							Token:      result.Token,
-							Tenant:     tenant,
-						})
-						if err != nil {
+						var installed loginRemoteInstallResult
+						if err := steps.run("enroll Incus remote", func() error {
+							var err error
+							installed, err = installer.InstallLoginRemote(cmd.Context(), loginRemoteInstallRequest{
+								RemoteName: remoteName,
+								Token:      result.Token,
+								Tenant:     tenant,
+							})
+							return err
+						}); err != nil {
 							return err
 						}
 						fmt.Fprintf(config.stdout, "Remote %q enrolled.\n", installed.RemoteName)
@@ -273,13 +323,17 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 									authKey = loginTailscaleAuthKeyFromEnv()
 								}
 								fmt.Fprintf(config.stdout, "Setting up DNS, trust, and Tailscale for %q.\n", installed.Tenant)
-								setup, err := runner.RunPostLoginSetup(cmd.Context(), loginSetupRequest{
-									RemoteName:       installed.RemoteName,
-									IncusConfig:      installed.IncusConfig,
-									Tenant:           installed.Tenant,
-									TailscaleAuthKey: authKey,
-								})
-								if err != nil {
+								var setup loginSetupResult
+								if err := steps.run("post-login setup", func() error {
+									var err error
+									setup, err = runner.RunPostLoginSetup(cmd.Context(), loginSetupRequest{
+										RemoteName:       installed.RemoteName,
+										IncusConfig:      installed.IncusConfig,
+										Tenant:           installed.Tenant,
+										TailscaleAuthKey: authKey,
+									})
+									return err
+								}); err != nil {
 									return err
 								}
 								fmt.Fprintln(config.stdout, formatDNSSetup(setup.DNS))
@@ -290,7 +344,9 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					} else {
 						fmt.Fprintln(config.stdout, "No Incus enrollment token returned; remote was not changed.")
 					}
-					if err := verifyLoginTailnet(cmd.Context(), config, result); err != nil {
+					if err := steps.run("verify local tailnet", func() error {
+						return verifyLoginTailnet(cmd.Context(), config, result)
+					}); err != nil {
 						return err
 					}
 					return nil
@@ -332,6 +388,37 @@ func verifyLoginTailnet(ctx context.Context, config commandConfig, result authap
 	}
 	fmt.Fprintln(config.stdout, ".")
 	return nil
+}
+
+type verboseStepLogger struct {
+	prefix  string
+	enabled bool
+	stderr  io.Writer
+}
+
+func newVerboseStepLogger(prefix string, enabled bool, stderr io.Writer) verboseStepLogger {
+	return verboseStepLogger{prefix: prefix, enabled: enabled, stderr: stderr}
+}
+
+func (l verboseStepLogger) run(label string, fn func() error) error {
+	if !l.enabled || l.stderr == nil {
+		return fn()
+	}
+	start := time.Now()
+	fmt.Fprintf(l.stderr, "[verbose] %s: %s ...", l.prefix, label)
+	if err := fn(); err != nil {
+		fmt.Fprintf(l.stderr, " failed (%s)\n", formatVerboseStepDuration(time.Since(start)))
+		return err
+	}
+	fmt.Fprintf(l.stderr, " done (%s)\n", formatVerboseStepDuration(time.Since(start)))
+	return nil
+}
+
+func formatVerboseStepDuration(duration time.Duration) string {
+	if duration < time.Millisecond {
+		return fmt.Sprintf("%dus", duration.Microseconds())
+	}
+	return duration.Round(time.Millisecond).String()
 }
 
 func defaultLoginTenant(tenants []string) string {

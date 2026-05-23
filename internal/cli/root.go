@@ -67,7 +67,6 @@ type commandConfig struct {
 	knownHosts          machineKnownHostsManager
 	dnsApplier          dns.Applier
 	localDNS            localdns.Manager
-	localDNSService     localdns.ServiceManager
 	tailscale           tailscale.Runner
 	hostOverrides       hostoverride.Manager
 	hostMachine         hostoverride.MachineStore
@@ -97,7 +96,7 @@ type rootOptions struct {
 // It uses the per-remote Sandcastle Incus config directory (restricted TLS certificate).
 // For admin operations use ExecuteAdmin (sandcastle-admin binary).
 func Execute(name string, args []string) int {
-	adminConfig := scconfig.LoadAdmin()
+	adminConfig := scconfig.LoadUser()
 	verbose := os.Getenv("VERBOSE") == "1"
 
 	// Always use the per-remote Sandcastle config dir (restricted cert) for user commands.
@@ -117,15 +116,14 @@ func Execute(name string, args []string) int {
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
 	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
 	userRouteManager := routeManagerFromEnv()
+	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	cmd := NewRootCommand(commandConfig{
-		name:        name,
-		stdin:       os.Stdin,
-		stdout:      os.Stdout,
-		stderr:      os.Stderr,
-		adminConfig: adminConfig,
-		tenantStore: incusx.NewTenantStore(
-			adminConfig.Remote,
-		),
+		name:                name,
+		stdin:               os.Stdin,
+		stdout:              os.Stdout,
+		stderr:              os.Stderr,
+		adminConfig:         adminConfig,
+		tenantStore:         incusx.NewTenantStoreForSharedRemote(sharedRemote),
 		tenantCreator:       incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		tenantDeleter:       incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManager(adminConfig.Remote),
@@ -139,25 +137,24 @@ func Execute(name string, args []string) int {
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		machineStore:        incusx.NewHostOverrideManager(adminConfig.Remote),
+		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
 		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
 		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr),
 		dnsApplier:          incusx.NewDNSManager(adminConfig.Remote),
 		localDNS:            localdns.FileManager{},
-		localDNSService:     localdns.FileServiceManager{},
 		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),
-		hostOverrides:       incusx.NewHostOverrideManager(adminConfig.Remote),
-		hostMachine:         incusx.NewHostOverrideManager(adminConfig.Remote),
+		hostOverrides:       incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
+		hostMachine:         incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
 		hostFiles:           hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
 		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
 		routes:              userRouteManager,
-		routeMachine:        incusx.NewHostOverrideManager(adminConfig.Remote),
+		routeMachine:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,
-			Tenants:       incusx.NewTenantStore(adminConfig.Remote),
-			Machines:      incusx.NewHostOverrideManager(adminConfig.Remote),
+			Tenants:       incusx.NewTenantStoreForSharedRemote(sharedRemote),
+			Machines:      incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
 			Routes:        directRouteManager,
 			RouteMetadata: directRouteManager,
 			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),
@@ -210,7 +207,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 		config.tenantStore = tenant.MemoryStore{}
 	}
 	if config.adminConfig.Remote == "" {
-		config.adminConfig = scconfig.LoadAdmin()
+		config.adminConfig = scconfig.LoadUser()
 	}
 
 	opts := &rootOptions{output: outputText}

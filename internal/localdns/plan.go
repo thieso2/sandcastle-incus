@@ -16,11 +16,6 @@ import (
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-const (
-	DefaultListenIP   = "127.0.0.1"
-	DefaultListenPort = 53541
-)
-
 type Request struct {
 	Reference string
 }
@@ -30,7 +25,6 @@ type Plan struct {
 	IncusProject string `json:"incusProject"`
 	DNSSuffix    string `json:"dnsSuffix"`
 	DNSEndpoint  string `json:"dnsEndpoint"`
-	Listen       string `json:"listen"`
 	StatePath    string `json:"statePath"`
 	ResolverPath string `json:"resolverPath"`
 	Platform     string `json:"platform"`
@@ -83,18 +77,16 @@ func plan(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore
 				return Plan{}, err
 			}
 			platform := runtime.GOOS
-			listen := net.JoinHostPort(DefaultListenIP, fmt.Sprint(DefaultListenPort))
 			return Plan{
 				Reference:        ref.String(),
 				IncusProject:     summary.IncusName,
 				DNSSuffix:        summary.DNSSuffix,
 				DNSEndpoint:      endpoint,
-				Listen:           listen,
 				StatePath:        statePath(),
 				ResolverPath:     ResolverPath(platform, summary.DNSSuffix),
 				Platform:         platform,
 				ResolverStrategy: ResolverStrategy(platform),
-				ResolverCommands: ResolverCommands(platform, summary.DNSSuffix, listen),
+				ResolverCommands: ResolverCommands(platform, summary.DNSSuffix, endpoint),
 			}, nil
 		}
 	}

@@ -35,6 +35,7 @@ type HostOverrideManager struct {
 	Remote     string
 	ConfigPath string
 	Server     HostOverrideServer
+	Log        func(string)
 }
 
 func NewHostOverrideManager(remote string) HostOverrideManager {
@@ -43,6 +44,17 @@ func NewHostOverrideManager(remote string) HostOverrideManager {
 
 func NewHostOverrideManagerForServer(server incus.InstanceServer) HostOverrideManager {
 	return HostOverrideManager{Server: sdkHostOverrideServer{inner: server}}
+}
+
+func NewHostOverrideManagerForSharedRemote(remote *SharedRemote) HostOverrideManager {
+	return HostOverrideManager{Server: sharedHostOverrideServer{remote: remote}, Log: remote.Log}
+}
+
+func (m HostOverrideManager) WithVerbose(enabled bool, w io.Writer) HostOverrideManager {
+	if enabled {
+		m.Log = func(msg string) { fmt.Fprint(w, msg) }
+	}
+	return m
 }
 
 func (m HostOverrideManager) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, machineName string) (meta.Machine, error) {
@@ -63,20 +75,44 @@ func (m HostOverrideManager) ListMachines(ctx context.Context, summary tenant.Su
 	if err != nil {
 		return nil, err
 	}
+	machines, _, err := splitTenantInstances(summary, instances)
+	return machines, err
+}
+
+func (m HostOverrideManager) ListMachinesAndUnmanaged(ctx context.Context, summary tenant.Summary) ([]meta.Machine, []machine.UnmanagedMachine, error) {
+	instances, err := m.listTenantInstances(summary)
+	if err != nil {
+		return nil, nil, err
+	}
+	return splitTenantInstances(summary, instances)
+}
+
+func splitTenantInstances(summary tenant.Summary, instances []api.Instance) ([]meta.Machine, []machine.UnmanagedMachine, error) {
 	machines := []meta.Machine{}
+	unmanaged := []machine.UnmanagedMachine{}
 	for _, instance := range instances {
 		if instance.Config[meta.KeyKind] != meta.KindMachine {
+			unmanaged = append(unmanaged, machine.UnmanagedMachine{
+				Tenant:       summary.Tenant,
+				Name:         instance.Name,
+				InstanceName: instance.Name,
+				Type:         string(instance.Type),
+				PrivateIP:    instancePrivateIP(instance),
+				Status:       instance.Status,
+				CreatedAt:    formatInstanceCreatedAt(instance.CreatedAt),
+				Running:      instance.IsActive(),
+			})
 			continue
 		}
 		machine, err := meta.ParseMachineConfig(map[string]string(instance.Config))
 		if err != nil {
-			return nil, fmt.Errorf("parse machine metadata for %s: %w", instance.Name, err)
+			return nil, nil, fmt.Errorf("parse machine metadata for %s: %w", instance.Name, err)
 		}
 		machine.CreatedAt = formatInstanceCreatedAt(instance.CreatedAt)
 		machine.Running = instance.IsActive()
 		machines = append(machines, machine)
 	}
-	return machines, nil
+	return machines, unmanaged, nil
 }
 
 func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary tenant.Summary) ([]machine.UnmanagedMachine, error) {
@@ -114,11 +150,18 @@ func (m HostOverrideManager) listTenantInstances(summary tenant.Summary) ([]api.
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
+		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
+			return loaded.GetInstanceServer(remote)
+		})
 		if err != nil {
 			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkHostOverrideServer{inner: instanceServer}
+		server = sdkHostOverrideServer{inner: instanceServer, Log: m.Log}
+	}
+	if connector, ok := server.(interface{ ensureConnected() error }); ok {
+		if err := connector.ensureConnected(); err != nil {
+			return nil, err
+		}
 	}
 	projectServer := server.UseProject(summary.IncusName)
 	instances, err := projectServer.GetInstances(api.InstanceTypeContainer)
@@ -160,11 +203,13 @@ func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan)
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
+		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
+			return loaded.GetInstanceServer(remote)
+		})
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkHostOverrideServer{inner: instanceServer}
+		server = sdkHostOverrideServer{inner: instanceServer, Log: m.Log}
 	}
 	projectServer := server.UseProject(plan.Tenant.IncusName)
 	updatedMachine, err := updateMachineExtraSANs(projectServer, plan)
@@ -185,11 +230,13 @@ func (m HostOverrideManager) Delete(ctx context.Context, plan hostoverride.Delet
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
+		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
+			return loaded.GetInstanceServer(remote)
+		})
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
-		server = sdkHostOverrideServer{inner: instanceServer}
+		server = sdkHostOverrideServer{inner: instanceServer, Log: m.Log}
 	}
 	projectServer := server.UseProject(plan.Tenant.IncusName)
 	updatedMachine, err := removeMachineExtraSAN(projectServer, plan)
@@ -201,6 +248,7 @@ func (m HostOverrideManager) Delete(ctx context.Context, plan hostoverride.Delet
 
 type sdkHostOverrideServer struct {
 	inner incus.InstanceServer
+	Log   func(string)
 }
 
 func removeMachineExtraSAN(server HostOverrideResourceServer, plan hostoverride.DeletePlan) (meta.Machine, error) {
@@ -246,36 +294,59 @@ func addPlanFromDelete(plan hostoverride.DeletePlan) hostoverride.AddPlan {
 }
 
 func (s sdkHostOverrideServer) UseProject(name string) HostOverrideResourceServer {
-	return sdkHostOverrideResourceServer{inner: s.inner.UseProject(name), projectName: name}
+	return sdkHostOverrideResourceServer{inner: s.inner.UseProject(name), projectName: name, Log: s.Log}
 }
 
 type sdkHostOverrideResourceServer struct {
 	inner       incus.InstanceServer
 	projectName string
+	Log         func(string)
 }
 
 func (s sdkHostOverrideResourceServer) GetInstances(instanceType api.InstanceType) ([]api.Instance, error) {
-	return s.inner.GetInstances(instanceType)
+	return logIncusAPICall(s.Log, "GetInstances project="+s.projectName+" type="+string(instanceType), func() ([]api.Instance, error) {
+		return s.inner.GetInstances(instanceType)
+	})
 }
 
 func (s sdkHostOverrideResourceServer) GetInstance(name string) (*api.Instance, string, error) {
-	return s.inner.GetInstance(name)
+	var instance *api.Instance
+	var etag string
+	err := logIncusAPICall0(s.Log, "GetInstance project="+s.projectName+" instance="+name, func() error {
+		var err error
+		instance, etag, err = s.inner.GetInstance(name)
+		return err
+	})
+	return instance, etag, err
 }
 
 func (s sdkHostOverrideResourceServer) UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error) {
-	return s.inner.UpdateInstance(name, instance, ETag)
+	return logIncusAPICall(s.Log, "UpdateInstance project="+s.projectName+" instance="+name, func() (incus.Operation, error) {
+		return s.inner.UpdateInstance(name, instance, ETag)
+	})
 }
 
 func (s sdkHostOverrideResourceServer) CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error {
-	return s.inner.CreateInstanceFile(instanceName, path, args)
+	return logIncusAPICall0(s.Log, "CreateInstanceFile project="+s.projectName+" instance="+instanceName+" path="+path, func() error {
+		return s.inner.CreateInstanceFile(instanceName, path, args)
+	})
 }
 
 func (s sdkHostOverrideResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
-	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
+	var content io.ReadCloser
+	var response *incus.InstanceFileResponse
+	err := logIncusAPICall0(s.Log, "GetStorageVolumeFile project="+s.projectName+" pool="+pool+" volume="+volumeName+" path="+filePath, func() error {
+		var err error
+		content, response, err = getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
+		return err
+	})
+	return content, response, err
 }
 
 func (s sdkHostOverrideResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
-	return s.inner.ExecInstance(instanceName, exec, args)
+	return logIncusAPICall(s.Log, "ExecInstance project="+s.projectName+" instance="+instanceName, func() (incus.Operation, error) {
+		return s.inner.ExecInstance(instanceName, exec, args)
+	})
 }
 
 func updateMachineExtraSANs(server HostOverrideResourceServer, plan hostoverride.AddPlan) (meta.Machine, error) {

@@ -68,9 +68,26 @@ func LoadAdmin() Admin {
 	return loadAdminFromFileAndEnv(cfg)
 }
 
+// LoadUser merges ~/.config/sandcastle/config.yml with exported SANDCASTLE_* env vars.
+// It intentionally ignores local .env files so repo-local admin defaults do not
+// redirect normal sc commands to the admin Incus remote/config.
+func LoadUser() Admin {
+	cfg, _ := LoadSandcastleConfig(DefaultConfigPath())
+	return loadUserFromFileAndEnv(cfg)
+}
+
 // loadAdminFromFileAndEnv applies env var overrides on top of a file config.
 func loadAdminFromFileAndEnv(cfg SandcastleConfig) Admin {
 	env := loadAdminEnv()
+	return adminFromConfigAndEnv(cfg, env)
+}
+
+func loadUserFromFileAndEnv(cfg SandcastleConfig) Admin {
+	env := loadProcessEnv()
+	return adminFromConfigAndEnv(cfg, env)
+}
+
+func adminFromConfigAndEnv(cfg SandcastleConfig, env map[string]string) Admin {
 	return Admin{
 		Tenant:                 firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_TENANT"]), cfg.Tenant),
 		Project:                firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_PROJECT"]), cfg.Project),

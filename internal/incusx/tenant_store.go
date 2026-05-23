@@ -2,13 +2,13 @@ package incusx
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -34,6 +34,8 @@ type TenantStore struct {
 	ConfigPath string
 	Server     TenantListServer
 	Metadata   TenantMetadataServer
+	Log        func(string)
+	LoadSSHKey bool
 }
 
 func NewTenantStore(remote string) TenantStore {
@@ -42,6 +44,22 @@ func NewTenantStore(remote string) TenantStore {
 
 func NewTenantStoreForServer(server incus.InstanceServer) TenantStore {
 	return TenantStore{Server: server, Metadata: sdkTenantMetadataServer{inner: server}}
+}
+
+func NewTenantStoreForSharedRemote(remote *SharedRemote) TenantStore {
+	return TenantStore{Server: sharedTenantListServer{remote: remote}, Metadata: sharedTenantMetadataServer{remote: remote}, Log: remote.Log}
+}
+
+func (s TenantStore) WithSSHKeyMetadata() tenant.IncusTenantStore {
+	s.LoadSSHKey = true
+	return s
+}
+
+func (s TenantStore) WithVerbose(enabled bool, w io.Writer) TenantStore {
+	if enabled {
+		s.Log = func(msg string) { fmt.Fprint(w, msg) }
+	}
+	return s
 }
 
 func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, error) {
@@ -56,20 +74,30 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		loadedServer, err := loaded.GetInstanceServer(remote)
+		loadedServer, err := logIncusAPICall(s.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
+			return loaded.GetInstanceServer(remote)
+		})
 		if err != nil {
 			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
 		server = loadedServer
-		metadata = sdkTenantMetadataServer{inner: loadedServer}
+		metadata = sdkTenantMetadataServer{inner: loadedServer, Log: s.Log}
+	}
+	if connector, ok := server.(interface{ ensureConnected() error }); ok {
+		if err := connector.ensureConnected(); err != nil {
+			return nil, err
+		}
 	}
 
-	projects, err := server.GetProjects()
+	projects, err := logIncusAPICall(s.Log, "GetProjects", server.GetProjects)
 	if err != nil {
 		return nil, fmt.Errorf("list Incus projects: %w", err)
 	}
 	output := FromAPIProjects(projects)
 	if metadata == nil {
+		return output, nil
+	}
+	if !s.LoadSSHKey {
 		return output, nil
 	}
 	for i := range output {
@@ -93,13 +121,8 @@ func FromAPIProjects(projects []api.Project) []tenant.IncusProject {
 	return output
 }
 
-type tenantProjectNamespaceState struct {
-	Projects []meta.Project `json:"projects"`
-}
-
 const (
 	tenantMetadataDir      = "/.sandcastle"
-	tenantProjectsFile     = tenantMetadataDir + "/projects.json"
 	tenantSSHPublicKeyFile = tenantMetadataDir + "/ssh_public_key"
 )
 
@@ -111,11 +134,6 @@ func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusPro
 	if err != nil {
 		return nil, fmt.Errorf("parse tenant metadata for %s: %w", incusProjectName, err)
 	}
-	if state, ok, err := readTenantProjectNamespaceState(server, incusProjectName); err != nil {
-		return nil, err
-	} else if ok {
-		managed.Projects = append([]meta.Project{}, state.Projects...)
-	}
 	if sshKey, ok, err := readTenantSSHKey(server, incusProjectName); err != nil {
 		return nil, err
 	} else if ok {
@@ -126,26 +144,6 @@ func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusPro
 		return nil, err
 	}
 	return updated, nil
-}
-
-func readTenantProjectNamespaceState(server TenantMetadataResourceServer, incusProjectName string) (tenantProjectNamespaceState, bool, error) {
-	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantProjectsFile)
-	if isMissingTenantMetadata(err) {
-		return tenantProjectNamespaceState{}, false, nil
-	}
-	if err != nil {
-		return tenantProjectNamespaceState{}, false, fmt.Errorf("read tenant project metadata for %s: %w", incusProjectName, err)
-	}
-	defer content.Close()
-	data, err := io.ReadAll(content)
-	if err != nil {
-		return tenantProjectNamespaceState{}, false, fmt.Errorf("read tenant project metadata for %s: %w", incusProjectName, err)
-	}
-	var state tenantProjectNamespaceState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return tenantProjectNamespaceState{}, false, fmt.Errorf("parse tenant project metadata for %s: %w", incusProjectName, err)
-	}
-	return state, true, nil
 }
 
 func readTenantSSHKey(server TenantMetadataResourceServer, incusProjectName string) (string, bool, error) {
@@ -172,17 +170,33 @@ func isMissingTenantMetadata(err error) bool {
 
 type sdkTenantMetadataServer struct {
 	inner incus.InstanceServer
+	Log   func(string)
 }
 
 func (s sdkTenantMetadataServer) UseProject(name string) TenantMetadataResourceServer {
-	return sdkTenantMetadataResourceServer{inner: s.inner.UseProject(name), projectName: name}
+	return sdkTenantMetadataResourceServer{inner: s.inner.UseProject(name), projectName: name, Log: s.Log}
 }
 
 type sdkTenantMetadataResourceServer struct {
 	inner       incus.InstanceServer
 	projectName string
+	Log         func(string)
 }
 
 func (s sdkTenantMetadataResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
-	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
+	label := "GetStorageVolumeFile project=" + s.projectName + " pool=" + pool + " volume=" + volumeName + " path=" + filePath
+	if s.Log == nil {
+		return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
+	}
+	start := time.Now()
+	content, response, err := getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
+	switch {
+	case err == nil:
+		s.Log(fmt.Sprintf("[verbose] incus api: %s done (%s)\n", label, formatVerboseDuration(time.Since(start))))
+	case isMissingTenantMetadata(err):
+		s.Log(fmt.Sprintf("[verbose] incus api: %s missing (%s)\n", label, formatVerboseDuration(time.Since(start))))
+	default:
+		s.Log(fmt.Sprintf("[verbose] incus api: %s failed (%s)\n", label, formatVerboseDuration(time.Since(start))))
+	}
+	return content, response, err
 }

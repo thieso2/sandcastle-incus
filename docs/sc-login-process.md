@@ -7,7 +7,7 @@ This document describes the end-to-end first-run login process for a GitHub-auth
 - Let a user register in the browser with GitHub.
 - Keep browser registration separate from tenant provisioning.
 - Use the CLI to provision the user's Personal Tenant and upload the user's SSH public key.
-- Require Tailscale because Machine SSH Access always uses the Machine's Tailscale Machine IP.
+- Prefer Tailscale Machine IPs for Machine SSH Access when they are available, while still allowing private-IP SSH in environments where the tenant private network is directly reachable.
 - Finish login only when the user can create and connect to a Machine.
 
 ## Flow
@@ -35,7 +35,8 @@ This document describes the end-to-end first-run login process for a GitHub-auth
    - ensure the Tenant Tailnet,
    - enroll the local Incus client certificate,
    - store the current User SSH Public Key,
-   - reconcile that SSH key onto existing Machines in the User's Personal Tenant.
+   - reconcile that SSH key onto existing Machines in the User's Personal Tenant,
+   - write that SSH key to Personal Tenant metadata so future Machines receive it during bootstrap.
 9. The CLI guides the user through joining the selected Tenant Tailnet and verifies the local Tailscale client is connected to that tailnet.
 10. CLI Device Login reaches Login Readiness only when credentials, SSH access, Personal Tenant, Default Project, Tenant Infrastructure, Tenant Tailnet access, and local CLI configuration are ready.
 11. The CLI stores local configuration and prints:
@@ -50,8 +51,8 @@ This document describes the end-to-end first-run login process for a GitHub-auth
     sandcastle create dev
     ```
 
-13. Machine creation waits until the container-backed Machine has joined the Tenant Tailnet and recorded its Tailscale Machine IP.
-14. The CLI connects with Machine SSH Access over the Tailscale Machine IP.
+13. Machine creation records the Machine's Tailscale IP when one is available.
+14. The CLI connects with Machine SSH Access over the recorded Tailscale Machine IP, or over the private Machine IP when no Tailscale Machine IP is recorded.
 
 ## Browser Responsibilities
 
@@ -77,7 +78,7 @@ When Tenant Access is revoked, Sandcastle revokes Machine SSH Access by removing
 
 Each Tenant has exactly one Tenant Tailnet. Sandcastle does not use a shared Sandcastle tailnet for all tenants.
 
-Machine SSH Access always uses the Machine's Tailscale Machine IP. Local DNS is useful for private hostnames, but `sandcastle connect` uses the recorded Tailscale Machine IP directly.
+Machine SSH Access uses the Machine's Tailscale Machine IP when recorded, otherwise it falls back to the private Machine IP. Local DNS is useful for private hostnames, but it is not required for Machine SSH Access.
 
 For multi-tenant users, CLI Device Login joins only the selected Current Tenant's Tenant Tailnet. First-time onboarding defaults the selected tenant to the user's Personal Tenant.
 

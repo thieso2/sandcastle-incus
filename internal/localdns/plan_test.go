@@ -12,6 +12,15 @@ import (
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
+type recordingServiceRunner struct {
+	commands [][]string
+}
+
+func (r *recordingServiceRunner) Run(ctx context.Context, args []string) error {
+	r.commands = append(r.commands, append([]string(nil), args...))
+	return nil
+}
+
 func TestPlanInstallUsesTenantDNSRoleAddress(t *testing.T) {
 	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(t.TempDir(), "dns.yaml"))
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", t.TempDir())
@@ -21,9 +30,6 @@ func TestPlanInstallUsesTenantDNSRoleAddress(t *testing.T) {
 	}
 	if plan.DNSEndpoint != "10.248.0.3:53" {
 		t.Fatalf("DNSEndpoint = %q", plan.DNSEndpoint)
-	}
-	if plan.Listen != "127.0.0.1:53541" {
-		t.Fatalf("Listen = %q", plan.Listen)
 	}
 	if !strings.HasSuffix(plan.ResolverPath, "acme") {
 		t.Fatalf("ResolverPath = %q", plan.ResolverPath)
@@ -50,7 +56,6 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 		Reference:    "acme",
 		DNSSuffix:    "acme",
 		DNSEndpoint:  "10.248.0.3:53",
-		Listen:       "127.0.0.1:53541",
 		StatePath:    filepath.Join(dir, "state", "dns.yaml"),
 		ResolverPath: filepath.Join(dir, "resolver", "acme"),
 	}
@@ -73,7 +78,7 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(resolver) != "nameserver 127.0.0.1\nport 53541\n" {
+	if string(resolver) != "nameserver 10.248.0.3\nport 53\n" {
 		t.Fatalf("resolver = %q", resolver)
 	}
 	plan.DNSEndpoint = "10.248.1.3:53"
@@ -112,11 +117,10 @@ func TestFileManagerRunsLinuxResolverSyncCommands(t *testing.T) {
 		Reference:        "acme",
 		DNSSuffix:        "acme",
 		DNSEndpoint:      "10.248.0.3:53",
-		Listen:           "127.0.0.1:53541",
 		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
 		ResolverPath:     filepath.Join(dir, "resolver", "acme"),
 		ResolverStrategy: StrategySystemdResolve,
-		ResolverCommands: []Command{{Args: []string{"resolvectl", "dns", "lo", "127.0.0.1:53541"}}},
+		ResolverCommands: []Command{{Args: []string{"resolvectl", "dns", "lo", "10.248.0.3:53"}}},
 	}
 	if _, err := manager.Install(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -124,7 +128,7 @@ func TestFileManagerRunsLinuxResolverSyncCommands(t *testing.T) {
 	if len(runner.commands) != 2 {
 		t.Fatalf("commands = %#v", runner.commands)
 	}
-	if got := joinArgs(runner.commands[0]); got != "resolvectl dns lo 127.0.0.1:53541" {
+	if got := joinArgs(runner.commands[0]); got != "resolvectl dns lo 10.248.0.3:53" {
 		t.Fatalf("dns command = %q", got)
 	}
 	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~acme" {
@@ -172,11 +176,10 @@ func linuxResolverPlan(dir string, reference string, domain string, endpoint str
 		Reference:        reference,
 		DNSSuffix:        domain,
 		DNSEndpoint:      endpoint,
-		Listen:           "127.0.0.1:53541",
 		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
 		ResolverPath:     filepath.Join(dir, "resolver", domain),
 		ResolverStrategy: StrategySystemdResolve,
-		ResolverCommands: []Command{{Args: []string{"resolvectl", "dns", "lo", "127.0.0.1:53541"}}},
+		ResolverCommands: []Command{{Args: []string{"resolvectl", "dns", "lo", endpoint}}},
 	}
 }
 

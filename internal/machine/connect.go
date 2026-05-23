@@ -76,10 +76,9 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 	if resolved.Managed {
 		hostname = resolved.Name + "." + resolved.Project + "." + resolved.Summary.DNSSuffix
 		hostKeyAlias = hostname
-		if resolved.TailscaleIP == "" {
-			return ConnectPlan{}, fmt.Errorf("machine %s has no recorded Tailscale Machine IP; recreate or repair the Machine before connecting", resolved.InstanceName)
+		if resolved.TailscaleIP != "" {
+			sshHost = resolved.TailscaleIP
 		}
-		sshHost = resolved.TailscaleIP
 	}
 	return ConnectPlan{
 		Reference:    request.Reference,

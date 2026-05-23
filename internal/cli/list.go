@@ -53,6 +53,15 @@ func listTenants(ctx context.Context, store tenant.IncusTenantStore) ([]tenant.S
 	return tenant.List(ctx, store)
 }
 
+func tenantStoreWithSSHKeyMetadata(store tenant.IncusTenantStore) tenant.IncusTenantStore {
+	if hydrator, ok := store.(interface {
+		WithSSHKeyMetadata() tenant.IncusTenantStore
+	}); ok {
+		return hydrator.WithSSHKeyMetadata()
+	}
+	return store
+}
+
 func formatTenantList(tenants []tenant.Summary) string {
 	if len(tenants) == 0 {
 		return "No Sandcastle tenants found."
@@ -111,7 +120,7 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	} else if strings.TrimSpace(config.adminConfig.Project) != "" && !request.AllProjects {
 		projectFilter = strings.TrimSpace(config.adminConfig.Project)
 	}
-	machines, err := config.machineStore.ListMachines(ctx, tenant)
+	machines, unmanaged, err := listMachinesAndUnmanaged(ctx, config.machineStore, tenant)
 	if err != nil {
 		return listPayload{}, err
 	}
@@ -122,10 +131,6 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 		}
 		filtered = append(filtered, machine)
 	}
-	unmanaged, err := listUnmanagedMachines(ctx, config.machineStore, tenant)
-	if err != nil {
-		return listPayload{}, err
-	}
 	return listPayload{
 		Tenant:         tenant,
 		Project:        projectFilter,
@@ -134,6 +139,21 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 		Unmanaged:      unmanaged,
 		UnmanagedCount: len(unmanaged),
 	}, nil
+}
+
+func listMachinesAndUnmanaged(ctx context.Context, store machine.Store, tenant tenant.Summary) ([]meta.Machine, []machine.UnmanagedMachine, error) {
+	if combined, ok := store.(machine.CombinedStore); ok {
+		return combined.ListMachinesAndUnmanaged(ctx, tenant)
+	}
+	machines, err := store.ListMachines(ctx, tenant)
+	if err != nil {
+		return nil, nil, err
+	}
+	unmanaged, err := listUnmanagedMachines(ctx, store, tenant)
+	if err != nil {
+		return nil, nil, err
+	}
+	return machines, unmanaged, nil
 }
 
 func listUnmanagedMachines(ctx context.Context, store machine.Store, tenant tenant.Summary) ([]machine.UnmanagedMachine, error) {

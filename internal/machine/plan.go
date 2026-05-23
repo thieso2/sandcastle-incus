@@ -104,6 +104,10 @@ type UnmanagedStore interface {
 	ListUnmanagedMachines(ctx context.Context, summary tenant.Summary) ([]UnmanagedMachine, error)
 }
 
+type CombinedStore interface {
+	ListMachinesAndUnmanaged(ctx context.Context, summary tenant.Summary) ([]meta.Machine, []UnmanagedMachine, error)
+}
+
 func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, machineStore Store, request CreateRequest) (CreatePlan, error) {
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err

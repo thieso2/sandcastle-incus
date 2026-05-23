@@ -10,6 +10,14 @@ func loadAdminEnv() map[string]string {
 	for key, value := range readDotEnv(".env") {
 		values[key] = value
 	}
+	for key, value := range loadProcessEnv() {
+		values[key] = value
+	}
+	return values
+}
+
+func loadProcessEnv() map[string]string {
+	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		key, value, ok := strings.Cut(entry, "=")
 		if !ok {

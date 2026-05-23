@@ -227,7 +227,7 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	}
 }
 
-func TestMachineCreatorReportsTailscaleMachineIPTimeout(t *testing.T) {
+func TestMachineCreatorContinuesWhenTailscaleMachineIPIsUnavailable(t *testing.T) {
 	oldAttempts := machineTailscaleIPAttempts
 	oldInterval := machineTailscaleIPPollInterval
 	machineTailscaleIPAttempts = 2
@@ -240,15 +240,46 @@ func TestMachineCreatorReportsTailscaleMachineIPTimeout(t *testing.T) {
 	resource := fakeMachineResourceWithCA(t)
 	resource.tailscaleIP = "<none>"
 	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
-	err := creator.CreateMachine(context.Background(), plan)
-	if err == nil || !strings.Contains(err.Error(), "did not report Tailscale Machine IP") {
-		t.Fatalf("error = %v", err)
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
+		t.Fatal(err)
 	}
 	if resource.created == nil {
-		t.Fatal("expected instance creation before Tailscale readiness failure")
+		t.Fatal("expected instance creation")
 	}
 	if resource.updated != nil {
 		t.Fatalf("metadata updated despite missing Tailscale IP: %#v", resource.updated)
+	}
+}
+
+func TestMachineCreatorVerboseLogsDurations(t *testing.T) {
+	plan := machinePlanForTest(t)
+	resource := fakeMachineResourceWithCA(t)
+	var output strings.Builder
+	creator := MachineCreator{
+		Server: fakeMachineServer{resource: resource},
+		Log: func(msg string) {
+			output.WriteString(msg)
+		},
+	}
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	joined := output.String()
+	for _, want := range []string{
+		"[machine-create] use project sc-acme ... done (",
+		"[machine-create] get instance default-codex ... done (",
+		"[machine-create] ensure machine storage dirs for default-codex ... done (",
+		"[machine-create] create instance default-codex (image: sandcastle/ai:latest) ... done (",
+		"[machine-create] configure instance default-codex done (",
+		"[machine-create] configure instance default-codex: set hostname ... done (",
+		"[machine-create] configure instance default-codex: bootstrap Linux user acme ... done (",
+		"[machine-create] configure instance default-codex: issue certificate from tenant CA ... done (",
+		"[machine-create] configure instance default-codex: restart Caddy ... done (",
+		"[machine-create] record Tailscale Machine IP for default-codex ... done (",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("verbose logs missing %q:\n%s", want, joined)
+		}
 	}
 }
 

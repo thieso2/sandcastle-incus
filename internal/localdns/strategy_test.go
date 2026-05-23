@@ -16,11 +16,11 @@ func TestResolverStrategyForPlatforms(t *testing.T) {
 
 func TestLinuxResolverCommandsUseSystemdResolved(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
-	commands := ResolverCommands("linux", "acme.sandcastle.internal", "127.0.0.1:53541")
+	commands := ResolverCommands("linux", "acme.sandcastle.internal", "10.248.0.3:53")
 	if len(commands) != 2 {
 		t.Fatalf("commands = %#v", commands)
 	}
-	if got := joinArgs(commands[0].Args); got != "resolvectl dns lo 127.0.0.1:53541" {
+	if got := joinArgs(commands[0].Args); got != "resolvectl dns lo 10.248.0.3:53" {
 		t.Fatalf("dns command = %q", got)
 	}
 	if got := joinArgs(commands[1].Args); got != "resolvectl domain lo ~acme.sandcastle.internal" {
@@ -30,7 +30,7 @@ func TestLinuxResolverCommandsUseSystemdResolved(t *testing.T) {
 
 func TestLinuxResolverCommandsSkippedWhenResolverDirIsOverridden(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", t.TempDir())
-	commands := ResolverCommands("linux", "acme.sandcastle.internal", "127.0.0.1:53541")
+	commands := ResolverCommands("linux", "acme.sandcastle.internal", "10.248.0.3:53")
 	if len(commands) != 0 {
 		t.Fatalf("commands = %#v, want none with resolver dir override", commands)
 	}
@@ -43,11 +43,11 @@ func TestResolverSyncCommandsUseInstalledTenantSuffixes(t *testing.T) {
 		{DNSSuffix: "alpha.sandcastle.internal.", DNSEndpoint: EndpointState{IP: "10.248.1.3", Port: 53}},
 		{DNSSuffix: "broken.sandcastle.internal", DNSEndpoint: EndpointState{IP: "not-an-ip", Port: 53}},
 	}}
-	commands := ResolverSyncCommands(StrategySystemdResolve, state, "127.0.0.1:53541")
+	commands := ResolverSyncCommands(StrategySystemdResolve, state)
 	if len(commands) != 2 {
 		t.Fatalf("commands = %#v", commands)
 	}
-	if got := joinArgs(commands[0].Args); got != "resolvectl dns lo 127.0.0.1:53541" {
+	if got := joinArgs(commands[0].Args); got != "resolvectl dns lo 10.248.0.3:53 10.248.1.3:53" {
 		t.Fatalf("dns command = %q", got)
 	}
 	if got := joinArgs(commands[1].Args); got != "resolvectl domain lo ~alpha.sandcastle.internal ~beta.sandcastle.internal" {
@@ -57,7 +57,7 @@ func TestResolverSyncCommandsUseInstalledTenantSuffixes(t *testing.T) {
 
 func TestResolverSyncCommandsRevertWhenNoDomainsRemain(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
-	commands := ResolverSyncCommands(StrategySystemdResolve, State{}, "127.0.0.1:53541")
+	commands := ResolverSyncCommands(StrategySystemdResolve, State{})
 	if len(commands) != 1 {
 		t.Fatalf("commands = %#v", commands)
 	}

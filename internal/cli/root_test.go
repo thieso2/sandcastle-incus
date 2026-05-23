@@ -148,7 +148,6 @@ func (r *fakeLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request lo
 		r.result.DNS = dnsSetupResult{
 			Reference: request.Tenant,
 			Apply:     dns.ApplyResult{RecordCount: 2},
-			Service:   localdns.ServiceResult{ServicePath: "/tmp/service"},
 			Install:   localdns.Result{StatePath: "/tmp/dns.yaml", ResolverPath: "/tmp/resolver"},
 		}
 	}
@@ -1565,6 +1564,38 @@ func TestConnectCommandUsesConnector(t *testing.T) {
 	}
 }
 
+func TestConnectCommandRefreshesKnownHostsWhenUsingPrivateIPFallback(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connector := &fakeMachineConnector{}
+	knownHosts := &fakeKnownHostsManager{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20"}}},
+		machineConnector: connector,
+		knownHosts:       knownHosts,
+	}, "connect", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !connector.called || connector.plan.SSHHost != "10.248.0.20" {
+		t.Fatalf("connector.plan = %#v", connector.plan)
+	}
+	if !knownHosts.called || knownHosts.plan.Hostname != "codex.default.acme" || knownHosts.plan.PrivateIP != "10.248.0.20" {
+		t.Fatalf("expected known_hosts refresh, got %#v", knownHosts.plan)
+	}
+}
+
 func TestConnectCommandAcceptsExplicitCommand(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -1875,17 +1906,16 @@ func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 	output := formatLocalDNSPlan("Install", localdns.Plan{
 		Reference:        "acme",
 		DNSEndpoint:      "10.248.0.3:53",
-		Listen:           "127.0.0.1:53541",
 		ResolverStrategy: localdns.StrategySystemdResolve,
 		ResolverCommands: []localdns.Command{
-			{Args: []string{"resolvectl", "dns", "lo", "127.0.0.1:53541"}},
+			{Args: []string{"resolvectl", "dns", "lo", "10.248.0.3:53"}},
 			{Args: []string{"resolvectl", "domain", "lo", "~acme"}},
 		},
 	})
 	for _, want := range []string{
 		"Resolver: systemd-resolved",
 		"Resolver commands:",
-		"resolvectl dns lo 127.0.0.1:53541",
+		"resolvectl dns lo 10.248.0.3:53",
 		"resolvectl domain lo ~acme",
 	} {
 		if !strings.Contains(output, want) {
@@ -1923,51 +1953,6 @@ func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
 	}
 }
 
-func TestDNSServiceInstallDryRunJSON(t *testing.T) {
-	t.Setenv("SANDCASTLE_BIN", "/usr/local/bin/sandcastle")
-	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(t.TempDir(), "dns.yaml"))
-	t.Setenv("SANDCASTLE_LOCAL_DNS_SERVICE_DIR", t.TempDir())
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-	}, "--output", "json", "dns", "service", "install", "--dry-run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload localdns.ServicePlan
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Action != "install" {
-		t.Fatalf("Action = %q", payload.Action)
-	}
-	if payload.Executable != "/usr/local/bin/sandcastle" {
-		t.Fatalf("Executable = %q", payload.Executable)
-	}
-	if !strings.Contains(payload.Content, "forwarder") {
-		t.Fatalf("Content = %q", payload.Content)
-	}
-}
-
-func TestDNSServiceReloadRunsExecutor(t *testing.T) {
-	t.Setenv("SANDCASTLE_BIN", "/usr/local/bin/sandcastle")
-	t.Setenv("SANDCASTLE_LOCAL_DNS_STATE", filepath.Join(t.TempDir(), "dns.yaml"))
-	t.Setenv("SANDCASTLE_LOCAL_DNS_SERVICE_DIR", t.TempDir())
-	manager := &fakeLocalDNSServiceManager{}
-	_, err := executeForTestWithConfig(t, commandConfig{
-		name:            "sandcastle",
-		localDNSService: manager,
-	}, "dns", "service", "reload")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !manager.reloaded {
-		t.Fatal("expected local DNS service reload call")
-	}
-	if manager.plan.Action != "reload" {
-		t.Fatalf("Action = %q", manager.plan.Action)
-	}
-}
-
 func TestDNSSetupUsesCurrentTenantAndRunsSteps(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -1978,7 +1963,6 @@ func TestDNSSetupUsesCurrentTenantAndRunsSteps(t *testing.T) {
 		t.Fatal(err)
 	}
 	localManager := &fakeLocalDNSManager{}
-	serviceManager := &fakeLocalDNSServiceManager{}
 	applier := &fakeDNSApplier{}
 	admin := testAdminConfig()
 	admin.Tenant = "acme"
@@ -1989,18 +1973,14 @@ func TestDNSSetupUsesCurrentTenantAndRunsSteps(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		dnsApplier:      applier,
-		localDNS:        localManager,
-		localDNSService: serviceManager,
+		dnsApplier: applier,
+		localDNS:   localManager,
 	}, "dns", "setup")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !applier.called {
 		t.Fatal("expected DNS apply call")
-	}
-	if !serviceManager.installed {
-		t.Fatal("expected local DNS service install")
 	}
 	if !localManager.installed || !localManager.refreshed {
 		t.Fatalf("local DNS installed=%v refreshed=%v, want both", localManager.installed, localManager.refreshed)
@@ -2025,7 +2005,6 @@ func TestDNSTeardownUsesCurrentTenantAndRunsSteps(t *testing.T) {
 		t.Fatal(err)
 	}
 	localManager := &fakeLocalDNSManager{}
-	serviceManager := &fakeLocalDNSServiceManager{}
 	admin := testAdminConfig()
 	admin.Tenant = "acme"
 	stdout, err := executeForTestWithConfig(t, commandConfig{
@@ -2035,17 +2014,13 @@ func TestDNSTeardownUsesCurrentTenantAndRunsSteps(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		localDNS:        localManager,
-		localDNSService: serviceManager,
+		localDNS: localManager,
 	}, "dns", "teardown")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !localManager.uninstalled {
 		t.Fatal("expected local DNS uninstall")
-	}
-	if !serviceManager.uninstalled {
-		t.Fatal("expected local DNS service uninstall")
 	}
 	if localManager.uninstallPlan.Reference != "acme" {
 		t.Fatalf("uninstall plan = %#v, want acme", localManager.uninstallPlan)
@@ -4140,13 +4115,6 @@ type fakeLocalDNSManager struct {
 	uninstallPlan localdns.Plan
 }
 
-type fakeLocalDNSServiceManager struct {
-	installed   bool
-	reloaded    bool
-	uninstalled bool
-	plan        localdns.ServicePlan
-}
-
 type fakeDNSApplier struct {
 	called bool
 	tenant dns.Tenant
@@ -4171,24 +4139,6 @@ func (f *fakeLocalDNSManager) Uninstall(ctx context.Context, plan localdns.Plan)
 	f.plan = plan
 	f.uninstallPlan = plan
 	return localdns.Result{Reference: plan.Reference, Action: "uninstall", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
-}
-
-func (f *fakeLocalDNSServiceManager) InstallService(ctx context.Context, plan localdns.ServicePlan) (localdns.ServiceResult, error) {
-	f.installed = true
-	f.plan = plan
-	return localdns.ServiceResult{Action: plan.Action, Strategy: plan.Strategy, ServicePath: plan.ServicePath}, nil
-}
-
-func (f *fakeLocalDNSServiceManager) ReloadService(ctx context.Context, plan localdns.ServicePlan) (localdns.ServiceResult, error) {
-	f.reloaded = true
-	f.plan = plan
-	return localdns.ServiceResult{Action: plan.Action, Strategy: plan.Strategy, ServicePath: plan.ServicePath}, nil
-}
-
-func (f *fakeLocalDNSServiceManager) UninstallService(ctx context.Context, plan localdns.ServicePlan) (localdns.ServiceResult, error) {
-	f.uninstalled = true
-	f.plan = plan
-	return localdns.ServiceResult{Action: plan.Action, Strategy: plan.Strategy, ServicePath: plan.ServicePath}, nil
 }
 
 func (f *fakeDNSApplier) Apply(ctx context.Context, tenant dns.Tenant) (dns.ApplyResult, error) {

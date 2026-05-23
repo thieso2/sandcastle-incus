@@ -1,6 +1,8 @@
 package localdns
 
 import (
+	"fmt"
+	"net"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -41,27 +43,30 @@ func ResolverPath(goos string, domain string) string {
 	}
 }
 
-func ResolverCommands(goos string, domain string, listen string) []Command {
+func ResolverCommands(goos string, domain string, endpoint string) []Command {
 	if resolverDirOverride() != "" || ResolverStrategy(goos) != StrategySystemdResolve {
 		return nil
 	}
 	return []Command{
-		{Args: []string{"resolvectl", "dns", "lo", listen}},
+		{Args: []string{"resolvectl", "dns", "lo", endpoint}},
 		{Args: []string{"resolvectl", "domain", "lo", "~" + domain}},
 	}
 }
 
-func ResolverSyncCommands(strategy string, state State, listen string) []Command {
+func ResolverSyncCommands(strategy string, state State) []Command {
 	if resolverDirOverride() != "" || strategy != StrategySystemdResolve {
 		return nil
 	}
 	domainSet := map[string]struct{}{}
+	endpointSet := map[string]struct{}{}
 	for _, tenant := range state.Tenants {
-		if _, ok := tenantUpstreamEndpoint(tenant); !ok {
+		endpoint, ok := tenantUpstreamEndpoint(tenant)
+		if !ok {
 			continue
 		}
 		domain := strings.TrimSuffix(strings.ToLower(tenant.DNSSuffix), ".")
 		domainSet[domain] = struct{}{}
+		endpointSet[endpoint] = struct{}{}
 	}
 	if len(domainSet) == 0 {
 		return []Command{{Args: []string{"resolvectl", "revert", "lo"}}}
@@ -70,13 +75,34 @@ func ResolverSyncCommands(strategy string, state State, listen string) []Command
 	for domain := range domainSet {
 		domains = append(domains, domain)
 	}
+	endpoints := make([]string, 0, len(endpointSet))
+	for endpoint := range endpointSet {
+		endpoints = append(endpoints, endpoint)
+	}
 	sort.Strings(domains)
+	sort.Strings(endpoints)
+	dnsArgs := []string{"resolvectl", "dns", "lo"}
+	dnsArgs = append(dnsArgs, endpoints...)
 	domainArgs := []string{"resolvectl", "domain", "lo"}
 	for _, domain := range domains {
 		domainArgs = append(domainArgs, "~"+domain)
 	}
 	return []Command{
-		{Args: []string{"resolvectl", "dns", "lo", listen}},
+		{Args: dnsArgs},
 		{Args: domainArgs},
 	}
+}
+
+func tenantUpstreamEndpoint(tenant TenantState) (string, bool) {
+	domain := strings.TrimSuffix(strings.ToLower(tenant.DNSSuffix), ".")
+	if domain == "" {
+		return "", false
+	}
+	if net.ParseIP(tenant.DNSEndpoint.IP) == nil {
+		return "", false
+	}
+	if tenant.DNSEndpoint.Port <= 0 || tenant.DNSEndpoint.Port > 65535 {
+		return "", false
+	}
+	return net.JoinHostPort(tenant.DNSEndpoint.IP, fmt.Sprint(tenant.DNSEndpoint.Port)), true
 }

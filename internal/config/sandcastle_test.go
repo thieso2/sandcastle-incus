@@ -56,6 +56,42 @@ func TestLoadAdminFromFileAndEnvEnvWins(t *testing.T) {
 	}
 }
 
+func TestLoadUserFromFileAndEnvIgnoresDotEnvDefaults(t *testing.T) {
+	clearAdminEnvForTest(t)
+	dir := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := os.WriteFile(".env", []byte("SANDCASTLE_REMOTE=admin-remote\nSANDCASTLE_TENANT=admin-tenant\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	admin := loadUserFromFileAndEnv(SandcastleConfig{Tenant: "user-tenant", Remote: "user-remote"})
+	if admin.Tenant != "user-tenant" {
+		t.Fatalf("Tenant = %q, want user-tenant", admin.Tenant)
+	}
+	if admin.Remote != "user-remote" {
+		t.Fatalf("Remote = %q, want user-remote", admin.Remote)
+	}
+}
+
+func TestLoadUserFromFileAndEnvExportedEnvWins(t *testing.T) {
+	clearAdminEnvForTest(t)
+	t.Setenv("SANDCASTLE_REMOTE", "env-remote")
+	admin := loadUserFromFileAndEnv(SandcastleConfig{Remote: "file-remote"})
+	if admin.Remote != "env-remote" {
+		t.Fatalf("Remote = %q, want env-remote", admin.Remote)
+	}
+}
+
 func TestLoadAdminFromFileAndEnvFileUsedWhenNoEnv(t *testing.T) {
 	t.Setenv("SANDCASTLE_TENANT", "")
 	t.Setenv("SANDCASTLE_REMOTE", "")

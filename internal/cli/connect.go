@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -30,6 +31,9 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if config.machineConnector == nil {
 				return fmt.Errorf("machine connect executor is not configured")
 			}
+			if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), config, plan); err != nil {
+				return err
+			}
 			if err := config.machineConnector.ConnectMachine(cmd.Context(), plan, machine.ConnectSession{
 				Stdin:  config.stdin,
 				Stdout: config.stdout,
@@ -50,11 +54,25 @@ func shouldCreateOnConnectFailure(err error) bool {
 	return strings.Contains(message, "not found") && !strings.Contains(message, "project")
 }
 
+func refreshKnownHostsForPrivateIPConnect(ctx context.Context, config commandConfig, plan machine.ConnectPlan) error {
+	if !plan.Managed || strings.TrimSpace(plan.PrivateIP) == "" || plan.SSHHost != plan.PrivateIP {
+		return nil
+	}
+	return refreshMachineKnownHosts(ctx, config, machine.CreatePlan{
+		Tenant:       plan.Tenant,
+		Project:      plan.Project,
+		Name:         plan.Name,
+		InstanceName: plan.InstanceName,
+		Hostname:     plan.Hostname,
+		PrivateIP:    plan.PrivateIP,
+	})
+}
+
 func createAndConnect(cmd *cobra.Command, config commandConfig, reference string, command []string) error {
 	if config.stderr != nil {
 		fmt.Fprintf(config.stderr, "Machine %s not found; creating it before connecting.\n", reference)
 	}
-	createPlan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, config.tenantStore, config.machineStore, machine.CreateRequest{
+	createPlan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
 		Reference: reference,
 	})
 	if err != nil {

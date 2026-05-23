@@ -2,7 +2,6 @@ package incusx
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -55,43 +54,7 @@ func TestTenantStoreUsesInjectedServer(t *testing.T) {
 	}
 }
 
-func TestTenantStoreMergesProjectNamespaceFile(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	state, err := json.Marshal(tenantProjectNamespaceState{Projects: []meta.Project{{Name: "default"}, {Name: "website"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := TenantStore{
-		Server: fakeTenantListServer{projects: []api.Project{{
-			Name: "sc-acme",
-			ProjectPut: api.ProjectPut{
-				Config: api.ConfigMap(config),
-			},
-		}}},
-		Metadata: fakeTenantMetadataServer{files: map[string]string{tenantProjectsFile: string(state)}},
-	}
-
-	projects, err := store.ListProjects(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	tenant, err := meta.ParseTenantConfig(projects[0].Config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tenant.Projects) != 2 || tenant.Projects[1].Name != "website" {
-		t.Fatalf("projects = %#v", tenant.Projects)
-	}
-}
-
-func TestTenantStoreIgnoresMissingProjectNamespaceFile(t *testing.T) {
+func TestTenantStoreDoesNotReadSSHKeyMetadataByDefault(t *testing.T) {
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
 		Projects:    []meta.Project{{Name: "default"}},
@@ -107,7 +70,7 @@ func TestTenantStoreIgnoresMissingProjectNamespaceFile(t *testing.T) {
 				Config: api.ConfigMap(config),
 			},
 		}}},
-		Metadata: fakeTenantMetadataServer{err: os.ErrNotExist},
+		Metadata: fakeTenantMetadataServer{files: map[string]string{tenantSSHPublicKeyFile: "ssh-ed25519 test\n"}},
 	}
 
 	projects, err := store.ListProjects(context.Background())
@@ -121,37 +84,8 @@ func TestTenantStoreIgnoresMissingProjectNamespaceFile(t *testing.T) {
 	if len(tenant.Projects) != 1 || tenant.Projects[0].Name != "default" {
 		t.Fatalf("projects = %#v", tenant.Projects)
 	}
-}
-
-func TestTenantStoreIgnoresInaccessibleProjectNamespaceFile(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := TenantStore{
-		Server: fakeTenantListServer{projects: []api.Project{{
-			Name: "sc-acme",
-			ProjectPut: api.ProjectPut{
-				Config: api.ConfigMap(config),
-			},
-		}}},
-		Metadata: fakeTenantMetadataServer{err: os.ErrPermission},
-	}
-
-	projects, err := store.ListProjects(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	tenant, err := meta.ParseTenantConfig(projects[0].Config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tenant.Projects) != 1 || tenant.Projects[0].Name != "default" {
-		t.Fatalf("projects = %#v", tenant.Projects)
+	if tenant.SSHPublicKey != "" {
+		t.Fatalf("SSHPublicKey = %q", tenant.SSHPublicKey)
 	}
 }
 
@@ -171,7 +105,8 @@ func TestTenantStoreMergesSSHKeyMetadataFile(t *testing.T) {
 				Config: api.ConfigMap(config),
 			},
 		}}},
-		Metadata: fakeTenantMetadataServer{files: map[string]string{tenantSSHPublicKeyFile: "ssh-ed25519 test\n"}},
+		Metadata:   fakeTenantMetadataServer{files: map[string]string{tenantSSHPublicKeyFile: "ssh-ed25519 test\n"}},
+		LoadSSHKey: true,
 	}
 
 	projects, err := store.ListProjects(context.Background())
