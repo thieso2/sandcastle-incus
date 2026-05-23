@@ -138,9 +138,10 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 		projectMetadata: projectMetadataForRouteTest(t, nil),
 	}
 	manager := RouteManager{
-		Server:           server,
-		Resolver:         fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
-		LetsEncryptEmail: "ops@example.com",
+		Server:                server,
+		Resolver:              fakeRouteDNSResolver{hosts: []string{"203.0.113.10"}},
+		LetsEncryptEmail:      "ops@example.com",
+		InfrastructureTLSMode: "internal",
 	}
 	plan := routePlanForTest(t)
 	if err := manager.Create(context.Background(), plan); err != nil {
@@ -165,6 +166,9 @@ func TestRouteManagerCreatesRouteProfile(t *testing.T) {
 	}
 	if !strings.HasPrefix(caddyfile, "{\n    email ops@example.com\n    admin 127.0.0.1:2019\n    auto_https disable_redirects\n}\n\n") {
 		t.Fatalf("Caddyfile missing Let's Encrypt email: %q", caddyfile)
+	}
+	if !strings.Contains(caddyfile, "tls internal") {
+		t.Fatalf("Caddyfile missing internal TLS mode: %q", caddyfile)
 	}
 	if resource.execInstance != route.InfrastructureCaddyName {
 		t.Fatalf("reload instance = %q", resource.execInstance)

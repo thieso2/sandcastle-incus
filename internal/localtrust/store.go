@@ -1,12 +1,15 @@
 package localtrust
 
 import (
+	"bytes"
 	"context"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 type Store interface {
@@ -71,11 +74,12 @@ func (s CommandStore) InstallCA(ctx context.Context, plan Plan, certPEM []byte) 
 func (s CommandStore) UninstallCA(ctx context.Context, plan Plan) (Result, error) {
 	switch s.GOOS {
 	case "darwin":
-		name, args := s.securityCommand("delete-certificate", "-c", plan.TrustName, "/Library/Keychains/System.keychain")
+		keychain := s.darwinTrustKeychain()
+		name, args := "security", []string{"delete-certificate", "-c", plan.TrustName, keychain}
 		if output, err := s.runCommand(ctx, name, args...); err != nil {
 			return Result{}, fmt.Errorf("remove macOS trust certificate: %w: %s", err, string(output))
 		}
-		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "uninstall", Target: "/Library/Keychains/System.keychain"}, nil
+		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "uninstall", Target: keychain}, nil
 	case "linux":
 		target := s.linuxTrustPath(plan)
 		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
@@ -91,6 +95,14 @@ func (s CommandStore) UninstallCA(ctx context.Context, plan Plan) (Result, error
 }
 
 func (s CommandStore) installDarwin(ctx context.Context, plan Plan, certPEM []byte) (Result, error) {
+	keychain := s.darwinTrustKeychain()
+	installed, err := s.darwinCertificateInstalled(ctx, plan, certPEM, keychain)
+	if err != nil {
+		return Result{}, err
+	}
+	if installed {
+		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "install", Target: keychain}, nil
+	}
 	tmp, err := os.CreateTemp("", "sandcastle-ca-*.crt")
 	if err != nil {
 		return Result{}, err
@@ -103,25 +115,29 @@ func (s CommandStore) installDarwin(ctx context.Context, plan Plan, certPEM []by
 	if err := tmp.Close(); err != nil {
 		return Result{}, err
 	}
-	name, args := s.securityCommand("add-trusted-cert", "-d", "-r", "trustRoot", "-k", "/Library/Keychains/System.keychain", tmp.Name())
+	name, args := "security", []string{"add-trusted-cert", "-r", "trustRoot", "-k", keychain, tmp.Name()}
 	if output, err := s.runCommand(ctx, name, args...); err != nil {
 		return Result{}, fmt.Errorf("install macOS trust certificate: %w: %s", err, string(output))
 	}
-	return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "install", Target: "/Library/Keychains/System.keychain"}, nil
+	return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "install", Target: keychain}, nil
 }
 
-func (s CommandStore) securityCommand(args ...string) (string, []string) {
-	if s.effectiveUID() == 0 {
-		return "security", args
+func (s CommandStore) darwinCertificateInstalled(ctx context.Context, plan Plan, certPEM []byte, keychain string) (bool, error) {
+	output, err := s.commandOutput(ctx, "security", "find-certificate", "-a", "-p", keychain)
+	if err != nil {
+		return false, nil
 	}
-	return "sudo", append([]string{"security"}, args...)
+	return containsPEMCertificate(output, certPEM), nil
 }
 
-func (s CommandStore) effectiveUID() int {
-	if s.EffectiveUID != nil {
-		return s.EffectiveUID()
+func (s CommandStore) darwinTrustKeychain() string {
+	if path := strings.TrimSpace(os.Getenv("SANDCASTLE_DARWIN_TRUST_KEYCHAIN")); path != "" {
+		return path
 	}
-	return os.Geteuid()
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, "Library", "Keychains", "login.keychain-db")
+	}
+	return "/Library/Keychains/System.keychain"
 }
 
 func (s CommandStore) installLinux(ctx context.Context, plan Plan, certPEM []byte) (Result, error) {
@@ -159,5 +175,32 @@ func (s CommandStore) runCommand(ctx context.Context, name string, args ...strin
 		return s.RunCommand(ctx, name, args...)
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
-	return cmd.CombinedOutput()
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return nil, cmd.Run()
+}
+
+func (s CommandStore) commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if s.RunCommand != nil {
+		return s.RunCommand(ctx, name, args...)
+	}
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+func containsPEMCertificate(haystack []byte, needle []byte) bool {
+	target, _ := pem.Decode(needle)
+	if target == nil {
+		return false
+	}
+	for {
+		var block *pem.Block
+		block, haystack = pem.Decode(haystack)
+		if block == nil {
+			return false
+		}
+		if block.Type == "CERTIFICATE" && bytes.Equal(block.Bytes, target.Bytes) {
+			return true
+		}
+	}
 }

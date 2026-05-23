@@ -63,6 +63,7 @@ type devicePollResponse struct {
 	CurrentProject     string          `json:"current_project,omitempty"`
 	SSHKeyFingerprint  string          `json:"ssh_key_fingerprint,omitempty"`
 	TenantTailnetState string          `json:"tenant_tailnet_state,omitempty"`
+	TailscaleAuthKey   string          `json:"tailscale_auth_key,omitempty"`
 	NextCommand        string          `json:"next_command,omitempty"`
 	LoginResult        *CLILoginResult `json:"login_result,omitempty"`
 	ExpiresIn          int             `json:"expires_in,omitempty"`
@@ -147,10 +148,18 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		CurrentProject:     currentProjectForDeviceLogin(login),
 		SSHKeyFingerprint:  sshFingerprint,
 		TenantTailnetState: tenantTailnetStateForDeviceLogin(login),
+		TailscaleAuthKey:   h.tailscaleAuthKeyForDeviceLogin(login),
 		NextCommand:        nextCommandForDeviceLogin(login),
 		LoginResult:        loginResult,
 		ExpiresIn:          expiresIn,
 	})
+}
+
+func (h handler) tailscaleAuthKeyForDeviceLogin(login DeviceLogin) string {
+	if login.Status != DeviceStatusApproved {
+		return ""
+	}
+	return strings.TrimSpace(h.tailscaleAuthKey)
 }
 
 func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey string, publicKey string) error {
@@ -334,6 +343,32 @@ func (h handler) deviceApprovePost(w http.ResponseWriter, r *http.Request) {
 	case "deny":
 		_, _ = w.Write([]byte("Device login denied. Return to the terminal.\n"))
 	}
+}
+
+func (h handler) debugDeviceApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, err := FindLoginUser(r.Context(), h.db, h.debugDeviceUser)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if !user.Allowlisted {
+		http.Error(w, "debug device user must be allowlisted", http.StatusForbidden)
+		return
+	}
+	code := strings.ToUpper(strings.TrimSpace(r.FormValue("user_code")))
+	if code == "" {
+		code = strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("user_code")))
+	}
+	if err := ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, timeNow()); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintf(w, "Debug-approved device login for %s.\n", user.UserKey)
 }
 
 func (h handler) requireAllowlistedSession(r *http.Request) (User, error) {

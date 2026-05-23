@@ -48,7 +48,11 @@ func TestHealthAndStatusUseSQLiteDatabase(t *testing.T) {
 
 	status := httptest.NewRecorder()
 	handler.ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/", nil))
-	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Sandcastle Auth") || !strings.Contains(status.Body.String(), "auth.example.com") {
+	if status.Code != http.StatusOK ||
+		!strings.Contains(status.Body.String(), "Sandcastle Auth") ||
+		!strings.Contains(status.Body.String(), "auth.example.com") ||
+		!strings.Contains(status.Body.String(), `href="/login/github"`) ||
+		!strings.Contains(status.Body.String(), "Sign in with GitHub") {
 		t.Fatalf("status = %d %q", status.Code, status.Body.String())
 	}
 }
@@ -211,6 +215,16 @@ func TestPasswordLoginPathDoesNotExist(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/login/password", nil))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("password login = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestDeviceClientDefaultTimeoutAllowsSlowProvisioningPoll(t *testing.T) {
+	client := DeviceClient{}.client()
+	if client.Timeout != defaultDeviceClientTimeout {
+		t.Fatalf("timeout = %s, want %s", client.Timeout, defaultDeviceClientTimeout)
+	}
+	if client.Timeout < time.Minute {
+		t.Fatalf("timeout too short for first-run provisioning: %s", client.Timeout)
 	}
 }
 
@@ -650,6 +664,60 @@ func TestDeviceApprovalRequiresGitHubSession(t *testing.T) {
 	NewHandler(db, HandlerOptions{}).ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("approve = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestDebugDeviceApprovalWhenConfigured(t *testing.T) {
+	db := authDBForTest(t)
+	if err := BootstrapAdmins(context.Background(), db, []string{"admin"}); err != nil {
+		t.Fatal(err)
+	}
+	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(db, HandlerOptions{DebugDeviceUser: "admin"})
+	request := httptest.NewRequest(http.MethodPost, "/debug/device/approve", strings.NewReader("user_code="+login.UserCode))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("debug approve = %d %q", response.Code, response.Body.String())
+	}
+	approved := pollDeviceForTest(t, handler, login.DeviceCode)
+	if approved.Status != DeviceStatusApproved || approved.UserKey != "admin" {
+		t.Fatalf("approved = %#v", approved)
+	}
+}
+
+func TestDevicePollReturnsConfiguredTailscaleAuthKeyOnlyAfterApproval(t *testing.T) {
+	db := authDBForTest(t)
+	cookie := adminSessionCookieForTest(t, db)
+	handler := NewHandler(db, HandlerOptions{TailscaleAuthKey: "tskey-server"})
+	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := pollDeviceForTest(t, handler, login.DeviceCode)
+	if pending.TailscaleAuthKey != "" || strings.Contains(pending.raw, "tskey-server") {
+		t.Fatalf("pending poll leaked auth key: %#v raw=%s", pending, pending.raw)
+	}
+	approveRequest := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
+	approveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approveRequest.AddCookie(cookie)
+	handler.ServeHTTP(httptest.NewRecorder(), approveRequest)
+	approved := pollDeviceForTest(t, handler, login.DeviceCode)
+	if approved.TailscaleAuthKey != "tskey-server" {
+		t.Fatalf("tailscale auth key = %q", approved.TailscaleAuthKey)
+	}
+}
+
+func TestDebugDeviceApprovalRouteAbsentByDefault(t *testing.T) {
+	db := authDBForTest(t)
+	response := httptest.NewRecorder()
+	NewHandler(db, HandlerOptions{}).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/debug/device/approve", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("debug route = %d %q", response.Code, response.Body.String())
 	}
 }
 

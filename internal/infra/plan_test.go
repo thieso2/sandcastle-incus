@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 )
@@ -18,6 +19,8 @@ func TestPlanCreate(t *testing.T) {
 	admin.AuthGitHubClientID = "github-client"
 	admin.AuthGitHubClientSecret = "github-secret"
 	admin.AuthAdminGitHubUsers = []string{"OctoCat", "hubot"}
+	admin.AuthDebugDeviceUser = "OctoCat"
+	admin.AuthTailscaleAuthKey = "tskey-auth-secret"
 	plan, err := PlanCreate(admin, CreateRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -27,6 +30,9 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if plan.CaddyInstance != route.InfrastructureCaddyName {
 		t.Fatalf("CaddyInstance = %q", plan.CaddyInstance)
+	}
+	if plan.TLSMode != config.DefaultInfrastructureTLSMode {
+		t.Fatalf("TLSMode = %q", plan.TLSMode)
 	}
 	if plan.RouteBrokerInstance != RouteBrokerName {
 		t.Fatalf("RouteBrokerInstance = %q", plan.RouteBrokerInstance)
@@ -91,6 +97,7 @@ func TestPlanCreate(t *testing.T) {
 		"SANDCASTLE_INCUS_PROJECT_PREFIX='" + admin.IncusProjectPrefix + "'",
 		"SANDCASTLE_INFRA_PROJECT='" + admin.InfrastructureProject + "'",
 		"SANDCASTLE_LETSENCRYPT_EMAIL='ops@example.com'",
+		"SANDCASTLE_INFRA_TLS_MODE='acme'",
 		"SANDCASTLE_BASE_IMAGE='" + admin.Images.Base + "'",
 		"SANDCASTLE_AI_IMAGE='" + admin.Images.AI + "'",
 	} {
@@ -112,6 +119,9 @@ func TestPlanCreate(t *testing.T) {
 		"SANDCASTLE_AUTH_GITHUB_CLIENT_ID='github-client'",
 		"SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET='github-secret'",
 		"SANDCASTLE_AUTH_ADMIN_GITHUB_USERS='OctoCat,hubot'",
+		"SANDCASTLE_AUTH_DEBUG_DEVICE_USER='OctoCat'",
+		"SANDCASTLE_AUTH_TAILSCALE_AUTHKEY='tskey-auth-secret'",
+		"SANDCASTLE_INFRA_TLS_MODE='acme'",
 		"SANDCASTLE_BASE_IMAGE='" + admin.Images.Base + "'",
 		"SANDCASTLE_AI_IMAGE='" + admin.Images.AI + "'",
 	} {
@@ -121,6 +131,12 @@ func TestPlanCreate(t *testing.T) {
 	}
 	if !strings.Contains(runtimeFileContent(plan, AuthAppName, AuthAppUnitPath), "sandcastle-admin auth-app serve") {
 		t.Fatalf("auth app unit = %q", runtimeFileContent(plan, AuthAppName, AuthAppUnitPath))
+	}
+	if !strings.Contains(runtimeFileContent(plan, AuthAppName, AuthAppUnitPath), "--debug-device-user ${SANDCASTLE_AUTH_DEBUG_DEVICE_USER}") {
+		t.Fatalf("auth app unit missing debug device user flag = %q", runtimeFileContent(plan, AuthAppName, AuthAppUnitPath))
+	}
+	if !strings.Contains(runtimeFileContent(plan, AuthAppName, AuthAppUnitPath), "--tailscale-auth-key ${SANDCASTLE_AUTH_TAILSCALE_AUTHKEY}") {
+		t.Fatalf("auth app unit missing tailscale auth key flag = %q", runtimeFileContent(plan, AuthAppName, AuthAppUnitPath))
 	}
 	if len(plan.RuntimeBinaries) != 2 {
 		t.Fatalf("runtime binaries = %#v", plan.RuntimeBinaries)
@@ -154,7 +170,40 @@ func TestPlanCreate(t *testing.T) {
 	}
 }
 
+func TestPlanCreateInternalTLS(t *testing.T) {
+	binaryPath := writeRuntimeBinaryForTest(t)
+	t.Setenv("SANDCASTLE_ADMIN_BIN", binaryPath)
+	admin := config.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "internal"
+	admin.AuthHostname = "auth.example.com"
+	plan, err := PlanCreate(admin, CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.TLSMode != "internal" {
+		t.Fatalf("TLSMode = %q", plan.TLSMode)
+	}
+	caddyfile := runtimeFileContent(plan, route.InfrastructureCaddyName, "/etc/caddy/Caddyfile")
+	if !strings.Contains(caddyfile, "tls internal") {
+		t.Fatalf("Caddyfile missing internal TLS:\n%s", caddyfile)
+	}
+	if !strings.Contains(caddyfile, "cert "+CaddyPKIRootCertPath) || !strings.Contains(caddyfile, "key "+CaddyPKIRootKeyPath) {
+		t.Fatalf("Caddyfile missing persistent PKI root:\n%s", caddyfile)
+	}
+	if !hasRuntimeDirectory(plan, route.InfrastructureCaddyName, CaddyPKIDir) {
+		t.Fatalf("plan missing Caddy PKI directory: %#v", plan.RuntimeDirectories)
+	}
+	plan = ApplyInternalCA(plan, certs.KeyPair{CertificatePEM: []byte("CERT"), PrivateKeyPEM: []byte("KEY")})
+	if runtimeFileContent(plan, route.InfrastructureCaddyName, CaddyPKIRootCertPath) != "CERT" {
+		t.Fatalf("missing root cert runtime file")
+	}
+	if runtimeFileContent(plan, route.InfrastructureCaddyName, CaddyPKIRootKeyPath) != "KEY" {
+		t.Fatalf("missing root key runtime file")
+	}
+}
+
 func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
+	writeRuntimeBinaryForTest(t)
 	admin := config.LoadAdminFromEnv()
 	admin.Remote = "local remote"
 	admin.InfrastructureHost = "public.example.com"
@@ -183,6 +232,7 @@ func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
 }
 
 func TestPlanCreateMountsRouteBrokerIncusSocketWhenConfigured(t *testing.T) {
+	writeRuntimeBinaryForTest(t)
 	admin := config.LoadAdminFromEnv()
 	admin.RouteBrokerIncusSocket = "/run/incus/unix.socket"
 	plan, err := PlanCreate(admin, CreateRequest{})
@@ -219,7 +269,23 @@ func TestPlanCreateMountsRouteBrokerIncusSocketWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestPlanCreateRejectsMacOSRuntimeBinary(t *testing.T) {
+	path := t.TempDir() + "/sc-adm"
+	if err := os.WriteFile(path, []byte{0xcf, 0xfa, 0xed, 0xfe}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDCASTLE_ADMIN_BIN", path)
+	_, err := PlanCreate(config.LoadAdminFromEnv(), CreateRequest{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "macOS Mach-O binary") || !strings.Contains(err.Error(), "SANDCASTLE_ADMIN_BIN") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestApplyStaticNetworkWritesAddressesAndResolver(t *testing.T) {
+	writeRuntimeBinaryForTest(t)
 	admin := config.LoadAdminFromEnv()
 	admin.AuthHostname = "auth.example.com"
 	plan, err := PlanCreate(admin, CreateRequest{})
@@ -256,11 +322,27 @@ func TestPlanDelete(t *testing.T) {
 	if plan.Project != config.DefaultInfrastructureProject {
 		t.Fatalf("Project = %q", plan.Project)
 	}
+	if plan.IncusProjectPrefix != config.DefaultIncusProjectPrefix {
+		t.Fatalf("IncusProjectPrefix = %q", plan.IncusProjectPrefix)
+	}
+	if plan.PurgeData {
+		t.Fatal("PurgeData = true")
+	}
 	if len(plan.RuntimeInstances) != 3 {
 		t.Fatalf("RuntimeInstances = %#v", plan.RuntimeInstances)
 	}
 	if plan.RuntimeInstances[0] != route.InfrastructureCaddyName || plan.RuntimeInstances[1] != RouteBrokerName || plan.RuntimeInstances[2] != AuthAppName {
 		t.Fatalf("RuntimeInstances = %#v", plan.RuntimeInstances)
+	}
+}
+
+func TestPlanDeleteWithPurge(t *testing.T) {
+	plan, err := PlanDelete(config.LoadAdminFromEnv(), DeleteRequest{Purge: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.PurgeData {
+		t.Fatal("PurgeData = false")
 	}
 }
 
@@ -280,11 +362,21 @@ func runtimeFileContent(plan CreatePlan, instance string, path string) string {
 	return ""
 }
 
+func hasRuntimeDirectory(plan CreatePlan, instance string, path string) bool {
+	for _, directory := range plan.RuntimeDirectories {
+		if directory.Instance == instance && directory.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
 func writeRuntimeBinaryForTest(t *testing.T) string {
 	t.Helper()
 	path := t.TempDir() + "/sandcastle"
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("SANDCASTLE_ADMIN_BIN", path)
 	return path
 }

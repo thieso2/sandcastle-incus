@@ -39,6 +39,7 @@ type RouteManager struct {
 	ConfigPath            string
 	InfrastructureProject string
 	LetsEncryptEmail      string
+	InfrastructureTLSMode string
 	Server                RouteServer
 	Resolver              route.DNSResolver
 }
@@ -91,7 +92,7 @@ func (m RouteManager) Create(ctx context.Context, plan route.CreatePlan) error {
 	if err := createRouteBacklink(server, plan); err != nil {
 		return err
 	}
-	return refreshInfrastructureCaddy(projectServer, m.LetsEncryptEmail)
+	return refreshInfrastructureCaddy(projectServer, m.LetsEncryptEmail, m.InfrastructureTLSMode)
 }
 
 func ensureRouteIngressAttachment(server RouteResourceServer, plan route.CreatePlan) error {
@@ -226,7 +227,7 @@ func (m RouteManager) Delete(ctx context.Context, plan route.DeletePlan) error {
 	if err := projectServer.DeleteProfile(route.ProfileName(plan.Hostname)); err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("delete route metadata %s: %w", plan.Hostname, err)
 	}
-	return refreshInfrastructureCaddy(projectServer, m.LetsEncryptEmail)
+	return refreshInfrastructureCaddy(projectServer, m.LetsEncryptEmail, m.InfrastructureTLSMode)
 }
 
 func (m RouteManager) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
@@ -334,12 +335,15 @@ func updateProjectRoutes(server RouteServer, projectName string, tolerateMissing
 	return nil
 }
 
-func refreshInfrastructureCaddy(server RouteResourceServer, letsEncryptEmail string) error {
+func refreshInfrastructureCaddy(server RouteResourceServer, letsEncryptEmail string, tlsMode string) error {
 	routes, err := listRouteMetadata(server)
 	if err != nil {
 		return err
 	}
-	file := caddy.RenderInfrastructureWithOptions(routes, caddy.InfrastructureOptions{LetsEncryptEmail: letsEncryptEmail})
+	file := caddy.RenderInfrastructureWithOptions(routes, caddy.InfrastructureOptions{
+		LetsEncryptEmail: letsEncryptEmail,
+		TLSMode:          tlsMode,
+	})
 	if err := server.CreateInstanceFile(route.InfrastructureCaddyName, "/etc/caddy", incus.InstanceFileArgs{Type: "directory", Mode: 0o755}); err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
 		return fmt.Errorf("create infrastructure Caddy config directory: %w", err)
 	}

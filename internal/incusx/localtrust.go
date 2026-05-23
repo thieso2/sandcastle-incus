@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type LocalTrustServer interface {
@@ -15,7 +20,9 @@ type LocalTrustServer interface {
 }
 
 type LocalTrustTenantResourceServer interface {
+	GetInstanceFile(instanceName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
+	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 }
 
 type LocalTrustManager struct {
@@ -30,7 +37,7 @@ func NewLocalTrustManager(remote string, store localtrust.Store) LocalTrustManag
 }
 
 func (m LocalTrustManager) Install(ctx context.Context, plan localtrust.Plan) (localtrust.Result, error) {
-	certPEM, err := m.readCA(plan)
+	material, err := m.prepareCA(ctx, plan)
 	if err != nil {
 		return localtrust.Result{}, err
 	}
@@ -38,7 +45,16 @@ func (m LocalTrustManager) Install(ctx context.Context, plan localtrust.Plan) (l
 	if store == nil {
 		store = localtrust.NewPlatformStore()
 	}
-	return store.InstallCA(ctx, plan, certPEM)
+	result, err := store.InstallCA(ctx, plan, material.certPEM)
+	if err != nil {
+		return localtrust.Result{}, err
+	}
+	if shouldCacheTenantCA(plan) && len(material.privateKeyPEM) > 0 {
+		if err := writePersistentTenantCA(m.Remote, plan, material); err != nil {
+			return localtrust.Result{}, err
+		}
+	}
+	return result, nil
 }
 
 func (m LocalTrustManager) Uninstall(ctx context.Context, plan localtrust.Plan) (localtrust.Result, error) {
@@ -47,6 +63,39 @@ func (m LocalTrustManager) Uninstall(ctx context.Context, plan localtrust.Plan) 
 		store = localtrust.NewPlatformStore()
 	}
 	return store.UninstallCA(ctx, plan)
+}
+
+type tenantCAMaterial struct {
+	certPEM       []byte
+	privateKeyPEM []byte
+}
+
+func (m LocalTrustManager) prepareCA(ctx context.Context, plan localtrust.Plan) (tenantCAMaterial, error) {
+	if shouldCacheTenantCA(plan) {
+		cached, ok, err := loadPersistentTenantCA(m.Remote, plan)
+		if err != nil {
+			return tenantCAMaterial{}, err
+		}
+		if ok {
+			if err := m.writeTenantCA(plan, cached); err != nil {
+				return tenantCAMaterial{}, err
+			}
+			return cached, nil
+		}
+	}
+	certPEM, err := m.readCA(plan)
+	if err != nil {
+		return tenantCAMaterial{}, err
+	}
+	material := tenantCAMaterial{certPEM: certPEM}
+	if shouldCacheTenantCA(plan) {
+		keyPEM, err := m.readTenantCAKey(plan)
+		if err != nil {
+			return tenantCAMaterial{}, err
+		}
+		material.privateKeyPEM = keyPEM
+	}
+	return material, nil
 }
 
 func (m LocalTrustManager) readCA(plan localtrust.Plan) ([]byte, error) {
@@ -67,12 +116,139 @@ func (m LocalTrustManager) readCA(plan localtrust.Plan) ([]byte, error) {
 		server = sdkLocalTrustServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(plan.IncusProject)
+	if plan.Instance != "" {
+		content, _, err := projectServer.GetInstanceFile(plan.Instance, plan.CertificatePath)
+		if err != nil {
+			return nil, fmt.Errorf("read instance CA certificate: %w", err)
+		}
+		defer content.Close()
+		return io.ReadAll(content)
+	}
 	content, _, err := projectServer.GetStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.CertificatePath)
 	if err != nil {
 		return nil, fmt.Errorf("read tenant CA certificate: %w", err)
 	}
 	defer content.Close()
 	return io.ReadAll(content)
+}
+
+func (m LocalTrustManager) readTenantCAKey(plan localtrust.Plan) ([]byte, error) {
+	content, err := m.readStorageVolumeFile(plan, tenant.TenantCAKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read tenant CA private key: %w", err)
+	}
+	defer content.Close()
+	return io.ReadAll(content)
+}
+
+func (m LocalTrustManager) writeTenantCA(plan localtrust.Plan, material tenantCAMaterial) error {
+	server, err := m.localTrustServer()
+	if err != nil {
+		return err
+	}
+	projectServer := server.UseProject(plan.IncusProject)
+	if err := projectServer.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, tenant.TenantCACertPath, incus.InstanceFileArgs{
+		Content:   strings.NewReader(string(material.certPEM)),
+		Type:      "file",
+		Mode:      0o644,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("restore cached tenant CA certificate: %w", err)
+	}
+	if err := projectServer.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, tenant.TenantCAKeyPath, incus.InstanceFileArgs{
+		Content:   strings.NewReader(string(material.privateKeyPEM)),
+		Type:      "file",
+		Mode:      0o600,
+		WriteMode: "overwrite",
+	}); err != nil {
+		return fmt.Errorf("restore cached tenant CA private key: %w", err)
+	}
+	return nil
+}
+
+func (m LocalTrustManager) readStorageVolumeFile(plan localtrust.Plan, filePath string) (io.ReadCloser, error) {
+	server, err := m.localTrustServer()
+	if err != nil {
+		return nil, err
+	}
+	content, _, err := server.UseProject(plan.IncusProject).GetStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, filePath)
+	return content, err
+}
+
+func (m LocalTrustManager) localTrustServer() (LocalTrustServer, error) {
+	if m.Server != nil {
+		return m.Server, nil
+	}
+	loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("load Incus config: %w", err)
+	}
+	remote := m.Remote
+	if remote == "" {
+		remote = loaded.DefaultRemote
+	}
+	instanceServer, err := loaded.GetInstanceServer(remote)
+	if err != nil {
+		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+	}
+	return sdkLocalTrustServer{inner: instanceServer}, nil
+}
+
+func shouldCacheTenantCA(plan localtrust.Plan) bool {
+	return plan.Instance == "" &&
+		strings.TrimSpace(plan.IncusProject) != "" &&
+		strings.TrimSpace(plan.StoragePool) != "" &&
+		strings.TrimSpace(plan.CAVolume) != "" &&
+		plan.CertificatePath == tenant.TenantCACertPath
+}
+
+func loadPersistentTenantCA(remote string, plan localtrust.Plan) (tenantCAMaterial, bool, error) {
+	dir := persistentTenantCADir(remote, plan)
+	certPEM, certErr := os.ReadFile(filepath.Join(dir, "ca.crt"))
+	keyPEM, keyErr := os.ReadFile(filepath.Join(dir, "ca.key"))
+	if os.IsNotExist(certErr) || os.IsNotExist(keyErr) {
+		return tenantCAMaterial{}, false, nil
+	}
+	if certErr != nil {
+		return tenantCAMaterial{}, false, fmt.Errorf("read cached tenant CA certificate: %w", certErr)
+	}
+	if keyErr != nil {
+		return tenantCAMaterial{}, false, fmt.Errorf("read cached tenant CA private key: %w", keyErr)
+	}
+	if len(certPEM) == 0 || len(keyPEM) == 0 {
+		return tenantCAMaterial{}, false, fmt.Errorf("cached tenant CA material is incomplete")
+	}
+	return tenantCAMaterial{certPEM: certPEM, privateKeyPEM: keyPEM}, true, nil
+}
+
+func writePersistentTenantCA(remote string, plan localtrust.Plan, material tenantCAMaterial) error {
+	dir := persistentTenantCADir(remote, plan)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create tenant CA cache: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), material.certPEM, 0o644); err != nil {
+		return fmt.Errorf("write cached tenant CA certificate: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ca.key"), material.privateKeyPEM, 0o600); err != nil {
+		return fmt.Errorf("write cached tenant CA private key: %w", err)
+	}
+	return nil
+}
+
+func persistentTenantCADir(remote string, plan localtrust.Plan) string {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		remote = "default"
+	}
+	return filepath.Join(scconfig.DefaultConfigDir(), "tenant-ca", pathSafe(remote), pathSafe(plan.IncusProject))
+}
+
+func pathSafe(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "_"
+	}
+	return strings.NewReplacer("/", "_", "\\", "_", ":", "_", " ", "_").Replace(value)
 }
 
 type sdkLocalTrustServer struct {
@@ -90,4 +266,12 @@ type sdkLocalTrustTenantResourceServer struct {
 
 func (s sdkLocalTrustTenantResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
 	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
+}
+
+func (s sdkLocalTrustTenantResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+	return createStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath, args)
+}
+
+func (s sdkLocalTrustTenantResourceServer) GetInstanceFile(instanceName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	return s.inner.GetInstanceFile(instanceName, filePath)
 }

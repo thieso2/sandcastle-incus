@@ -16,6 +16,7 @@ import (
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type InfrastructureCreator struct {
@@ -350,14 +351,18 @@ func ensureInfrastructureRuntimeBinaries(server TenantResourceServer, plan infra
 		if err != nil {
 			return fmt.Errorf("read infrastructure runtime binary %s: %w", binary.SourcePath, err)
 		}
-		err = server.CreateInstanceFile(binary.Instance, binary.TargetPath, incus.InstanceFileArgs{
+		tempPath := runtimeBinaryTempPath(binary.TargetPath)
+		err = server.CreateInstanceFile(binary.Instance, tempPath, incus.InstanceFileArgs{
 			Content:   bytes.NewReader(data),
 			Type:      "file",
 			Mode:      binary.Mode,
 			WriteMode: "overwrite",
 		})
 		if err != nil {
-			return fmt.Errorf("write infrastructure runtime binary %s:%s: %w", binary.Instance, binary.TargetPath, err)
+			return fmt.Errorf("write infrastructure runtime binary %s:%s: %w", binary.Instance, tempPath, err)
+		}
+		if err := installInfrastructureRuntimeBinary(server, binary); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -365,27 +370,69 @@ func ensureInfrastructureRuntimeBinaries(server TenantResourceServer, plan infra
 
 func (c InfrastructureCreator) ensureInfrastructureRuntimeBinaries(server TenantResourceServer, remote string, plan infra.CreatePlan) error {
 	for _, binary := range plan.RuntimeBinaries {
-		label := fmt.Sprintf("incus file push %s %s:%s%s --project %s", binary.SourcePath, remote, binary.Instance, binary.TargetPath, plan.Project)
+		tempPath := runtimeBinaryTempPath(binary.TargetPath)
+		label := fmt.Sprintf("incus file push %s %s:%s%s --project %s", binary.SourcePath, remote, binary.Instance, tempPath, plan.Project)
 		err := c.runCommand(label, func() error {
 			data, err := os.ReadFile(binary.SourcePath)
 			if err != nil {
 				return fmt.Errorf("read infrastructure runtime binary %s: %w", binary.SourcePath, err)
 			}
-			err = server.CreateInstanceFile(binary.Instance, binary.TargetPath, incus.InstanceFileArgs{
+			err = server.CreateInstanceFile(binary.Instance, tempPath, incus.InstanceFileArgs{
 				Content:   bytes.NewReader(data),
 				Type:      "file",
 				Mode:      binary.Mode,
 				WriteMode: "overwrite",
 			})
 			if err != nil {
-				return fmt.Errorf("write infrastructure runtime binary %s:%s: %w", binary.Instance, binary.TargetPath, err)
+				return fmt.Errorf("write infrastructure runtime binary %s:%s: %w", binary.Instance, tempPath, err)
 			}
 			return nil
 		})
 		if err != nil {
 			return err
 		}
+		label = fmt.Sprintf("incus exec %s:%s --project %s -- install runtime binary %s", remote, binary.Instance, plan.Project, binary.TargetPath)
+		if err := c.runCommand(label, func() error { return installInfrastructureRuntimeBinary(server, binary) }); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func runtimeBinaryTempPath(target string) string {
+	return target + ".new"
+}
+
+func installInfrastructureRuntimeBinary(server TenantResourceServer, binary infra.RuntimeBinary) error {
+	tempPath := runtimeBinaryTempPath(binary.TargetPath)
+	command := []string{
+		"/bin/sh",
+		"-lc",
+		fmt.Sprintf(
+			"chmod %04o %s && mv -f %s %s",
+			binary.Mode,
+			shellQuote(tempPath),
+			shellQuote(tempPath),
+			shellQuote(binary.TargetPath),
+		),
+	}
+	var stderr bytes.Buffer
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(binary.Instance, api.InstanceExecPost{
+		Command:   command,
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		Stderr:   &stderr,
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("install infrastructure runtime binary %s:%s: %w", binary.Instance, binary.TargetPath, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for install infrastructure runtime binary %s:%s: %w (stderr: %s)", binary.Instance, binary.TargetPath, err, stderr.String())
+	}
+	<-dataDone
 	return nil
 }
 
@@ -459,6 +506,10 @@ func (d InfrastructureDeleter) DeleteInfrastructure(ctx context.Context, plan in
 		}
 		server = sdkDeleteServer{inner: instanceServer}
 	}
+	purgeProjects, err := infrastructurePurgeProjects(server, plan)
+	if err != nil {
+		return err
+	}
 	projectServer := server.UseProject(plan.Project)
 	for _, name := range plan.RuntimeInstances {
 		label := fmt.Sprintf("incus delete %s:%s --project %s --force", remote, name, plan.Project)
@@ -470,5 +521,122 @@ func (d InfrastructureDeleter) DeleteInfrastructure(ctx context.Context, plan in
 	if err := d.runCommand(label, func() error { return ignoreNotFound(server.DeleteProject(plan.Project)) }); err != nil {
 		return fmt.Errorf("delete infrastructure project %s: %w", plan.Project, err)
 	}
+	for _, project := range purgeProjects {
+		if project == plan.Project {
+			continue
+		}
+		if err := d.purgeProject(ctx, server, remote, project); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func infrastructurePurgeProjects(server TenantDeleteServer, plan infra.DeletePlan) ([]string, error) {
+	if !plan.PurgeData {
+		return nil, nil
+	}
+	projects, err := server.GetProjects()
+	if err != nil {
+		return nil, fmt.Errorf("list projects for infrastructure purge: %w", err)
+	}
+	prefix := strings.TrimSpace(plan.IncusProjectPrefix)
+	output := make([]string, 0, len(projects))
+	for _, project := range projects {
+		name := strings.TrimSpace(project.Name)
+		if name == "" || name == "default" {
+			continue
+		}
+		if name == plan.Project || (prefix != "" && strings.HasPrefix(name, prefix+"-")) {
+			output = append(output, name)
+		}
+	}
+	return output, nil
+}
+
+func (d InfrastructureDeleter) purgeProject(ctx context.Context, server TenantDeleteServer, remote string, project string) error {
+	projectServer := server.UseProject(project)
+	if err := d.runCommand(fmt.Sprintf("incus delete %s:* --project %s --force", remote, project), func() error {
+		instances, err := projectServer.GetInstances(api.InstanceTypeAny)
+		if err != nil {
+			if api.StatusErrorCheck(err, http.StatusNotFound) {
+				return nil
+			}
+			return fmt.Errorf("list instances in project %s: %w", project, err)
+		}
+		for _, instance := range instances {
+			if err := deleteInstance(projectServer, instance.Name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := d.runCommand(fmt.Sprintf("incus profile delete %s:<non-default> --project %s", remote, project), func() error {
+		profiles, err := projectServer.GetProfiles()
+		if err != nil {
+			if api.StatusErrorCheck(err, http.StatusNotFound) {
+				return nil
+			}
+			return fmt.Errorf("list profiles in project %s: %w", project, err)
+		}
+		for _, profile := range profiles {
+			if profile.Name == "default" {
+				continue
+			}
+			if err := ignoreNotFound(projectServer.DeleteProfile(profile.Name)); err != nil {
+				return fmt.Errorf("delete profile %s: %w", profile.Name, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := d.runCommand(fmt.Sprintf("incus network delete %s:%s --project %s", remote, tenant.PrivateNetworkName(project), project), func() error {
+		return ignoreNotFound(projectServer.DeleteNetwork(tenant.PrivateNetworkName(project)))
+	}); err != nil {
+		return err
+	}
+	for _, volume := range []string{tenant.HomeVolumeName, tenant.WorkspaceVolumeName, tenant.CAVolumeName} {
+		label := fmt.Sprintf("incus storage volume delete %s:%s custom/%s --project %s", remote, project, volume, project)
+		if err := d.runCommand(label, func() error {
+			return ignoreNotFound(projectServer.DeleteStoragePoolVolume(project, "custom", volume))
+		}); err != nil {
+			return err
+		}
+	}
+	if err := d.runCommand(fmt.Sprintf("incus image delete %s:<project-images> --project %s", remote, project), func() error {
+		images, err := projectServer.GetImages()
+		if err != nil {
+			if api.StatusErrorCheck(err, http.StatusNotFound) {
+				return nil
+			}
+			return fmt.Errorf("list images in project %s: %w", project, err)
+		}
+		for _, image := range images {
+			op, err := projectServer.DeleteImage(image.Fingerprint)
+			if err != nil {
+				return fmt.Errorf("delete image %s: %w", image.Fingerprint, err)
+			}
+			if err := op.Wait(); err != nil {
+				return fmt.Errorf("wait for image %s delete: %w", image.Fingerprint, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := d.runCommand(fmt.Sprintf("incus project delete %s:%s", remote, project), func() error {
+		return ignoreNotFound(server.DeleteProject(project))
+	}); err != nil {
+		return fmt.Errorf("delete purged project %s: %w", project, err)
+	}
+	if err := d.runCommand(fmt.Sprintf("incus storage delete %s:%s", remote, project), func() error {
+		return ignoreNotFound(server.DeleteStoragePool(project))
+	}); err != nil {
+		return fmt.Errorf("delete purged storage pool %s: %w", project, err)
+	}
+	_ = ctx
 	return nil
 }

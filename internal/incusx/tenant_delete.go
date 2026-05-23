@@ -13,6 +13,7 @@ import (
 )
 
 type TenantDeleteServer interface {
+	GetProjects() ([]api.Project, error)
 	DeleteProject(name string) error
 	DeleteStoragePool(name string) error
 	UseProject(name string) TenantDeleteResourceServer
@@ -169,7 +170,8 @@ type sdkDeleteServer struct {
 	inner incus.InstanceServer
 }
 
-func (s sdkDeleteServer) DeleteProject(name string) error { return s.inner.DeleteProject(name) }
+func (s sdkDeleteServer) GetProjects() ([]api.Project, error) { return s.inner.GetProjects() }
+func (s sdkDeleteServer) DeleteProject(name string) error     { return s.inner.DeleteProject(name) }
 func (s sdkDeleteServer) DeleteStoragePool(name string) error {
 	return s.inner.DeleteStoragePool(name)
 }

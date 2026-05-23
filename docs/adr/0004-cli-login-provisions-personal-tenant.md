@@ -12,5 +12,6 @@ Sandcastle v1 provisions a user's Personal Tenant during `sandcastle login <auth
 
 - Browser-only GitHub OAuth Login creates a web session but no tenant infrastructure.
 - CLI Device Login performs idempotent ensure-style provisioning for the User, Personal Tenant, Default Project, Tenant Access, and Incus credential enrollment.
+- After Incus credential enrollment, CLI Device Login performs first-run local setup for a single accessible tenant: tenant DNS setup, local tenant CA trust installation, and tenant Tailscale sidecar activation. These steps must use the newly enrolled restricted Incus config, not the pre-login admin/default Incus config.
 - CLI Device Login reports provisioning progress through polling status messages in v1.
 - CLI Device Login returns an Incus Certificate Add Token so the CLI can generate and keep the private client key locally.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -70,6 +71,18 @@ func (m TailscaleManager) RunUp(ctx context.Context, plan tailscale.UpPlan, sess
 		return fmt.Errorf("wait for tailscale up in %s: %w", plan.InstanceName, err)
 	}
 	<-dataDone
+	result, err := runTailscaleStatus(ctx, server, tailscale.StatusPlan{
+		Reference:    plan.Reference,
+		Tenant:       plan.Tenant,
+		InstanceName: plan.InstanceName,
+		Command:      []string{"tailscale", "status", "--json"},
+	}, tailscale.RunSession{Stderr: session.Stderr})
+	if err != nil {
+		return err
+	}
+	if err := validateTailscaleUpResult(plan, result); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -78,6 +91,10 @@ func (m TailscaleManager) RunStatus(ctx context.Context, plan tailscale.StatusPl
 	if err != nil {
 		return tailscale.StatusResult{}, err
 	}
+	return runTailscaleStatus(ctx, server, plan, session)
+}
+
+func runTailscaleStatus(ctx context.Context, server TailscaleServer, plan tailscale.StatusPlan, session tailscale.RunSession) (tailscale.StatusResult, error) {
 	projectServer := server.UseProject(plan.Tenant.IncusName)
 	var stdout bytes.Buffer
 	dataDone := make(chan bool)
@@ -102,9 +119,29 @@ func (m TailscaleManager) RunStatus(ctx context.Context, plan tailscale.StatusPl
 		return tailscale.StatusResult{}, err
 	}
 	if err := updateTenantTailscale(server, plan.Tenant.IncusName, result.Tailscale); err != nil {
+		if isRestrictedCertificateError(err) {
+			return result, nil
+		}
 		return tailscale.StatusResult{}, err
 	}
 	return result, nil
+}
+
+func validateTailscaleUpResult(plan tailscale.UpPlan, result tailscale.StatusResult) error {
+	if !strings.EqualFold(result.Tailscale.State, "running") {
+		return fmt.Errorf("tailscale up in %s did not authenticate sidecar: state %s", plan.InstanceName, result.Tailscale.State)
+	}
+	if len(result.Tailscale.TailscaleIPs) == 0 {
+		return fmt.Errorf("tailscale up in %s did not assign a Tailscale IP", plan.InstanceName)
+	}
+	return nil
+}
+
+func isRestrictedCertificateError(err error) bool {
+	if api.StatusErrorCheck(err, http.StatusForbidden) {
+		return true
+	}
+	return strings.Contains(err.Error(), "Certificate is restricted")
 }
 
 func (m TailscaleManager) RunDown(ctx context.Context, plan tailscale.DownPlan, session tailscale.RunSession) error {

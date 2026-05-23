@@ -11,7 +11,10 @@ import (
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-const DefaultAdvertiseTag = "tag:sandcastle"
+const (
+	DefaultAdvertiseTag = "tag:sandcastle"
+	DefaultUpTimeout    = "60s"
+)
 
 type UpRequest struct {
 	Reference     string
@@ -76,7 +79,7 @@ func ExecCommand(plan UpPlan) []string {
 }
 
 func command(plan UpPlan, redact bool) []string {
-	args := []string{"tailscale", "up", "--advertise-routes=" + strings.Join(plan.AdvertiseRoutes, ",")}
+	args := []string{"tailscale", "up", "--timeout=" + DefaultUpTimeout, "--advertise-routes=" + strings.Join(plan.AdvertiseRoutes, ",")}
 	if len(plan.AdvertiseTags) > 0 {
 		args = append(args, "--advertise-tags="+strings.Join(plan.AdvertiseTags, ","))
 	}

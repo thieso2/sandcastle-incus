@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
+	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
@@ -33,12 +35,14 @@ type loginRemoteInstaller interface {
 
 type loginSetupRequest struct {
 	RemoteName       string
+	IncusConfig      string
 	Tenant           string
 	TailscaleAuthKey string
 }
 
 type loginSetupResult struct {
 	DNS       dnsSetupResult
+	Trust     localtrust.Result
 	Tailscale tailscale.UpPlan
 }
 
@@ -51,17 +55,37 @@ type realLoginSetupRunner struct {
 }
 
 func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request loginSetupRequest) (loginSetupResult, error) {
+	incusDir := loginSetupIncusDir(request.IncusConfig)
+	incusConfigFile := loginSetupIncusConfigFile(request.IncusConfig)
+	restoreEnv := setLoginSetupIncusConfig(incusDir)
+	defer restoreEnv()
+
 	config := r.config
 	config.adminConfig.Remote = request.RemoteName
 	config.adminConfig.Tenant = request.Tenant
 	config.adminConfig.Project = ""
-	config.tenantStore = incusx.NewTenantStore(request.RemoteName)
-	config.dnsApplier = incusx.NewDNSManager(request.RemoteName)
+	config.tenantStore = incusx.TenantStore{Remote: request.RemoteName, ConfigPath: incusConfigFile}
+	config.dnsApplier = incusx.DNSManager{Remote: request.RemoteName, ConfigPath: incusConfigFile}
 	config.localDNS = localdns.FileManager{}
 	config.localDNSService = localdns.FileServiceManager{}
-	config.tailscale = incusx.NewTailscaleManager(request.RemoteName)
+	config.localTrust = incusx.LocalTrustManager{Remote: request.RemoteName, ConfigPath: incusConfigFile, Store: localtrust.NewPlatformStore()}
+	config.tailscale = incusx.TailscaleManager{Remote: request.RemoteName, ConfigPath: incusConfigFile}
 
 	dnsResult, err := runDNSSetup(ctx, config, request.Tenant)
+	if err != nil {
+		return loginSetupResult{}, err
+	}
+	trustPlan, err := localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, localtrust.Request{Reference: request.Tenant})
+	if err != nil {
+		return loginSetupResult{}, err
+	}
+	if config.localTrust == nil {
+		return loginSetupResult{}, fmt.Errorf("local trust executor is not configured")
+	}
+	if err := writeTrustWarning(config, &rootOptions{output: outputText}, trustPlan); err != nil {
+		return loginSetupResult{}, err
+	}
+	trustResult, err := config.localTrust.Install(ctx, trustPlan)
 	if err != nil {
 		return loginSetupResult{}, err
 	}
@@ -83,7 +107,49 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	}); err != nil {
 		return loginSetupResult{}, err
 	}
-	return loginSetupResult{DNS: dnsResult, Tailscale: tailscalePlan}, nil
+	return loginSetupResult{DNS: dnsResult, Trust: trustResult, Tailscale: tailscalePlan}, nil
+}
+
+func setLoginSetupIncusConfig(path string) func() {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return func() {}
+	}
+	old, hadOld := os.LookupEnv("INCUS_CONF")
+	_ = os.Setenv("INCUS_CONF", path)
+	return func() {
+		if hadOld {
+			_ = os.Setenv("INCUS_CONF", old)
+			return
+		}
+		_ = os.Unsetenv("INCUS_CONF")
+	}
+}
+
+func loginSetupIncusDir(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if isIncusConfigFile(path) {
+		return filepath.Dir(path)
+	}
+	return path
+}
+
+func loginSetupIncusConfigFile(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if isIncusConfigFile(path) {
+		return path
+	}
+	return filepath.Join(path, "config.yml")
+}
+
+func isIncusConfigFile(path string) bool {
+	return filepath.Base(path) == "config.yml"
 }
 
 func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -96,12 +162,22 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Sign in to Sandcastle through the Auth App",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			verbose := os.Getenv("VERBOSE") == "1"
+			verbosef := func(format string, values ...any) {
+				if verbose {
+					fmt.Fprintf(config.stderr, "[verbose] login: "+format+"\n", values...)
+				}
+			}
+			verbosef("auth host=%s", args[0])
 			sshKey, err := prepareLoginSSHKey(loginSSHKeyRequest{
 				PublicKeyPath: sshPublicKeyPath,
 				ExplicitPath:  cmd.Flags().Changed("ssh-public-key"),
 			})
 			if err != nil {
 				return err
+			}
+			if sshKey.PublicKeyPath != "" {
+				verbosef("ssh public key=%s", sshKey.PublicKeyPath)
 			}
 			fmt.Fprintf(config.stdout, "SSH key: %s\n", sshKey.Fingerprint)
 			client := config.authDevice
@@ -123,15 +199,28 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if maxPolls <= 0 {
 				maxPolls = 300
 			}
+			verbosef("device start: interval=%ds expires_in=%ds", interval, start.ExpiresIn)
+			lastMessage := strings.TrimSpace(start.Message)
 			for attempt := 0; attempt < maxPolls; attempt++ {
+				verbosef("poll attempt=%d/%d", attempt+1, maxPolls)
 				result, err := client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
 					SSHPublicKey: sshKey.PublicKey,
 				})
 				if err != nil {
 					return err
 				}
-				if result.Message != "" {
-					fmt.Fprintln(config.stdout, result.Message)
+				verbosef("poll result: status=%s expires_in=%ds user=%s remote=%s tenants=%s message=%s",
+					result.Status,
+					result.ExpiresIn,
+					result.UserKey,
+					result.RemoteName,
+					strings.Join(result.AccessibleTenants, ","),
+					strings.TrimSpace(result.Message),
+				)
+				message := strings.TrimSpace(result.Message)
+				if message != "" && message != lastMessage {
+					fmt.Fprintln(config.stdout, message)
+					lastMessage = message
 				}
 				switch result.Status {
 				case authapp.DeviceStatusPending:
@@ -178,11 +267,15 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 							if runner != nil {
 								authKey := strings.TrimSpace(tailscaleAuthKey)
 								if authKey == "" {
+									authKey = strings.TrimSpace(result.TailscaleAuthKey)
+								}
+								if authKey == "" {
 									authKey = loginTailscaleAuthKeyFromEnv()
 								}
-								fmt.Fprintf(config.stdout, "Setting up DNS and Tailscale for %q.\n", installed.Tenant)
+								fmt.Fprintf(config.stdout, "Setting up DNS, trust, and Tailscale for %q.\n", installed.Tenant)
 								setup, err := runner.RunPostLoginSetup(cmd.Context(), loginSetupRequest{
 									RemoteName:       installed.RemoteName,
+									IncusConfig:      installed.IncusConfig,
 									Tenant:           installed.Tenant,
 									TailscaleAuthKey: authKey,
 								})
@@ -190,6 +283,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 									return err
 								}
 								fmt.Fprintln(config.stdout, formatDNSSetup(setup.DNS))
+								fmt.Fprintln(config.stdout, formatTrustResult(setup.Trust))
 								fmt.Fprintln(config.stdout, formatTailscaleUp(setup.Tailscale))
 							}
 						}
@@ -252,5 +346,8 @@ func shouldRunLoginSetup(skipSetup bool, tenantName string, accessibleTenants []
 }
 
 func loginTailscaleAuthKeyFromEnv() string {
-	return strings.TrimSpace(os.Getenv("SANDCASTLE_TAILSCALE_AUTHKEY"))
+	if authKey := strings.TrimSpace(os.Getenv("SANDCASTLE_TAILSCALE_AUTHKEY")); authKey != "" {
+		return authKey
+	}
+	return strings.TrimSpace(os.Getenv("SANDCASTLE_E2E_TAILSCALE_AUTHKEY"))
 }

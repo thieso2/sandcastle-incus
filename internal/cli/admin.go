@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -9,6 +11,8 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
+	"github.com/thieso2/sandcastle-incus/internal/localtrust"
+	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -298,6 +302,7 @@ func newAdminInfraCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 	}
 	infraCommand.AddCommand(newAdminInfraCreateCommand(config, opts))
 	infraCommand.AddCommand(newAdminInfraDeleteCommand(config, opts))
+	infraCommand.AddCommand(newAdminInfraTrustCommand(config, opts))
 	return infraCommand
 }
 
@@ -316,9 +321,25 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 				if config.infraCreator == nil {
 					return fmt.Errorf("infrastructure creation executor is not configured")
 				}
+				if shouldInstallInfraTrustAfterCreate(plan) {
+					ca, err := infra.LoadOrCreatePersistentInternalCA(config.adminConfig)
+					if err != nil {
+						return err
+					}
+					plan = infra.ApplyInternalCA(plan, ca)
+				}
 				writeInfraConfigBanner(config, opts)
 				if err := config.infraCreator.CreateInfrastructure(cmd.Context(), plan); err != nil {
 					return err
+				}
+				if shouldInstallInfraTrustAfterCreate(plan) {
+					result, err := installInfraTrust(cmd.Context(), config, opts)
+					if err != nil {
+						return err
+					}
+					if opts.output == outputText {
+						fmt.Fprintln(config.stdout, formatInfraTrustResult(result))
+					}
 				}
 			}
 			return writeOutput(config.stdout, opts.output, formatInfraCreatePlan(plan), plan)
@@ -332,17 +353,20 @@ func formatInfraCreatePlan(plan infra.CreatePlan) string {
 	return fmt.Sprintf("Infrastructure project: %s\nRuntime: %s, %s", plan.Project, plan.CaddyInstance, plan.RouteBrokerInstance)
 }
 
+func shouldInstallInfraTrustAfterCreate(plan infra.CreatePlan) bool {
+	return strings.EqualFold(strings.TrimSpace(plan.TLSMode), "internal")
+}
+
 func newAdminInfraDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var yes bool
+	var purge bool
 	command := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete Sandcastle shared infrastructure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !yes {
-				return fmt.Errorf("refusing to delete infrastructure without --yes")
-			}
-			plan, err := infra.PlanDelete(config.adminConfig, infra.DeleteRequest{})
+			_ = yes
+			plan, err := infra.PlanDelete(config.adminConfig, infra.DeleteRequest{Purge: purge})
 			if err != nil {
 				return err
 			}
@@ -356,12 +380,120 @@ func newAdminInfraDeleteCommand(config commandConfig, opts *rootOptions) *cobra.
 			return writeOutput(config.stdout, opts.output, formatInfraDeletePlan(plan), plan)
 		},
 	}
-	command.Flags().BoolVar(&yes, "yes", false, "confirm infrastructure deletion")
+	command.Flags().BoolVar(&yes, "yes", false, "accepted for compatibility; infrastructure deletion is confirmed by running the command")
+	command.Flags().BoolVar(&purge, "purge", false, "also delete Sandcastle tenant projects and durable data")
 	return command
 }
 
 func formatInfraDeletePlan(plan infra.DeletePlan) string {
+	if plan.PurgeData {
+		return fmt.Sprintf("Deleted infrastructure project: %s and purged Sandcastle data.", plan.Project)
+	}
 	return fmt.Sprintf("Deleted infrastructure project: %s", plan.Project)
+}
+
+func newAdminInfraTrustCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "trust",
+		Short: "Manage local trust for infrastructure debug TLS",
+	}
+	command.AddCommand(newAdminInfraTrustInstallCommand(config, opts))
+	command.AddCommand(newAdminInfraTrustUninstallCommand(config, opts))
+	return command
+}
+
+func newAdminInfraTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "install",
+		Short: "Install the infrastructure debug TLS CA into local trust",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := planInfraTrust(config)
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatInfraTrustPlan("Install", plan), plan)
+			}
+			result, err := installInfraTrust(cmd.Context(), config, opts)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatInfraTrustResult(result), result)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the infrastructure trust install plan without changing local trust")
+	return command
+}
+
+func newAdminInfraTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove the infrastructure debug TLS CA from local trust",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := planInfraTrust(config)
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatInfraTrustPlan("Uninstall", plan), plan)
+			}
+			if config.localTrust == nil {
+				return fmt.Errorf("local trust executor is not configured")
+			}
+			result, err := config.localTrust.Uninstall(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatInfraTrustResult(result), result)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the infrastructure trust uninstall plan without changing local trust")
+	return command
+}
+
+func installInfraTrust(ctx context.Context, config commandConfig, opts *rootOptions) (localtrust.Result, error) {
+	plan, err := planInfraTrust(config)
+	if err != nil {
+		return localtrust.Result{}, err
+	}
+	if config.localTrust == nil {
+		return localtrust.Result{}, fmt.Errorf("local trust executor is not configured")
+	}
+	if err := writeTrustWarning(config, opts, plan); err != nil {
+		return localtrust.Result{}, err
+	}
+	return config.localTrust.Install(ctx, plan)
+}
+
+func planInfraTrust(config commandConfig) (localtrust.Plan, error) {
+	admin := config.adminConfig
+	if err := admin.Validate(); err != nil {
+		return localtrust.Plan{}, err
+	}
+	return localtrust.Plan{
+		Reference:       "infrastructure",
+		IncusProject:    admin.InfrastructureProject,
+		Instance:        route.InfrastructureCaddyName,
+		CertificatePath: infra.CaddyPKIRootCertPath,
+		TrustName:       "Sandcastle infrastructure debug CA",
+		Platform:        "",
+		Warning:         "Trusting the infrastructure debug CA allows this Sandcastle infrastructure Caddy to mint certificates trusted by this machine. Use only with SANDCASTLE_INFRA_TLS_MODE=internal.",
+	}, nil
+}
+
+func formatInfraTrustPlan(action string, plan localtrust.Plan) string {
+	return fmt.Sprintf("%s infrastructure debug CA trust\nCA: %s:%s%s\nWarning: %s", action, plan.IncusProject, plan.Instance, plan.CertificatePath, plan.Warning)
+}
+
+func formatInfraTrustResult(result localtrust.Result) string {
+	if result.Target == "" {
+		return fmt.Sprintf("%s infrastructure debug CA trust", result.Action)
+	}
+	return fmt.Sprintf("%s infrastructure debug CA trust\nTarget: %s", result.Action, result.Target)
 }
 
 func writeInfraConfigBanner(config commandConfig, opts *rootOptions) {
@@ -389,8 +521,12 @@ func writeInfraConfigBanner(config commandConfig, opts *rootOptions) {
   SANDCASTLE_INFRA_PROJECT=%s
   SANDCASTLE_INFRA_HOST=%s
   SANDCASTLE_LETSENCRYPT_EMAIL=%s
+  SANDCASTLE_INFRA_TLS_MODE=%s
   SANDCASTLE_BASE_IMAGE=%s
   SANDCASTLE_AI_IMAGE=%s
+  SANDCASTLE_ADMIN_BIN=%s
+  SANDCASTLE_BIN=%s
+  selected admin binary=%s
   SANDCASTLE_AUTH_HOSTNAME=%s
   SANDCASTLE_AUTH_GITHUB_CLIENT_ID=%s
   SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=%s
@@ -404,8 +540,12 @@ func writeInfraConfigBanner(config commandConfig, opts *rootOptions) {
 		bannerValue(admin.InfrastructureProject),
 		bannerValue(admin.InfrastructureHost),
 		bannerValue(admin.LetsEncryptEmail),
+		bannerValue(admin.InfrastructureTLSMode),
 		bannerValue(admin.Images.Base),
 		bannerValue(admin.Images.AI),
+		bannerValue(os.Getenv("SANDCASTLE_ADMIN_BIN")),
+		bannerValue(os.Getenv("SANDCASTLE_BIN")),
+		bannerValue(infra.RuntimeBinarySource()),
 		bannerValue(admin.AuthHostname),
 		bannerValue(admin.AuthGitHubClientID),
 		secretState,
@@ -842,6 +982,8 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	var githubClientID string
 	var githubClientSecret string
 	var adminGitHubUsers string
+	var debugDeviceUser string
+	var tailscaleAuthKey string
 	command := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the Sandcastle Auth App",
@@ -854,6 +996,8 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 				GitHubClientID:      githubClientID,
 				GitHubClientSecret:  githubClientSecret,
 				BootstrapAdminUsers: strings.Split(adminGitHubUsers, ","),
+				DebugDeviceUser:     debugDeviceUser,
+				TailscaleAuthKey:    tailscaleAuthKey,
 			})
 			if err != nil {
 				return err
@@ -870,6 +1014,8 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&githubClientID, "github-client-id", "", "GitHub OAuth client id")
 	command.Flags().StringVar(&githubClientSecret, "github-client-secret", "", "GitHub OAuth client secret")
 	command.Flags().StringVar(&adminGitHubUsers, "admin-github-users", "", "comma-separated initial Sandcastle Admin GitHub usernames")
+	command.Flags().StringVar(&debugDeviceUser, "debug-device-user", "", "enable debug device approval as this allowlisted GitHub username")
+	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key returned to approved CLI device logins for unattended tenant attachment")
 	_ = command.MarkFlagRequired("database")
 	return command
 }

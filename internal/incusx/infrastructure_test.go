@@ -56,7 +56,7 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerKeyPath] == "" {
 		t.Fatal("expected route broker key file")
 	}
-	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerBinaryPath] == "" {
+	if resourceServer.createdFiles[infra.RouteBrokerName+":"+infra.RouteBrokerBinaryPath+".new"] == "" {
 		t.Fatal("expected route broker binary file")
 	}
 	if resourceServer.createdFiles[infra.AuthAppName+":"+infra.AuthAppEnvPath] == "" {
@@ -65,20 +65,26 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	if resourceServer.createdFiles[infra.AuthAppName+":"+infra.AuthAppUnitPath] == "" {
 		t.Fatal("expected auth app unit file")
 	}
-	if resourceServer.createdFiles[infra.AuthAppName+":"+infra.AuthAppBinaryPath] == "" {
+	if resourceServer.createdFiles[infra.AuthAppName+":"+infra.AuthAppBinaryPath+".new"] == "" {
 		t.Fatal("expected auth app binary file")
 	}
-	if len(resourceServer.execCommands) != 3 {
+	if len(resourceServer.execCommands) != 5 {
 		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
 	}
-	if resourceServer.execInstances[0] != route.InfrastructureCaddyName || !strings.Contains(strings.Join(resourceServer.execCommands[0], " "), "systemctl restart caddy") {
+	if resourceServer.execInstances[0] != infra.RouteBrokerName || !strings.Contains(strings.Join(resourceServer.execCommands[0], " "), "mv -f") {
 		t.Fatalf("first exec = %s %#v", resourceServer.execInstances[0], resourceServer.execCommands[0])
 	}
-	if resourceServer.execInstances[1] != infra.RouteBrokerName || !strings.Contains(strings.Join(resourceServer.execCommands[1], " "), "sandcastle-route-broker") {
+	if resourceServer.execInstances[1] != infra.AuthAppName || !strings.Contains(strings.Join(resourceServer.execCommands[1], " "), "mv -f") {
 		t.Fatalf("second exec = %s %#v", resourceServer.execInstances[1], resourceServer.execCommands[1])
 	}
-	if resourceServer.execInstances[2] != infra.AuthAppName || !strings.Contains(strings.Join(resourceServer.execCommands[2], " "), "sandcastle-auth-app") {
+	if resourceServer.execInstances[2] != route.InfrastructureCaddyName || !strings.Contains(strings.Join(resourceServer.execCommands[2], " "), "systemctl restart caddy") {
 		t.Fatalf("third exec = %s %#v", resourceServer.execInstances[2], resourceServer.execCommands[2])
+	}
+	if resourceServer.execInstances[3] != infra.RouteBrokerName || !strings.Contains(strings.Join(resourceServer.execCommands[3], " "), "sandcastle-route-broker") {
+		t.Fatalf("fourth exec = %s %#v", resourceServer.execInstances[3], resourceServer.execCommands[3])
+	}
+	if resourceServer.execInstances[4] != infra.AuthAppName || !strings.Contains(strings.Join(resourceServer.execCommands[4], " "), "sandcastle-auth-app") {
+		t.Fatalf("fifth exec = %s %#v", resourceServer.execInstances[4], resourceServer.execCommands[4])
 	}
 }
 
@@ -179,6 +185,57 @@ func TestInfrastructureDeleterDeletesRuntimeAndProject(t *testing.T) {
 	}
 	if server.deletedProject != config.DefaultInfrastructureProject {
 		t.Fatalf("deleted project = %q", server.deletedProject)
+	}
+}
+
+func TestInfrastructureDeleterPurgeDeletesTenantProjectsAndData(t *testing.T) {
+	plan := infra.DeletePlan{
+		Project:            config.DefaultInfrastructureProject,
+		IncusProjectPrefix: "sc",
+		RuntimeInstances:   []string{route.InfrastructureCaddyName},
+		PurgeData:          true,
+	}
+	infraResources := &fakeDeleteResourceServer{
+		instances: map[string]*api.Instance{
+			route.InfrastructureCaddyName: {Name: route.InfrastructureCaddyName, Status: "Stopped", StatusCode: api.Stopped},
+		},
+	}
+	tenantResources := &fakeDeleteResourceServer{
+		instances: map[string]*api.Instance{
+			"sc-dns": {Name: "sc-dns", Status: "Stopped", StatusCode: api.Stopped},
+		},
+	}
+	server := &fakeDeleteServer{
+		projects: []api.Project{
+			{Name: "default"},
+			{Name: config.DefaultInfrastructureProject},
+			{Name: "sc-thieso2"},
+			{Name: "other"},
+		},
+		resourceServer: infraResources,
+		resources: map[string]*fakeDeleteResourceServer{
+			config.DefaultInfrastructureProject: infraResources,
+			"sc-thieso2":                        tenantResources,
+		},
+	}
+	deleter := InfrastructureDeleter{Server: server}
+	if err := deleter.DeleteInfrastructure(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(server.deletedProjects, ",") != "sc-infra,sc-thieso2" {
+		t.Fatalf("deleted projects = %#v", server.deletedProjects)
+	}
+	if strings.Join(server.deletedPools, ",") != "sc-thieso2" {
+		t.Fatalf("deleted pools = %#v", server.deletedPools)
+	}
+	if len(tenantResources.deletedInstances) != 1 || tenantResources.deletedInstances[0] != "sc-dns" {
+		t.Fatalf("tenant deleted instances = %#v", tenantResources.deletedInstances)
+	}
+	if tenantResources.deletedNetwork != "sc-thieso2" {
+		t.Fatalf("tenant deleted network = %q", tenantResources.deletedNetwork)
+	}
+	if strings.Join(tenantResources.deletedVolumes, ",") != "sc-home,sc-workspace,sc-ca" {
+		t.Fatalf("tenant deleted volumes = %#v", tenantResources.deletedVolumes)
 	}
 }
 

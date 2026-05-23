@@ -36,6 +36,9 @@ func TestPlanUp(t *testing.T) {
 	if strings.Contains(strings.Join(plan.Command, " "), "tskey-secret") {
 		t.Fatalf("Command leaked auth key: %#v", plan.Command)
 	}
+	if !strings.Contains(strings.Join(plan.Command, " "), "--timeout="+DefaultUpTimeout) {
+		t.Fatalf("Command missing timeout: %#v", plan.Command)
+	}
 	if !strings.Contains(strings.Join(ExecCommand(plan), " "), "tskey-secret") {
 		t.Fatalf("ExecCommand missing auth key")
 	}

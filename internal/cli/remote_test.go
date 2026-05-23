@@ -115,6 +115,22 @@ func TestSaveRemoteDefaultsKeepsRemoteWhenAlreadyCurrent(t *testing.T) {
 	}
 }
 
+func TestRemoteExistsReadsIncusConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`remotes:
+  sandcastle-thieso2:
+    addr: https://big.thieso2.dev:8443
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !remoteExists(dir, "sandcastle-thieso2") {
+		t.Fatal("expected existing remote")
+	}
+	if remoteExists(dir, "missing") {
+		t.Fatal("did not expect missing remote")
+	}
+}
+
 func writeTestCertificate(t *testing.T, path string, dnsNames []string) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

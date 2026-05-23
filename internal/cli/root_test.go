@@ -152,6 +152,13 @@ func (r *fakeLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request lo
 			Install:   localdns.Result{StatePath: "/tmp/dns.yaml", ResolverPath: "/tmp/resolver"},
 		}
 	}
+	if r.result.Trust.Reference == "" {
+		r.result.Trust = localtrust.Result{
+			Reference: request.Tenant,
+			Action:    "install",
+			Target:    "/tmp/trust",
+		}
+	}
 	if r.result.Tailscale.Reference == "" {
 		r.result.Tailscale = tailscale.UpPlan{
 			Reference:       request.Tenant,
@@ -280,6 +287,84 @@ func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 	}
 }
 
+func TestLoginDoesNotRepeatUnchangedDeviceMessage(t *testing.T) {
+	useLoginHomeForTest(t)
+	installer := &fakeLoginRemoteInstaller{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{
+			DeviceCode:      "device",
+			UserCode:        "ABCD-1234",
+			VerificationURI: "https://auth.example.com/device?user_code=ABCD-1234",
+			Interval:        1,
+			Message:         "Waiting for browser approval.",
+		},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			Message:           "Waiting for browser approval.",
+			UserKey:           "octocat",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+		}},
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(stdout, "Waiting for browser approval.") != 1 {
+		t.Fatalf("stdout repeated device message:\n%s", stdout)
+	}
+}
+
+func TestLoginVerboseReportsPollAttempts(t *testing.T) {
+	useLoginHomeForTest(t)
+	t.Setenv("VERBOSE", "1")
+	installer := &fakeLoginRemoteInstaller{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{
+			DeviceCode:      "device",
+			UserCode:        "ABCD-1234",
+			VerificationURI: "https://auth.example.com/device?user_code=ABCD-1234",
+			Interval:        1,
+			ExpiresIn:       600,
+		},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			Message:           "Personal tenant octocat is ready.",
+			UserKey:           "octocat",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+			ExpiresIn:         590,
+		}},
+	}
+	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"[verbose] login: auth host=https://auth.example.com",
+		"[verbose] login: device start: interval=1s expires_in=600s",
+		"[verbose] login: poll attempt=1/300",
+		"[verbose] login: poll result: status=approved expires_in=590s user=octocat remote=sandcastle-octocat tenants=octocat",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "token") {
+		t.Fatalf("stderr leaked token:\n%s", stderr)
+	}
+}
+
 func TestLoginRunsPostSetupForSingleTenant(t *testing.T) {
 	installer := &fakeLoginRemoteInstaller{}
 	setup := &fakeLoginSetupRunner{}
@@ -306,12 +391,13 @@ func TestLoginRunsPostSetupForSingleTenant(t *testing.T) {
 		t.Fatalf("setup requests = %#v", setup.requests)
 	}
 	request := setup.requests[0]
-	if request.RemoteName != "sandcastle-octocat" || request.Tenant != "octocat" || request.TailscaleAuthKey != "tskey-secret" {
+	if request.RemoteName != "sandcastle-octocat" || request.IncusConfig != "/tmp/incus" || request.Tenant != "octocat" || request.TailscaleAuthKey != "tskey-secret" {
 		t.Fatalf("setup request = %#v", request)
 	}
 	for _, want := range []string{
-		"Setting up DNS and Tailscale for \"octocat\".",
+		"Setting up DNS, trust, and Tailscale for \"octocat\".",
 		"DNS setup: octocat",
+		"install tenant CA trust: octocat",
 		"Tailscale: octocat",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -320,6 +406,83 @@ func TestLoginRunsPostSetupForSingleTenant(t *testing.T) {
 	}
 	if strings.Contains(stdout, "tskey-secret") {
 		t.Fatalf("stdout leaked auth key: %s", stdout)
+	}
+}
+
+func TestLoginUsesE2ETailscaleAuthKeyFallback(t *testing.T) {
+	t.Setenv("SANDCASTLE_E2E_TAILSCALE_AUTHKEY", "tskey-e2e")
+	installer := &fakeLoginRemoteInstaller{}
+	setup := &fakeLoginSetupRunner{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			UserKey:           "octocat",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+		}},
+	}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+		loginSetup:  setup,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(setup.requests) != 1 || setup.requests[0].TailscaleAuthKey != "tskey-e2e" {
+		t.Fatalf("setup requests = %#v", setup.requests)
+	}
+}
+
+func TestLoginUsesAuthAppTailscaleAuthKeyBeforeEnvFallback(t *testing.T) {
+	t.Setenv("SANDCASTLE_E2E_TAILSCALE_AUTHKEY", "tskey-e2e")
+	installer := &fakeLoginRemoteInstaller{}
+	setup := &fakeLoginSetupRunner{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			UserKey:           "octocat",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+			TailscaleAuthKey:  "tskey-server",
+		}},
+	}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+		loginSetup:  setup,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(setup.requests) != 1 || setup.requests[0].TailscaleAuthKey != "tskey-server" {
+		t.Fatalf("setup requests = %#v", setup.requests)
+	}
+	if strings.Contains(stdout, "tskey-server") {
+		t.Fatalf("stdout leaked auth key: %s", stdout)
+	}
+}
+
+func TestLoginSetupIncusConfigPaths(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "incus")
+	file := filepath.Join(dir, "config.yml")
+	if got := loginSetupIncusDir(dir); got != dir {
+		t.Fatalf("loginSetupIncusDir(dir) = %q, want %q", got, dir)
+	}
+	if got := loginSetupIncusConfigFile(dir); got != file {
+		t.Fatalf("loginSetupIncusConfigFile(dir) = %q, want %q", got, file)
+	}
+	if got := loginSetupIncusDir(file); got != dir {
+		t.Fatalf("loginSetupIncusDir(file) = %q, want %q", got, dir)
+	}
+	if got := loginSetupIncusConfigFile(file); got != file {
+		t.Fatalf("loginSetupIncusConfigFile(file) = %q, want %q", got, file)
 	}
 }
 
@@ -3073,6 +3236,7 @@ func TestAdminTenantDeleteRequiresConfirmation(t *testing.T) {
 }
 
 func TestAdminInfraCreateDryRunJSON(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
@@ -3096,10 +3260,13 @@ func TestAdminInfraCreateDryRunJSON(t *testing.T) {
 }
 
 func TestAdminInfraCreateCallsExecutor(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
 	creator := &fakeInfraCreator{}
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "acme"
 	_, stderr, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
 		name:         "sandcastle-admin",
-		adminConfig:  scconfig.LoadAdminFromEnv(),
+		adminConfig:  admin,
 		infraCreator: creator,
 	}, "infra", "create")
 	if err != nil {
@@ -3118,10 +3285,12 @@ func TestAdminInfraCreateCallsExecutor(t *testing.T) {
 
 func TestAdminInfraCreatePrintsConfigBanner(t *testing.T) {
 	creator := &fakeInfraCreator{}
+	adminBin := setAdminRuntimeBinaryForTest(t)
 	admin := scconfig.LoadAdminFromEnv()
 	admin.Remote = "big"
 	admin.InfrastructureProject = "castle-infra"
 	admin.IncusProjectPrefix = "castle"
+	admin.InfrastructureTLSMode = "internal"
 	admin.AuthHostname = "auth.example.com"
 	admin.AuthGitHubClientID = "client-id"
 	admin.AuthGitHubClientSecret = "secret-value"
@@ -3131,6 +3300,7 @@ func TestAdminInfraCreatePrintsConfigBanner(t *testing.T) {
 		name:         "sandcastle-admin",
 		adminConfig:  admin,
 		infraCreator: creator,
+		localTrust:   &fakeLocalTrustManager{},
 	}, "infra", "create")
 	if err != nil {
 		t.Fatal(err)
@@ -3140,11 +3310,14 @@ func TestAdminInfraCreatePrintsConfigBanner(t *testing.T) {
 		"SANDCASTLE_REMOTE=big",
 		"SANDCASTLE_INCUS_PROJECT_PREFIX=castle",
 		"SANDCASTLE_INFRA_PROJECT=castle-infra",
+		"SANDCASTLE_INFRA_TLS_MODE=internal",
 		"SANDCASTLE_AUTH_HOSTNAME=auth.example.com",
 		"SANDCASTLE_AUTH_GITHUB_CLIENT_ID=client-id",
 		"SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=set (redacted)",
 		"SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot",
 		"SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket",
+		"SANDCASTLE_ADMIN_BIN=" + adminBin,
+		"selected admin binary=" + adminBin,
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, stderr)
@@ -3155,7 +3328,73 @@ func TestAdminInfraCreatePrintsConfigBanner(t *testing.T) {
 	}
 }
 
+func TestAdminInfraCreateInternalTLSInstallsDebugCA(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	t.Setenv("SANDCASTLE_INFRA_CA_DIR", t.TempDir())
+	creator := &fakeInfraCreator{}
+	manager := &fakeLocalTrustManager{}
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "internal"
+	stdout, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  admin,
+		infraCreator: creator,
+		localTrust:   manager,
+	}, "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !creator.called {
+		t.Fatal("expected infrastructure creator to be called")
+	}
+	if !manager.installed {
+		t.Fatal("expected infrastructure debug CA trust install")
+	}
+	if !infraPlanHasFile(creator.plan, "sc-caddy", infra.CaddyPKIRootCertPath) {
+		t.Fatalf("expected persisted infrastructure root cert in plan")
+	}
+	if !infraPlanHasFile(creator.plan, "sc-caddy", infra.CaddyPKIRootKeyPath) {
+		t.Fatalf("expected persisted infrastructure root key in plan")
+	}
+	if manager.plan.IncusProject != scconfig.DefaultInfrastructureProject {
+		t.Fatalf("IncusProject = %q", manager.plan.IncusProject)
+	}
+	if manager.plan.Instance != "sc-caddy" {
+		t.Fatalf("Instance = %q", manager.plan.Instance)
+	}
+	if !strings.Contains(stdout, "Warning: Trusting the infrastructure debug CA") {
+		t.Fatalf("stdout missing warning:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "install infrastructure debug CA trust") {
+		t.Fatalf("stdout missing trust result:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "Infrastructure project: "+scconfig.DefaultInfrastructureProject) {
+		t.Fatalf("stdout missing create result:\n%s", stdout)
+	}
+}
+
+func TestAdminInfraCreateACMEDoesNotInstallDebugCA(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	creator := &fakeInfraCreator{}
+	manager := &fakeLocalTrustManager{}
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "acme"
+	_, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  admin,
+		infraCreator: creator,
+		localTrust:   manager,
+	}, "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.installed {
+		t.Fatal("did not expect infrastructure debug CA trust install")
+	}
+}
+
 func TestAdminInfraCreateRequiresExecutor(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
 	_, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:        "sandcastle-admin",
 		adminConfig: scconfig.LoadAdminFromEnv(),
@@ -3168,17 +3407,14 @@ func TestAdminInfraCreateRequiresExecutor(t *testing.T) {
 	}
 }
 
-func TestAdminInfraDeleteRequiresConfirmation(t *testing.T) {
-	_, err := executeAdminForTestWithConfig(t, commandConfig{
-		name:        "sandcastle-admin",
-		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "infra", "delete")
-	if err == nil {
-		t.Fatal("expected error")
+func setAdminRuntimeBinaryForTest(t *testing.T) string {
+	t.Helper()
+	adminBin := t.TempDir() + "/sc-adm"
+	if err := os.WriteFile(adminBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "--yes") {
-		t.Fatalf("error = %q", err)
-	}
+	t.Setenv("SANDCASTLE_ADMIN_BIN", adminBin)
+	return adminBin
 }
 
 func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
@@ -3187,7 +3423,7 @@ func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
 		name:         "sandcastle-admin",
 		adminConfig:  scconfig.LoadAdminFromEnv(),
 		infraDeleter: deleter,
-	}, "infra", "delete", "--yes")
+	}, "infra", "delete")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3199,6 +3435,75 @@ func TestAdminInfraDeleteCallsExecutor(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "Sandcastle infrastructure configuration") {
 		t.Fatalf("stderr missing config banner:\n%s", stderr)
+	}
+}
+
+func TestAdminInfraDeletePurgeCallsExecutorWithPurge(t *testing.T) {
+	deleter := &fakeInfraDeleter{}
+	stdout, stderr, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  scconfig.LoadAdminFromEnv(),
+		infraDeleter: deleter,
+	}, "infra", "delete", "--purge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !deleter.plan.PurgeData {
+		t.Fatalf("plan = %#v", deleter.plan)
+	}
+	if !strings.Contains(stdout, "purged Sandcastle data") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if !strings.Contains(stderr, "Sandcastle infrastructure configuration") {
+		t.Fatalf("stderr missing config banner:\n%s", stderr)
+	}
+}
+
+func TestAdminInfraTrustInstallRunsExecutor(t *testing.T) {
+	manager := &fakeLocalTrustManager{}
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "internal"
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
+		adminConfig: admin,
+		localTrust:  manager,
+	}, "infra", "trust", "install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.installed {
+		t.Fatal("expected local trust install call")
+	}
+	if manager.plan.IncusProject != scconfig.DefaultInfrastructureProject {
+		t.Fatalf("IncusProject = %q", manager.plan.IncusProject)
+	}
+	if manager.plan.Instance != "sc-caddy" {
+		t.Fatalf("Instance = %q", manager.plan.Instance)
+	}
+	if !strings.Contains(stdout, "Warning: Trusting the infrastructure debug CA") {
+		t.Fatalf("stdout missing warning: %q", stdout)
+	}
+	if !strings.Contains(stdout, "install infrastructure debug CA trust") {
+		t.Fatalf("stdout missing result: %q", stdout)
+	}
+}
+
+func TestAdminInfraTrustInstallDryRunJSON(t *testing.T) {
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "internal"
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
+		adminConfig: admin,
+	}, "--output", "json", "infra", "trust", "install", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload localtrust.Plan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Reference != "infrastructure" || payload.Instance != "sc-caddy" {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
 
@@ -3676,6 +3981,15 @@ func (f *fakeInfraCreator) CreateInfrastructure(ctx context.Context, plan infra.
 	f.called = true
 	f.plan = plan
 	return nil
+}
+
+func infraPlanHasFile(plan infra.CreatePlan, instance string, path string) bool {
+	for _, file := range plan.RuntimeFiles {
+		if file.Instance == instance && file.Path == path {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeInfraDeleter struct {

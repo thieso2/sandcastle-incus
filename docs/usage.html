@@ -182,7 +182,7 @@ remote: sc-alice</code></pre>
 
   <div class="step">
     <h3>Admin environment variables</h3>
-    <p>Set these before running any <code>sandcastle-admin</code> command. These override the config file.</p>
+    <p>Set these before running any <code>sandcastle-admin</code> command, or put them in a local <code>.env</code> file in the current directory. Exported environment variables override <code>.env</code>, and both override the config file.</p>
     <pre><code><span class="comment"># Incus remote name (default: local)</span>
 <span class="env">export SANDCASTLE_REMOTE</span>=big
 
@@ -208,14 +208,23 @@ remote: sc-alice</code></pre>
 <span class="comment"># Initial Sandcastle Admin GitHub usernames, comma-separated</span>
 <span class="env">export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</span>=octocat,hubot
 
+<span class="comment"># Optional lab-only device approval bypass user</span>
+<span class="env">export SANDCASTLE_AUTH_DEBUG_DEVICE_USER</span>=octocat
+
+<span class="comment"># Optional lab/unattended Tailscale sidecar attachment key returned by Device Login</span>
+<span class="env">export SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</span>=tskey-auth-...
+
 <span class="comment"># Optional host Incus socket mount for Auth App provisioning and route broker mutation service</span>
 <span class="env">export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</span>=/var/lib/incus/unix.socket
 
-<span class="comment"># Optional prebuilt admin binary uploaded into infrastructure sidecars</span>
-<span class="env">export SANDCASTLE_ADMIN_BIN</span>=$PWD/bin/sc-adm
+<span class="comment"># Optional prebuilt Linux admin binary uploaded into infrastructure sidecars</span>
+<span class="env">export SANDCASTLE_ADMIN_BIN</span>=$PWD/bin/linux-amd64/sc-adm
 
 <span class="comment"># Let's Encrypt email for shared Caddy TLS</span>
-<span class="env">export SANDCASTLE_LETSENCRYPT_EMAIL</span>=ops@example.com</code></pre>
+<span class="env">export SANDCASTLE_LETSENCRYPT_EMAIL</span>=ops@example.com
+
+<span class="comment"># Debug TLS mode: use Caddy's internal CA instead of public ACME</span>
+<span class="env">export SANDCASTLE_INFRA_TLS_MODE</span>=internal</code></pre>
   </div>
 
   <div class="step">
@@ -334,8 +343,9 @@ Bootstrap:
     <p>Login prepares the User SSH Public Key used for Machine SSH Access before starting the device flow. Pass <code>--ssh-public-key &lt;path&gt;</code> to choose a public key explicitly. Without that flag, the CLI uses <code>~/.ssh/id_ed25519.pub</code> when it exists, otherwise it creates a local Sandcastle SSH Key at <code>~/.ssh/sandcastle_ed25519</code>. The private key stays local.</p>
     <pre><code><span class="cmd">sandcastle login</span> <span class="flag">--ssh-public-key</span> <span class="arg">~/.ssh/id_ed25519.pub</span> <span class="arg">https://auth.example.com</span></code></pre>
     <p>After browser approval, the Auth App creates or ensures the user's Personal Tenant, ensures its Default Project, returns a restricted Incus certificate add token, and streams provisioning status through CLI polling. The CLI enrolls the remote with its own local client key and sets the default tenant only when exactly one accessible Tenant is returned.</p>
+    <p>For a single accessible tenant, CLI login enrolls the restricted Incus remote, applies tenant DNS, installs local DNS forwarding, installs the tenant CA into local trust, and runs <code>tailscale up</code> in the tenant Tailscale sidecar. These post-login steps use the newly enrolled Incus config.</p>
     <p>When the CLI Login Result includes a Tenant Tailnet, login verifies the local Tailscale client is connected to that selected Tenant Tailnet and has a Tailscale IP before reporting Login Readiness. Multi-tenant login does not silently join every accessible Tenant Tailnet.</p>
-    <p>Login Readiness means the Incus credential, User SSH Public Key, Personal Tenant, Default Project, Tenant Tailnet, local Tailscale Prerequisite, and local Sandcastle config are ready. A successful first-run login prints the next command, currently <code>sandcastle create dev</code>.</p>
+    <p>Login Readiness means the Incus credential, User SSH Public Key, Personal Tenant, Default Project, Tenant Tailnet, local DNS, local tenant CA trust, local Tailscale Prerequisite, and local Sandcastle config are ready. A successful first-run login prints the next command, currently <code>sandcastle create dev</code>.</p>
   </div>
 
   <div class="step">
@@ -460,7 +470,7 @@ Bootstrap:
   <div class="step">
     <h3>Trust the tenant CA on your machine <span class="badge badge-user">user</span></h3>
     <p>Makes the tenant's self-signed CA trusted by your OS/browser so machine HTTPS URLs work without warnings.</p>
-    <p>On macOS, the CLI elevates the keychain write with <code>sudo security</code> when needed.</p>
+    <p>On macOS, the CLI installs trust into the user's login keychain with <code>security add-trusted-cert</code>. Override the keychain with <code>SANDCASTLE_DARWIN_TRUST_KEYCHAIN</code> when a different local trust target is needed. After a successful tenant CA trust install, Sandcastle caches that tenant CA keypair at <code>~/.config/sandcastle/tenant-ca/&lt;remote&gt;/&lt;tenant-project&gt;</code> and restores it into a recreated tenant before checking local trust, so an approved tenant CA can survive <code>infra delete --purge</code> and later recreates.</p>
     <pre><code><span class="cmd">sandcastle trust install</span>
 <span class="cmd">sandcastle trust install</span> <span class="arg">acme</span></code></pre>
   </div>
@@ -492,7 +502,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Activate Tailscale on a tenant (interactive)</h3>
-    <p>Starts <code>tailscaled</code> inside the sidecar and runs <code>tailscale up --advertise-routes=&lt;tenant-cidr&gt;</code>. Opens an interactive browser auth flow if no auth key is provided.</p>
+    <p>Starts <code>tailscaled</code> inside the sidecar and runs <code>tailscale up --timeout=60s --advertise-routes=&lt;tenant-cidr&gt;</code>. Without an auth key, Tailscale may print a browser auth URL; the command is still bounded by the timeout so unattended flows fail cleanly.</p>
     <pre><code><span class="cmd">sandcastle tailscale up</span>
 <span class="cmd">sandcastle tailscale up</span> <span class="arg">acme</span>  <span class="comment"># explicit tenant</span></code></pre>
   </div>
@@ -551,11 +561,11 @@ Bootstrap:
   <div class="step">
     <h3>Create shared infrastructure</h3>
     <p>Provisions the shared Caddy reverse proxy, Auth App, and route broker inside a dedicated Incus project.</p>
-    <p>The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. When <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> is set, the route broker and Auth App sidecars mount the host Incus socket and use the uploaded <code>sandcastle-admin</code> binary from <code>SANDCASTLE_ADMIN_BIN</code>, falling back to <code>SANDCASTLE_BIN</code>.</p>
+    <p>The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. When <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> is set, the route broker and Auth App sidecars mount the host Incus socket and use the uploaded Linux <code>sandcastle-admin</code> binary from <code>SANDCASTLE_ADMIN_BIN</code>, falling back to <code>SANDCASTLE_BIN</code>. On macOS, build it with <code>mise run build:linux-amd64</code> and use <code>bin/linux-amd64/sc-adm</code>; <code>infra create</code> rejects macOS binaries before mutation.</p>
     <p>The Auth App sidecar runs <code>sandcastle-admin auth-app serve</code> with a persistent SQLite database at <code>/var/lib/sandcastle/auth/auth.db</code>. When <code>SANDCASTLE_AUTH_HOSTNAME</code> is set, shared Caddy reserves that hostname and routes it to the Auth App. CLI Device Login provisions Personal Tenants only after browser approval, not at allowlist add time or browser-only GitHub login time.</p>
-    <p>The shared Caddy sidecar publishes host ports <code>80</code> and <code>443</code> with Incus proxy devices and routes the configured Auth Hostname to the Auth App over the infrastructure bridge network.</p>
-    <p>Initial Sandcastle Admins from <code>SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</code> can sign in through GitHub and manage the Login Allowlist at <code>/admin/allowlist</code> and Tenant Access at <code>/admin/access</code>. The allowlist accepts explicit GitHub users only; password login is not available.</p>
-    <p><code>infra create</code> and <code>infra delete --yes</code> print a configuration banner before mutation, including the selected remote, infrastructure project, project prefix, image aliases, Auth Hostname, GitHub OAuth client ID, initial admin users, and Incus socket path. The GitHub OAuth client secret is redacted and shown only as set or unset.</p>
+    <p>The shared Caddy sidecar publishes host ports <code>80</code> and <code>443</code> with Incus proxy devices and routes the configured Auth Hostname to the Auth App over the infrastructure bridge network. Set <code>SANDCASTLE_INFRA_TLS_MODE=internal</code> for debugging to have Caddy serve certificates from its internal CA instead of public ACME; <code>infra create</code> reuses a persistent debug CA from <code>~/.config/sandcastle/infra-ca/&lt;remote&gt;/&lt;infra-project&gt;</code> and installs that CA into local trust after the sidecar starts. Override the cache location with <code>SANDCASTLE_INFRA_CA_DIR</code>.</p>
+    <p>Initial Sandcastle Admins from <code>SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</code> can sign in through GitHub and manage the Login Allowlist at <code>/admin/allowlist</code> and Tenant Access at <code>/admin/access</code>. The allowlist accepts explicit GitHub users only; password login is not available. For disposable lab integrations, <code>SANDCASTLE_AUTH_DEBUG_DEVICE_USER</code> enables <code>POST /debug/device/approve</code> to approve CLI Device Login as that allowlisted user without a browser session. <code>SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</code> can be set during <code>infra create</code> to return a Tailscale auth key to approved CLI Device Login clients for unattended tenant sidecar attachment; this is intended for disposable integration environments and is not stored in Incus metadata.</p>
+    <p><code>infra create</code> and <code>infra delete</code> print a configuration banner before mutation, including the selected remote, infrastructure project, project prefix, TLS mode, image aliases, uploaded admin binary, Auth Hostname, GitHub OAuth client ID, initial admin users, and Incus socket path. The GitHub OAuth client secret is redacted and shown only as set or unset.</p>
     <p>The Auth App also serves public OIDC provider metadata at <code>/.well-known/openid-configuration</code> and public signing keys at <code>/.well-known/jwks.json</code>. The configured Auth Hostname is the issuer URL; private signing keys are stored encrypted in the Auth Database. See <a href="oidc-configuration.html">Sandcastle OIDC Configuration</a> for the full provider and machine token flow.</p>
     <p>Users can manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. Machines that opt into workload identity receive a rotated runtime secret, Auth App token endpoint metadata, and, when a GCP config is selected, an external account credential file plus <code>GOOGLE_APPLICATION_CREDENTIALS</code> and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code> environment variables. Cloud Identity Configs are not applied automatically at Tenant or Project level.</p>
     <pre><code><span class="cmd">sandcastle-admin infra create</span>
@@ -563,8 +573,17 @@ Bootstrap:
   </div>
 
   <div class="step">
+    <h3>Trust infrastructure debug TLS locally</h3>
+    <p>When using <code>SANDCASTLE_INFRA_TLS_MODE=internal</code>, <code>infra create</code> installs Caddy's persistent internal root CA locally after infrastructure creation. Because the CA is cached outside Incus, the same trusted root is reused across <code>infra delete --purge</code> and later recreates. Use these commands to reinstall or remove the same debug TLS trust manually.</p>
+    <pre><code><span class="cmd">sandcastle-admin infra trust install</span>
+<span class="cmd">sandcastle-admin infra trust uninstall</span></code></pre>
+  </div>
+
+  <div class="step">
     <h3>Delete shared infrastructure</h3>
-    <pre><code><span class="cmd">sandcastle-admin infra delete</span> <span class="flag">--yes</span></code></pre>
+    <p>Deletes the shared infrastructure runtime resources. Add <code>--purge</code> to also delete Sandcastle tenant projects and durable data for the configured project prefix.</p>
+    <pre><code><span class="cmd">sandcastle-admin infra delete</span>
+<span class="cmd">sandcastle-admin infra delete</span> <span class="flag">--purge</span></code></pre>
   </div>
 
   <div class="step">
@@ -583,7 +602,9 @@ Bootstrap:
   <span class="flag">--auth-hostname</span> <span class="arg">auth.example.com</span> \
   <span class="flag">--github-client-id</span> <span class="arg">...</span> \
   <span class="flag">--github-client-secret</span> <span class="arg">...</span> \
-  <span class="flag">--admin-github-users</span> <span class="arg">octocat,hubot</span></code></pre>
+  <span class="flag">--admin-github-users</span> <span class="arg">octocat,hubot</span> \
+  <span class="flag">--debug-device-user</span> <span class="arg">octocat</span></code></pre>
+    <p>The debug device user flag is intended only for disposable integration environments. It registers <code>POST /debug/device/approve</code>, which approves a pending device code as the configured allowlisted user. Use <code>--tailscale-auth-key</code> only for unattended lab login flows where approved CLI clients should receive a Tailscale auth key for tenant sidecar attachment.</p>
   </div>
 
   <div class="step">
@@ -727,7 +748,8 @@ Bootstrap:
         <tr><td>sandcastle-admin user delete &lt;user&gt;</td><td>Delete restricted user certificate</td></tr>
         <tr><td>sandcastle-admin user token &lt;user&gt; --tenant &lt;tenant&gt;</td><td>Re-issue pre-granted add-token for user</td></tr>
         <tr><td>sandcastle-admin infra create</td><td>Create shared infrastructure</td></tr>
-        <tr><td>sandcastle-admin infra delete</td><td>Delete shared infrastructure</td></tr>
+        <tr><td>sandcastle-admin infra delete [--purge]</td><td>Delete shared infrastructure; with <code>--purge</code>, also delete Sandcastle tenant projects and durable data</td></tr>
+        <tr><td>sandcastle-admin infra trust install/uninstall</td><td>Install or remove the infrastructure debug TLS CA locally</td></tr>
         <tr><td>mise run image:ai:build-upload</td><td>Build AI image (auto latest versions) and upload</td></tr>
         <tr><td>mise run image:base:build-upload</td><td>Build base image and upload</td></tr>
         <tr><td>sandcastle-admin image build</td><td>Build machine OCI image</td></tr>

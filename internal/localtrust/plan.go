@@ -21,6 +21,7 @@ type Plan struct {
 	DNSSuffix       string `json:"dnsSuffix"`
 	StoragePool     string `json:"storagePool"`
 	CAVolume        string `json:"caVolume"`
+	Instance        string `json:"instance,omitempty"`
 	CertificatePath string `json:"certificatePath"`
 	TrustName       string `json:"trustName"`
 	Platform        string `json:"platform"`

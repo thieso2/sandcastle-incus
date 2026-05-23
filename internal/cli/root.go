@@ -114,6 +114,7 @@ func Execute(name string, args []string) int {
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
+	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
 	userRouteManager := routeManagerFromEnv()
 	cmd := NewRootCommand(commandConfig{
 		name:        name,

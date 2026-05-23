@@ -25,6 +25,8 @@ type ServeRequest struct {
 	GitHubClientID      string
 	GitHubClientSecret  string
 	BootstrapAdminUsers []string
+	DebugDeviceUser     string
+	TailscaleAuthKey    string
 }
 
 type ServePlan struct {
@@ -34,6 +36,8 @@ type ServePlan struct {
 	GitHubClientID      string   `json:"githubClientID,omitempty"`
 	GitHubClientSecret  string   `json:"-"`
 	BootstrapAdminUsers []string `json:"bootstrapAdminUsers,omitempty"`
+	DebugDeviceUser     string   `json:"debugDeviceUser,omitempty"`
+	TailscaleAuthKey    string   `json:"-"`
 }
 
 type Runner interface {
@@ -85,6 +89,8 @@ func PlanServe(request ServeRequest) (ServePlan, error) {
 		GitHubClientID:      strings.TrimSpace(request.GitHubClientID),
 		GitHubClientSecret:  strings.TrimSpace(request.GitHubClientSecret),
 		BootstrapAdminUsers: NormalizeGitHubUsernames(request.BootstrapAdminUsers),
+		DebugDeviceUser:     NormalizeGitHubUsername(request.DebugDeviceUser),
+		TailscaleAuthKey:    strings.TrimSpace(request.TailscaleAuthKey),
 	}, nil
 }
 
@@ -114,6 +120,8 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			Machines:           r.Machines,
 			MachineSSHKeys:     r.MachineSSHKeys,
 			MachineSSHAccess:   r.MachineSSHAccess,
+			DebugDeviceUser:    plan.DebugDeviceUser,
+			TailscaleAuthKey:   plan.TailscaleAuthKey,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -295,6 +303,8 @@ type HandlerOptions struct {
 	Machines           machine.Store
 	MachineSSHKeys     MachineSSHKeyReconciler
 	MachineSSHAccess   MachineSSHAccessRevoker
+	DebugDeviceUser    string
+	TailscaleAuthKey   string
 }
 
 func NewHandler(db *sql.DB, options any) http.Handler {
@@ -313,6 +323,8 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		machines:         handlerOptions.Machines,
 		machineSSHKeys:   handlerOptions.MachineSSHKeys,
 		machineSSHAccess: handlerOptions.MachineSSHAccess,
+		debugDeviceUser:  NormalizeGitHubUsername(handlerOptions.DebugDeviceUser),
+		tailscaleAuthKey: strings.TrimSpace(handlerOptions.TailscaleAuthKey),
 		sessionCookie:    "sandcastle_session",
 	}
 	if app.githubClient == nil {
@@ -332,6 +344,9 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/api/device/start", app.deviceStart)
 	mux.HandleFunc("/api/device/poll", app.devicePoll)
 	mux.HandleFunc("/device", app.deviceApprove)
+	if app.debugDeviceUser != "" {
+		mux.HandleFunc("/debug/device/approve", app.debugDeviceApprove)
+	}
 	mux.HandleFunc("/.well-known/openid-configuration", app.oidcDiscovery)
 	mux.HandleFunc("/.well-known/jwks.json", app.oidcJWKS)
 	mux.HandleFunc("/internal/workload/token", app.workloadToken)
@@ -362,6 +377,8 @@ type handler struct {
 	machines         machine.Store
 	machineSSHKeys   MachineSSHKeyReconciler
 	machineSSHAccess MachineSSHAccessRevoker
+	debugDeviceUser  string
+	tailscaleAuthKey string
 	sessionCookie    string
 }
 
@@ -432,6 +449,7 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
     <h1>Sandcastle Auth</h1>
     <p>Status: ok</p>
     {{if .AuthHostname}}<p>Auth Hostname: {{.AuthHostname}}</p>{{end}}
+    <p><a href="/login/github">Sign in with GitHub</a></p>
   </main>
 </body>
 </html>

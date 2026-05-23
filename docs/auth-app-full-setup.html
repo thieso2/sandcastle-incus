@@ -221,6 +221,7 @@ $EDITOR .env
 set -a
 source .env
 set +a</code></pre>
+      <p>The CLI also reads local <code>.env</code> defaults from the current directory. Exported variables still take precedence.</p>
       <h3>Required Core Values</h3>
       <table>
         <thead><tr><th>Variable</th><th>Purpose</th></tr></thead>
@@ -237,8 +238,10 @@ set +a</code></pre>
 export SANDCASTLE_AUTH_GITHUB_CLIENT_ID=...
 export SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=...
 export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot
+export SANDCASTLE_AUTH_DEBUG_DEVICE_USER=octocat
+export SANDCASTLE_AUTH_TAILSCALE_AUTHKEY=tskey-auth-...
 export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
-export SANDCASTLE_ADMIN_BIN=$PWD/bin/sc-adm
+export SANDCASTLE_ADMIN_BIN=$PWD/bin/linux-amd64/sc-adm
 export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
 export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
       <div class="warn">Do not commit <code>.env</code>. It can contain GitHub OAuth secrets, Tailscale auth keys, and public route account details.</div>
@@ -280,13 +283,14 @@ scripts/e2e.sh images</code></pre>
     <section id="infra">
       <h2>6. Create Shared Infrastructure</h2>
       <p>This creates the infrastructure Incus project, Caddy instance, Route Broker, and Auth App sidecar.</p>
-      <pre><code>go build -o bin/sc-adm ./cmd/sandcastle-admin
-export SANDCASTLE_ADMIN_BIN=$PWD/bin/sc-adm
+      <pre><code>mise run build:linux-amd64
+export SANDCASTLE_ADMIN_BIN=$PWD/bin/linux-amd64/sc-adm
 sandcastle-admin infra create
 
 # Preview only:
 sandcastle-admin infra create --dry-run</code></pre>
-      <p>The Auth App serves on the internal infrastructure network and shared Caddy routes <code>SANDCASTLE_AUTH_HOSTNAME</code> to it. The Auth App database is stored at <code>/var/lib/sandcastle/auth/auth.db</code> inside the Auth App sidecar.</p>
+      <p>The Auth App serves on the internal infrastructure network and shared Caddy routes <code>SANDCASTLE_AUTH_HOSTNAME</code> to it. The Auth App database is stored at <code>/var/lib/sandcastle/auth/auth.db</code> inside the Auth App sidecar. In disposable lab environments, <code>SANDCASTLE_AUTH_DEBUG_DEVICE_USER</code> enables <code>POST /debug/device/approve</code> to approve CLI Device Login as that allowlisted user without a browser session, and <code>SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</code> lets approved CLI Device Login clients receive a Tailscale auth key for unattended tenant sidecar attachment. Use short-lived or disposable auth keys for this flow.</p>
+      <p>For debugging public TLS without Let's Encrypt, set <code>SANDCASTLE_INFRA_TLS_MODE=internal</code> before <code>infra create</code>. Caddy then serves certificates from a persistent internal CA cached at <code>~/.config/sandcastle/infra-ca/&lt;remote&gt;/&lt;infra-project&gt;</code>, and <code>infra create</code> installs that CA into local trust after the sidecar starts. The same trusted debug CA is reused across <code>infra delete --purge</code> and later recreates. Reinstall or remove that trust with <code>sandcastle-admin infra trust install</code> and <code>sandcastle-admin infra trust uninstall</code>. Tenant CA trust behaves similarly after first approval: the CLI caches trusted tenant CA keypairs at <code>~/.config/sandcastle/tenant-ca/&lt;remote&gt;/&lt;tenant-project&gt;</code> and restores them into recreated tenants before checking local trust.</p>
       <div class="danger">The public route tier needs real public DNS, an infrastructure host, and a Let's Encrypt email. Tailscale Funnel is not a drop-in replacement for the current wildcard DNS and Caddy/ACME public route model.</div>
     </section>
 
@@ -337,6 +341,7 @@ curl https://auth.example.com/.well-known/jwks.json</code></pre>
       <pre><code>export SANDCASTLE_INFRA_HOST=203.0.113.10
 export SANDCASTLE_LETSENCRYPT_EMAIL=ops@example.com
 export SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com</code></pre>
+      <p>Leave <code>SANDCASTLE_INFRA_TLS_MODE</code> unset or set to <code>acme</code> for public ACME certificates.</p>
       <p>User-created public routes cannot use the configured Auth Hostname; it is reserved for the Auth App.</p>
     </section>
 

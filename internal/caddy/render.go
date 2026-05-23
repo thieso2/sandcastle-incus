@@ -16,8 +16,11 @@ type File struct {
 
 type InfrastructureOptions struct {
 	LetsEncryptEmail string
+	TLSMode          string
 	AuthHostname     string
 	AuthUpstream     string
+	InternalRootCert string
+	InternalRootKey  string
 }
 
 func RenderMachine(hostname string, appPort int, certPath string, keyPath string) File {
@@ -62,9 +65,21 @@ func RenderInfrastructureWithOptions(routes []meta.Route, options Infrastructure
 	})
 	content := ""
 	email := strings.TrimSpace(options.LetsEncryptEmail)
+	tlsDirective := infrastructureTLSDirective(options.TLSMode)
 	content += "{\n"
 	if email != "" {
 		content += fmt.Sprintf("    email %s\n", email)
+	}
+	if strings.TrimSpace(options.TLSMode) == "internal" && strings.TrimSpace(options.InternalRootCert) != "" && strings.TrimSpace(options.InternalRootKey) != "" {
+		content += fmt.Sprintf(`    pki {
+        ca local {
+            root {
+                cert %s
+                key %s
+            }
+        }
+    }
+`, options.InternalRootCert, options.InternalRootKey)
 	}
 	content += `    admin 127.0.0.1:2019
     auto_https disable_redirects
@@ -79,10 +94,10 @@ func RenderInfrastructureWithOptions(routes []meta.Route, options Infrastructure
 }
 
 https://%s {
-    reverse_proxy %s
+%s    reverse_proxy %s
 }
 
-`, authHostname, authUpstream, authHostname, authUpstream)
+`, authHostname, authUpstream, authHostname, tlsDirective, authUpstream)
 	}
 	hasRoutes := false
 	for _, route := range routes {
@@ -95,10 +110,10 @@ https://%s {
 }
 
 https://%s {
-    reverse_proxy http://%s:%d
+%s    reverse_proxy http://%s:%d
 }
 
-`, route.Hostname, route.TargetIP, route.RoutePort, route.Hostname, route.TargetIP, route.RoutePort)
+`, route.Hostname, route.TargetIP, route.RoutePort, route.Hostname, tlsDirective, route.TargetIP, route.RoutePort)
 	}
 	if !hasRoutes {
 		content += `:80 {
@@ -111,4 +126,11 @@ https://%s {
 		Mode:    0o644,
 		Content: content,
 	}
+}
+
+func infrastructureTLSDirective(mode string) string {
+	if strings.TrimSpace(mode) == "internal" {
+		return "    tls internal\n"
+	}
+	return ""
 }

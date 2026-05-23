@@ -15,6 +15,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
+	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
@@ -25,17 +26,18 @@ import (
 func ExecuteAdmin(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
 	verbose := os.Getenv("VERBOSE") == "1"
+	explicitRemote := strings.TrimSpace(os.Getenv("SANDCASTLE_REMOTE")) != "" || strings.TrimSpace(adminConfig.AdminRemote) != ""
 
 	// Prefer explicit admin_remote; fall back to cert/IP-based auto-detection;
 	// finally fall back to the global Incus default remote.
 	adminRemote := adminConfig.AdminRemote
-	if adminRemote == "" {
+	if adminRemote == "" && !explicitRemote {
 		adminRemote = detectAdminRemote(adminConfig.Remote, verbose)
 		if verbose && adminRemote != "" {
 			fmt.Fprintf(os.Stderr, "[verbose] admin remote auto-detected: %s\n", adminRemote)
 		}
 	}
-	if adminRemote == "" {
+	if adminRemote == "" && !explicitRemote {
 		if globalCfg, err := cliconfig.LoadConfig(""); err == nil {
 			adminRemote = globalCfg.DefaultRemote
 			if verbose && adminRemote != "" {
@@ -59,6 +61,7 @@ func ExecuteAdmin(name string, args []string) int {
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
+	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
 	routeBrokerTenants := incusx.NewTenantStore(adminConfig.Remote)
 	routeBrokerMachines := incusx.NewHostOverrideManager(adminConfig.Remote)
 	routeBrokerTrust := incusx.NewRouteBrokerTrustMapper(adminConfig.Remote)
@@ -75,6 +78,7 @@ func ExecuteAdmin(name string, args []string) int {
 			directRouteManager = incusx.NewRouteManagerForServer(socketServer)
 			directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 			directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
+			directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
 			routeBrokerTrust = incusx.NewRouteBrokerTrustMapperForServer(socketServer)
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] route broker unix socket unavailable: %v\n", err)
@@ -110,6 +114,7 @@ func ExecuteAdmin(name string, args []string) int {
 		imageImporter:       images.LocalImporter{},
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
+		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineStore:        incusx.NewHostOverrideManager(adminConfig.Remote),
 		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),

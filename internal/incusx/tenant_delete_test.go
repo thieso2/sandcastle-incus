@@ -12,22 +12,37 @@ import (
 )
 
 type fakeDeleteServer struct {
-	deletedProject string
-	deletedPool    string
-	resourceServer *fakeDeleteResourceServer
+	projects        []api.Project
+	deletedProject  string
+	deletedProjects []string
+	deletedPool     string
+	deletedPools    []string
+	resourceServer  *fakeDeleteResourceServer
+	resources       map[string]*fakeDeleteResourceServer
+}
+
+func (s *fakeDeleteServer) GetProjects() ([]api.Project, error) {
+	return append([]api.Project{}, s.projects...), nil
 }
 
 func (s *fakeDeleteServer) DeleteProject(name string) error {
 	s.deletedProject = name
+	s.deletedProjects = append(s.deletedProjects, name)
 	return nil
 }
 
 func (s *fakeDeleteServer) DeleteStoragePool(name string) error {
 	s.deletedPool = name
+	s.deletedPools = append(s.deletedPools, name)
 	return nil
 }
 
 func (s *fakeDeleteServer) UseProject(name string) TenantDeleteResourceServer {
+	if s.resources != nil {
+		if resource := s.resources[name]; resource != nil {
+			return resource
+		}
+	}
 	return s.resourceServer
 }
 

@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const defaultDeviceClientTimeout = 2 * time.Minute
+
 type DeviceClient struct {
 	BaseURL    string
 	HTTPClient *http.Client
@@ -37,6 +39,7 @@ type DevicePollResult struct {
 	CurrentProject     string
 	SSHKeyFingerprint  string
 	TenantTailnetState string
+	TailscaleAuthKey   string
 	NextCommand        string
 	LoginResult        *CLILoginResult
 	ExpiresIn          int
@@ -108,6 +111,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		CurrentProject:     payload.CurrentProject,
 		SSHKeyFingerprint:  payload.SSHKeyFingerprint,
 		TenantTailnetState: payload.TenantTailnetState,
+		TailscaleAuthKey:   payload.TailscaleAuthKey,
 		NextCommand:        payload.NextCommand,
 		LoginResult:        payload.LoginResult,
 		ExpiresIn:          payload.ExpiresIn,
@@ -126,5 +130,5 @@ func (c DeviceClient) client() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: 10 * time.Second}
+	return &http.Client{Timeout: defaultDeviceClientTimeout}
 }

@@ -145,12 +145,13 @@ func TestCommandStoreInstallLinuxCreatesTrustDirectoryAndUpdates(t *testing.T) {
 	}
 }
 
-func TestCommandStoreInstallDarwinUsesSudoWhenNotRoot(t *testing.T) {
+func TestCommandStoreInstallDarwinUsesLoginKeychain(t *testing.T) {
+	keychain := filepath.Join(t.TempDir(), "login.keychain-db")
+	t.Setenv("SANDCASTLE_DARWIN_TRUST_KEYCHAIN", keychain)
 	var commandName string
 	var commandArgs []string
 	store := CommandStore{
-		GOOS:         "darwin",
-		EffectiveUID: func() int { return 501 },
+		GOOS: "darwin",
 		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
 			commandName = name
 			commandArgs = append([]string{}, args...)
@@ -165,14 +166,17 @@ func TestCommandStoreInstallDarwinUsesSudoWhenNotRoot(t *testing.T) {
 	if result.Platform != "darwin" || result.Action != "install" {
 		t.Fatalf("result = %#v", result)
 	}
-	if commandName != "sudo" {
+	if commandName != "security" {
 		t.Fatalf("commandName = %q", commandName)
 	}
-	if len(commandArgs) < 2 || commandArgs[0] != "security" || commandArgs[1] != "add-trusted-cert" {
+	if len(commandArgs) == 0 || commandArgs[0] != "add-trusted-cert" {
 		t.Fatalf("commandArgs = %#v", commandArgs)
 	}
-	if !slices.Contains(commandArgs, "/Library/Keychains/System.keychain") {
-		t.Fatalf("commandArgs missing system keychain: %#v", commandArgs)
+	if !slices.Contains(commandArgs, keychain) {
+		t.Fatalf("commandArgs missing login keychain: %#v", commandArgs)
+	}
+	if slices.Contains(commandArgs, "-d") {
+		t.Fatalf("commandArgs should use user trust settings, got %#v", commandArgs)
 	}
 }
 
@@ -200,6 +204,37 @@ func TestCommandStoreInstallDarwinUsesSecurityDirectlyWhenRoot(t *testing.T) {
 	}
 	if len(commandArgs) == 0 || commandArgs[0] != "add-trusted-cert" {
 		t.Fatalf("commandArgs = %#v", commandArgs)
+	}
+}
+
+func TestCommandStoreInstallDarwinSkipsExistingCertificate(t *testing.T) {
+	keychain := filepath.Join(t.TempDir(), "login.keychain-db")
+	t.Setenv("SANDCASTLE_DARWIN_TRUST_KEYCHAIN", keychain)
+	certPEM := []byte("-----BEGIN CERTIFICATE-----\nAQID\n-----END CERTIFICATE-----\n")
+	var commands []string
+	store := CommandStore{
+		GOOS: "darwin",
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, strings.Join(append([]string{name}, args...), " "))
+			if len(args) > 0 && args[0] == "find-certificate" {
+				return certPEM, nil
+			}
+			t.Fatalf("unexpected mutating command: %s %#v", name, args)
+			return nil, nil
+		},
+	}
+	result, err := store.InstallCA(context.Background(), Plan{
+		Reference: "infrastructure",
+		TrustName: "Sandcastle infrastructure debug CA",
+	}, certPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Target != keychain {
+		t.Fatalf("Target = %q", result.Target)
+	}
+	if len(commands) != 1 || !strings.Contains(commands[0], "find-certificate -a -p") {
+		t.Fatalf("commands = %#v", commands)
 	}
 }
 

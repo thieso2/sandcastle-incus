@@ -3,7 +3,10 @@ package infra
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,6 +33,10 @@ const (
 	AuthAppDatabasePath        = "/var/lib/sandcastle/auth/auth.db"
 	AuthAppEnvPath             = "/etc/sandcastle/auth-app/env"
 	AuthAppUnitPath            = "/etc/systemd/system/sandcastle-auth-app.service"
+	CaddyInternalRootCAPath    = "/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt"
+	CaddyPKIDir                = "/etc/caddy/pki"
+	CaddyPKIRootCertPath       = "/etc/caddy/pki/root.crt"
+	CaddyPKIRootKeyPath        = "/etc/caddy/pki/root.key"
 	InfrastructureNetworkName  = "incusbr0"
 	NetworkdEth0Path           = "/etc/systemd/network/10-eth0.network"
 	ResolverPath               = "/etc/resolv.conf"
@@ -41,11 +48,13 @@ type CreateRequest struct{}
 
 type DeleteRequest struct {
 	Project string
+	Purge   bool
 }
 
 type CreatePlan struct {
 	Project               string             `json:"project"`
 	StoragePool           string             `json:"storagePool"`
+	TLSMode               string             `json:"tlsMode"`
 	CaddyInstance         string             `json:"caddyInstance"`
 	RouteBrokerInstance   string             `json:"routeBrokerInstance"`
 	AuthAppInstance       string             `json:"authAppInstance"`
@@ -105,8 +114,10 @@ type Creator interface {
 }
 
 type DeletePlan struct {
-	Project          string   `json:"project"`
-	RuntimeInstances []string `json:"runtimeInstances"`
+	Project            string   `json:"project"`
+	IncusProjectPrefix string   `json:"incusProjectPrefix"`
+	RuntimeInstances   []string `json:"runtimeInstances"`
+	PurgeData          bool     `json:"purgeData"`
 }
 
 type Deleter interface {
@@ -131,9 +142,14 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	binaries, err := runtimeBinaries()
+	if err != nil {
+		return CreatePlan{}, err
+	}
 	return CreatePlan{
 		Project:               project,
 		StoragePool:           admin.StoragePool,
+		TLSMode:               infrastructureTLSMode(admin.InfrastructureTLSMode),
 		CaddyInstance:         route.InfrastructureCaddyName,
 		RouteBrokerInstance:   RouteBrokerName,
 		AuthAppInstance:       AuthAppName,
@@ -143,15 +159,15 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 			instancePlan(admin, RouteBrokerName, "route-broker"),
 			instancePlan(admin, AuthAppName, "auth-app"),
 		},
-		RuntimeDirectories: runtimeDirectories(),
+		RuntimeDirectories: runtimeDirectories(infrastructureTLSMode(admin.InfrastructureTLSMode)),
 		RuntimeFiles:       runtimeFiles(admin, brokerTLS),
-		RuntimeBinaries:    runtimeBinaries(),
+		RuntimeBinaries:    binaries,
 		RuntimeCommands:    runtimeCommands(),
 	}, nil
 }
 
-func runtimeDirectories() []RuntimeDirectory {
-	return []RuntimeDirectory{
+func runtimeDirectories(tlsMode string) []RuntimeDirectory {
+	directories := []RuntimeDirectory{
 		{Instance: route.InfrastructureCaddyName, Path: "/etc/caddy", Mode: 0o755},
 		{Instance: RouteBrokerName, Path: "/etc/sandcastle", Mode: 0o755},
 		{Instance: RouteBrokerName, Path: "/etc/sandcastle/route-broker", Mode: 0o700},
@@ -159,13 +175,20 @@ func runtimeDirectories() []RuntimeDirectory {
 		{Instance: AuthAppName, Path: "/etc/sandcastle/auth-app", Mode: 0o700},
 		{Instance: AuthAppName, Path: "/var/lib/sandcastle/auth", Mode: 0o700},
 	}
+	if strings.TrimSpace(tlsMode) == "internal" {
+		directories = append(directories, RuntimeDirectory{Instance: route.InfrastructureCaddyName, Path: CaddyPKIDir, Mode: 0o755})
+	}
+	return directories
 }
 
 func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 	caddyFile := caddy.RenderInfrastructureWithOptions(nil, caddy.InfrastructureOptions{
 		LetsEncryptEmail: admin.LetsEncryptEmail,
+		TLSMode:          infrastructureTLSMode(admin.InfrastructureTLSMode),
 		AuthHostname:     admin.AuthHostname,
 		AuthUpstream:     "http://" + AuthAppName + AuthAppListen,
+		InternalRootCert: CaddyPKIRootCertPath,
+		InternalRootKey:  CaddyPKIRootKeyPath,
 	})
 	files := networkRuntimeFiles([]string{route.InfrastructureCaddyName, RouteBrokerName, AuthAppName})
 	files = append(files,
@@ -189,6 +212,7 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 				envLine("SANDCASTLE_INFRA_PROJECT", admin.InfrastructureProject),
 				envLine("SANDCASTLE_INFRA_HOST", admin.InfrastructureHost),
 				envLine("SANDCASTLE_LETSENCRYPT_EMAIL", admin.LetsEncryptEmail),
+				envLine("SANDCASTLE_INFRA_TLS_MODE", infrastructureTLSMode(admin.InfrastructureTLSMode)),
 				envLine("SANDCASTLE_BASE_IMAGE", admin.Images.Base),
 				envLine("SANDCASTLE_AI_IMAGE", admin.Images.AI),
 				"",
@@ -223,11 +247,14 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 				envLine("SANDCASTLE_AUTH_GITHUB_CLIENT_ID", admin.AuthGitHubClientID),
 				envLine("SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", admin.AuthGitHubClientSecret),
 				envLine("SANDCASTLE_AUTH_ADMIN_GITHUB_USERS", strings.Join(admin.AuthAdminGitHubUsers, ",")),
+				envLine("SANDCASTLE_AUTH_DEBUG_DEVICE_USER", admin.AuthDebugDeviceUser),
+				envLine("SANDCASTLE_AUTH_TAILSCALE_AUTHKEY", admin.AuthTailscaleAuthKey),
 				envLine("SANDCASTLE_REMOTE", admin.Remote),
 				envLine("SANDCASTLE_STORAGE_POOL", admin.StoragePool),
 				envLine("SANDCASTLE_CIDR_POOL", admin.CIDRPool),
 				envLine("SANDCASTLE_INCUS_PROJECT_PREFIX", admin.IncusProjectPrefix),
 				envLine("SANDCASTLE_INFRA_PROJECT", admin.InfrastructureProject),
+				envLine("SANDCASTLE_INFRA_TLS_MODE", infrastructureTLSMode(admin.InfrastructureTLSMode)),
 				envLine("SANDCASTLE_BASE_IMAGE", admin.Images.Base),
 				envLine("SANDCASTLE_AI_IMAGE", admin.Images.AI),
 				"",
@@ -237,11 +264,80 @@ func runtimeFiles(admin config.Admin, brokerTLS certs.KeyPair) []RuntimeFile {
 		RuntimeFile{
 			Instance: AuthAppName,
 			Path:     AuthAppUnitPath,
-			Content:  "[Unit]\nDescription=Sandcastle auth app\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nEnvironmentFile=" + AuthAppEnvPath + "\nExecStart=" + AuthAppBinaryPath + " auth-app serve --listen ${SANDCASTLE_AUTH_LISTEN} --database ${SANDCASTLE_AUTH_DB} --auth-hostname ${SANDCASTLE_AUTH_HOSTNAME} --github-client-id ${SANDCASTLE_AUTH_GITHUB_CLIENT_ID} --github-client-secret ${SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET} --admin-github-users ${SANDCASTLE_AUTH_ADMIN_GITHUB_USERS}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			Content:  "[Unit]\nDescription=Sandcastle auth app\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nEnvironmentFile=" + AuthAppEnvPath + "\nExecStart=" + AuthAppBinaryPath + " auth-app serve --listen ${SANDCASTLE_AUTH_LISTEN} --database ${SANDCASTLE_AUTH_DB} --auth-hostname ${SANDCASTLE_AUTH_HOSTNAME} --github-client-id ${SANDCASTLE_AUTH_GITHUB_CLIENT_ID} --github-client-secret ${SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET} --admin-github-users ${SANDCASTLE_AUTH_ADMIN_GITHUB_USERS} --debug-device-user ${SANDCASTLE_AUTH_DEBUG_DEVICE_USER} --tailscale-auth-key ${SANDCASTLE_AUTH_TAILSCALE_AUTHKEY}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
 			Mode:     0o644,
 		},
 	)
 	return files
+}
+
+func ApplyInternalCA(plan CreatePlan, ca certs.KeyPair) CreatePlan {
+	if strings.TrimSpace(plan.TLSMode) != "internal" {
+		return plan
+	}
+	plan.RuntimeFiles = append(plan.RuntimeFiles,
+		RuntimeFile{
+			Instance: route.InfrastructureCaddyName,
+			Path:     CaddyPKIRootCertPath,
+			Content:  string(ca.CertificatePEM),
+			Mode:     0o644,
+		},
+		RuntimeFile{
+			Instance: route.InfrastructureCaddyName,
+			Path:     CaddyPKIRootKeyPath,
+			Content:  string(ca.PrivateKeyPEM),
+			Mode:     0o644,
+		},
+	)
+	return plan
+}
+
+func infrastructureTLSMode(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return config.DefaultInfrastructureTLSMode
+	}
+	return mode
+}
+
+func LoadOrCreatePersistentInternalCA(admin config.Admin) (certs.KeyPair, error) {
+	certPath, keyPath := PersistentInternalCAPaths(admin)
+	certPEM, certErr := os.ReadFile(certPath)
+	keyPEM, keyErr := os.ReadFile(keyPath)
+	if certErr == nil && keyErr == nil && len(certPEM) > 0 && len(keyPEM) > 0 {
+		return certs.KeyPair{CertificatePEM: certPEM, PrivateKeyPEM: keyPEM}, nil
+	}
+	ca, err := certs.GenerateCA("Sandcastle infrastructure debug CA", time.Now().UTC())
+	if err != nil {
+		return certs.KeyPair{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
+		return certs.KeyPair{}, err
+	}
+	if err := os.WriteFile(certPath, ca.CertificatePEM, 0o644); err != nil {
+		return certs.KeyPair{}, err
+	}
+	if err := os.WriteFile(keyPath, ca.PrivateKeyPEM, 0o600); err != nil {
+		return certs.KeyPair{}, err
+	}
+	return ca, nil
+}
+
+func PersistentInternalCAPaths(admin config.Admin) (string, string) {
+	dir := strings.TrimSpace(os.Getenv("SANDCASTLE_INFRA_CA_DIR"))
+	if dir == "" {
+		dir = filepath.Join(config.DefaultConfigDir(), "infra-ca", pathSafe(admin.Remote), pathSafe(admin.InfrastructureProject))
+	}
+	return filepath.Join(dir, "root.crt"), filepath.Join(dir, "root.key")
+}
+
+func pathSafe(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
+	}
+	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_", " ", "_")
+	return replacer.Replace(value)
 }
 
 func networkRuntimeFiles(instances []string) []RuntimeFile {
@@ -383,22 +479,70 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
-func runtimeBinaries() []RuntimeBinary {
+func RuntimeBinarySource() string {
 	source := strings.TrimSpace(os.Getenv("SANDCASTLE_ADMIN_BIN"))
 	if source == "" {
 		source = strings.TrimSpace(os.Getenv("SANDCASTLE_BIN"))
 	}
 	if source == "" {
 		if executable, err := os.Executable(); err == nil {
-			source = executable
+			source = defaultRuntimeBinarySource(executable)
 		}
 	}
+	return source
+}
+
+func defaultRuntimeBinarySource(executable string) string {
+	if runtime.GOOS == "linux" {
+		return executable
+	}
+	dir := filepath.Dir(executable)
+	base := filepath.Base(executable)
+	for _, candidate := range []string{
+		filepath.Join(dir, "linux-amd64", base),
+		filepath.Join(dir, "linux-amd64", "sc-adm"),
+		filepath.Join(dir, "linux-amd64", "sandcastle-admin"),
+	} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return executable
+}
+
+func runtimeBinaries() ([]RuntimeBinary, error) {
+	source := RuntimeBinarySource()
 	if source == "" {
-		return nil
+		return nil, nil
+	}
+	if err := rejectUnsupportedRuntimeBinary(source); err != nil {
+		return nil, err
 	}
 	return []RuntimeBinary{
 		{Instance: RouteBrokerName, SourcePath: source, TargetPath: RouteBrokerBinaryPath, Mode: 0o755},
 		{Instance: AuthAppName, SourcePath: source, TargetPath: AuthAppBinaryPath, Mode: 0o755},
+	}, nil
+}
+
+func rejectUnsupportedRuntimeBinary(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open infrastructure runtime binary %s: %w", path, err)
+	}
+	defer file.Close()
+	var magic [4]byte
+	n, err := file.Read(magic[:])
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("read infrastructure runtime binary %s: %w", path, err)
+	}
+	if n < len(magic) {
+		return nil
+	}
+	switch string(magic[:]) {
+	case "\xcf\xfa\xed\xfe", "\xce\xfa\xed\xfe", "\xfe\xed\xfa\xcf", "\xfe\xed\xfa\xce", "\xca\xfe\xba\xbe", "\xca\xfe\xba\xbf":
+		return fmt.Errorf("infrastructure runtime binary %s is a macOS Mach-O binary; set SANDCASTLE_ADMIN_BIN to a Linux amd64 sandcastle-admin binary, for example bin/linux-amd64/sc-adm after running `mise run build:linux-amd64`", path)
+	default:
+		return nil
 	}
 }
 
@@ -409,6 +553,8 @@ func runtimeCommands() []RuntimeCommand {
 			Description: "start infrastructure Caddy",
 			Command: []string{"/bin/sh", "-lc", strings.Join(append(networkBootstrapShell(),
 				"install -d /etc/caddy",
+				"chmod 0755 /etc/caddy/pki 2>/dev/null || true",
+				"chmod 0644 /etc/caddy/pki/root.crt /etc/caddy/pki/root.key 2>/dev/null || true",
 				"systemctl restart caddy",
 				"for i in $(seq 1 50); do systemctl is-active caddy >/dev/null 2>&1 && exit 0; sleep 0.1; done",
 				"systemctl is-active caddy",
@@ -503,7 +649,9 @@ func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 		return DeletePlan{}, err
 	}
 	return DeletePlan{
-		Project:          project,
-		RuntimeInstances: []string{route.InfrastructureCaddyName, RouteBrokerName, AuthAppName},
+		Project:            project,
+		IncusProjectPrefix: strings.TrimSpace(admin.IncusProjectPrefix),
+		RuntimeInstances:   []string{route.InfrastructureCaddyName, RouteBrokerName, AuthAppName},
+		PurgeData:          request.Purge,
 	}, nil
 }

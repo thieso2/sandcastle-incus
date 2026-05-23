@@ -85,3 +85,24 @@ func TestRenderInfrastructureRoutesAuthHostname(t *testing.T) {
 		t.Fatalf("Caddyfile = %q", file.Content)
 	}
 }
+
+func TestRenderInfrastructureInternalTLS(t *testing.T) {
+	file := RenderInfrastructureWithOptions([]meta.Route{
+		{Hostname: "app.example.com", TargetIP: "10.248.0.20", RoutePort: 5173},
+	}, InfrastructureOptions{
+		TLSMode:          "internal",
+		AuthHostname:     "auth.example.com",
+		AuthUpstream:     "http://sc-auth-app:9444",
+		InternalRootCert: "/etc/caddy/pki/root.crt",
+		InternalRootKey:  "/etc/caddy/pki/root.key",
+	})
+	for _, want := range []string{
+		"pki {\n        ca local {\n            root {\n                cert /etc/caddy/pki/root.crt\n                key /etc/caddy/pki/root.key",
+		"https://auth.example.com {\n    tls internal\n    reverse_proxy http://sc-auth-app:9444",
+		"https://app.example.com {\n    tls internal\n    reverse_proxy http://10.248.0.20:5173",
+	} {
+		if !strings.Contains(file.Content, want) {
+			t.Fatalf("content missing %q:\n%s", want, file.Content)
+		}
+	}
+}

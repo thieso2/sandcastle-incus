@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,9 @@ func TestLoadAdminFromEnvDefaults(t *testing.T) {
 	if config.InfrastructureProject != DefaultInfrastructureProject {
 		t.Fatalf("InfrastructureProject = %q, want %q", config.InfrastructureProject, DefaultInfrastructureProject)
 	}
+	if config.InfrastructureTLSMode != DefaultInfrastructureTLSMode {
+		t.Fatalf("InfrastructureTLSMode = %q, want %q", config.InfrastructureTLSMode, DefaultInfrastructureTLSMode)
+	}
 	if config.Images.AI != DefaultAIImageAlias {
 		t.Fatalf("AI image = %q, want %q", config.Images.AI, DefaultAIImageAlias)
 	}
@@ -40,6 +44,7 @@ func TestLoadAdminFromEnvOverridesTrimScalars(t *testing.T) {
 	t.Setenv("SANDCASTLE_INFRA_PROJECT", "dev-infra")
 	t.Setenv("SANDCASTLE_INFRA_HOST", " 203.0.113.10 ")
 	t.Setenv("SANDCASTLE_LETSENCRYPT_EMAIL", " ops@example.com ")
+	t.Setenv("SANDCASTLE_INFRA_TLS_MODE", " internal ")
 	t.Setenv("SANDCASTLE_AUTH_HOSTNAME", " auth.example.com ")
 	t.Setenv("SANDCASTLE_AUTH_GITHUB_CLIENT_ID", " github-client ")
 	t.Setenv("SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", " github-secret ")
@@ -66,6 +71,9 @@ func TestLoadAdminFromEnvOverridesTrimScalars(t *testing.T) {
 	if config.LetsEncryptEmail != "ops@example.com" {
 		t.Fatalf("LetsEncryptEmail = %q", config.LetsEncryptEmail)
 	}
+	if config.InfrastructureTLSMode != "internal" {
+		t.Fatalf("InfrastructureTLSMode = %q", config.InfrastructureTLSMode)
+	}
 	if config.AuthHostname != "auth.example.com" {
 		t.Fatalf("AuthHostname = %q", config.AuthHostname)
 	}
@@ -83,6 +91,80 @@ func TestLoadAdminFromEnvOverridesTrimScalars(t *testing.T) {
 	}
 	if len(config.DeniedDomainSuffixes) != 2 || config.DeniedDomainSuffixes[0] != "corp.example" {
 		t.Fatalf("DeniedDomainSuffixes = %#v", config.DeniedDomainSuffixes)
+	}
+}
+
+func TestLoadAdminFromEnvReadsDotEnvDefaults(t *testing.T) {
+	clearAdminEnvForTest(t)
+	dir := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := os.WriteFile(".env", []byte(strings.Join([]string{
+		"SANDCASTLE_REMOTE=big",
+		"SANDCASTLE_INFRA_TLS_MODE=internal",
+		"SANDCASTLE_AUTH_HOSTNAME=auth.example.com",
+		"export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := LoadAdminFromEnv()
+	if config.Remote != "big" {
+		t.Fatalf("Remote = %q", config.Remote)
+	}
+	if config.InfrastructureTLSMode != "internal" {
+		t.Fatalf("InfrastructureTLSMode = %q", config.InfrastructureTLSMode)
+	}
+	if config.AuthHostname != "auth.example.com" {
+		t.Fatalf("AuthHostname = %q", config.AuthHostname)
+	}
+	if strings.Join(config.AuthAdminGitHubUsers, ",") != "octocat,hubot" {
+		t.Fatalf("AuthAdminGitHubUsers = %#v", config.AuthAdminGitHubUsers)
+	}
+}
+
+func TestLoadAdminFromEnvEnvironmentOverridesDotEnv(t *testing.T) {
+	clearAdminEnvForTest(t)
+	dir := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := os.WriteFile(".env", []byte("SANDCASTLE_INFRA_TLS_MODE=internal\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDCASTLE_INFRA_TLS_MODE", "acme")
+	config := LoadAdminFromEnv()
+	if config.InfrastructureTLSMode != "acme" {
+		t.Fatalf("InfrastructureTLSMode = %q", config.InfrastructureTLSMode)
+	}
+}
+
+func TestAdminValidateRejectsInvalidInfrastructureTLSMode(t *testing.T) {
+	clearAdminEnvForTest(t)
+
+	config := LoadAdminFromEnv()
+	config.InfrastructureTLSMode = "self-signed"
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected error")
 	}
 }
 
@@ -167,6 +249,7 @@ func clearAdminEnvForTest(t *testing.T) {
 		"SANDCASTLE_INFRA_PROJECT",
 		"SANDCASTLE_INFRA_HOST",
 		"SANDCASTLE_LETSENCRYPT_EMAIL",
+		"SANDCASTLE_INFRA_TLS_MODE",
 		"SANDCASTLE_AUTH_HOSTNAME",
 		"SANDCASTLE_AUTH_GITHUB_CLIENT_ID",
 		"SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET",

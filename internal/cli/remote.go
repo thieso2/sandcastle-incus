@@ -102,13 +102,19 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 	}
 
 	env := append(os.Environ(), "INCUS_CONF="+incusDir)
-	addCmd := exec.CommandContext(ctx, "incus", "remote", "add", name, joinToken)
-	addCmd.Env = env
-	addCmd.Stdin = ioConfig.stdin
-	addCmd.Stdout = ioConfig.stdout
-	addCmd.Stderr = ioConfig.stderr
-	if err := addCmd.Run(); err != nil {
-		return remoteAddResult{}, fmt.Errorf("incus remote add: %w", err)
+	if remoteExists(incusDir, name) {
+		if ioConfig.stderr != nil {
+			fmt.Fprintf(ioConfig.stderr, "Remote %s already exists; reusing existing Incus remote.\n", name)
+		}
+	} else {
+		addCmd := exec.CommandContext(ctx, "incus", "remote", "add", name, joinToken)
+		addCmd.Env = env
+		addCmd.Stdin = ioConfig.stdin
+		addCmd.Stdout = ioConfig.stdout
+		addCmd.Stderr = ioConfig.stderr
+		if err := addCmd.Run(); err != nil {
+			return remoteAddResult{}, fmt.Errorf("incus remote add: %w", err)
+		}
 	}
 
 	switchCmd := exec.CommandContext(ctx, "incus", "remote", "switch", name)
@@ -128,6 +134,21 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 		return remoteAddResult{}, err
 	}
 	return remoteAddResult{RemoteName: name, IncusConfig: incusDir, Tenant: tenant, DefaultRemoteSet: defaultRemoteSet}, nil
+}
+
+func remoteExists(incusDir string, name string) bool {
+	data, err := os.ReadFile(filepath.Join(incusDir, "config.yml"))
+	if err != nil {
+		return false
+	}
+	var config struct {
+		Remotes map[string]any `yaml:"remotes"`
+	}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return false
+	}
+	_, ok := config.Remotes[name]
+	return ok
 }
 
 func saveRemoteDefaults(cfgPath string, name string, tenant string) (bool, string, error) {
