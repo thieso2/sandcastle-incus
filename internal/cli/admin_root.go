@@ -109,6 +109,7 @@ func ExecuteAdmin(name string, args []string) int {
 		tenantUpdater:       incusx.NewTenantSSHKeyManager(adminConfig.Remote),
 		infraCreator:        incusx.NewInfrastructureCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		infraDeleter:        incusx.NewInfrastructureDeleter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		infraCaddyData:      incusx.NewInfrastructureCaddyDataExporter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		imageManager:        incusx.NewImageManager(adminConfig.Remote),
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},

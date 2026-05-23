@@ -223,6 +223,9 @@ remote: sc-alice</code></pre>
 <span class="comment"># Let's Encrypt email for shared Caddy TLS</span>
 <span class="env">export SANDCASTLE_LETSENCRYPT_EMAIL</span>=ops@example.com
 
+<span class="comment"># Optional exported Caddy ACME data archive restored during infra create</span>
+<span class="env">export SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE</span>=~/.config/sandcastle/infra-caddy-data/big/sc-infra/caddy-data.tgz
+
 <span class="comment"># Debug TLS mode: use Caddy's internal CA instead of public ACME</span>
 <span class="env">export SANDCASTLE_INFRA_TLS_MODE</span>=internal</code></pre>
   </div>
@@ -563,13 +566,21 @@ Bootstrap:
     <p>Provisions the shared Caddy reverse proxy, Auth App, and route broker inside a dedicated Incus project.</p>
     <p>The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. When <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> is set, the route broker and Auth App sidecars mount the host Incus socket and use the uploaded Linux <code>sandcastle-admin</code> binary from <code>SANDCASTLE_ADMIN_BIN</code>, falling back to <code>SANDCASTLE_BIN</code>. On macOS, build it with <code>mise run build:linux-amd64</code> and use <code>bin/linux-amd64/sc-adm</code>; <code>infra create</code> rejects macOS binaries before mutation.</p>
     <p>The Auth App sidecar runs <code>sandcastle-admin auth-app serve</code> with a persistent SQLite database at <code>/var/lib/sandcastle/auth/auth.db</code>. When <code>SANDCASTLE_AUTH_HOSTNAME</code> is set, shared Caddy reserves that hostname and routes it to the Auth App. CLI Device Login provisions Personal Tenants only after browser approval, not at allowlist add time or browser-only GitHub login time.</p>
-    <p>The shared Caddy sidecar publishes host ports <code>80</code> and <code>443</code> with Incus proxy devices and routes the configured Auth Hostname to the Auth App over the infrastructure bridge network. Set <code>SANDCASTLE_INFRA_TLS_MODE=internal</code> for debugging to have Caddy serve certificates from its internal CA instead of public ACME; <code>infra create</code> reuses a persistent debug CA from <code>~/.config/sandcastle/infra-ca/&lt;remote&gt;/&lt;infra-project&gt;</code> and installs that CA into local trust after the sidecar starts. Override the cache location with <code>SANDCASTLE_INFRA_CA_DIR</code>.</p>
+    <p>The shared Caddy sidecar publishes host ports <code>80</code> and <code>443</code> with Incus proxy devices and routes the configured Auth Hostname to the Auth App over the infrastructure bridge network. Set <code>SANDCASTLE_INFRA_TLS_MODE=internal</code> for debugging to have Caddy serve certificates from its internal CA instead of public ACME; <code>infra create</code> reuses a persistent debug CA from <code>~/.config/sandcastle/infra-ca/&lt;remote&gt;/&lt;infra-project&gt;</code> and installs that CA into local trust after the sidecar starts. Override the cache location with <code>SANDCASTLE_INFRA_CA_DIR</code>. In ACME mode, <code>infra create</code> also restores an existing Caddy ACME data archive from <code>SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE</code>, or from <code>~/.config/sandcastle/infra-caddy-data/&lt;remote&gt;/&lt;infra-project&gt;/caddy-data.tgz</code> when that file exists, before restarting Caddy. This lets e2e recreates reuse a known-good Let's Encrypt certificate and account without ordering a new cert every run.</p>
     <p>Initial Sandcastle Admins from <code>SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</code> can sign in through GitHub and manage the Login Allowlist at <code>/admin/allowlist</code> and Tenant Access at <code>/admin/access</code>. The allowlist accepts explicit GitHub users only; password login is not available. For disposable lab integrations, <code>SANDCASTLE_AUTH_DEBUG_DEVICE_USER</code> enables <code>POST /debug/device/approve</code> to approve CLI Device Login as that allowlisted user without a browser session. <code>SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</code> can be set during <code>infra create</code> to return a Tailscale auth key to approved CLI Device Login clients for unattended tenant sidecar attachment; this is intended for disposable integration environments and is not stored in Incus metadata.</p>
     <p><code>infra create</code> and <code>infra delete</code> print a configuration banner before mutation, including the selected remote, infrastructure project, project prefix, TLS mode, image aliases, uploaded admin binary, Auth Hostname, GitHub OAuth client ID, initial admin users, and Incus socket path. The GitHub OAuth client secret is redacted and shown only as set or unset.</p>
     <p>The Auth App also serves public OIDC provider metadata at <code>/.well-known/openid-configuration</code> and public signing keys at <code>/.well-known/jwks.json</code>. The configured Auth Hostname is the issuer URL; private signing keys are stored encrypted in the Auth Database. See <a href="oidc-configuration.html">Sandcastle OIDC Configuration</a> for the full provider and machine token flow.</p>
     <p>Users can manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. Machines that opt into workload identity receive a rotated runtime secret, Auth App token endpoint metadata, and, when a GCP config is selected, an external account credential file plus <code>GOOGLE_APPLICATION_CREDENTIALS</code> and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code> environment variables. Cloud Identity Configs are not applied automatically at Tenant or Project level.</p>
     <pre><code><span class="cmd">sandcastle-admin infra create</span>
 <span class="cmd">sandcastle-admin infra create</span> <span class="flag">--dry-run</span>   <span class="comment"># preview only</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Reuse a working ACME certificate</h3>
+    <p>After a successful production ACME run, export Caddy's ACME storage from the running infrastructure. Later <code>infra create</code> calls in ACME mode restore that archive automatically before Caddy starts, so Caddy can serve the cached cert and keep normal renewal state.</p>
+    <p class="callout warn">The archive contains private TLS key material and ACME account state. Store it like a secret and do not commit it.</p>
+    <pre><code><span class="cmd">sandcastle-admin infra cert export</span>
+<span class="cmd">sandcastle-admin infra cert export</span> <span class="flag">--archive</span> <span class="arg">/secure/path/caddy-data.tgz</span></code></pre>
   </div>
 
   <div class="step">
@@ -749,6 +760,7 @@ Bootstrap:
         <tr><td>sandcastle-admin user token &lt;user&gt; --tenant &lt;tenant&gt;</td><td>Re-issue pre-granted add-token for user</td></tr>
         <tr><td>sandcastle-admin infra create</td><td>Create shared infrastructure</td></tr>
         <tr><td>sandcastle-admin infra delete [--purge]</td><td>Delete shared infrastructure; with <code>--purge</code>, also delete Sandcastle tenant projects and durable data</td></tr>
+        <tr><td>sandcastle-admin infra cert export</td><td>Export Caddy ACME data for reuse during later <code>infra create</code> runs</td></tr>
         <tr><td>sandcastle-admin infra trust install/uninstall</td><td>Install or remove the infrastructure debug TLS CA locally</td></tr>
         <tr><td>mise run image:ai:build-upload</td><td>Build AI image (auto latest versions) and upload</td></tr>
         <tr><td>mise run image:base:build-upload</td><td>Build base image and upload</td></tr>

@@ -302,6 +302,7 @@ func newAdminInfraCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 	}
 	infraCommand.AddCommand(newAdminInfraCreateCommand(config, opts))
 	infraCommand.AddCommand(newAdminInfraDeleteCommand(config, opts))
+	infraCommand.AddCommand(newAdminInfraCertCommand(config, opts))
 	infraCommand.AddCommand(newAdminInfraTrustCommand(config, opts))
 	return infraCommand
 }
@@ -390,6 +391,53 @@ func formatInfraDeletePlan(plan infra.DeletePlan) string {
 		return fmt.Sprintf("Deleted infrastructure project: %s and purged Sandcastle data.", plan.Project)
 	}
 	return fmt.Sprintf("Deleted infrastructure project: %s", plan.Project)
+}
+
+func newAdminInfraCertCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "cert",
+		Short: "Manage reusable infrastructure Caddy ACME certificate data",
+	}
+	command.AddCommand(newAdminInfraCertExportCommand(config, opts))
+	return command
+}
+
+func newAdminInfraCertExportCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var archivePath string
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "export",
+		Short: "Export working infrastructure Caddy ACME data for reuse on infra create",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := infra.PlanCaddyDataExport(config.adminConfig, infra.CaddyDataExportRequest{ArchivePath: archivePath})
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatInfraCertExportPlan(plan), plan)
+			}
+			if config.infraCaddyData == nil {
+				return fmt.Errorf("infrastructure Caddy data exporter is not configured")
+			}
+			result, err := config.infraCaddyData.ExportCaddyData(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatInfraCertExportResult(result), result)
+		},
+	}
+	command.Flags().StringVar(&archivePath, "archive", "", "archive path, defaulting to the configured Sandcastle Caddy data cache")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the Caddy data export plan without downloading it")
+	return command
+}
+
+func formatInfraCertExportPlan(plan infra.CaddyDataExportPlan) string {
+	return fmt.Sprintf("Export infrastructure Caddy ACME data\nSource: %s:%s%s\nArchive: %s", plan.Project, plan.Instance, plan.SourcePath, plan.ArchivePath)
+}
+
+func formatInfraCertExportResult(result infra.CaddyDataExportResult) string {
+	return fmt.Sprintf("Exported infrastructure Caddy ACME data\nSource: %s:%s%s\nArchive: %s", result.Project, result.Instance, result.SourcePath, result.ArchivePath)
 }
 
 func newAdminInfraTrustCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -522,6 +570,7 @@ func writeInfraConfigBanner(config commandConfig, opts *rootOptions) {
   SANDCASTLE_INFRA_HOST=%s
   SANDCASTLE_LETSENCRYPT_EMAIL=%s
   SANDCASTLE_INFRA_TLS_MODE=%s
+  SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE=%s
   SANDCASTLE_BASE_IMAGE=%s
   SANDCASTLE_AI_IMAGE=%s
   SANDCASTLE_ADMIN_BIN=%s
@@ -541,6 +590,7 @@ func writeInfraConfigBanner(config commandConfig, opts *rootOptions) {
 		bannerValue(admin.InfrastructureHost),
 		bannerValue(admin.LetsEncryptEmail),
 		bannerValue(admin.InfrastructureTLSMode),
+		bannerValue(infra.CaddyDataArchivePath(admin)),
 		bannerValue(admin.Images.Base),
 		bannerValue(admin.Images.AI),
 		bannerValue(os.Getenv("SANDCASTLE_ADMIN_BIN")),

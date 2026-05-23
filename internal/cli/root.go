@@ -53,6 +53,7 @@ type commandConfig struct {
 	tenantUpdater       tenant.ProjectUpdater
 	infraCreator        infra.Creator
 	infraDeleter        infra.Deleter
+	infraCaddyData      infra.CaddyDataExporter
 	imageManager        images.Manager
 	imageBuilder        images.Builder
 	imageImporter       images.Importer
@@ -131,6 +132,7 @@ func Execute(name string, args []string) int {
 		tenantUpdater:       incusx.NewTenantSSHKeyManager(adminConfig.Remote),
 		infraCreator:        incusx.NewInfrastructureCreator(adminConfig.Remote),
 		infraDeleter:        incusx.NewInfrastructureDeleter(adminConfig.Remote),
+		infraCaddyData:      incusx.NewInfrastructureCaddyDataExporter(adminConfig.Remote),
 		imageManager:        incusx.NewImageManager(adminConfig.Remote),
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},

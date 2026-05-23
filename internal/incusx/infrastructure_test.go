@@ -88,6 +88,80 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 	}
 }
 
+func TestInfrastructureCreatorRestoresCaddyDataBeforeStartingRuntime(t *testing.T) {
+	plan := infraPlanForTest(t)
+	archive := t.TempDir() + "/caddy-data.tgz"
+	if err := os.WriteFile(archive, []byte("archive-data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan.CaddyDataArchivePath = archive
+	resourceServer := &fakeResourceServer{
+		networks:  fakeInfrastructureNetworks(),
+		volumes:   map[string]*api.StorageVolume{},
+		instances: map[string]*api.Instance{},
+	}
+	server := &fakeCreateServer{resourceServer: resourceServer}
+	creator := InfrastructureCreator{Server: server}
+
+	if err := creator.CreateInfrastructure(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(resourceServer.execCommands) != 6 {
+		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
+	}
+	if resourceServer.execInstances[2] != route.InfrastructureCaddyName || !strings.Contains(strings.Join(resourceServer.execCommands[2], " "), "tar -xzf -") {
+		t.Fatalf("third exec should restore Caddy data, got %s %#v", resourceServer.execInstances[2], resourceServer.execCommands[2])
+	}
+	if !containsString(resourceServer.execStdin, "archive-data") {
+		t.Fatalf("restore stdin = %#v", resourceServer.execStdin)
+	}
+	if resourceServer.execInstances[3] != route.InfrastructureCaddyName || !strings.Contains(strings.Join(resourceServer.execCommands[3], " "), "systemctl restart caddy") {
+		t.Fatalf("fourth exec should start Caddy, got %s %#v", resourceServer.execInstances[3], resourceServer.execCommands[3])
+	}
+}
+
+func TestInfrastructureCaddyDataExporterWritesArchive(t *testing.T) {
+	archive := t.TempDir() + "/caddy-data.tgz"
+	resourceServer := &fakeResourceServer{
+		networks:  fakeInfrastructureNetworks(),
+		volumes:   map[string]*api.StorageVolume{},
+		instances: map[string]*api.Instance{},
+	}
+	server := &fakeCreateServer{resourceServer: resourceServer}
+	exporter := InfrastructureCaddyDataExporter{Server: server}
+	result, err := exporter.ExportCaddyData(context.Background(), infra.CaddyDataExportPlan{
+		Project:     config.DefaultInfrastructureProject,
+		Instance:    route.InfrastructureCaddyName,
+		SourcePath:  infra.CaddyDataDir,
+		ArchivePath: archive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ArchivePath != archive {
+		t.Fatalf("ArchivePath = %q", result.ArchivePath)
+	}
+	data, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "archive" {
+		t.Fatalf("archive = %q", data)
+	}
+	if len(resourceServer.execCommands) != 1 || !strings.Contains(strings.Join(resourceServer.execCommands[0], " "), "tar -czf -") {
+		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestInfrastructureCreatorVerboseLogsCommandDurations(t *testing.T) {
 	plan := infraPlanForTest(t)
 	plan.Instances = plan.Instances[:1]

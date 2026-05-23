@@ -33,6 +33,7 @@ const (
 	AuthAppDatabasePath        = "/var/lib/sandcastle/auth/auth.db"
 	AuthAppEnvPath             = "/etc/sandcastle/auth-app/env"
 	AuthAppUnitPath            = "/etc/systemd/system/sandcastle-auth-app.service"
+	CaddyDataDir               = "/var/lib/caddy/.local/share/caddy"
 	CaddyInternalRootCAPath    = "/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt"
 	CaddyPKIDir                = "/etc/caddy/pki"
 	CaddyPKIRootCertPath       = "/etc/caddy/pki/root.crt"
@@ -64,6 +65,7 @@ type CreatePlan struct {
 	RuntimeFiles          []RuntimeFile      `json:"runtimeFiles"`
 	RuntimeBinaries       []RuntimeBinary    `json:"runtimeBinaries"`
 	RuntimeCommands       []RuntimeCommand   `json:"runtimeCommands"`
+	CaddyDataArchivePath  string             `json:"caddyDataArchivePath,omitempty"`
 }
 
 type InstancePlan struct {
@@ -146,10 +148,11 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	tlsMode := infrastructureTLSMode(admin.InfrastructureTLSMode)
 	return CreatePlan{
 		Project:               project,
 		StoragePool:           admin.StoragePool,
-		TLSMode:               infrastructureTLSMode(admin.InfrastructureTLSMode),
+		TLSMode:               tlsMode,
 		CaddyInstance:         route.InfrastructureCaddyName,
 		RouteBrokerInstance:   RouteBrokerName,
 		AuthAppInstance:       AuthAppName,
@@ -159,10 +162,11 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 			instancePlan(admin, RouteBrokerName, "route-broker"),
 			instancePlan(admin, AuthAppName, "auth-app"),
 		},
-		RuntimeDirectories: runtimeDirectories(infrastructureTLSMode(admin.InfrastructureTLSMode)),
-		RuntimeFiles:       runtimeFiles(admin, brokerTLS),
-		RuntimeBinaries:    binaries,
-		RuntimeCommands:    runtimeCommands(),
+		RuntimeDirectories:   runtimeDirectories(tlsMode),
+		RuntimeFiles:         runtimeFiles(admin, brokerTLS),
+		RuntimeBinaries:      binaries,
+		RuntimeCommands:      runtimeCommands(),
+		CaddyDataArchivePath: existingCaddyDataArchivePath(admin, tlsMode),
 	}, nil
 }
 
@@ -329,6 +333,26 @@ func PersistentInternalCAPaths(admin config.Admin) (string, string) {
 		dir = filepath.Join(config.DefaultConfigDir(), "infra-ca", pathSafe(admin.Remote), pathSafe(admin.InfrastructureProject))
 	}
 	return filepath.Join(dir, "root.crt"), filepath.Join(dir, "root.key")
+}
+
+func CaddyDataArchivePath(admin config.Admin) string {
+	path := strings.TrimSpace(os.Getenv("SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE"))
+	if path != "" {
+		return path
+	}
+	return filepath.Join(config.DefaultConfigDir(), "infra-caddy-data", pathSafe(admin.Remote), pathSafe(admin.InfrastructureProject), "caddy-data.tgz")
+}
+
+func existingCaddyDataArchivePath(admin config.Admin, tlsMode string) string {
+	if !strings.EqualFold(strings.TrimSpace(tlsMode), "acme") {
+		return ""
+	}
+	path := CaddyDataArchivePath(admin)
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() == 0 {
+		return ""
+	}
+	return path
 }
 
 func pathSafe(value string) string {

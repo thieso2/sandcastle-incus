@@ -3393,6 +3393,72 @@ func TestAdminInfraCreateACMEDoesNotInstallDebugCA(t *testing.T) {
 	}
 }
 
+func TestAdminInfraCreateACMERestoresCaddyDataArchiveWhenPresent(t *testing.T) {
+	setAdminRuntimeBinaryForTest(t)
+	archive := t.TempDir() + "/caddy-data.tgz"
+	if err := os.WriteFile(archive, []byte("archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE", archive)
+	creator := &fakeInfraCreator{}
+	admin := scconfig.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "acme"
+	_, _, err := executeAdminForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle-admin",
+		adminConfig:  admin,
+		infraCreator: creator,
+	}, "infra", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creator.plan.CaddyDataArchivePath != archive {
+		t.Fatalf("CaddyDataArchivePath = %q, want %q", creator.plan.CaddyDataArchivePath, archive)
+	}
+}
+
+func TestAdminInfraCertExportRunsExecutor(t *testing.T) {
+	exporter := &fakeInfraCaddyDataExporter{}
+	archive := t.TempDir() + "/caddy-data.tgz"
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:           "sandcastle-admin",
+		adminConfig:    scconfig.LoadAdminFromEnv(),
+		infraCaddyData: exporter,
+	}, "infra", "cert", "export", "--archive", archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exporter.called {
+		t.Fatal("expected Caddy data exporter call")
+	}
+	if exporter.plan.ArchivePath != archive {
+		t.Fatalf("ArchivePath = %q, want %q", exporter.plan.ArchivePath, archive)
+	}
+	if exporter.plan.Instance != "sc-caddy" || exporter.plan.SourcePath != infra.CaddyDataDir {
+		t.Fatalf("plan = %#v", exporter.plan)
+	}
+	if !strings.Contains(stdout, "Exported infrastructure Caddy ACME data") || !strings.Contains(stdout, archive) {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestAdminInfraCertExportDryRunJSON(t *testing.T) {
+	archive := t.TempDir() + "/caddy-data.tgz"
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
+		adminConfig: scconfig.LoadAdminFromEnv(),
+	}, "--output", "json", "infra", "cert", "export", "--archive", archive, "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload infra.CaddyDataExportPlan
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ArchivePath != archive || payload.SourcePath != infra.CaddyDataDir {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestAdminInfraCreateRequiresExecutor(t *testing.T) {
 	setAdminRuntimeBinaryForTest(t)
 	_, err := executeAdminForTestWithConfig(t, commandConfig{
@@ -4001,6 +4067,22 @@ func (f *fakeInfraDeleter) DeleteInfrastructure(ctx context.Context, plan infra.
 	f.called = true
 	f.plan = plan
 	return nil
+}
+
+type fakeInfraCaddyDataExporter struct {
+	called bool
+	plan   infra.CaddyDataExportPlan
+}
+
+func (f *fakeInfraCaddyDataExporter) ExportCaddyData(ctx context.Context, plan infra.CaddyDataExportPlan) (infra.CaddyDataExportResult, error) {
+	f.called = true
+	f.plan = plan
+	return infra.CaddyDataExportResult{
+		Project:     plan.Project,
+		Instance:    plan.Instance,
+		SourcePath:  plan.SourcePath,
+		ArchivePath: plan.ArchivePath,
+	}, nil
 }
 
 type fakeImageManager struct {

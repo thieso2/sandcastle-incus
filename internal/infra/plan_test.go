@@ -202,6 +202,65 @@ func TestPlanCreateInternalTLS(t *testing.T) {
 	}
 }
 
+func TestPlanCreateRestoresExistingCaddyDataArchiveForACME(t *testing.T) {
+	binaryPath := writeRuntimeBinaryForTest(t)
+	t.Setenv("SANDCASTLE_ADMIN_BIN", binaryPath)
+	archive := t.TempDir() + "/caddy-data.tgz"
+	if err := os.WriteFile(archive, []byte("archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE", archive)
+	admin := config.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "acme"
+	plan, err := PlanCreate(admin, CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CaddyDataArchivePath != archive {
+		t.Fatalf("CaddyDataArchivePath = %q, want %q", plan.CaddyDataArchivePath, archive)
+	}
+}
+
+func TestPlanCreateSkipsCaddyDataArchiveForInternalTLS(t *testing.T) {
+	binaryPath := writeRuntimeBinaryForTest(t)
+	t.Setenv("SANDCASTLE_ADMIN_BIN", binaryPath)
+	archive := t.TempDir() + "/caddy-data.tgz"
+	if err := os.WriteFile(archive, []byte("archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE", archive)
+	admin := config.LoadAdminFromEnv()
+	admin.InfrastructureTLSMode = "internal"
+	plan, err := PlanCreate(admin, CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CaddyDataArchivePath != "" {
+		t.Fatalf("CaddyDataArchivePath = %q, want empty", plan.CaddyDataArchivePath)
+	}
+}
+
+func TestPlanCaddyDataExport(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.InfrastructureProject = "sc-infra"
+	plan, err := PlanCaddyDataExport(admin, CaddyDataExportRequest{ArchivePath: "/tmp/caddy-data.tgz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project != "sc-infra" {
+		t.Fatalf("Project = %q", plan.Project)
+	}
+	if plan.Instance != route.InfrastructureCaddyName {
+		t.Fatalf("Instance = %q", plan.Instance)
+	}
+	if plan.SourcePath != CaddyDataDir {
+		t.Fatalf("SourcePath = %q", plan.SourcePath)
+	}
+	if plan.ArchivePath != "/tmp/caddy-data.tgz" {
+		t.Fatalf("ArchivePath = %q", plan.ArchivePath)
+	}
+}
+
 func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
 	writeRuntimeBinaryForTest(t)
 	admin := config.LoadAdminFromEnv()

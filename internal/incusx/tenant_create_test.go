@@ -107,6 +107,7 @@ type fakeResourceServer struct {
 	startedInstances   []string
 	execInstances      []string
 	execCommands       [][]string
+	execStdin          []string
 }
 
 func (s *fakeResourceServer) GetNetwork(name string) (*api.Network, string, error) {
@@ -228,6 +229,18 @@ func (s *fakeResourceServer) CreateInstanceFile(instanceName string, path string
 func (s *fakeResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	s.execInstances = append(s.execInstances, instanceName)
 	s.execCommands = append(s.execCommands, exec.Command)
+	if args.Stdin != nil {
+		data, err := io.ReadAll(args.Stdin)
+		if err != nil {
+			return nil, err
+		}
+		s.execStdin = append(s.execStdin, string(data))
+	}
+	if args.Stdout != nil {
+		if _, err := args.Stdout.Write([]byte("archive")); err != nil {
+			return nil, err
+		}
+	}
 	if args.DataDone != nil {
 		close(args.DataDone)
 	}

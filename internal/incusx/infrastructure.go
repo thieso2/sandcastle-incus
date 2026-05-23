@@ -33,6 +33,13 @@ type InfrastructureDeleter struct {
 	Log        func(string)
 }
 
+type InfrastructureCaddyDataExporter struct {
+	Remote     string
+	ConfigPath string
+	Server     TenantCreateServer
+	Log        func(string)
+}
+
 func NewInfrastructureCreator(remote string) InfrastructureCreator {
 	return InfrastructureCreator{Remote: remote}
 }
@@ -60,6 +67,31 @@ func (c InfrastructureCreator) runCommand(label string, fn func() error) error {
 
 func NewInfrastructureDeleter(remote string) InfrastructureDeleter {
 	return InfrastructureDeleter{Remote: remote}
+}
+
+func NewInfrastructureCaddyDataExporter(remote string) InfrastructureCaddyDataExporter {
+	return InfrastructureCaddyDataExporter{Remote: remote}
+}
+
+func (e InfrastructureCaddyDataExporter) WithVerbose(enabled bool, w io.Writer) InfrastructureCaddyDataExporter {
+	if enabled {
+		e.Log = func(msg string) { fmt.Fprint(w, msg) }
+	}
+	return e
+}
+
+func (e InfrastructureCaddyDataExporter) runCommand(label string, fn func() error) error {
+	if e.Log == nil {
+		return fn()
+	}
+	start := time.Now()
+	e.Log(label + " ...")
+	if err := fn(); err != nil {
+		e.Log(fmt.Sprintf(" failed (%s)\n", formatVerboseDuration(time.Since(start))))
+		return err
+	}
+	e.Log(fmt.Sprintf(" done (%s)\n", formatVerboseDuration(time.Since(start))))
+	return nil
 }
 
 func (d InfrastructureDeleter) WithVerbose(enabled bool, w io.Writer) InfrastructureDeleter {
@@ -128,6 +160,9 @@ func (c InfrastructureCreator) CreateInfrastructure(ctx context.Context, plan in
 		return err
 	}
 	if err := c.ensureInfrastructureRuntimeBinaries(projectServer, remote, plan); err != nil {
+		return err
+	}
+	if err := c.restoreInfrastructureCaddyData(projectServer, remote, plan); err != nil {
 		return err
 	}
 	if err := c.runInfrastructureRuntimeCommands(projectServer, remote, plan); err != nil {
@@ -396,6 +431,133 @@ func (c InfrastructureCreator) ensureInfrastructureRuntimeBinaries(server Tenant
 			return err
 		}
 	}
+	return nil
+}
+
+func (c InfrastructureCreator) restoreInfrastructureCaddyData(server TenantResourceServer, remote string, plan infra.CreatePlan) error {
+	if strings.TrimSpace(plan.CaddyDataArchivePath) == "" {
+		return nil
+	}
+	label := fmt.Sprintf("incus exec %s:%s --project %s -- restore Caddy ACME data", remote, plan.CaddyInstance, plan.Project)
+	return c.runCommand(label, func() error {
+		file, err := os.Open(plan.CaddyDataArchivePath)
+		if err != nil {
+			return fmt.Errorf("open Caddy data archive %s: %w", plan.CaddyDataArchivePath, err)
+		}
+		defer file.Close()
+		return restoreCaddyDataArchive(server, plan.CaddyInstance, file)
+	})
+}
+
+func restoreCaddyDataArchive(server TenantResourceServer, instance string, reader io.Reader) error {
+	var stderr bytes.Buffer
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instance, api.InstanceExecPost{
+		Command: []string{
+			"/bin/sh",
+			"-lc",
+			"set -eu; install -d -m 0755 " + shellQuote(infra.CaddyDataDir) + "; tar -xzf - -C " + shellQuote(infra.CaddyDataDir) + "; chown -R caddy:caddy " + shellQuote(infra.CaddyDataDir) + " 2>/dev/null || true",
+		},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    reader,
+		Stderr:   &stderr,
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("restore Caddy data archive into %s: %w", instance, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for restore Caddy data archive into %s: %w (stderr: %s)", instance, err, stderr.String())
+	}
+	<-dataDone
+	return nil
+}
+
+func (e InfrastructureCaddyDataExporter) ExportCaddyData(ctx context.Context, plan infra.CaddyDataExportPlan) (infra.CaddyDataExportResult, error) {
+	_ = ctx
+	server := e.Server
+	remote := e.Remote
+	if server == nil {
+		loaded, err := cliconfig.LoadConfig(e.ConfigPath)
+		if err != nil {
+			return infra.CaddyDataExportResult{}, fmt.Errorf("load Incus config: %w", err)
+		}
+		if remote == "" {
+			remote = loaded.DefaultRemote
+		}
+		instanceServer, err := loaded.GetInstanceServer(remote)
+		if err != nil {
+			return infra.CaddyDataExportResult{}, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+		}
+		server = sdkTenantCreateServer{inner: instanceServer}
+	}
+	if err := infra.EnsureCaddyDataArchiveParent(plan.ArchivePath); err != nil {
+		return infra.CaddyDataExportResult{}, err
+	}
+	projectServer := server.UseProject(plan.Project)
+	label := fmt.Sprintf("incus exec %s:%s --project %s -- export Caddy ACME data", remote, plan.Instance, plan.Project)
+	if err := e.runCommand(label, func() error {
+		return exportCaddyDataArchive(projectServer, plan)
+	}); err != nil {
+		return infra.CaddyDataExportResult{}, err
+	}
+	return infra.CaddyDataExportResult{
+		Project:     plan.Project,
+		Instance:    plan.Instance,
+		SourcePath:  plan.SourcePath,
+		ArchivePath: plan.ArchivePath,
+	}, nil
+}
+
+func exportCaddyDataArchive(server TenantResourceServer, plan infra.CaddyDataExportPlan) error {
+	tempPath := plan.ArchivePath + ".new"
+	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("create Caddy data archive %s: %w", tempPath, err)
+	}
+	committed := false
+	defer func() {
+		_ = file.Close()
+		if !committed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	var stderr bytes.Buffer
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(plan.Instance, api.InstanceExecPost{
+		Command: []string{
+			"/bin/sh",
+			"-lc",
+			"test -d " + shellQuote(plan.SourcePath) + "; tar -czf - -C " + shellQuote(plan.SourcePath) + " .",
+		},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdout:   file,
+		Stderr:   &stderr,
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return fmt.Errorf("export Caddy data archive from %s:%s: %w", plan.Instance, plan.SourcePath, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for export Caddy data archive from %s:%s: %w (stderr: %s)", plan.Instance, plan.SourcePath, err, stderr.String())
+	}
+	<-dataDone
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close Caddy data archive %s: %w", tempPath, err)
+	}
+	info, err := os.Stat(tempPath)
+	if err != nil {
+		return fmt.Errorf("stat Caddy data archive %s: %w", tempPath, err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("Caddy data archive %s is empty", tempPath)
+	}
+	if err := os.Rename(tempPath, plan.ArchivePath); err != nil {
+		return fmt.Errorf("install Caddy data archive %s: %w", plan.ArchivePath, err)
+	}
+	committed = true
 	return nil
 }
 
