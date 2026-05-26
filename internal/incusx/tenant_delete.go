@@ -232,7 +232,7 @@ func clearNetworkFromDefaultProfile(server TenantDeleteResourceServer, networkNa
 	}
 	changed := false
 	for key, device := range profile.Devices {
-		if device["type"] == "nic" && device["network"] == networkName {
+		if device["type"] == "nic" && (device["network"] == networkName || device["parent"] == networkName) {
 			delete(profile.Devices, key)
 			changed = true
 		}
