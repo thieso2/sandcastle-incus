@@ -132,6 +132,16 @@ func TestCLILoginE2E(t *testing.T) {
 			t.Errorf("sidecar %s is not running (status=%s)", name, instance.Status)
 		}
 	}
+
+	// Verify sc tailscale status can reach the sidecar in the infra project.
+	// This catches regressions where the exec targets the wrong Incus project.
+	tsStatusCtx, tsStatusCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer tsStatusCancel()
+	tsStatusCmd := exec.CommandContext(tsStatusCtx, sandcastleBin, "tailscale", "status", "--output", "json")
+	tsStatusCmd.Env = loginCLIEnv(e2eConfig, homeDir)
+	if out, err := tsStatusCmd.CombinedOutput(); err != nil {
+		t.Errorf("sc tailscale status: %v\n%s", err, strings.TrimSpace(string(out)))
+	}
 }
 
 // loginCLIEnv builds an env for running the user-facing sc binary during login e2e.
