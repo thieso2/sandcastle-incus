@@ -58,12 +58,15 @@ set -euo pipefail
 REMOTE="${SANDCASTLE_REMOTE}"
 PROJECT="${SANDCASTLE_INFRA_PROJECT}"
 mise run build:linux-amd64
-echo "Deploying to route-broker..."
-incus file push --project "$PROJECT" bin/linux-amd64/sandcastle-admin "${REMOTE}:sc-route-broker/usr/local/bin/sandcastle-admin"
-incus exec --project "$PROJECT" "${REMOTE}:sc-route-broker" -- systemctl restart sandcastle-route-broker
-echo "Deploying to auth-app..."
-incus file push --project "$PROJECT" bin/linux-amd64/sandcastle-admin "${REMOTE}:sc-auth-app/usr/local/bin/sandcastle-admin"
-incus exec --project "$PROJECT" "${REMOTE}:sc-auth-app" -- systemctl restart sandcastle-auth-app
+deploy() {
+  local instance="$1" service="$2"
+  echo "Deploying to ${instance}..."
+  incus file push --project "$PROJECT" bin/linux-amd64/sandcastle-admin "${REMOTE}:${instance}/usr/local/bin/sandcastle-admin.new"
+  incus exec --project "$PROJECT" "${REMOTE}:${instance}" -- mv -f /usr/local/bin/sandcastle-admin.new /usr/local/bin/sandcastle-admin
+  incus exec --project "$PROJECT" "${REMOTE}:${instance}" -- systemctl restart "${service}"
+}
+deploy sc-route-broker sandcastle-route-broker
+deploy sc-auth-app sandcastle-auth-app
 echo "Done."
 """
 
