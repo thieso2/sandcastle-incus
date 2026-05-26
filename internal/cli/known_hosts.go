@@ -59,7 +59,10 @@ func (m localKnownHostsManager) RefreshMachine(ctx context.Context, plan machine
 	}
 	keys, err := m.scanKnownHost(ctx, privateIP)
 	if err != nil {
-		return err
+		if m.stderr != nil {
+			fmt.Fprintf(m.stderr, "Warning: SSH keyscan for %s failed (%v); known_hosts not updated.\n", privateIP, err)
+		}
+		return nil
 	}
 	if err := m.removeKnownHost(ctx, path, hostname); err != nil {
 		return err
@@ -107,7 +110,7 @@ func (m localKnownHostsManager) removeKnownHost(ctx context.Context, path string
 func (m localKnownHostsManager) scanKnownHost(ctx context.Context, host string) ([]byte, error) {
 	args := []string{"-T", "2", "-t", "ed25519,ecdsa,rsa", host}
 	var lastErr error
-	for attempt := 0; attempt < 10; attempt++ {
+	for attempt := 0; attempt < 3; attempt++ {
 		m.log("run " + shellCommandLine(append([]string{"ssh-keyscan"}, args...)))
 		command := exec.CommandContext(ctx, "ssh-keyscan", args...)
 		var stderr bytes.Buffer
