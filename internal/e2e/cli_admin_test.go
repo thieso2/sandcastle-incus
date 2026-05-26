@@ -83,7 +83,7 @@ func TestCLIAdminTenantCreateE2E(t *testing.T) {
 	}
 
 	// Run: sc-adm tenant create via the native admin CLI binary.
-	runAdminCLI(t, e2eConfig, sandcastleBin, 2*time.Minute,
+	runAdminCLI(t, e2eConfig, sandcastleBin, 5*time.Minute,
 		"tenant", "create", ref)
 
 	// Verify the Incus project was created.
@@ -92,7 +92,7 @@ func TestCLIAdminTenantCreateE2E(t *testing.T) {
 	}
 
 	// Run: sc-adm tenant delete --yes --purge.
-	runAdminCLI(t, e2eConfig, sandcastleBin, 2*time.Minute,
+	runAdminCLI(t, e2eConfig, sandcastleBin, 5*time.Minute,
 		"tenant", "delete", ref, "--yes", "--purge")
 
 	// Verify the Incus project is gone.

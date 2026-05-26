@@ -407,14 +407,20 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 	if infraServer.createdInstances[0].Name != plan.TailscaleInstance {
 		t.Fatalf("first sidecar = %q", infraServer.createdInstances[0].Name)
 	}
-	if got := infraServer.createdInstances[0].Devices["eth0"]["ipv4.address"]; got != "10.248.0.2" {
-		t.Fatalf("tailscale address = %q", got)
+	if got := infraServer.createdInstances[0].Devices["eth0"]["nictype"]; got != "bridged" {
+		t.Fatalf("tailscale eth0 nictype = %q, want bridged", got)
+	}
+	if got := infraServer.createdInstances[0].Devices["eth0"]["parent"]; got != plan.PrivateNetwork {
+		t.Fatalf("tailscale eth0 parent = %q, want %s", got, plan.PrivateNetwork)
 	}
 	if infraServer.createdInstances[1].Name != tenant.DNSName {
 		t.Fatalf("second sidecar = %q", infraServer.createdInstances[1].Name)
 	}
-	if got := infraServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.3" {
-		t.Fatalf("dns address = %q", got)
+	if got := infraServer.createdInstances[1].Devices["eth0"]["nictype"]; got != "bridged" {
+		t.Fatalf("dns eth0 nictype = %q, want bridged", got)
+	}
+	if got := infraServer.createdInstances[1].Devices["eth0"]["parent"]; got != plan.PrivateNetwork {
+		t.Fatalf("dns eth0 parent = %q, want %s", got, plan.PrivateNetwork)
 	}
 	for _, profileName := range []string{"container", "default"} {
 		profile := mainServer.profiles[profileName]

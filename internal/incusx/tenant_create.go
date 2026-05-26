@@ -103,6 +103,7 @@ func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName st
 		IncusProject:      mainProjectName,
 		InfraProject:      naming.TenantInfraIncusProjectName(mainProjectName),
 		NativeProject:     naming.TenantNativeIncusProjectName(mainProjectName),
+		PrivateCIDR:       privateCIDR,
 		StoragePool:       mainProjectName,
 		InfraImageAliases: tenant.UniqueImageAliases(admin.Images.Base),
 	}
@@ -130,7 +131,7 @@ func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName st
 	if err := ensureNativeProject(server, plan); err != nil {
 		return err
 	}
-	if len(plan.Sidecars) == 0 || plan.InfraImageAliases[0] == "" {
+	if len(plan.Sidecars) == 0 || len(plan.InfraImageAliases) == 0 || plan.InfraImageAliases[0] == "" {
 		return nil
 	}
 	infraServer := server.UseProject(plan.InfraProject)
@@ -141,6 +142,10 @@ func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName st
 	for _, sidecar := range plan.Sidecars {
 		c.log("ensure sidecar " + sidecar.Name)
 		if err := ensureSidecar(infraServer, sidecar); err != nil {
+			return err
+		}
+		c.log("configure network for sidecar " + sidecar.Name)
+		if err := configureSidecarNetwork(infraServer, sidecar, plan.PrivateCIDR); err != nil {
 			return err
 		}
 	}
@@ -449,15 +454,7 @@ func ensureSidecar(server TenantResourceServer, sidecar tenant.SidecarPlan) erro
 	if err := op.Wait(); err != nil {
 		return fmt.Errorf("wait for sidecar %s create: %w", sidecar.Name, err)
 	}
-	if sidecar.Start {
-		op, err := server.UpdateInstanceState(sidecar.Name, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
-		if err != nil {
-			return fmt.Errorf("start sidecar %s: %w", sidecar.Name, err)
-		}
-		if err := op.Wait(); err != nil {
-			return fmt.Errorf("wait for sidecar %s start: %w", sidecar.Name, err)
-		}
-	}
+	// sidecarRequest sets Start:true so the container is already running after op.Wait().
 	return nil
 }
 

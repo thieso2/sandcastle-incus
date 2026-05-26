@@ -11,6 +11,7 @@ import (
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -54,7 +55,7 @@ func (m DNSManager) Apply(ctx context.Context, summary dns.Tenant) (dns.ApplyRes
 	mainServer := server.UseProject(summary.IncusName)
 	infraProject := summary.InfraProject
 	if infraProject == "" {
-		infraProject = summary.IncusName
+		infraProject = naming.TenantInfraIncusProjectName(summary.IncusName)
 	}
 	infraServer := server.UseProject(infraProject)
 	machines, err := listMachineMetadata(mainServer)

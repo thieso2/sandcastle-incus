@@ -264,10 +264,9 @@ func sidecarDevices(storagePool string, incusName string, role string, address s
 			"path": "/",
 		},
 		"eth0": {
-			"type":         "nic",
-			"nictype":      "bridged",
-			"parent":       PrivateNetworkName(incusName),
-			"ipv4.address": address,
+			"type":    "nic",
+			"nictype": "bridged",
+			"parent":  PrivateNetworkName(incusName),
 		},
 	}
 	if role == "tailscale" {
