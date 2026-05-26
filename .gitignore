@@ -10,3 +10,4 @@
 
 # Local jot push context
 .jot/
+*.log
