@@ -654,10 +654,14 @@ func instancePlan(admin config.Admin, name string, role string) InstancePlan {
 			"connect": "tcp:127.0.0.1:443",
 		}
 	}
-	if (name == RouteBrokerName || name == AuthAppName) && strings.TrimSpace(admin.RouteBrokerIncusSocket) != "" {
+	socketSource := strings.TrimSpace(admin.RouteBrokerIncusSocket)
+	if socketSource == "" {
+		socketSource = config.DefaultRouteBrokerIncusSocket
+	}
+	if name == RouteBrokerName || name == AuthAppName {
 		devices["incus-socket"] = Device{
 			"type":   "disk",
-			"source": strings.TrimSpace(admin.RouteBrokerIncusSocket),
+			"source": socketSource,
 			"path":   RouteBrokerIncusSocketPath,
 		}
 		instanceConfig["security.privileged"] = "true"

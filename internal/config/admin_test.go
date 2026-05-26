@@ -28,6 +28,9 @@ func TestLoadAdminFromEnvDefaults(t *testing.T) {
 	if config.InfrastructureTLSMode != DefaultInfrastructureTLSMode {
 		t.Fatalf("InfrastructureTLSMode = %q, want %q", config.InfrastructureTLSMode, DefaultInfrastructureTLSMode)
 	}
+	if config.RouteBrokerIncusSocket != DefaultRouteBrokerIncusSocket {
+		t.Fatalf("RouteBrokerIncusSocket = %q, want %q", config.RouteBrokerIncusSocket, DefaultRouteBrokerIncusSocket)
+	}
 	if config.Images.AI != DefaultAIImageAlias {
 		t.Fatalf("AI image = %q, want %q", config.Images.AI, DefaultAIImageAlias)
 	}

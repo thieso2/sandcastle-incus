@@ -183,9 +183,9 @@
   `e2e-route-broker-20260521-1212`, including unowned-target 403, DNS-proof 400,
   add/list/remove 201/200, and route cleanup checks.
 - The broader host `incus` tier passed again as `e2e-incus-20260521-1220` after
-  the route broker service and route ingress fixes. That tier still skips the
-  broker mutation test unless `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` is set; the
-  dedicated `route-broker` tier covers that socket-mounted path.
+  the route broker service and route ingress fixes. The broker mutation path now
+  uses the default host Incus socket mount, and the dedicated `route-broker` tier
+  covers that socket-mounted path.
 - Added `scripts/e2e-local-vm.sh` as a reusable host-side harness for the
   VM-only local mutation tier. It launches a disposable local Incus VM, installs
   Go, mise, and nested Incus, copies the checkout, seeds nested image aliases

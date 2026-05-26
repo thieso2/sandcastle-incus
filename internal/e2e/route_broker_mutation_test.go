@@ -32,9 +32,6 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 	if err := e2eConfig.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(e2eConfig.RouteBroker.IncusSocket) == "" {
-		t.Skip("set SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET to run broker mutation e2e")
-	}
 	baseSource := strings.TrimSpace(e2eConfig.Images.BaseSource)
 	aiSource := strings.TrimSpace(e2eConfig.Images.AISource)
 	if baseSource == "" || aiSource == "" {

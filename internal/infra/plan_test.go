@@ -71,8 +71,19 @@ func TestPlanCreate(t *testing.T) {
 			t.Fatalf("%s network config = %q", instance.Name, networkConfig)
 		}
 	}
-	if _, ok := plan.Instances[1].Devices["incus-socket"]; ok {
-		t.Fatalf("route broker socket should be opt-in, devices = %#v", plan.Instances[1].Devices)
+	routeBrokerSocket := plan.Instances[1].Devices["incus-socket"]
+	if routeBrokerSocket == nil {
+		t.Fatalf("route broker should mount default Incus socket, devices = %#v", plan.Instances[1].Devices)
+	}
+	if routeBrokerSocket["source"] != config.DefaultRouteBrokerIncusSocket || routeBrokerSocket["path"] != RouteBrokerIncusSocketPath {
+		t.Fatalf("route broker Incus socket = %#v", routeBrokerSocket)
+	}
+	authAppSocket := plan.Instances[2].Devices["incus-socket"]
+	if authAppSocket == nil {
+		t.Fatalf("auth app should mount default Incus socket, devices = %#v", plan.Instances[2].Devices)
+	}
+	if authAppSocket["source"] != config.DefaultRouteBrokerIncusSocket || authAppSocket["path"] != RouteBrokerIncusSocketPath {
+		t.Fatalf("auth app Incus socket = %#v", authAppSocket)
 	}
 	if plan.Instances[0].Devices["root"]["pool"] != admin.StoragePool {
 		t.Fatalf("root device = %#v", plan.Instances[0].Devices["root"])
@@ -297,7 +308,7 @@ func TestPlanCreateQuotesRouteBrokerEnv(t *testing.T) {
 	}
 }
 
-func TestPlanCreateMountsRouteBrokerIncusSocketWhenConfigured(t *testing.T) {
+func TestPlanCreateUsesConfiguredRouteBrokerIncusSocket(t *testing.T) {
 	writeRuntimeBinaryForTest(t)
 	admin := config.LoadAdminFromEnv()
 	admin.RouteBrokerIncusSocket = "/run/incus/unix.socket"

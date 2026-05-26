@@ -14,8 +14,8 @@ Tiers:
   restricted Run restricted-client HTTPS remote e2e. Requires SANDCASTLE_E2E=1, non-local SANDCASTLE_E2E_REMOTE, and image source env.
   tailscale Run real Tailscale routed-access e2e. Requires SANDCASTLE_E2E=1, image source env, and auth key env.
   images    Run real image build e2e. Requires SANDCASTLE_E2E=1, image build env, and pinned AI CLI versions.
-  route-broker Run route broker mTLS mutation e2e. Requires SANDCASTLE_E2E=1, image source env, and broker socket env.
-  public-routes Run public route broker mutation e2e. Requires SANDCASTLE_E2E=1, image source env, broker socket env, and public route env.
+  route-broker Run route broker mTLS mutation e2e. Requires SANDCASTLE_E2E=1 and image source env.
+  public-routes Run public route broker mutation e2e. Requires SANDCASTLE_E2E=1, image source env, and public route env.
   cleanup   Remove managed disposable e2e projects for SANDCASTLE_E2E_RUN_ID. Requires SANDCASTLE_E2E=1 and an explicit run id.
   all       Run unit, gated, local, local-vm, incus, restricted, tailscale, images, route-broker, and public-routes tiers.
 
@@ -26,8 +26,8 @@ Examples:
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_REMOTE=remote-incus SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh restricted
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 SANDCASTLE_E2E_TAILSCALE_AUTHKEY=tskey-auth-... scripts/e2e.sh tailscale
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_IMAGE_BUILD=1 SANDCASTLE_E2E_CODEX_VERSION=... SANDCASTLE_E2E_CLAUDE_CODE_VERSION=... SANDCASTLE_E2E_GEMINI_CLI_VERSION=... scripts/e2e.sh images
-  SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh route-broker
-  SANDCASTLE_E2E=1 SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com SANDCASTLE_E2E_INFRA_HOST=203.0.113.10 SANDCASTLE_E2E_LETSENCRYPT_EMAIL=ops@example.com scripts/e2e.sh public-routes
+  SANDCASTLE_E2E=1 SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 scripts/e2e.sh route-broker
+  SANDCASTLE_E2E=1 SANDCASTLE_E2E_BASE_IMAGE_SOURCE=sandcastle/base:debian-13 SANDCASTLE_E2E_AI_IMAGE_SOURCE=sandcastle/ai:debian-13 SANDCASTLE_E2E_PUBLIC_DOMAIN=e2e.example.com SANDCASTLE_E2E_INFRA_HOST=203.0.113.10 SANDCASTLE_E2E_LETSENCRYPT_EMAIL=ops@example.com scripts/e2e.sh public-routes
   SANDCASTLE_E2E=1 SANDCASTLE_E2E_RUN_ID=e2e-20260520-120000 scripts/e2e.sh cleanup
 USAGE
 }
@@ -128,10 +128,9 @@ run_tailscale() {
 }
 
 require_route_broker_env() {
-  local tier="$1"
-  require_env "$tier" SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET
-  require_env "$tier" SANDCASTLE_E2E_BASE_IMAGE_SOURCE
-  require_env "$tier" SANDCASTLE_E2E_AI_IMAGE_SOURCE
+	local tier="$1"
+	require_env "$tier" SANDCASTLE_E2E_BASE_IMAGE_SOURCE
+	require_env "$tier" SANDCASTLE_E2E_AI_IMAGE_SOURCE
 }
 
 run_route_broker() {

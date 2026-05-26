@@ -29,7 +29,7 @@ Public ingress is owned by the Caddy sidecar. The Caddy instance receives Incus 
 - Host `tcp:0.0.0.0:80` to container `tcp:127.0.0.1:80`.
 - Host `tcp:0.0.0.0:443` to container `tcp:127.0.0.1:443`.
 
-Caddy routes the configured Auth Hostname to the Auth App over the bridge network. The route broker and Auth App may mount the host Incus socket when `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` is configured; Caddy never receives the Incus socket.
+Caddy routes the configured Auth Hostname to the Auth App over the bridge network. The route broker and Auth App mount the host Incus socket by default, with `SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET` available only to override the host socket path; Caddy never receives the Incus socket.
 
 ## Consequences
 

@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 )
 
 func TestLoadConfigDefaultsToDisabledAndSandcastleTag(t *testing.T) {
@@ -23,8 +25,8 @@ func TestLoadConfigDefaultsToDisabledAndSandcastleTag(t *testing.T) {
 	if config.Images.BuildTool != "docker" {
 		t.Fatalf("Images.BuildTool = %q, want docker", config.Images.BuildTool)
 	}
-	if config.RouteBroker.IncusSocket != "" {
-		t.Fatalf("RouteBroker.IncusSocket = %q, want empty", config.RouteBroker.IncusSocket)
+	if config.RouteBroker.IncusSocket != scconfig.DefaultRouteBrokerIncusSocket {
+		t.Fatalf("RouteBroker.IncusSocket = %q, want %q", config.RouteBroker.IncusSocket, scconfig.DefaultRouteBrokerIncusSocket)
 	}
 	if config.LocalVM {
 		t.Fatal("LocalVM = true, want false")
