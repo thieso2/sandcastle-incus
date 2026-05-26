@@ -116,6 +116,13 @@ func TestRouteBrokerAuthorizedMutationE2E(t *testing.T) {
 			t.Logf("cleanup failed for infrastructure project %s: %v", infraProject, err)
 		}
 	})
+	// Incus DNS names are global on incusbr0 — skip if sc-caddy already exists.
+	for _, proj := range []string{config.DefaultInfrastructureProject} {
+		if _, _, err := server.UseProject(proj).GetInstance(route.InfrastructureCaddyName); err == nil {
+			t.Skipf("%s already exists in project %s; stop the existing infrastructure before running this test", route.InfrastructureCaddyName, proj)
+		}
+	}
+
 	infraCreatePlan, err := infra.PlanCreate(adminConfig, infra.CreateRequest{})
 	if err != nil {
 		t.Fatal(err)

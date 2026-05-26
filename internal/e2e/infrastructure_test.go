@@ -50,6 +50,18 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 			AI:   config.DefaultAIImageAlias,
 		},
 	}
+	server, err := e2eInstanceServer(e2eConfig.Remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Incus DNS names are global on incusbr0 — if sc-caddy already exists in any
+	// project (e.g. permanent infra), a second one can't be created on the same bridge.
+	for _, proj := range []string{config.DefaultInfrastructureProject} {
+		if _, _, err := server.UseProject(proj).GetInstance(route.InfrastructureCaddyName); err == nil {
+			t.Skipf("%s already exists in project %s; stop the existing infrastructure before running this test", route.InfrastructureCaddyName, proj)
+		}
+	}
+
 	creator := incusx.NewInfrastructureCreator(e2eConfig.Remote)
 	deleter := incusx.NewInfrastructureDeleter(e2eConfig.Remote)
 	deletePlan, err := infra.PlanDelete(adminConfig, infra.DeleteRequest{})
@@ -74,10 +86,6 @@ func TestDisposableInfrastructureCreateAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server, err := e2eInstanceServer(e2eConfig.Remote)
-	if err != nil {
-		t.Fatal(err)
-	}
 	projectServer := server.UseProject(infraProject)
 	assertInstanceExists(t, projectServer, route.InfrastructureCaddyName)
 	assertInstanceExists(t, projectServer, infra.RouteBrokerName)
