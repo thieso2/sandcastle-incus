@@ -323,6 +323,8 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 	var unixUser string
 	var deploymentName string
 	var seedPath string
+	var debugDeviceUser string
+	var tailscaleAuthKey string
 	command := &cobra.Command{
 		Use:   "create",
 		Short: "Create Sandcastle shared infrastructure",
@@ -343,6 +345,12 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 			admin := config.adminConfig
 			if seedState.exists {
 				admin = infra.ResolveSeedAdmin(seedState.seed)
+			}
+			if strings.TrimSpace(debugDeviceUser) != "" {
+				admin.AuthDebugDeviceUser = strings.TrimSpace(debugDeviceUser)
+			}
+			if strings.TrimSpace(tailscaleAuthKey) != "" {
+				admin.AuthTailscaleAuthKey = strings.TrimSpace(tailscaleAuthKey)
 			}
 			plan, err := infra.PlanCreate(admin, infra.CreateRequest{UnixUser: username})
 			if err != nil {
@@ -401,6 +409,8 @@ func newAdminInfraCreateCommand(config commandConfig, opts *rootOptions) *cobra.
 	command.Flags().StringVar(&unixUser, "username", "", "Unix username assigned to machines provisioned through this Auth App")
 	command.Flags().StringVar(&deploymentName, "name", "", "deployment name for the default seed path")
 	command.Flags().StringVar(&seedPath, "seed", "", "infrastructure seed file path")
+	command.Flags().StringVar(&debugDeviceUser, "debug-device-user", "", "enable debug device approval as this allowlisted GitHub username")
+	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key returned to approved CLI device logins for unattended tenant attachment")
 	return command
 }
 

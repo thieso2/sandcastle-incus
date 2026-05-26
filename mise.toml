@@ -50,6 +50,23 @@ run = [
   "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} \"$SANDCASTLE_REMOTE\"",
 ]
 
+[tasks."infra:redeploy"]
+description = "Cross-compile sandcastle-admin and push updated binary to route-broker and auth-app containers, then restart their services"
+env = { SANDCASTLE_REMOTE = "big", SANDCASTLE_INFRA_PROJECT = "sc-infra" }
+run = """
+set -euo pipefail
+REMOTE="${SANDCASTLE_REMOTE}"
+PROJECT="${SANDCASTLE_INFRA_PROJECT}"
+mise run build:linux-amd64
+echo "Deploying to route-broker..."
+incus file push --project "$PROJECT" bin/linux-amd64/sandcastle-admin "${REMOTE}:sc-route-broker/usr/local/bin/sandcastle-admin"
+incus exec --project "$PROJECT" "${REMOTE}:sc-route-broker" -- systemctl restart sandcastle-route-broker
+echo "Deploying to auth-app..."
+incus file push --project "$PROJECT" bin/linux-amd64/sandcastle-admin "${REMOTE}:sc-auth-app/usr/local/bin/sandcastle-admin"
+incus exec --project "$PROJECT" "${REMOTE}:sc-auth-app" -- systemctl restart sandcastle-auth-app
+echo "Done."
+"""
+
 [tasks."image:ai:build-upload"]
 description = "Resolve latest AI tool versions, build the Sandcastle AI OCI image, and upload it into Incus"
 env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }

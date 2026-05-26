@@ -104,6 +104,7 @@ func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName st
 		InfraProject:      naming.TenantInfraIncusProjectName(mainProjectName),
 		NativeProject:     naming.TenantNativeIncusProjectName(mainProjectName),
 		PrivateCIDR:       privateCIDR,
+		PrivateNetwork:    tenant.PrivateNetworkName(mainProjectName),
 		StoragePool:       mainProjectName,
 		InfraImageAliases: tenant.UniqueImageAliases(admin.Images.Base),
 	}
@@ -130,6 +131,13 @@ func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName st
 	c.log("ensure native project " + plan.NativeProject)
 	if err := ensureNativeProject(server, plan); err != nil {
 		return err
+	}
+	if plan.PrivateCIDR != "" {
+		projectServer := server.UseProject(plan.IncusProject)
+		c.log("ensure private network " + plan.PrivateNetwork)
+		if err := ensurePrivateNetwork(projectServer, plan); err != nil {
+			return err
+		}
 	}
 	if len(plan.Sidecars) == 0 || len(plan.InfraImageAliases) == 0 || plan.InfraImageAliases[0] == "" {
 		return nil
