@@ -53,7 +53,7 @@ func (m TailscaleManager) RunUp(ctx context.Context, plan tailscale.UpPlan, sess
 		}
 		server = sdkTailscaleServer{inner: instanceServer}
 	}
-	projectServer := server.UseProject(plan.Tenant.IncusName)
+	projectServer := server.UseProject(plan.Tenant.InfraProject)
 	dataDone := make(chan bool)
 	op, err := projectServer.ExecInstance(plan.InstanceName, api.InstanceExecPost{
 		Command:   tailscale.ExecCommand(plan),
@@ -95,7 +95,7 @@ func (m TailscaleManager) RunStatus(ctx context.Context, plan tailscale.StatusPl
 }
 
 func runTailscaleStatus(ctx context.Context, server TailscaleServer, plan tailscale.StatusPlan, session tailscale.RunSession) (tailscale.StatusResult, error) {
-	projectServer := server.UseProject(plan.Tenant.IncusName)
+	projectServer := server.UseProject(plan.Tenant.InfraProject)
 	var stdout bytes.Buffer
 	dataDone := make(chan bool)
 	op, err := projectServer.ExecInstance(plan.InstanceName, api.InstanceExecPost{
@@ -149,7 +149,7 @@ func (m TailscaleManager) RunDown(ctx context.Context, plan tailscale.DownPlan, 
 	if err != nil {
 		return err
 	}
-	projectServer := server.UseProject(plan.Tenant.IncusName)
+	projectServer := server.UseProject(plan.Tenant.InfraProject)
 	dataDone := make(chan bool)
 	op, err := projectServer.ExecInstance(plan.InstanceName, api.InstanceExecPost{
 		Command:   plan.Command,
