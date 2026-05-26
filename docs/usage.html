@@ -365,10 +365,20 @@ Bootstrap:
 
   <div class="step">
     <h3>Use incus directly against your remote</h3>
-    <p><code>sc incus</code> wraps the <code>incus</code> CLI with the correct <code>INCUS_CONF</code> and defaults to the current tenant's Incus project. Pass an explicit <code>--project</code> to override the project.</p>
-    <pre><code><span class="cmd">sc incus</span> <span class="arg">ls</span>                          <span class="comment"># list instances in your tenant</span>
+    <p>Three <code>sc incus*</code> variants target the three Incus projects that make up a tenant namespace. Each wraps the <code>incus</code> CLI with the correct <code>INCUS_CONF</code> and <code>INCUS_PROJECT</code>. Pass an explicit <code>--project</code> to override the project.</p>
+    <table>
+      <thead><tr><th>Command</th><th>Project</th><th>Contents</th></tr></thead>
+      <tbody>
+        <tr><td><code>sc incus</code></td><td><code>sc-{tenant}</code></td><td>Sandcastle-managed machines</td></tr>
+        <tr><td><code>sc incus-native</code></td><td><code>sc-{tenant}-native</code></td><td>Freeform <code>incus launch</code> instances</td></tr>
+        <tr><td><code>sc incus-infra</code></td><td><code>sc-{tenant}-infra</code></td><td>Sidecars (Tailscale, CoreDNS)</td></tr>
+      </tbody>
+    </table>
+    <pre><code><span class="cmd">sc incus</span> <span class="arg">ls</span>                          <span class="comment"># list sc-managed machines</span>
 <span class="cmd">sc incus</span> <span class="arg">project list</span>               <span class="comment"># list Incus projects you can access</span>
-<span class="cmd">sc incus</span> <span class="arg">exec website-codex -- bash</span></code></pre>
+<span class="cmd">sc incus</span> <span class="arg">exec website-codex -- bash</span>
+<span class="cmd">sc incus-native</span> <span class="arg">launch images:debian/12</span>  <span class="comment"># launch a freeform instance</span>
+<span class="cmd">sc incus-infra</span> <span class="arg">ls</span>                   <span class="comment"># inspect sidecars</span></code></pre>
   </div>
 </section>
 
@@ -915,7 +925,9 @@ Bootstrap:
         <tr><td>sandcastle connect/c &lt;ref&gt;</td><td>Connect to a machine, creating it first when missing</td></tr>
         <tr><td>sandcastle start/stop/restart &lt;ref&gt;</td><td>Control machine power state</td></tr>
         <tr><td>sandcastle delete &lt;ref&gt; [--yes]</td><td>Delete a machine container, prompting interactively unless <code>--yes</code> is provided</td></tr>
-        <tr><td>sandcastle incus ...</td><td>Run the Incus CLI with the active Sandcastle remote config</td></tr>
+        <tr><td>sandcastle incus ...</td><td>Run the Incus CLI scoped to the tenant's managed machines project</td></tr>
+        <tr><td>sandcastle incus-native ...</td><td>Run the Incus CLI scoped to the tenant's native (freeform) project</td></tr>
+        <tr><td>sandcastle incus-infra ...</td><td>Run the Incus CLI scoped to the tenant's infra (sidecars) project</td></tr>
         <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
         <tr><td>sandcastle ssh-key set [--file &lt;path&gt;]</td><td>Publish the developer SSH key for tenant machines</td></tr>
         <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change machine app port</td></tr>

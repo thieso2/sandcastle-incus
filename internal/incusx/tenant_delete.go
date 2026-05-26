@@ -29,6 +29,8 @@ type TenantDeleteResourceServer interface {
 	GetImages() ([]api.Image, error)
 	DeleteImage(fingerprint string) (incus.Operation, error)
 	GetProfiles() ([]api.Profile, error)
+	GetProfile(name string) (*api.Profile, string, error)
+	UpdateProfile(name string, profile api.ProfilePut, ETag string) error
 	DeleteProfile(name string) error
 }
 
@@ -73,6 +75,16 @@ func (d TenantDeleter) DeleteTenant(ctx context.Context, plan tenant.DeletePlan)
 		}
 		server = sdkDeleteServer{inner: instanceServer}
 	}
+	// Always purge infra and native projects (they hold no durable state).
+	for _, project := range []string{plan.InfraProject, plan.NativeProject} {
+		if project == "" {
+			continue
+		}
+		d.log("purge project " + project)
+		if err := d.deleteProjectCompletely(server, project); err != nil {
+			return err
+		}
+	}
 	projectServer := server.UseProject(plan.IncusProject)
 	allInstances, err := projectServer.GetInstances(api.InstanceTypeAny)
 	if err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
@@ -96,6 +108,9 @@ func (d TenantDeleter) DeleteTenant(ctx context.Context, plan tenant.DeletePlan)
 		if err := ignoreNotFound(projectServer.DeleteProfile(profile.Name)); err != nil {
 			return fmt.Errorf("delete profile %s: %w", profile.Name, err)
 		}
+	}
+	if err := clearNetworkFromDefaultProfile(projectServer, plan.PrivateNetwork); err != nil {
+		return fmt.Errorf("clear network from default profile: %w", err)
 	}
 	d.log("delete private network " + plan.PrivateNetwork)
 	if err := ignoreNotFound(projectServer.DeleteNetwork(plan.PrivateNetwork)); err != nil {
@@ -135,6 +150,52 @@ func (d TenantDeleter) DeleteTenant(ctx context.Context, plan tenant.DeletePlan)
 	return nil
 }
 
+func (d TenantDeleter) deleteProjectCompletely(server TenantDeleteServer, projectName string) error {
+	projectServer := server.UseProject(projectName)
+	instances, err := projectServer.GetInstances(api.InstanceTypeAny)
+	if err != nil {
+		if api.StatusErrorCheck(err, http.StatusNotFound) || api.StatusErrorCheck(err, http.StatusForbidden) {
+			return nil
+		}
+		return fmt.Errorf("list instances in project %s: %w", projectName, err)
+	}
+	for _, instance := range instances {
+		d.log("delete instance " + instance.Name + " in " + projectName)
+		if err := deleteInstance(projectServer, instance.Name); err != nil {
+			return err
+		}
+	}
+	images, err := projectServer.GetImages()
+	if err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("list images in project %s: %w", projectName, err)
+	}
+	for _, image := range images {
+		d.log("delete image " + image.Fingerprint[:8] + " in " + projectName)
+		op, err := projectServer.DeleteImage(image.Fingerprint)
+		if err != nil {
+			return fmt.Errorf("delete image %s in %s: %w", image.Fingerprint[:8], projectName, err)
+		}
+		if err := op.Wait(); err != nil {
+			return fmt.Errorf("wait for image %s delete in %s: %w", image.Fingerprint[:8], projectName, err)
+		}
+	}
+	profiles, err := projectServer.GetProfiles()
+	if err != nil && !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("list profiles in project %s: %w", projectName, err)
+	}
+	for _, profile := range profiles {
+		if profile.Name == "default" {
+			continue
+		}
+		d.log("delete profile " + profile.Name + " in " + projectName)
+		if err := ignoreNotFound(projectServer.DeleteProfile(profile.Name)); err != nil {
+			return fmt.Errorf("delete profile %s in %s: %w", profile.Name, projectName, err)
+		}
+	}
+	d.log("delete Incus project " + projectName)
+	return ignoreNotFound(server.DeleteProject(projectName))
+}
+
 func deleteInstance(server TenantDeleteResourceServer, name string) error {
 	instance, _, err := server.GetInstance(name)
 	if err != nil {
@@ -157,6 +218,29 @@ func deleteInstance(server TenantDeleteResourceServer, name string) error {
 		return fmt.Errorf("wait for instance %s delete: %w", name, err)
 	}
 	return nil
+}
+
+// clearNetworkFromDefaultProfile removes any NIC devices referencing networkName
+// from the default profile so Incus will allow deleting the network.
+func clearNetworkFromDefaultProfile(server TenantDeleteResourceServer, networkName string) error {
+	profile, etag, err := server.GetProfile("default")
+	if err != nil {
+		if api.StatusErrorCheck(err, http.StatusNotFound) {
+			return nil
+		}
+		return err
+	}
+	changed := false
+	for key, device := range profile.Devices {
+		if device["type"] == "nic" && device["network"] == networkName {
+			delete(profile.Devices, key)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return server.UpdateProfile("default", profile.Writable(), etag)
 }
 
 func ignoreNotFound(err error) error {
@@ -207,6 +291,12 @@ func (s sdkDeleteResourceServer) DeleteImage(fingerprint string) (incus.Operatio
 }
 func (s sdkDeleteResourceServer) GetProfiles() ([]api.Profile, error) {
 	return s.inner.GetProfiles()
+}
+func (s sdkDeleteResourceServer) GetProfile(name string) (*api.Profile, string, error) {
+	return s.inner.GetProfile(name)
+}
+func (s sdkDeleteResourceServer) UpdateProfile(name string, profile api.ProfilePut, ETag string) error {
+	return s.inner.UpdateProfile(name, profile, ETag)
 }
 func (s sdkDeleteResourceServer) DeleteProfile(name string) error {
 	return s.inner.DeleteProfile(name)

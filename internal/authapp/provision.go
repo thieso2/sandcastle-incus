@@ -108,6 +108,12 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
+	// Grant access to infra and native projects so the user cert can manage DNS/Tailscale sidecars
+	// and the freeform native project.
+	tokenPlan.Projects = append(tokenPlan.Projects,
+		naming.TenantInfraIncusProjectName(incusProject),
+		naming.TenantNativeIncusProjectName(incusProject),
+	)
 	token, err := p.Trust.CreateToken(ctx, tokenPlan)
 	if err != nil {
 		return PersonalTenantResult{}, err

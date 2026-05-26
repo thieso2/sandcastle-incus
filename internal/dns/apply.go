@@ -14,10 +14,11 @@ type Applier interface {
 }
 
 type Tenant struct {
-	IncusName   string `json:"incusName"`
-	Tenant      string `json:"tenant"`
-	DNSSuffix   string `json:"dnsSuffix"`
-	PrivateCIDR string `json:"privateCIDR"`
+	IncusName    string `json:"incusName"`
+	InfraProject string `json:"infraProject"`
+	Tenant       string `json:"tenant"`
+	DNSSuffix    string `json:"dnsSuffix"`
+	PrivateCIDR  string `json:"privateCIDR"`
 }
 
 type ApplyResult struct {

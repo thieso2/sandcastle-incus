@@ -51,8 +51,13 @@ func (m DNSManager) Apply(ctx context.Context, summary dns.Tenant) (dns.ApplyRes
 		}
 		server = sdkDNSServer{inner: instanceServer}
 	}
-	projectServer := server.UseProject(summary.IncusName)
-	machines, err := listMachineMetadata(projectServer)
+	mainServer := server.UseProject(summary.IncusName)
+	infraProject := summary.InfraProject
+	if infraProject == "" {
+		infraProject = summary.IncusName
+	}
+	infraServer := server.UseProject(infraProject)
+	machines, err := listMachineMetadata(mainServer)
 	if err != nil {
 		return dns.ApplyResult{}, err
 	}
@@ -60,10 +65,10 @@ func (m DNSManager) Apply(ctx context.Context, summary dns.Tenant) (dns.ApplyRes
 	if err != nil {
 		return dns.ApplyResult{}, err
 	}
-	if err := writeDNSFiles(projectServer, result.Files); err != nil {
+	if err := writeDNSFiles(infraServer, result.Files); err != nil {
 		return dns.ApplyResult{}, err
 	}
-	if err := restartCoreDNS(projectServer); err != nil {
+	if err := restartCoreDNS(infraServer); err != nil {
 		return dns.ApplyResult{}, err
 	}
 	return result, nil

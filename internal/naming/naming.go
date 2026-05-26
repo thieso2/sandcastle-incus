@@ -167,10 +167,21 @@ func tenantIncusProjectNameWithPrefix(prefix string, tenant string, validate fun
 		return "", err
 	}
 	name := prefix + "-" + tenant
-	if len(name) > 63 {
-		return "", fmt.Errorf("incus project name %q exceeds 63 characters", name)
+	// Reserve 7 chars for the "-native" suffix used by the native project.
+	if len(name) > 56 {
+		return "", fmt.Errorf("incus project name %q exceeds 56 characters (must leave room for -infra/-native suffixes)", name)
 	}
 	return name, nil
+}
+
+// TenantInfraIncusProjectName returns the Incus project name for a tenant's sidecar infrastructure.
+func TenantInfraIncusProjectName(mainProjectName string) string {
+	return mainProjectName + "-infra"
+}
+
+// TenantNativeIncusProjectName returns the Incus project name for a tenant's freeform native workspace.
+func TenantNativeIncusProjectName(mainProjectName string) string {
+	return mainProjectName + "-native"
 }
 
 func MachineIncusInstanceName(ref MachineRef) (string, error) {

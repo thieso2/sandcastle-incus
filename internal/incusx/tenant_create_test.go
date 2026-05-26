@@ -16,36 +16,51 @@ import (
 )
 
 type fakeCreateServer struct {
-	project        *api.Project
-	pool           *api.StoragePool
-	adminPool      *api.StoragePool
-	images         map[string]*api.Image
-	imageAliases   map[string]*api.ImageAliasesEntry
-	createdProject *api.ProjectsPost
-	updatedProject *api.ProjectPut
-	createdPool    *api.StoragePoolsPost
-	resourceServer *fakeResourceServer
+	existingProjects map[string]*api.Project
+	pool             *api.StoragePool
+	adminPool        *api.StoragePool
+	images           map[string]*api.Image
+	imageAliases     map[string]*api.ImageAliasesEntry
+	createdProjects  map[string]*api.ProjectsPost
+	updatedProjects  map[string]*api.ProjectPut
+	createdPool      *api.StoragePoolsPost
+	projectServers   map[string]*fakeResourceServer
 }
 
 func (s *fakeCreateServer) GetProject(name string) (*api.Project, string, error) {
-	if s.project == nil {
-		return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+	if p, ok := s.existingProjects[name]; ok {
+		return p, "etag", nil
 	}
-	return s.project, "etag", nil
+	return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
 }
 
 func (s *fakeCreateServer) CreateProject(project api.ProjectsPost) error {
-	s.createdProject = &project
+	if s.createdProjects == nil {
+		s.createdProjects = map[string]*api.ProjectsPost{}
+	}
+	s.createdProjects[project.Name] = &project
 	return nil
 }
 
 func (s *fakeCreateServer) UpdateProject(name string, project api.ProjectPut, etag string) error {
-	s.updatedProject = &project
+	if s.updatedProjects == nil {
+		s.updatedProjects = map[string]*api.ProjectPut{}
+	}
+	s.updatedProjects[name] = &project
 	return nil
 }
 
 func (s *fakeCreateServer) UseProject(name string) TenantResourceServer {
-	return s.resourceServer
+	if server, ok := s.projectServers[name]; ok {
+		return server
+	}
+	return &fakeResourceServer{
+		networks:           map[string]*api.Network{},
+		volumes:            map[string]*api.StorageVolume{},
+		instances:          map[string]*api.Instance{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
+	}
 }
 
 func (s *fakeCreateServer) GetStoragePool(name string) (*api.StoragePool, string, error) {
@@ -317,24 +332,34 @@ func (fakeRemoteOperation) Wait() error                        { return nil }
 
 func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 	plan := createPlanForTest(t)
-	resourceServer := &fakeResourceServer{
+	mainServer := &fakeResourceServer{
 		networks:           map[string]*api.Network{},
 		volumes:            map[string]*api.StorageVolume{},
 		instances:          map[string]*api.Instance{},
 		createdFiles:       map[string]string{},
 		createdVolumeFiles: map[string]string{},
 	}
-	server := fakeCreateServerForPlan(plan, resourceServer)
+	infraServer := &fakeResourceServer{
+		networks:           map[string]*api.Network{},
+		volumes:            map[string]*api.StorageVolume{},
+		instances:          map[string]*api.Instance{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
+	}
+	server := fakeCreateServerForPlan(plan, mainServer, infraServer)
 	creator := TenantCreator{Server: server}
 
 	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	if server.createdProject == nil {
-		t.Fatal("expected project to be created")
+	if server.createdProjects[plan.IncusProject] == nil {
+		t.Fatal("expected main project to be created")
 	}
-	if server.createdProject.Name != "sc-acme" {
-		t.Fatalf("created Incus project = %q", server.createdProject.Name)
+	if server.createdProjects[plan.InfraProject] == nil {
+		t.Fatal("expected infra project to be created")
+	}
+	if server.createdProjects[plan.NativeProject] == nil {
+		t.Fatal("expected native project to be created")
 	}
 	if got := server.createdPool.Config["source"]; got != "default/sc-acme" {
 		t.Fatalf("created pool source = %q", got)
@@ -345,45 +370,54 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 		"features.storage.buckets",
 		"features.storage.volumes",
 	} {
-		if got := server.createdProject.Config[key]; got != "true" {
-			t.Fatalf("created Incus project config %s = %q, want true", key, got)
+		if got := server.createdProjects[plan.IncusProject].Config[key]; got != "true" {
+			t.Fatalf("created main project config %s = %q, want true", key, got)
 		}
 	}
-	if len(resourceServer.copiedImages) != len(plan.ImageAliases) {
-		t.Fatalf("copied images = %#v, want %d", resourceServer.copiedImages, len(plan.ImageAliases))
+	if server.createdProjects[plan.InfraProject].Config["features.images"] != "true" {
+		t.Fatalf("infra project config features.images = %q, want true", server.createdProjects[plan.InfraProject].Config["features.images"])
 	}
-	if resourceServer.createdNetwork == nil {
+	if len(mainServer.copiedImages) != len(plan.ImageAliases) {
+		t.Fatalf("main copied images = %#v, want %d", mainServer.copiedImages, len(plan.ImageAliases))
+	}
+	if len(infraServer.copiedImages) != len(plan.InfraImageAliases) {
+		t.Fatalf("infra copied images = %#v, want %d", infraServer.copiedImages, len(plan.InfraImageAliases))
+	}
+	if mainServer.createdNetwork == nil {
 		t.Fatal("expected private network to be created")
 	}
-	if got := resourceServer.createdNetwork.Config["ipv4.address"]; got != "10.248.0.1/24" {
+	if got := mainServer.createdNetwork.Config["ipv4.address"]; got != "10.248.0.1/24" {
 		t.Fatalf("network ipv4.address = %q", got)
 	}
-	if len(resourceServer.createdVolumes) != 3 {
-		t.Fatalf("created volumes = %d, want 3", len(resourceServer.createdVolumes))
+	if len(mainServer.createdVolumes) != 3 {
+		t.Fatalf("created volumes = %d, want 3", len(mainServer.createdVolumes))
 	}
-	if resourceServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.crt"] == "" {
+	if mainServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.crt"] == "" {
 		t.Fatal("expected CA certificate to be written")
 	}
-	if resourceServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.key"] == "" {
+	if mainServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.key"] == "" {
 		t.Fatal("expected CA private key to be written")
 	}
-	if len(resourceServer.createdInstances) != 2 {
-		t.Fatalf("created instances = %d, want 2", len(resourceServer.createdInstances))
+	if len(mainServer.createdInstances) != 0 {
+		t.Fatalf("main server created instances = %d, want 0 (sidecars go to infra)", len(mainServer.createdInstances))
 	}
-	if resourceServer.createdInstances[0].Name != plan.TailscaleInstance {
-		t.Fatalf("first sidecar = %q", resourceServer.createdInstances[0].Name)
+	if len(infraServer.createdInstances) != 2 {
+		t.Fatalf("infra server created instances = %d, want 2", len(infraServer.createdInstances))
 	}
-	if got := resourceServer.createdInstances[0].Devices["eth0"]["ipv4.address"]; got != "10.248.0.2" {
+	if infraServer.createdInstances[0].Name != plan.TailscaleInstance {
+		t.Fatalf("first sidecar = %q", infraServer.createdInstances[0].Name)
+	}
+	if got := infraServer.createdInstances[0].Devices["eth0"]["ipv4.address"]; got != "10.248.0.2" {
 		t.Fatalf("tailscale address = %q", got)
 	}
-	if resourceServer.createdInstances[1].Name != tenant.DNSName {
-		t.Fatalf("second sidecar = %q", resourceServer.createdInstances[1].Name)
+	if infraServer.createdInstances[1].Name != tenant.DNSName {
+		t.Fatalf("second sidecar = %q", infraServer.createdInstances[1].Name)
 	}
-	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.3" {
+	if got := infraServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.3" {
 		t.Fatalf("dns address = %q", got)
 	}
 	for _, profileName := range []string{"container", "default"} {
-		profile := resourceServer.profiles[profileName]
+		profile := mainServer.profiles[profileName]
 		if profile == nil {
 			t.Fatalf("expected %s profile to be created", profileName)
 		}
@@ -397,43 +431,50 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 			t.Fatalf("%s eth0 parent = %q", profileName, got)
 		}
 	}
-	if got := resourceServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"]; got == "" {
-		t.Fatal("expected CoreDNS Corefile to be written")
+	if got := infraServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"]; got == "" {
+		t.Fatal("expected CoreDNS Corefile to be written to infra server")
 	}
-	if got := resourceServer.createdFiles[tenant.DNSName+":/etc/coredns/zones/db.acme"]; got == "" {
-		t.Fatal("expected CoreDNS zone to be written")
+	if got := infraServer.createdFiles[tenant.DNSName+":/etc/coredns/zones/db.acme"]; got == "" {
+		t.Fatal("expected CoreDNS zone to be written to infra server")
 	}
-	if len(resourceServer.execCommands) != 3 {
-		t.Fatalf("exec commands = %#v", resourceServer.execCommands)
+	if len(infraServer.execCommands) != 3 {
+		t.Fatalf("infra exec commands = %#v", infraServer.execCommands)
 	}
 	// First two execs configure networking for tailscale and dns sidecars.
 	for i, name := range []string{plan.TailscaleInstance, tenant.DNSName} {
-		if resourceServer.execInstances[i] != name {
-			t.Fatalf("exec[%d] instance = %q, want %q", i, resourceServer.execInstances[i], name)
+		if infraServer.execInstances[i] != name {
+			t.Fatalf("exec[%d] instance = %q, want %q", i, infraServer.execInstances[i], name)
 		}
-		if got := strings.Join(resourceServer.execCommands[i], " "); !strings.Contains(got, "sandcastle-sidecar-network.service") || !strings.Contains(got, "/usr/sbin/ip addr replace") {
+		if got := strings.Join(infraServer.execCommands[i], " "); !strings.Contains(got, "sandcastle-sidecar-network.service") || !strings.Contains(got, "/usr/sbin/ip addr replace") {
 			t.Fatalf("exec[%d] command = %q, want persistent sidecar network setup", i, got)
 		}
 	}
 	// Third exec restarts CoreDNS.
-	if resourceServer.execInstances[2] != tenant.DNSName {
-		t.Fatalf("exec[2] instance = %q, want %q", resourceServer.execInstances[2], tenant.DNSName)
+	if infraServer.execInstances[2] != tenant.DNSName {
+		t.Fatalf("exec[2] instance = %q, want %q", infraServer.execInstances[2], tenant.DNSName)
 	}
-	if got := strings.Join(resourceServer.execCommands[2], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") || !strings.Contains(got, "coredns.service") {
+	if got := strings.Join(infraServer.execCommands[2], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") || !strings.Contains(got, "coredns.service") {
 		t.Fatalf("exec[2] command = %q", got)
 	}
 }
 
 func TestTenantCreatorOmitsSourceForDirStoragePool(t *testing.T) {
 	plan := createPlanForTest(t)
-	resourceServer := &fakeResourceServer{
+	mainServer := &fakeResourceServer{
 		networks:           map[string]*api.Network{},
 		volumes:            map[string]*api.StorageVolume{},
 		instances:          map[string]*api.Instance{},
 		createdFiles:       map[string]string{},
 		createdVolumeFiles: map[string]string{},
 	}
-	server := fakeCreateServerForPlan(plan, resourceServer)
+	infraServer := &fakeResourceServer{
+		networks:  map[string]*api.Network{},
+		volumes:   map[string]*api.StorageVolume{},
+		instances: map[string]*api.Instance{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
+	}
+	server := fakeCreateServerForPlan(plan, mainServer, infraServer)
 	server.adminPool = &api.StoragePool{
 		Name:   plan.AdminStoragePool,
 		Driver: "dir",
@@ -453,13 +494,20 @@ func TestTenantCreatorOmitsSourceForDirStoragePool(t *testing.T) {
 
 func TestTenantCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	plan := createPlanForTest(t)
-	resourceServer := &fakeResourceServer{
+	mainServer := &fakeResourceServer{
 		networks: map[string]*api.Network{plan.PrivateNetwork: {Name: plan.PrivateNetwork}},
 		volumes: map[string]*api.StorageVolume{
 			plan.HomeVolume:      {Name: plan.HomeVolume, Type: "custom"},
 			plan.WorkspaceVolume: {Name: plan.WorkspaceVolume, Type: "custom"},
 			plan.CAVolume:        {Name: plan.CAVolume, Type: "custom"},
 		},
+		instances:          map[string]*api.Instance{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
+	}
+	infraServer := &fakeResourceServer{
+		networks: map[string]*api.Network{},
+		volumes:  map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{
 			plan.TailscaleInstance: {Name: plan.TailscaleInstance, Status: "Running", StatusCode: api.Running},
 			plan.DNSInstance:       {Name: plan.DNSInstance, Status: "Running", StatusCode: api.Running},
@@ -467,12 +515,14 @@ func TestTenantCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 		createdFiles:       map[string]string{},
 		createdVolumeFiles: map[string]string{},
 	}
-	server := fakeCreateServerForPlan(plan, resourceServer)
-	server.project = &api.Project{
-		Name: plan.IncusProject,
-		ProjectPut: api.ProjectPut{
-			Description: "existing",
-			Config:      api.ConfigMap{"features.images": "false"},
+	server := fakeCreateServerForPlan(plan, mainServer, infraServer)
+	server.existingProjects = map[string]*api.Project{
+		plan.IncusProject: {
+			Name: plan.IncusProject,
+			ProjectPut: api.ProjectPut{
+				Description: "existing",
+				Config:      api.ConfigMap{"features.images": "false"},
+			},
 		},
 	}
 	creator := TenantCreator{Server: server}
@@ -480,44 +530,54 @@ func TestTenantCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	if server.createdProject != nil {
-		t.Fatal("did not expect project creation")
+	if server.createdProjects[plan.IncusProject] != nil {
+		t.Fatal("did not expect main project creation")
 	}
-	if server.updatedProject == nil {
-		t.Fatal("expected project metadata update")
+	if server.updatedProjects[plan.IncusProject] == nil {
+		t.Fatal("expected main project metadata update")
 	}
-	if server.updatedProject.Config["features.images"] != "false" {
-		t.Fatalf("existing config was not preserved: %#v", server.updatedProject.Config)
+	if server.updatedProjects[plan.IncusProject].Config["features.images"] != "false" {
+		t.Fatalf("existing config was not preserved: %#v", server.updatedProjects[plan.IncusProject].Config)
 	}
-	if server.updatedProject.Config[meta.KeyTenant] != "acme" {
-		t.Fatalf("managed metadata missing: %#v", server.updatedProject.Config)
+	if server.updatedProjects[plan.IncusProject].Config[meta.KeyTenant] != "acme" {
+		t.Fatalf("managed metadata missing: %#v", server.updatedProjects[plan.IncusProject].Config)
 	}
-	if resourceServer.createdNetwork != nil {
+	if mainServer.createdNetwork != nil {
 		t.Fatal("did not expect existing network creation")
 	}
-	if len(resourceServer.createdVolumes) != 0 {
-		t.Fatalf("created volumes = %d, want 0", len(resourceServer.createdVolumes))
+	if len(mainServer.createdVolumes) != 0 {
+		t.Fatalf("created volumes = %d, want 0", len(mainServer.createdVolumes))
 	}
-	if len(resourceServer.createdInstances) != 0 {
-		t.Fatalf("created instances = %d, want 0", len(resourceServer.createdInstances))
+	if len(mainServer.createdInstances) != 0 {
+		t.Fatalf("main created instances = %d, want 0", len(mainServer.createdInstances))
 	}
-	if resourceServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"] == "" {
-		t.Fatal("expected DNS files to be refreshed")
+	if len(infraServer.createdInstances) != 0 {
+		t.Fatalf("infra created instances = %d, want 0 (sidecars already running)", len(infraServer.createdInstances))
 	}
-	if resourceServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.crt"] == "" {
+	if infraServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"] == "" {
+		t.Fatal("expected DNS files to be refreshed in infra server")
+	}
+	if mainServer.createdVolumeFiles[tenant.CAVolumeName+":/ca.crt"] == "" {
 		t.Fatal("expected CA files to be refreshed")
 	}
 }
 
 func TestTenantCreatorStartsExistingStoppedSidecars(t *testing.T) {
 	plan := createPlanForTest(t)
-	resourceServer := &fakeResourceServer{
+	mainServer := &fakeResourceServer{
 		networks: map[string]*api.Network{plan.PrivateNetwork: {Name: plan.PrivateNetwork}},
 		volumes: map[string]*api.StorageVolume{
 			plan.HomeVolume:      {Name: plan.HomeVolume, Type: "custom"},
 			plan.WorkspaceVolume: {Name: plan.WorkspaceVolume, Type: "custom"},
 			plan.CAVolume:        {Name: plan.CAVolume, Type: "custom"},
 		},
+		instances:          map[string]*api.Instance{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
+	}
+	infraServer := &fakeResourceServer{
+		networks: map[string]*api.Network{},
+		volumes:  map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{
 			plan.TailscaleInstance: {Name: plan.TailscaleInstance, Status: "Stopped", StatusCode: api.Stopped},
 			plan.DNSInstance:       {Name: plan.DNSInstance, Status: "Running", StatusCode: api.Running},
@@ -525,18 +585,20 @@ func TestTenantCreatorStartsExistingStoppedSidecars(t *testing.T) {
 		createdFiles:       map[string]string{},
 		createdVolumeFiles: map[string]string{},
 	}
-	server := fakeCreateServerForPlan(plan, resourceServer)
-	server.project = &api.Project{Name: plan.IncusProject}
+	server := fakeCreateServerForPlan(plan, mainServer, infraServer)
+	server.existingProjects = map[string]*api.Project{
+		plan.IncusProject: {Name: plan.IncusProject},
+	}
 	creator := TenantCreator{Server: server}
 
 	if err := creator.CreateTenant(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	if len(resourceServer.startedInstances) != 1 {
-		t.Fatalf("started instances = %#v, want one", resourceServer.startedInstances)
+	if len(infraServer.startedInstances) != 1 {
+		t.Fatalf("started instances = %#v, want one", infraServer.startedInstances)
 	}
-	if resourceServer.startedInstances[0] != plan.TailscaleInstance {
-		t.Fatalf("started instance = %q", resourceServer.startedInstances[0])
+	if infraServer.startedInstances[0] != plan.TailscaleInstance {
+		t.Fatalf("started instance = %q", infraServer.startedInstances[0])
 	}
 }
 
@@ -597,10 +659,11 @@ func createPlanForTest(t *testing.T) tenant.CreatePlan {
 	return plan
 }
 
-func fakeCreateServerForPlan(plan tenant.CreatePlan, resourceServer *fakeResourceServer) *fakeCreateServer {
+func fakeCreateServerForPlan(plan tenant.CreatePlan, mainServer *fakeResourceServer, infraServer *fakeResourceServer) *fakeCreateServer {
 	images := map[string]*api.Image{}
 	imageAliases := map[string]*api.ImageAliasesEntry{}
-	for _, alias := range plan.ImageAliases {
+	allAliases := append(append([]string{}, plan.ImageAliases...), plan.InfraImageAliases...)
+	for _, alias := range allAliases {
 		fingerprint := "fingerprint-" + alias
 		images[fingerprint] = &api.Image{Fingerprint: fingerprint}
 		imageAliases[alias] = &api.ImageAliasesEntry{
@@ -612,9 +675,21 @@ func fakeCreateServerForPlan(plan tenant.CreatePlan, resourceServer *fakeResourc
 			},
 		}
 	}
+	nativeServer := &fakeResourceServer{
+		networks:           map[string]*api.Network{},
+		volumes:            map[string]*api.StorageVolume{},
+		instances:          map[string]*api.Instance{},
+		createdFiles:       map[string]string{},
+		createdVolumeFiles: map[string]string{},
+	}
 	return &fakeCreateServer{
-		images:         images,
-		imageAliases:   imageAliases,
-		resourceServer: resourceServer,
+		existingProjects: map[string]*api.Project{},
+		images:           images,
+		imageAliases:     imageAliases,
+		projectServers: map[string]*fakeResourceServer{
+			plan.IncusProject: mainServer,
+			plan.InfraProject: infraServer,
+			plan.NativeProject: nativeServer,
+		},
 	}
 }

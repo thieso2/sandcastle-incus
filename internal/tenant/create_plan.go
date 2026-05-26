@@ -55,6 +55,8 @@ type CreateRequest struct {
 type CreatePlan struct {
 	Reference            string            `json:"reference"`
 	IncusProject         string            `json:"incusProject"`
+	InfraProject         string            `json:"infraProject"`
+	NativeProject        string            `json:"nativeProject"`
 	DNSSuffix            string            `json:"dnsSuffix"`
 	PrivateCIDR          string            `json:"privateCIDR"`
 	PrivateNetwork       string            `json:"privateNetwork"`
@@ -69,6 +71,7 @@ type CreatePlan struct {
 	DNSAddress           string            `json:"dnsAddress"`
 	DefaultTemplate      string            `json:"defaultTemplate"`
 	ImageAliases         []string          `json:"imageAliases"`
+	InfraImageAliases    []string          `json:"infraImageAliases"`
 	Sidecars             []SidecarPlan     `json:"sidecars"`
 	DNSFiles             []dns.File        `json:"dnsFiles"`
 	TenantCA             TenantCA          `json:"tenantCA"`
@@ -160,6 +163,8 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	return CreatePlan{
 		Reference:         ref.String(),
 		IncusProject:      incusName,
+		InfraProject:      naming.TenantInfraIncusProjectName(incusName),
+		NativeProject:     naming.TenantNativeIncusProjectName(incusName),
 		DNSSuffix:         tenantSuffix,
 		PrivateCIDR:       tenantCIDR.String(),
 		PrivateNetwork:    PrivateNetworkName(incusName),
@@ -174,6 +179,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 		DNSAddress:        dnsAddress.String(),
 		DefaultTemplate:   "ai",
 		ImageAliases:      uniqueImageAliases(admin.Images.Base, admin.Images.AI),
+		InfraImageAliases: uniqueImageAliases(admin.Images.Base),
 		Sidecars: []SidecarPlan{
 			sidecarPlan(ref, admin, incusName, TailscaleInstanceName(incusName), "tailscale", tailscaleAddress.String()),
 			sidecarPlan(ref, admin, incusName, DNSName, "dns", dnsAddress.String()),

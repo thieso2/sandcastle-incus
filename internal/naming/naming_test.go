@@ -1,6 +1,9 @@
 package naming
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseTenantRef(t *testing.T) {
 	ref, err := ParseTenantRef("acme")
@@ -89,6 +92,37 @@ func TestTenantIncusProjectName(t *testing.T) {
 	}
 	if name != "sc-acme" {
 		t.Fatalf("name = %q, want sc-acme", name)
+	}
+}
+
+func TestTenantInfraAndNativeIncusProjectNames(t *testing.T) {
+	main, err := TenantIncusProjectName(TenantRef{Tenant: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := TenantInfraIncusProjectName(main); got != "sc-acme-infra" {
+		t.Fatalf("infra name = %q, want sc-acme-infra", got)
+	}
+	if got := TenantNativeIncusProjectName(main); got != "sc-acme-native" {
+		t.Fatalf("native name = %q, want sc-acme-native", got)
+	}
+}
+
+func TestTenantIncusProjectNameLengthLimit(t *testing.T) {
+	// Max tenant name that still leaves room for "-native" suffix (total ≤ 63).
+	// "sc-" (3) + tenant (53) = 56; + "-native" (7) = 63. OK.
+	longTenant := strings.Repeat("a", 53)
+	name, err := TenantIncusProjectName(TenantRef{Tenant: longTenant})
+	if err != nil {
+		t.Fatalf("unexpected error for 53-char tenant: %v", err)
+	}
+	if len(TenantNativeIncusProjectName(name)) > 63 {
+		t.Fatalf("native project name %q exceeds 63 chars", TenantNativeIncusProjectName(name))
+	}
+	// One character too long.
+	tooLong := strings.Repeat("a", 54)
+	if _, err := TenantIncusProjectName(TenantRef{Tenant: tooLong}); err == nil {
+		t.Fatal("expected error for 54-char tenant")
 	}
 }
 

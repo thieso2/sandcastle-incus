@@ -164,7 +164,13 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !yes {
-				return fmt.Errorf("refusing to delete without --yes")
+				confirmed, err := confirmMissingYes(config, "Delete tenant "+args[0]+"?", "refusing to delete without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return fmt.Errorf("delete canceled")
+				}
 			}
 			plan, err := tenant.PlanDelete(config.adminConfig, tenant.DeleteRequest{
 				Reference: args[0],

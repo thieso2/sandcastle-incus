@@ -98,6 +98,14 @@ func (c TenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan)
 	if err := ensureProject(server, plan); err != nil {
 		return err
 	}
+	c.log("ensure infra project " + plan.InfraProject)
+	if err := ensureInfraProject(server, plan); err != nil {
+		return err
+	}
+	c.log("ensure native project " + plan.NativeProject)
+	if err := ensureNativeProject(server, plan); err != nil {
+		return err
+	}
 	c.log("ensure storage pool " + plan.StoragePool)
 	if err := ensureStoragePool(server, plan); err != nil {
 		return err
@@ -121,26 +129,31 @@ func (c TenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan)
 	if err := ensureTenantCA(projectServer, plan); err != nil {
 		return err
 	}
-	for _, sidecar := range plan.Sidecars {
-		c.log("ensure sidecar " + sidecar.Name + " (image: " + sidecar.ImageAlias + ")")
-		if err := ensureSidecar(projectServer, sidecar); err != nil {
-			return err
-		}
-		c.log("configure network for sidecar " + sidecar.Name)
-		if err := configureSidecarNetwork(projectServer, sidecar, plan.PrivateCIDR); err != nil {
-			return err
-		}
-	}
 	c.log("ensure tenant profiles")
 	if err := ensureTenantProfiles(projectServer, plan); err != nil {
 		return err
 	}
+	infraServer := server.UseProject(plan.InfraProject)
+	c.log("ensure infra project images")
+	if err := ensureProjectImages(server, infraServer, plan.InfraImageAliases); err != nil {
+		return err
+	}
+	for _, sidecar := range plan.Sidecars {
+		c.log("ensure sidecar " + sidecar.Name + " (image: " + sidecar.ImageAlias + ")")
+		if err := ensureSidecar(infraServer, sidecar); err != nil {
+			return err
+		}
+		c.log("configure network for sidecar " + sidecar.Name)
+		if err := configureSidecarNetwork(infraServer, sidecar, plan.PrivateCIDR); err != nil {
+			return err
+		}
+	}
 	c.log("ensure DNS files")
-	if err := ensureDNSFiles(projectServer, plan); err != nil {
+	if err := ensureDNSFiles(infraServer, plan); err != nil {
 		return err
 	}
 	c.log("restart CoreDNS")
-	if err := restartCoreDNS(projectServer); err != nil {
+	if err := restartCoreDNS(infraServer); err != nil {
 		return err
 	}
 	c.log("done")
@@ -174,6 +187,49 @@ func ensureProject(server TenantCreateServer, plan tenant.CreatePlan) error {
 		return fmt.Errorf("update Incus project %s metadata: %w", plan.IncusProject, err)
 	}
 	return nil
+}
+
+func ensureInfraProject(server TenantCreateServer, plan tenant.CreatePlan) error {
+	_, _, err := server.GetProject(plan.InfraProject)
+	if err == nil {
+		return nil
+	}
+	if !api.StatusErrorCheck(err, http.StatusNotFound) && !api.StatusErrorCheck(err, http.StatusForbidden) {
+		return fmt.Errorf("get Incus project %s: %w", plan.InfraProject, err)
+	}
+	return server.CreateProject(api.ProjectsPost{
+		Name: plan.InfraProject,
+		ProjectPut: api.ProjectPut{
+			Description: "Sandcastle sidecar infrastructure for " + plan.Reference,
+			Config: api.ConfigMap{
+				"features.images": "true",
+				meta.KeyKind:      "infra",
+				meta.KeyTenant:    plan.Reference,
+				meta.KeyVersion:   "1",
+			},
+		},
+	})
+}
+
+func ensureNativeProject(server TenantCreateServer, plan tenant.CreatePlan) error {
+	_, _, err := server.GetProject(plan.NativeProject)
+	if err == nil {
+		return nil
+	}
+	if !api.StatusErrorCheck(err, http.StatusNotFound) && !api.StatusErrorCheck(err, http.StatusForbidden) {
+		return fmt.Errorf("get Incus project %s: %w", plan.NativeProject, err)
+	}
+	return server.CreateProject(api.ProjectsPost{
+		Name: plan.NativeProject,
+		ProjectPut: api.ProjectPut{
+			Description: "Sandcastle native Incus workspace for " + plan.Reference,
+			Config: api.ConfigMap{
+				meta.KeyKind:    "native",
+				meta.KeyTenant:  plan.Reference,
+				meta.KeyVersion: "1",
+			},
+		},
+	})
 }
 
 func isolatedProjectFeatureConfig() map[string]string {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
 type IncusProject struct {
@@ -21,6 +22,7 @@ type IncusTenantStore interface {
 
 type Summary struct {
 	IncusName       string             `json:"incusName"`
+	InfraProject    string             `json:"infraProject"`
 	Tenant          string             `json:"tenant"`
 	Personal        bool               `json:"personal,omitempty"`
 	UnixUser        string             `json:"unixUser,omitempty"`
@@ -54,6 +56,7 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 		}
 		summaries = append(summaries, Summary{
 			IncusName:       incusProject.Name,
+			InfraProject:    naming.TenantInfraIncusProjectName(incusProject.Name),
 			Tenant:          tenant.Tenant,
 			Personal:        tenant.Personal,
 			UnixUser:        tenant.UnixUser,

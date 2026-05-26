@@ -15,6 +15,8 @@ type DeleteRequest struct {
 type DeletePlan struct {
 	Reference         string   `json:"reference"`
 	IncusProject      string   `json:"incusProject"`
+	InfraProject      string   `json:"infraProject"`
+	NativeProject     string   `json:"nativeProject"`
 	PrivateNetwork    string   `json:"privateNetwork"`
 	StoragePool       string   `json:"storagePool"`
 	DurableVolumes    []string `json:"durableVolumes"`
@@ -41,6 +43,8 @@ func PlanDelete(admin config.Admin, request DeleteRequest) (DeletePlan, error) {
 	return DeletePlan{
 		Reference:         ref.String(),
 		IncusProject:      incusName,
+		InfraProject:      naming.TenantInfraIncusProjectName(incusName),
+		NativeProject:     naming.TenantNativeIncusProjectName(incusName),
 		PrivateNetwork:    PrivateNetworkName(incusName),
 		StoragePool:       incusName,
 		DurableVolumes:    []string{HomeVolumeName, WorkspaceVolumeName, CAVolumeName},

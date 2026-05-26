@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -93,7 +94,12 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return DevicePollResult{}, fmt.Errorf("auth app device poll: %s", response.Status)
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return DevicePollResult{}, fmt.Errorf("auth app device poll: %s", msg)
 	}
 	var payload devicePollResponse
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {

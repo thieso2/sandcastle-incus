@@ -25,6 +25,7 @@ type TopologyStore interface {
 
 type TopologyRequest struct {
 	IncusProject string
+	InfraProject string
 	DNSSuffix    string
 }
 
@@ -75,6 +76,7 @@ func GetStatusWithTopology(ctx context.Context, store IncusTenantStore, topology
 			}
 			if topologyStore != nil {
 				topologyRequest.IncusProject = summary.IncusName
+				topologyRequest.InfraProject = naming.TenantInfraIncusProjectName(summary.IncusName)
 				topologyRequest.DNSSuffix = summary.DNSSuffix
 				topology, err := topologyStore.GetTopology(ctx, topologyRequest)
 				if err != nil {

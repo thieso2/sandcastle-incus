@@ -20,17 +20,17 @@ func TestInfrastructureCreatorCreatesMissingResources(t *testing.T) {
 		volumes:   map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{},
 	}
-	server := &fakeCreateServer{resourceServer: resourceServer}
+	server := &fakeCreateServer{projectServers: map[string]*fakeResourceServer{config.DefaultInfrastructureProject: resourceServer, "default": resourceServer}}
 	creator := InfrastructureCreator{Server: server}
 
 	if err := creator.CreateInfrastructure(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	if server.createdProject == nil {
+	if server.createdProjects[config.DefaultInfrastructureProject] == nil {
 		t.Fatal("expected infrastructure project to be created")
 	}
-	if server.createdProject.Name != config.DefaultInfrastructureProject {
-		t.Fatalf("created Incus project = %q", server.createdProject.Name)
+	if server.createdProjects[config.DefaultInfrastructureProject].Name != config.DefaultInfrastructureProject {
+		t.Fatalf("created Incus project = %q", server.createdProjects[config.DefaultInfrastructureProject].Name)
 	}
 	if len(resourceServer.createdInstances) != 3 {
 		t.Fatalf("created instances = %d, want 3", len(resourceServer.createdInstances))
@@ -100,7 +100,7 @@ func TestInfrastructureCreatorRestoresCaddyDataBeforeStartingRuntime(t *testing.
 		volumes:   map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{},
 	}
-	server := &fakeCreateServer{resourceServer: resourceServer}
+	server := &fakeCreateServer{projectServers: map[string]*fakeResourceServer{config.DefaultInfrastructureProject: resourceServer, "default": resourceServer}}
 	creator := InfrastructureCreator{Server: server}
 
 	if err := creator.CreateInfrastructure(context.Background(), plan); err != nil {
@@ -127,7 +127,7 @@ func TestInfrastructureCaddyDataExporterWritesArchive(t *testing.T) {
 		volumes:   map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{},
 	}
-	server := &fakeCreateServer{resourceServer: resourceServer}
+	server := &fakeCreateServer{projectServers: map[string]*fakeResourceServer{config.DefaultInfrastructureProject: resourceServer, "default": resourceServer}}
 	exporter := InfrastructureCaddyDataExporter{Server: server}
 	result, err := exporter.ExportCaddyData(context.Background(), infra.CaddyDataExportPlan{
 		Project:     config.DefaultInfrastructureProject,
@@ -174,7 +174,7 @@ func TestInfrastructureCreatorVerboseLogsCommandDurations(t *testing.T) {
 		volumes:   map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{},
 	}
-	server := &fakeCreateServer{resourceServer: resourceServer}
+	server := &fakeCreateServer{projectServers: map[string]*fakeResourceServer{config.DefaultInfrastructureProject: resourceServer, "default": resourceServer}}
 	var stderr bytes.Buffer
 	creator := (InfrastructureCreator{Remote: "big", Server: server}).WithVerbose(true, &stderr)
 
@@ -211,8 +211,8 @@ func TestInfrastructureCreatorStartsExistingStoppedRuntime(t *testing.T) {
 		},
 	}
 	server := &fakeCreateServer{
-		project:        &api.Project{Name: plan.Project},
-		resourceServer: resourceServer,
+		existingProjects: map[string]*api.Project{plan.Project: {Name: plan.Project}},
+		projectServers:   map[string]*fakeResourceServer{config.DefaultInfrastructureProject: resourceServer, "default": resourceServer},
 	}
 	creator := InfrastructureCreator{Server: server}
 

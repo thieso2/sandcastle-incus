@@ -15,11 +15,19 @@ import (
 )
 
 type fakeTopologyServer struct {
-	resource *fakeTopologyResource
+	resources map[string]*fakeTopologyResource
 }
 
 func (s fakeTopologyServer) UseProject(name string) TopologyResourceServer {
-	return s.resource
+	if r, ok := s.resources[name]; ok {
+		return r
+	}
+	return &fakeTopologyResource{
+		networks:  map[string]*api.Network{},
+		volumes:   map[string]*api.StorageVolume{},
+		instances: map[string]*api.Instance{},
+		files:     map[string]string{},
+	}
 }
 
 type fakeTopologyResource struct {
@@ -66,15 +74,13 @@ func (r fakeTopologyResource) GetInstanceFile(instanceName string, filePath stri
 }
 
 func TestTopologyStoreGetTopology(t *testing.T) {
-	store := TopologyStore{Server: fakeTopologyServer{resource: &fakeTopologyResource{
+	mainResource := &fakeTopologyResource{
 		networks: map[string]*api.Network{tenant.PrivateNetworkName("sc-alice-myproject"): {Name: tenant.PrivateNetworkName("sc-alice-myproject")}},
 		volumes: map[string]*api.StorageVolume{
 			tenant.HomeVolumeName: {Name: tenant.HomeVolumeName},
 			tenant.CAVolumeName:   {Name: tenant.CAVolumeName},
 		},
 		instances: map[string]*api.Instance{
-			"sc-alice-myproject": {Name: "sc-alice-myproject", Status: "Stopped", StatusCode: api.Stopped},
-			tenant.DNSName:       {Name: tenant.DNSName, Status: "Running", StatusCode: api.Running},
 			"default-codex": {
 				Name: "default-codex",
 				InstancePut: api.InstancePut{
@@ -94,13 +100,28 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 			},
 		},
 		files: map[string]string{
+			"default-codex:" + machine.CaddyfilePath: "codex.default.acme {\n  reverse_proxy localhost:3000\n}\n",
+		},
+	}
+	infraResource := &fakeTopologyResource{
+		networks:  map[string]*api.Network{},
+		volumes:   map[string]*api.StorageVolume{},
+		instances: map[string]*api.Instance{
+			"sc-alice-myproject": {Name: "sc-alice-myproject", Status: "Stopped", StatusCode: api.Stopped},
+			tenant.DNSName:       {Name: tenant.DNSName, Status: "Running", StatusCode: api.Running},
+		},
+		files: map[string]string{
 			tenant.DNSName + ":/etc/coredns/Corefile":      ".:53 {\n  errors\n}\n",
 			tenant.DNSName + ":/etc/coredns/zones/db.acme": "$ORIGIN acme.\n",
-			"default-codex:" + machine.CaddyfilePath:       "codex.default.acme {\n  reverse_proxy localhost:3000\n}\n",
 		},
+	}
+	store := TopologyStore{Server: fakeTopologyServer{resources: map[string]*fakeTopologyResource{
+		"sc-alice-myproject":       mainResource,
+		"sc-alice-myproject-infra": infraResource,
 	}}}
 	topology, err := store.GetTopology(context.Background(), tenant.TopologyRequest{
 		IncusProject: "sc-alice-myproject",
+		InfraProject: "sc-alice-myproject-infra",
 		DNSSuffix:    "acme",
 	})
 	if err != nil {

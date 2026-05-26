@@ -24,6 +24,12 @@ func TestPlanCreate(t *testing.T) {
 	if plan.IncusProject != "sc-acme" {
 		t.Fatalf("IncusProject = %q", plan.IncusProject)
 	}
+	if plan.InfraProject != "sc-acme-infra" {
+		t.Fatalf("InfraProject = %q", plan.InfraProject)
+	}
+	if plan.NativeProject != "sc-acme-native" {
+		t.Fatalf("NativeProject = %q", plan.NativeProject)
+	}
 	if plan.DNSSuffix != "acme" {
 		t.Fatalf("DNSSuffix = %q", plan.DNSSuffix)
 	}

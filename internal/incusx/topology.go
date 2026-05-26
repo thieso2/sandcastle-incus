@@ -57,6 +57,7 @@ func (s TopologyStore) GetTopology(ctx context.Context, request tenant.TopologyR
 		server = sdkTopologyServer{inner: instanceServer}
 	}
 	projectServer := server.UseProject(request.IncusProject)
+	infraServer := server.UseProject(request.InfraProject)
 	tailscaleInstance := tenant.TailscaleInstanceName(request.IncusProject)
 	topology := tenant.Topology{
 		TailscaleInstance: tailscaleInstance,
@@ -77,7 +78,7 @@ func (s TopologyStore) GetTopology(ctx context.Context, request tenant.TopologyR
 		}
 	}
 	for _, sidecar := range []string{tailscaleInstance, tenant.DNSName} {
-		instance, _, err := projectServer.GetInstance(sidecar)
+		instance, _, err := infraServer.GetInstance(sidecar)
 		if err == nil {
 			topology.Sidecars[sidecar] = tenant.SidecarStatus{
 				Present: true,
@@ -88,20 +89,20 @@ func (s TopologyStore) GetTopology(ctx context.Context, request tenant.TopologyR
 			return tenant.Topology{}, fmt.Errorf("get sidecar %s: %w", sidecar, err)
 		}
 	}
-	topology.DiagnosticFiles = diagnosticFiles(projectServer, request)
+	topology.DiagnosticFiles = diagnosticFiles(projectServer, infraServer, request)
 	return topology, nil
 }
 
-func diagnosticFiles(server TopologyResourceServer, request tenant.TopologyRequest) []tenant.DiagnosticFile {
+func diagnosticFiles(mainServer TopologyResourceServer, infraServer TopologyResourceServer, request tenant.TopologyRequest) []tenant.DiagnosticFile {
 	files := []tenant.DiagnosticFile{
-		readDiagnosticFile(server, tenant.DNSName, "/etc/coredns/Corefile"),
+		readDiagnosticFile(infraServer, tenant.DNSName, "/etc/coredns/Corefile"),
 	}
 	domain := strings.Trim(strings.TrimSpace(request.DNSSuffix), ".")
 	if domain != "" {
-		files = append(files, readDiagnosticFile(server, tenant.DNSName, path.Join("/etc/coredns/zones", "db."+domain)))
+		files = append(files, readDiagnosticFile(infraServer, tenant.DNSName, path.Join("/etc/coredns/zones", "db."+domain)))
 	}
-	for _, instance := range machineInstances(server) {
-		files = append(files, readDiagnosticFile(server, instance.Name, machine.CaddyfilePath))
+	for _, instance := range machineInstances(mainServer) {
+		files = append(files, readDiagnosticFile(mainServer, instance.Name, machine.CaddyfilePath))
 	}
 	return files
 }

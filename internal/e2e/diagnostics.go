@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"gopkg.in/yaml.v2"
 )
@@ -83,6 +84,7 @@ func matchesTenantRun(summary tenant.Summary, runID string) bool {
 func tenantTopologyDiagnostics(ctx context.Context, topologyStore tenant.TopologyStore, summary tenant.Summary) string {
 	topology, err := topologyStore.GetTopology(ctx, tenant.TopologyRequest{
 		IncusProject: summary.IncusName,
+		InfraProject: naming.TenantInfraIncusProjectName(summary.IncusName),
 		DNSSuffix:    summary.DNSSuffix,
 	})
 	if err != nil {

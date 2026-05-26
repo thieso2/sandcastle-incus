@@ -91,7 +91,14 @@ func splitTenantInstances(summary tenant.Summary, instances []api.Instance) ([]m
 	machines := []meta.Machine{}
 	unmanaged := []machine.UnmanagedMachine{}
 	for _, instance := range instances {
-		if instance.Config[meta.KeyKind] != meta.KindMachine {
+		kind := instance.Config[meta.KeyKind]
+		if kind != meta.KindMachine {
+			// Skip instances managed by Sandcastle that aren't user machines
+			// (sidecars, profiles, etc.) — they live in the infra project now
+			// but guard here as defense-in-depth.
+			if meta.IsManaged(instance.Config) {
+				continue
+			}
 			unmanaged = append(unmanaged, machine.UnmanagedMachine{
 				Tenant:       summary.Tenant,
 				Name:         instance.Name,
@@ -123,6 +130,9 @@ func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary 
 	unmanaged := []machine.UnmanagedMachine{}
 	for _, instance := range instances {
 		if instance.Config[meta.KeyKind] == meta.KindMachine {
+			continue
+		}
+		if meta.IsManaged(instance.Config) {
 			continue
 		}
 		unmanaged = append(unmanaged, machine.UnmanagedMachine{

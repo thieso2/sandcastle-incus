@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -218,6 +220,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(config.stdout, "Open: %s\nCode: %s\n", start.VerificationURI, start.UserCode)
+			openBrowser(start.VerificationURI)
 			if start.Message != "" {
 				fmt.Fprintln(config.stdout, start.Message)
 			}
@@ -231,28 +234,27 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			verbosef("device start: interval=%ds expires_in=%ds", interval, start.ExpiresIn)
 			lastMessage := strings.TrimSpace(start.Message)
 			for attempt := 0; attempt < maxPolls; attempt++ {
-				verbosef("poll attempt=%d/%d", attempt+1, maxPolls)
 				var result authapp.DevicePollResult
-				if err := steps.run(fmt.Sprintf("poll device login %d/%d", attempt+1, maxPolls), func() error {
-					var err error
-					result, err = client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
-						SSHPublicKey: sshKey.PublicKey,
-					})
-					return err
-				}); err != nil {
-					return err
+				var pollErr error
+				result, pollErr = client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
+					SSHPublicKey: sshKey.PublicKey,
+				})
+				if pollErr != nil {
+					return pollErr
 				}
-				verbosef("poll result: status=%s expires_in=%ds user=%s remote=%s tenants=%s projects=%s enrollment_present=%t tailscale_auth_key_present=%t message=%s",
-					result.Status,
-					result.ExpiresIn,
-					result.UserKey,
-					result.RemoteName,
-					strings.Join(result.AccessibleTenants, ","),
-					strings.Join(result.Projects, ","),
-					result.Token != "",
-					result.TailscaleAuthKey != "",
-					strings.TrimSpace(result.Message),
-				)
+				if result.Status != "pending" {
+					verbosef("poll result: status=%s expires_in=%ds user=%s remote=%s tenants=%s projects=%s enrollment_present=%t tailscale_auth_key_present=%t message=%s",
+						result.Status,
+						result.ExpiresIn,
+						result.UserKey,
+						result.RemoteName,
+						strings.Join(result.AccessibleTenants, ","),
+						strings.Join(result.Projects, ","),
+						result.Token != "",
+						result.TailscaleAuthKey != "",
+						strings.TrimSpace(result.Message),
+					)
+				}
 				if result.LoginResult != nil {
 					verbosef("login result: current_tenant=%s current_project=%s remote=%s ssh_key=%s tailnet_state=%s next=%s",
 						result.LoginResult.CurrentTenant,
@@ -430,6 +432,19 @@ func defaultLoginTenant(tenants []string) string {
 
 func shouldRunLoginSetup(skipSetup bool, tenantName string, accessibleTenants []string) bool {
 	return !skipSetup && tenantName != "" && len(accessibleTenants) == 1
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return
+	}
+	_ = cmd.Start()
 }
 
 func loginTailscaleAuthKeyFromEnv() string {

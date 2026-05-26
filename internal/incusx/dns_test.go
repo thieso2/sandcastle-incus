@@ -13,11 +13,15 @@ import (
 )
 
 type fakeDNSServer struct {
-	resource *fakeDNSResource
+	resources map[string]*fakeDNSResource
+	fallback  *fakeDNSResource
 }
 
 func (s fakeDNSServer) UseProject(name string) DNSResourceServer {
-	return s.resource
+	if r, ok := s.resources[name]; ok {
+		return r
+	}
+	return s.fallback
 }
 
 type fakeDNSResource struct {
@@ -67,16 +71,23 @@ func TestDNSManagerApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resource := &fakeDNSResource{instances: []api.Instance{{
+	mainResource := &fakeDNSResource{instances: []api.Instance{{
 		Name:        "default-codex",
 		InstancePut: api.InstancePut{Config: api.ConfigMap(machineConfig)},
 	}}}
-	manager := DNSManager{Server: fakeDNSServer{resource: resource}}
+	infraResource := &fakeDNSResource{}
+	manager := DNSManager{Server: fakeDNSServer{
+		resources: map[string]*fakeDNSResource{
+			"sc-acme":       mainResource,
+			"sc-acme-infra": infraResource,
+		},
+	}}
 	result, err := manager.Apply(context.Background(), dns.Tenant{
-		IncusName:   "sc-acme",
-		Tenant:      "acme",
-		DNSSuffix:   "acme",
-		PrivateCIDR: "10.248.0.0/24",
+		IncusName:    "sc-acme",
+		InfraProject: "sc-acme-infra",
+		Tenant:       "acme",
+		DNSSuffix:    "acme",
+		PrivateCIDR:  "10.248.0.0/24",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,16 +95,24 @@ func TestDNSManagerApply(t *testing.T) {
 	if result.RecordCount != 4 {
 		t.Fatalf("RecordCount = %d", result.RecordCount)
 	}
-	if resource.files["/etc/coredns/zones/db.acme"] == "" {
-		t.Fatal("expected zone file to be written")
+	// DNS files must be written to the infra project, not main.
+	if infraResource.files["/etc/coredns/zones/db.acme"] == "" {
+		t.Fatal("expected zone file to be written to infra project")
 	}
-	if len(resource.execCommands) != 1 {
-		t.Fatalf("exec commands = %#v", resource.execCommands)
+	if mainResource.files["/etc/coredns/zones/db.acme"] != "" {
+		t.Fatal("zone file must not be written to main project")
 	}
-	if resource.execInstances[0] != "sc-dns" {
-		t.Fatalf("exec instance = %q", resource.execInstances[0])
+	// CoreDNS restart must target infra project.
+	if len(infraResource.execCommands) != 1 {
+		t.Fatalf("infra exec commands = %#v", infraResource.execCommands)
 	}
-	if got := strings.Join(resource.execCommands[0], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") || !strings.Contains(got, "coredns.service") {
+	if infraResource.execInstances[0] != "sc-dns" {
+		t.Fatalf("exec instance = %q", infraResource.execInstances[0])
+	}
+	if got := strings.Join(infraResource.execCommands[0], " "); !strings.Contains(got, "coredns -conf /etc/coredns/Corefile") || !strings.Contains(got, "coredns.service") {
 		t.Fatalf("exec command = %q", got)
+	}
+	if len(mainResource.execCommands) != 0 {
+		t.Fatalf("main project should have no exec calls, got %#v", mainResource.execCommands)
 	}
 }

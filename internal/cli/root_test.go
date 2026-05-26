@@ -320,7 +320,7 @@ func TestLoginDoesNotRepeatUnchangedDeviceMessage(t *testing.T) {
 	}
 }
 
-func TestLoginVerboseReportsPollAttempts(t *testing.T) {
+func TestLoginVerboseReportsPollResult(t *testing.T) {
 	useLoginHomeForTest(t)
 	t.Setenv("VERBOSE", "1")
 	installer := &fakeLoginRemoteInstaller{}
@@ -353,12 +353,14 @@ func TestLoginVerboseReportsPollAttempts(t *testing.T) {
 	for _, want := range []string{
 		"[verbose] login: auth host=https://auth.example.com",
 		"[verbose] login: device start: interval=1s expires_in=600s",
-		"[verbose] login: poll attempt=1/300",
 		"[verbose] login: poll result: status=approved expires_in=590s user=octocat remote=sandcastle-octocat tenants=octocat",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, stderr)
 		}
+	}
+	if strings.Contains(stderr, "poll attempt=") {
+		t.Fatalf("stderr should not contain poll attempt lines:\n%s", stderr)
 	}
 	if strings.Contains(stderr, "token") {
 		t.Fatalf("stderr leaked token:\n%s", stderr)

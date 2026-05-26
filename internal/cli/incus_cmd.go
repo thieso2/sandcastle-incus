@@ -49,6 +49,55 @@ func newIncusCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 	}
 }
 
+func newIncusNativeCommand(config commandConfig, _ *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:                "incus-native [args...]",
+		Short:              "Run incus scoped to the tenant's native (freeform) Incus project",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runIncusWithProject(cmd, config, args, naming.TenantNativeIncusProjectName)
+		},
+	}
+}
+
+func newIncusInfraCommand(config commandConfig, _ *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:                "incus-infra [args...]",
+		Short:              "Run incus scoped to the tenant's infra (sidecars) Incus project",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runIncusWithProject(cmd, config, args, naming.TenantInfraIncusProjectName)
+		},
+	}
+}
+
+func runIncusWithProject(cmd *cobra.Command, config commandConfig, args []string, projectNameFn func(string) string) error {
+	incusDir := resolveIncusDir(config.adminConfig.Remote)
+	if incusDir == "" {
+		return fmt.Errorf("no Sandcastle-managed Incus config found for remote %q; add one with: sc remote add", config.adminConfig.Remote)
+	}
+	runner := config.incusRunner
+	if runner == nil {
+		runner = runIncusCLI
+	}
+	mainProject, err := incusTenantProject(config.adminConfig)
+	if err != nil {
+		return err
+	}
+	envOverrides := []string{"INCUS_CONF=" + incusDir}
+	env := append(os.Environ(), "INCUS_CONF="+incusDir)
+	if mainProject != "" {
+		projectName := projectNameFn(mainProject)
+		env = append(env, "INCUS_PROJECT="+projectName)
+		envOverrides = append(envOverrides, "INCUS_PROJECT="+projectName)
+	}
+	if os.Getenv("VERBOSE") == "1" {
+		fmt.Fprintf(config.stderr, "[verbose] sc incus env: %s\n", strings.Join(envOverrides, " "))
+		fmt.Fprintf(config.stderr, "[verbose] sc incus command: %s\n", shellCommandLine(append([]string{"incus"}, args...)))
+	}
+	return runner(cmd.Context(), args, env, config.stdin, config.stdout, config.stderr)
+}
+
 func runIncusCLI(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 	incusCmd := exec.CommandContext(ctx, "incus", args...)
 	incusCmd.Env = env

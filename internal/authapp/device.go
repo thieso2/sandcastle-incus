@@ -179,7 +179,7 @@ func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey stri
 	}
 	tenantName := NormalizeGitHubUsername(userKey)
 	for _, summary := range summaries {
-		if summary.Tenant == tenantName && summary.Personal {
+		if summary.Tenant == tenantName {
 			if err := h.machineSSHKeys.ReconcileUserSSHKey(ctx, summary, tenantName, publicKey); err != nil {
 				return fmt.Errorf("reconcile User SSH Public Key for Personal Tenant %s: %w", tenantName, err)
 			}
@@ -213,7 +213,7 @@ func (h handler) findPersonalTenant(ctx context.Context, userKey string) (tenant
 	}
 	tenantName := NormalizeGitHubUsername(userKey)
 	for _, summary := range summaries {
-		if summary.Tenant == tenantName && summary.Personal {
+		if summary.Tenant == tenantName {
 			return summary, nil
 		}
 	}

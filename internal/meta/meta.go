@@ -25,6 +25,7 @@ const (
 	KindTenant  = "tenant"
 	KindMachine = "machine"
 	KindRoute   = "route"
+	KindSidecar = "sidecar"
 
 	Version = 1
 
