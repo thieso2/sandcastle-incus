@@ -107,6 +107,35 @@ func (c ConnectCache) IsKeyscanRecent(hostname string) bool {
 	return ok && time.Since(t) < keyscanCacheTTL
 }
 
+// InvalidateTenant removes all cached plans and associated keyscan entries for the given tenant.
+// Called after tenant delete or tenant create to prevent stale entries from being used.
+func (c ConnectCache) InvalidateTenant(tenant string) {
+	data := c.readData()
+	if data == nil {
+		return
+	}
+	prefix := strings.TrimSpace(tenant) + ":"
+	if prefix == ":" {
+		return
+	}
+	var hostsToInvalidate []string
+	for key, entry := range data.Plans {
+		if strings.HasPrefix(key, prefix) {
+			if h := strings.TrimSpace(entry.Plan.PrivateIP); h != "" {
+				hostsToInvalidate = append(hostsToInvalidate, h)
+			}
+			if h := strings.TrimSpace(entry.Plan.Hostname); h != "" {
+				hostsToInvalidate = append(hostsToInvalidate, h)
+			}
+			delete(data.Plans, key)
+		}
+	}
+	for _, host := range hostsToInvalidate {
+		delete(data.Keyscans, host)
+	}
+	_ = c.writeData(data)
+}
+
 // InvalidatePlan removes the cached plan for key, forcing a fresh Incus lookup next connect.
 func (c ConnectCache) InvalidatePlan(key string) {
 	data := c.readData()

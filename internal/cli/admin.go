@@ -15,6 +15,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
+	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
@@ -131,6 +132,7 @@ func newAdminTenantCreateCommand(config commandConfig, opts *rootOptions) *cobra
 				if config.tenantCreator == nil {
 					return fmt.Errorf("tenant creation executor is not configured")
 				}
+				incusx.NewConnectCache(config.adminConfig.Remote).InvalidateTenant(plan.Reference)
 				if err := config.tenantCreator.CreateTenant(cmd.Context(), plan); err != nil {
 					return err
 				}
@@ -185,6 +187,7 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 			if err := config.tenantDeleter.DeleteTenant(cmd.Context(), plan); err != nil {
 				return err
 			}
+			incusx.NewConnectCache(config.adminConfig.Remote).InvalidateTenant(plan.Reference)
 			return writeOutput(config.stdout, opts.output, formatDeletePlan(plan), plan)
 		},
 	}
