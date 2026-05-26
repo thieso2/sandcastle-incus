@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -60,7 +61,7 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 	if len(command) == 0 || command[0] == "" {
 		return ConnectPlan{}, fmt.Errorf("connect command is required")
 	}
-	linuxUser := resolved.Summary.Tenant
+	linuxUser := managedLinuxUser(resolved)
 	workingDir := "/workspace"
 	userID := DefaultLinuxUID
 	groupID := DefaultLinuxGID
@@ -95,4 +96,14 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 		Interactive:  interactive,
 		Managed:      resolved.Managed,
 	}, nil
+}
+
+func managedLinuxUser(resolved resolvedMachine) string {
+	if user := strings.TrimSpace(resolved.LinuxUser); user != "" {
+		return user
+	}
+	if user := strings.TrimSpace(resolved.Summary.UnixUser); user != "" {
+		return user
+	}
+	return resolved.Summary.Tenant
 }

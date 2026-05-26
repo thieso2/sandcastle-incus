@@ -209,6 +209,52 @@ func TestPlanConnectUsesPrivateIP(t *testing.T) {
 	}
 }
 
+func TestPlanConnectUsesTenantUnixUser(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	tenantStore := tenantStoreForTest(t)
+	tenantConfig, err := meta.ParseTenantConfig(tenantStore.Projects[0].Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantConfig.UnixUser = "localuser"
+	tenantStore.Projects[0].Config, err = meta.TenantConfig(tenantConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42"}}}
+	plan, err := PlanConnect(context.Background(), admin, tenantStore, store, ConnectRequest{Reference: "website/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.LinuxUser != "localuser" {
+		t.Fatalf("LinuxUser = %q", plan.LinuxUser)
+	}
+}
+
+func TestPlanConnectUsesMachineLinuxUser(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	tenantStore := tenantStoreForTest(t)
+	tenantConfig, err := meta.ParseTenantConfig(tenantStore.Projects[0].Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantConfig.UnixUser = "localuser"
+	tenantStore.Projects[0].Config, err = meta.TenantConfig(tenantConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42", LinuxUser: "machineuser"}}}
+	plan, err := PlanConnect(context.Background(), admin, tenantStore, store, ConnectRequest{Reference: "website/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.LinuxUser != "machineuser" {
+		t.Fatalf("LinuxUser = %q", plan.LinuxUser)
+	}
+}
+
 func TestPlanConnectResolvesMachineFQDN(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"

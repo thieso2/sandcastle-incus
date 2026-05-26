@@ -145,7 +145,37 @@ func TestMachineConnectorSSHsCommandNonInteractively(t *testing.T) {
 	if strings.Contains(joined, " -t ") {
 		t.Fatalf("non-interactive ssh should not force tty: %q", joined)
 	}
-	if !strings.Contains(joined, "alice@10.248.0.20") || !strings.Contains(joined, "cd /workspace && exec pwd") {
+	if !strings.Contains(joined, "alice@10.248.0.20") || !strings.Contains(joined, "cd /workspace && pwd") {
 		t.Fatalf("ssh args = %q", joined)
+	}
+}
+
+func TestMachineConnectorSSHsSingleStringCommandThroughRemoteShell(t *testing.T) {
+	runner := &fakeSSHRunner{}
+	connector := MachineConnector{Runner: runner}
+	err := connector.ConnectMachine(context.Background(), machine.ConnectPlan{
+		Tenant:       tenant.Summary{IncusName: "sc-acme"},
+		Project:      "default",
+		InstanceName: "default-codex",
+		SSHHost:      "10.248.0.20",
+		HostKeyAlias: "codex.default.acme",
+		Command:      []string{"touch hase"},
+		LinuxUser:    "alice",
+		WorkingDir:   "/workspace",
+		Managed:      true,
+	}, machine.ConnectSession{
+		Stdin:  io.Reader(nil),
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(runner.args, " ")
+	if !strings.Contains(joined, "cd /workspace && touch hase") {
+		t.Fatalf("ssh args = %q", joined)
+	}
+	if strings.Contains(joined, "exec 'touch hase'") {
+		t.Fatalf("single string command should not be quoted as executable: %q", joined)
 	}
 }

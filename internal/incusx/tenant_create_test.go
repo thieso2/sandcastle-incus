@@ -382,6 +382,21 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 	if got := resourceServer.createdInstances[1].Devices["eth0"]["ipv4.address"]; got != "10.248.0.3" {
 		t.Fatalf("dns address = %q", got)
 	}
+	for _, profileName := range []string{"container", "default"} {
+		profile := resourceServer.profiles[profileName]
+		if profile == nil {
+			t.Fatalf("expected %s profile to be created", profileName)
+		}
+		if got := profile.Devices["root"]["pool"]; got != plan.StoragePool {
+			t.Fatalf("%s root pool = %q", profileName, got)
+		}
+		if got := profile.Devices["root"]["path"]; got != "/" {
+			t.Fatalf("%s root path = %q", profileName, got)
+		}
+		if got := profile.Devices["eth0"]["parent"]; got != plan.PrivateNetwork {
+			t.Fatalf("%s eth0 parent = %q", profileName, got)
+		}
+	}
 	if got := resourceServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"]; got == "" {
 		t.Fatal("expected CoreDNS Corefile to be written")
 	}
@@ -522,6 +537,52 @@ func TestTenantCreatorStartsExistingStoppedSidecars(t *testing.T) {
 	}
 	if resourceServer.startedInstances[0] != plan.TailscaleInstance {
 		t.Fatalf("started instance = %q", resourceServer.startedInstances[0])
+	}
+}
+
+func TestMergeDefaultProfilePreservesUnrelatedSettings(t *testing.T) {
+	plan := createPlanForTest(t)
+	desired := tenantContainerProfilePut(plan)
+	existing := api.Profile{
+		Name: "default",
+		ProfilePut: api.ProfilePut{
+			Description: "custom default",
+			Config: api.ConfigMap{
+				"limits.cpu": "2",
+			},
+			Devices: api.DevicesMap{
+				"proxy": {
+					"type":   "proxy",
+					"listen": "tcp:0.0.0.0:8080",
+				},
+				"root": {
+					"type": "disk",
+					"pool": "old",
+					"path": "/",
+				},
+			},
+		},
+	}
+
+	merged := mergeDefaultProfile(existing, desired)
+
+	if got := merged.Description; got != "custom default" {
+		t.Fatalf("description = %q", got)
+	}
+	if got := merged.Config["limits.cpu"]; got != "2" {
+		t.Fatalf("preserved config = %q", got)
+	}
+	if got := merged.Config[meta.KeyTenant]; got != plan.Reference {
+		t.Fatalf("managed tenant metadata = %q", got)
+	}
+	if got := merged.Devices["proxy"]["listen"]; got != "tcp:0.0.0.0:8080" {
+		t.Fatalf("preserved proxy device = %q", got)
+	}
+	if got := merged.Devices["root"]["pool"]; got != plan.StoragePool {
+		t.Fatalf("root pool = %q", got)
+	}
+	if got := merged.Devices["eth0"]["parent"]; got != plan.PrivateNetwork {
+		t.Fatalf("eth0 parent = %q", got)
 	}
 }
 

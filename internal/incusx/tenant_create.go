@@ -131,8 +131,8 @@ func (c TenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan)
 			return err
 		}
 	}
-	c.log("ensure container profile")
-	if err := ensureContainerProfile(projectServer, plan); err != nil {
+	c.log("ensure tenant profiles")
+	if err := ensureTenantProfiles(projectServer, plan); err != nil {
 		return err
 	}
 	c.log("ensure DNS files")
@@ -462,8 +462,16 @@ func ensureStoragePool(server TenantCreateServer, plan tenant.CreatePlan) error 
 	})
 }
 
-func ensureContainerProfile(server TenantResourceServer, plan tenant.CreatePlan) error {
-	profilePut := api.ProfilePut{
+func ensureTenantProfiles(server TenantResourceServer, plan tenant.CreatePlan) error {
+	profilePut := tenantContainerProfilePut(plan)
+	if err := ensureExactProfile(server, "container", profilePut); err != nil {
+		return err
+	}
+	return ensureDefaultProfile(server, profilePut)
+}
+
+func tenantContainerProfilePut(plan tenant.CreatePlan) api.ProfilePut {
+	return api.ProfilePut{
 		Description: "Sandcastle container defaults for " + plan.Reference,
 		Config: api.ConfigMap{
 			meta.KeyKind:    "profile",
@@ -483,17 +491,79 @@ func ensureContainerProfile(server TenantResourceServer, plan tenant.CreatePlan)
 			},
 		},
 	}
-	_, etag, err := server.GetProfile("container")
+}
+
+func ensureExactProfile(server TenantResourceServer, name string, profilePut api.ProfilePut) error {
+	_, etag, err := server.GetProfile(name)
 	if err == nil {
-		return server.UpdateProfile("container", profilePut, etag)
+		return server.UpdateProfile(name, profilePut, etag)
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
-		return fmt.Errorf("get container profile: %w", err)
+		return fmt.Errorf("get %s profile: %w", name, err)
 	}
 	return server.CreateProfile(api.ProfilesPost{
-		Name:       "container",
+		Name:       name,
 		ProfilePut: profilePut,
 	})
+}
+
+func ensureDefaultProfile(server TenantResourceServer, desired api.ProfilePut) error {
+	existing, etag, err := server.GetProfile("default")
+	if err != nil {
+		if !api.StatusErrorCheck(err, http.StatusNotFound) {
+			return fmt.Errorf("get default profile: %w", err)
+		}
+		return server.CreateProfile(api.ProfilesPost{
+			Name:       "default",
+			ProfilePut: desired,
+		})
+	}
+	merged := mergeDefaultProfile(*existing, desired)
+	return server.UpdateProfile("default", merged, etag)
+}
+
+func mergeDefaultProfile(existing api.Profile, desired api.ProfilePut) api.ProfilePut {
+	merged := api.ProfilePut{
+		Description: existing.Description,
+		Config:      copyConfigMap(existing.Config),
+		Devices:     copyDevicesMap(existing.Devices),
+	}
+	if merged.Description == "" || strings.HasPrefix(merged.Description, "Default Incus profile") {
+		merged.Description = desired.Description
+	}
+	for key, value := range desired.Config {
+		if _, ok := merged.Config[key]; !ok {
+			merged.Config[key] = value
+		}
+	}
+	for name, device := range desired.Devices {
+		merged.Devices[name] = copyDevice(device)
+	}
+	return merged
+}
+
+func copyConfigMap(input api.ConfigMap) api.ConfigMap {
+	output := api.ConfigMap{}
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func copyDevicesMap(input api.DevicesMap) api.DevicesMap {
+	output := api.DevicesMap{}
+	for name, device := range input {
+		output[name] = copyDevice(device)
+	}
+	return output
+}
+
+func copyDevice(input map[string]string) map[string]string {
+	output := map[string]string{}
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
 }
 
 func networkRequest(plan tenant.CreatePlan) api.NetworksPost {
