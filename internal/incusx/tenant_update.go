@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -27,8 +28,6 @@ func NewTenantSSHKeyManagerForServer(server incus.InstanceServer) TenantSSHKeyMa
 }
 
 type TenantMetadataUpdateServer interface {
-	GetProject(name string) (*api.Project, string, error)
-	UpdateProject(name string, project api.ProjectPut, ETag string) error
 	UseProject(name string) TenantMetadataUpdateResourceServer
 }
 
@@ -41,34 +40,11 @@ func (m TenantSSHKeyManager) SetTenantSSHKey(_ context.Context, incusProjectName
 }
 
 func (m TenantSSHKeyManager) SetTenantProjects(_ context.Context, incusProjectName string, projects []meta.Project) error {
-	server, err := m.server()
+	data, err := json.Marshal(projects)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode projects for %s: %w", incusProjectName, err)
 	}
-	project, etag, err := server.GetProject(incusProjectName)
-	if err != nil {
-		return fmt.Errorf("get tenant %s: %w", incusProjectName, err)
-	}
-	managed, err := meta.ParseTenantConfig(map[string]string(project.Config))
-	if err != nil {
-		return fmt.Errorf("parse tenant metadata for %s: %w", incusProjectName, err)
-	}
-	managed.Projects = append([]meta.Project{}, projects...)
-	config, err := meta.TenantConfig(managed)
-	if err != nil {
-		return err
-	}
-	put := project.Writable()
-	if put.Config == nil {
-		put.Config = api.ConfigMap{}
-	}
-	for key, value := range config {
-		put.Config[key] = value
-	}
-	if err := server.UpdateProject(incusProjectName, put, etag); err != nil {
-		return fmt.Errorf("update tenant %s project metadata: %w", incusProjectName, err)
-	}
-	return nil
+	return m.writeTenantMetadataFile(incusProjectName, tenantProjectsFile, string(data), "write tenant projects metadata")
 }
 
 func (m TenantSSHKeyManager) writeTenantMetadataFile(incusProjectName string, filePath string, content string, action string) error {
@@ -116,14 +92,6 @@ func (m TenantSSHKeyManager) server() (TenantMetadataUpdateServer, error) {
 
 type sdkTenantMetadataUpdateServer struct {
 	inner incus.InstanceServer
-}
-
-func (s sdkTenantMetadataUpdateServer) GetProject(name string) (*api.Project, string, error) {
-	return s.inner.GetProject(name)
-}
-
-func (s sdkTenantMetadataUpdateServer) UpdateProject(name string, project api.ProjectPut, ETag string) error {
-	return s.inner.UpdateProject(name, project, ETag)
 }
 
 func (s sdkTenantMetadataUpdateServer) UseProject(name string) TenantMetadataUpdateResourceServer {
