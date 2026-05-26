@@ -139,6 +139,11 @@ func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName st
 		if err := ensurePrivateNetwork(projectServer, plan); err != nil {
 			return err
 		}
+		nativeServer := server.UseProject(plan.NativeProject)
+		c.log("ensure native tenant profiles")
+		if err := ensureTenantProfiles(nativeServer, plan); err != nil {
+			return err
+		}
 	}
 	if len(plan.Sidecars) == 0 || len(plan.InfraImageAliases) == 0 || plan.InfraImageAliases[0] == "" {
 		return nil
@@ -216,6 +221,11 @@ func (c TenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan)
 	}
 	c.log("ensure tenant profiles")
 	if err := ensureTenantProfiles(projectServer, plan); err != nil {
+		return err
+	}
+	nativeServer := server.UseProject(plan.NativeProject)
+	c.log("ensure native tenant profiles")
+	if err := ensureTenantProfiles(nativeServer, plan); err != nil {
 		return err
 	}
 	infraServer := server.UseProject(plan.InfraProject)
@@ -297,8 +307,15 @@ func ensureInfraProject(server TenantCreateServer, plan tenant.CreatePlan) error
 }
 
 func ensureNativeProject(server TenantCreateServer, plan tenant.CreatePlan) error {
-	_, _, err := server.GetProject(plan.NativeProject)
+	existing, etag, err := server.GetProject(plan.NativeProject)
 	if err == nil {
+		config := nativeProjectConfig(plan, existing.Config)
+		if err := server.UpdateProject(plan.NativeProject, api.ProjectPut{
+			Description: existing.Description,
+			Config:      api.ConfigMap(config),
+		}, etag); err != nil {
+			return fmt.Errorf("update Incus project %s metadata: %w", plan.NativeProject, err)
+		}
 		return nil
 	}
 	if !api.StatusErrorCheck(err, http.StatusNotFound) && !api.StatusErrorCheck(err, http.StatusForbidden) {
@@ -308,13 +325,19 @@ func ensureNativeProject(server TenantCreateServer, plan tenant.CreatePlan) erro
 		Name: plan.NativeProject,
 		ProjectPut: api.ProjectPut{
 			Description: "Sandcastle native Incus workspace for " + plan.Reference,
-			Config: api.ConfigMap{
-				meta.KeyKind:    "native",
-				meta.KeyTenant:  plan.Reference,
-				meta.KeyVersion: "1",
-			},
+			Config:      api.ConfigMap(nativeProjectConfig(plan, nil)),
 		},
 	})
+}
+
+func nativeProjectConfig(plan tenant.CreatePlan, existing map[string]string) map[string]string {
+	config := mergeConfig(existing, map[string]string{
+		meta.KeyKind:    "native",
+		meta.KeyTenant:  plan.Reference,
+		meta.KeyVersion: "1",
+	})
+	config["features.profiles"] = "true"
+	return config
 }
 
 func isolatedProjectFeatureConfig() map[string]string {

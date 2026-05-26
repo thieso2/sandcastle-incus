@@ -245,6 +245,7 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminTLDCommand(config, opts))
 	root.AddCommand(newAdminRouteBrokerCommand(config))
 	root.AddCommand(newAdminAuthAppCommand(config))
+	root.AddCommand(newAdminMachineWorkloadCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))
 
 	return root

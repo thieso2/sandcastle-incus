@@ -20,6 +20,9 @@ const (
 type WorkloadIdentityRequest struct {
 	TokenEndpoint string
 	RuntimeSecret string
+	Tenant        string
+	Project       string
+	Machine       string
 	GCP           *GCPWorkloadIdentityConfig
 }
 
@@ -42,7 +45,16 @@ func WorkloadIdentityFiles(request *WorkloadIdentityRequest) ([]File, error) {
 	files := []File{
 		{Path: WorkloadRuntimeSecretPath, Content: []byte(strings.TrimSpace(request.RuntimeSecret) + "\n"), Mode: workloadSecretFileMode},
 		{Path: WorkloadTokenEndpointPath, Content: []byte(strings.TrimSpace(request.TokenEndpoint) + "\n"), Mode: workloadMetadataFileMode},
-		{Path: WorkloadProfileEnvPath, Content: []byte(workloadProfileEnv(request.GCP)), Mode: workloadProfileEnvFileMode},
+		{Path: WorkloadProfileEnvPath, Content: []byte(workloadProfileEnv(request)), Mode: workloadProfileEnvFileMode},
+	}
+	if request.Tenant != "" {
+		files = append(files, File{Path: WorkloadDir + "/tenant", Content: []byte(request.Tenant + "\n"), Mode: workloadMetadataFileMode})
+	}
+	if request.Project != "" {
+		files = append(files, File{Path: WorkloadDir + "/project", Content: []byte(request.Project + "\n"), Mode: workloadMetadataFileMode})
+	}
+	if request.Machine != "" {
+		files = append(files, File{Path: WorkloadDir + "/machine", Content: []byte(request.Machine + "\n"), Mode: workloadMetadataFileMode})
 	}
 	if request.GCP != nil {
 		credential, err := GCPExternalAccountCredential(*request.GCP, GCPCredentialPath)
@@ -77,12 +89,21 @@ func GCPExternalAccountCredential(config GCPWorkloadIdentityConfig, credentialPa
 	return json.MarshalIndent(payload, "", "  ")
 }
 
-func workloadProfileEnv(gcp *GCPWorkloadIdentityConfig) string {
+func workloadProfileEnv(req *WorkloadIdentityRequest) string {
 	lines := []string{
 		"export SANDCASTLE_WORKLOAD_RUNTIME_SECRET_FILE=" + shellQuote(WorkloadRuntimeSecretPath),
 		"export SANDCASTLE_WORKLOAD_TOKEN_ENDPOINT_FILE=" + shellQuote(WorkloadTokenEndpointPath),
 	}
-	if gcp != nil {
+	if req.Tenant != "" {
+		lines = append(lines, "export SANDCASTLE_TENANT="+shellQuote(req.Tenant))
+	}
+	if req.Project != "" {
+		lines = append(lines, "export SANDCASTLE_PROJECT="+shellQuote(req.Project))
+	}
+	if req.Machine != "" {
+		lines = append(lines, "export SANDCASTLE_MACHINE="+shellQuote(req.Machine))
+	}
+	if req.GCP != nil {
 		lines = append(lines,
 			"export GOOGLE_APPLICATION_CREDENTIALS="+shellQuote(GCPCredentialPath),
 			"export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE="+shellQuote(GCPCredentialPath),

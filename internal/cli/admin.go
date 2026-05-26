@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,11 +18,13 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
+	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
+	_ "modernc.org/sqlite"
 )
 
 func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -1575,6 +1578,107 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&debugDeviceUser, "debug-device-user", "", "enable debug device approval as this allowlisted GitHub username")
 	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix username for newly provisioned Personal Tenant machines")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key returned to approved CLI device logins for unattended tenant attachment")
+	_ = command.MarkFlagRequired("database")
+	return command
+}
+
+func newAdminMachineCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "machine",
+		Short: "Manage Sandcastle machines",
+	}
+	cmd.AddCommand(newAdminMachineWorkloadCommand(config, opts))
+	return cmd
+}
+
+func newAdminMachineWorkloadCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "workload",
+		Short: "Manage workload identity for machines",
+	}
+	cmd.AddCommand(newAdminMachineWorkloadEnableCommand(config, opts))
+	return cmd
+}
+
+func newAdminMachineWorkloadEnableCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var databasePath string
+	var authHostname string
+	command := &cobra.Command{
+		Use:   "enable [project:]machine",
+		Short: "Enable workload identity for a machine",
+		Long: `Enable workload identity for a machine.
+
+Registers the machine in the auth app database and writes the runtime secret,
+token endpoint, and machine identity files to the machine. The machine can then
+exchange the runtime secret for a short-lived JWT at the token endpoint.
+
+From within the machine:
+  secret=$(cat /var/lib/sandcastle/workload/runtime-secret)
+  endpoint=$(cat /var/lib/sandcastle/workload/token-endpoint)
+  tenant=$(cat /var/lib/sandcastle/workload/tenant)
+  project=$(cat /var/lib/sandcastle/workload/project)
+  machine=$(cat /var/lib/sandcastle/workload/machine)
+  curl -s -X POST "$endpoint" \
+    -H "Content-Type: application/json" \
+    -d "{\"tenant\":\"$tenant\",\"project\":\"$project\",\"machine\":\"$machine\",\"runtime_secret\":\"$secret\"}"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			host := strings.TrimSpace(authHostname)
+			if host == "" {
+				host = config.adminConfig.AuthHostname
+			}
+			if host == "" {
+				return fmt.Errorf("--auth-hostname is required (or set SANDCASTLE_AUTH_HOSTNAME)")
+			}
+			createTenantStore := tenantStoreWithSSHKeyMetadata(config.tenantStore)
+			plan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, createTenantStore, config.machineStore, machine.CreateRequest{
+				Reference: args[0],
+			})
+			if err != nil {
+				return err
+			}
+			db, err := sql.Open("sqlite", databasePath)
+			if err != nil {
+				return fmt.Errorf("open auth database: %w", err)
+			}
+			defer db.Close()
+			result, err := authapp.EnableMachineWorkloadIdentity(cmd.Context(), db, host, authapp.MachineRuntimeSecretRequest{
+				Tenant:         plan.Tenant.Tenant,
+				Project:        plan.Project,
+				Machine:        plan.Name,
+				UserKey:        plan.Tenant.Tenant,
+				GitHubUsername: plan.Tenant.Tenant,
+			})
+			if err != nil {
+				return fmt.Errorf("enable workload identity: %w", err)
+			}
+			plan.WorkloadFiles, err = machine.WorkloadIdentityFiles(&machine.WorkloadIdentityRequest{
+				TokenEndpoint: result.TokenEndpoint,
+				RuntimeSecret: result.RuntimeSecret,
+				Tenant:        plan.Tenant.Tenant,
+				Project:       plan.Project,
+				Machine:       plan.Name,
+			})
+			if err != nil {
+				return fmt.Errorf("build workload identity files: %w", err)
+			}
+			plan.CertificateFiles = []machine.File{} // skip cert re-issue; only update workload files
+			if config.machineCreator == nil {
+				return fmt.Errorf("machine creator is not configured")
+			}
+			if err := config.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, fmt.Sprintf(
+				"Workload identity enabled for %s/%s/%s\nToken endpoint: %s\nOIDC issuer:    %s",
+				plan.Tenant.Tenant, plan.Project, plan.Name,
+				result.TokenEndpoint,
+				strings.TrimSuffix(result.TokenEndpoint, "/internal/workload/token"),
+			), result)
+		},
+	}
+	command.Flags().StringVar(&databasePath, "database", "", "SQLite auth database path")
+	command.Flags().StringVar(&authHostname, "auth-hostname", "", "public Auth Hostname (overrides SANDCASTLE_AUTH_HOSTNAME)")
 	_ = command.MarkFlagRequired("database")
 	return command
 }

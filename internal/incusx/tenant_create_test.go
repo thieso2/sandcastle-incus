@@ -388,6 +388,9 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 	if server.createdProjects[plan.InfraProject].Config["features.images"] != "true" {
 		t.Fatalf("infra project config features.images = %q, want true", server.createdProjects[plan.InfraProject].Config["features.images"])
 	}
+	if server.createdProjects[plan.NativeProject].Config["features.profiles"] != "true" {
+		t.Fatalf("native project config features.profiles = %q, want true", server.createdProjects[plan.NativeProject].Config["features.profiles"])
+	}
 	if len(mainServer.copiedImages) != len(plan.ImageAliases) {
 		t.Fatalf("main copied images = %#v, want %d", mainServer.copiedImages, len(plan.ImageAliases))
 	}
@@ -448,6 +451,22 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 			t.Fatalf("%s eth0 parent = %q", profileName, got)
 		}
 	}
+	nativeServer := server.projectServers[plan.NativeProject]
+	for _, profileName := range []string{"container", "default"} {
+		profile := nativeServer.profiles[profileName]
+		if profile == nil {
+			t.Fatalf("expected native %s profile to be created", profileName)
+		}
+		if got := profile.Devices["root"]["pool"]; got != plan.StoragePool {
+			t.Fatalf("native %s root pool = %q", profileName, got)
+		}
+		if got := profile.Devices["root"]["path"]; got != "/" {
+			t.Fatalf("native %s root path = %q", profileName, got)
+		}
+		if got := profile.Devices["eth0"]["parent"]; got != plan.PrivateNetwork {
+			t.Fatalf("native %s eth0 parent = %q", profileName, got)
+		}
+	}
 	if got := infraServer.createdFiles[tenant.DNSName+":/etc/coredns/Corefile"]; got == "" {
 		t.Fatal("expected CoreDNS Corefile to be written to infra server")
 	}
@@ -485,9 +504,9 @@ func TestTenantCreatorOmitsSourceForDirStoragePool(t *testing.T) {
 		createdVolumeFiles: map[string]string{},
 	}
 	infraServer := &fakeResourceServer{
-		networks:  map[string]*api.Network{},
-		volumes:   map[string]*api.StorageVolume{},
-		instances: map[string]*api.Instance{},
+		networks:           map[string]*api.Network{},
+		volumes:            map[string]*api.StorageVolume{},
+		instances:          map[string]*api.Instance{},
 		createdFiles:       map[string]string{},
 		createdVolumeFiles: map[string]string{},
 	}
@@ -541,6 +560,13 @@ func TestTenantCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 				Config:      api.ConfigMap{"features.images": "false"},
 			},
 		},
+		plan.NativeProject: {
+			Name: plan.NativeProject,
+			ProjectPut: api.ProjectPut{
+				Description: "existing native",
+				Config:      api.ConfigMap{"custom": "keep"},
+			},
+		},
 	}
 	creator := TenantCreator{Server: server}
 
@@ -558,6 +584,15 @@ func TestTenantCreatorUpdatesExistingProjectMetadata(t *testing.T) {
 	}
 	if server.updatedProjects[plan.IncusProject].Config[meta.KeyTenant] != "acme" {
 		t.Fatalf("managed metadata missing: %#v", server.updatedProjects[plan.IncusProject].Config)
+	}
+	if server.updatedProjects[plan.NativeProject] == nil {
+		t.Fatal("expected native project metadata update")
+	}
+	if server.updatedProjects[plan.NativeProject].Config["custom"] != "keep" {
+		t.Fatalf("native existing config was not preserved: %#v", server.updatedProjects[plan.NativeProject].Config)
+	}
+	if server.updatedProjects[plan.NativeProject].Config["features.profiles"] != "true" {
+		t.Fatalf("native features.profiles = %q, want true", server.updatedProjects[plan.NativeProject].Config["features.profiles"])
 	}
 	if mainServer.createdNetwork != nil {
 		t.Fatal("did not expect existing network creation")
@@ -704,8 +739,8 @@ func fakeCreateServerForPlan(plan tenant.CreatePlan, mainServer *fakeResourceSer
 		images:           images,
 		imageAliases:     imageAliases,
 		projectServers: map[string]*fakeResourceServer{
-			plan.IncusProject: mainServer,
-			plan.InfraProject: infraServer,
+			plan.IncusProject:  mainServer,
+			plan.InfraProject:  infraServer,
 			plan.NativeProject: nativeServer,
 		},
 	}
