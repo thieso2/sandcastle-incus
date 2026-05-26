@@ -78,6 +78,7 @@ type commandConfig struct {
 	routeBroker         routebroker.Runner
 	authApp             authapp.Runner
 	authDevice          authDeviceClient
+	openBrowser         func(string)
 	loginRemote         loginRemoteInstaller
 	loginTailnet        loginTailnetVerifier
 	loginSetup          loginSetupRunner
@@ -162,6 +163,7 @@ func Execute(name string, args []string) int {
 			RouteMetadata: directRouteManager,
 			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),
 		}},
+		openBrowser: openBrowser,
 		loginSetup: realLoginSetupRunner{config: commandConfig{
 			stdin:       os.Stdin,
 			stdout:      os.Stdout,
@@ -257,6 +259,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newIncusInfraCommand(config, opts))
 	root.AddCommand(newLoginCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))
+	root.AddCommand(newCacheCommand(config, opts))
 
 	return root
 }

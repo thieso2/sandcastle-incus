@@ -1,6 +1,7 @@
 package incusx
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -77,6 +78,18 @@ func (m LocalTrustManager) prepareCA(ctx context.Context, plan localtrust.Plan) 
 			return tenantCAMaterial{}, err
 		}
 		if ok {
+			// Read the live cert from Incus to detect tenant recreation (new CA key pair).
+			liveCertPEM, readErr := m.readCA(plan)
+			if readErr == nil && !bytes.Equal(liveCertPEM, cached.certPEM) {
+				// Tenant was recreated — the cached cert is stale. Use the fresh cert
+				// from Incus. The private key is optional: a restricted user cert may not
+				// have read access to the CA key. Without the key, trust install still
+				// works; only the re-provisioning write-back is skipped.
+				keyPEM, _ := m.readTenantCAKey(plan)
+				return tenantCAMaterial{certPEM: liveCertPEM, privateKeyPEM: keyPEM}, nil
+			}
+			// Either the Incus volume is missing/empty (re-provisioning) or the cert
+			// matches the cache. Propagate the cached CA back to the volume and use it.
 			if err := m.writeTenantCA(plan, cached); err != nil {
 				return tenantCAMaterial{}, err
 			}
@@ -192,6 +205,15 @@ func (m LocalTrustManager) localTrustServer() (LocalTrustServer, error) {
 		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 	}
 	return sdkLocalTrustServer{inner: instanceServer}, nil
+}
+
+// InvalidateTenantCA removes the locally cached CA material for the given Incus project,
+// forcing a fresh read from Incus on the next trust install.
+func InvalidateTenantCA(remote, incusProject string) {
+	plan := localtrust.Plan{IncusProject: incusProject}
+	dir := persistentTenantCADir(remote, plan)
+	_ = os.Remove(filepath.Join(dir, "ca.crt"))
+	_ = os.Remove(filepath.Join(dir, "ca.key"))
 }
 
 func shouldCacheTenantCA(plan localtrust.Plan) bool {

@@ -174,6 +174,17 @@ func (s *fakeResourceServer) UpdateProfile(name string, profile api.ProfilePut, 
 	return nil
 }
 
+func (s *fakeResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	if s.createdVolumeFiles == nil {
+		return nil, nil, api.StatusErrorf(http.StatusNotFound, "not found")
+	}
+	content, ok := s.createdVolumeFiles[volumeName+":"+filePath]
+	if !ok {
+		return nil, nil, api.StatusErrorf(http.StatusNotFound, "not found")
+	}
+	return io.NopCloser(strings.NewReader(content)), nil, nil
+}
+
 func (s *fakeResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
 	if s.createdVolumeFiles == nil {
 		s.createdVolumeFiles = map[string]string{}

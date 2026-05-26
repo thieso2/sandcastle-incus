@@ -136,6 +136,11 @@ func (c ConnectCache) InvalidateTenant(tenant string) {
 	_ = c.writeData(data)
 }
 
+// InvalidateAll removes all cached plans and keyscans.
+func (c ConnectCache) InvalidateAll() {
+	_ = c.writeData(&connectCacheData{})
+}
+
 // InvalidatePlan removes the cached plan for key, forcing a fresh Incus lookup next connect.
 func (c ConnectCache) InvalidatePlan(key string) {
 	data := c.readData()

@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,7 +28,12 @@ type fakeLocalTrustTenantResourceServer struct {
 }
 
 func (s *fakeLocalTrustTenantResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
-	return io.NopCloser(strings.NewReader(s.files[volumeName+":"+filePath])), nil, nil
+	key := volumeName + ":" + filePath
+	content, ok := s.files[key]
+	if !ok {
+		return nil, nil, fmt.Errorf("file not found: %s", key)
+	}
+	return io.NopCloser(strings.NewReader(content)), nil, nil
 }
 
 func (s *fakeLocalTrustTenantResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
@@ -128,6 +134,9 @@ func TestLocalTrustManagerReadsProjectCAForInstall(t *testing.T) {
 	}
 }
 
+// TestLocalTrustManagerRestoresCachedProjectCAForInstall verifies the re-provisioning path:
+// when the Incus volume is missing/empty (readCA fails) and a local cache exists, the cached
+// CA is written back to the volume and used for trust installation.
 func TestLocalTrustManagerRestoresCachedProjectCAForInstall(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	plan := localtrust.Plan{
@@ -144,7 +153,8 @@ func TestLocalTrustManagerRestoresCachedProjectCAForInstall(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	projectServer := &fakeLocalTrustTenantResourceServer{files: map[string]string{"sc-ca:/ca.crt": "NEW CERT", "sc-ca:/ca.key": "NEW KEY"}}
+	// Incus volume is empty — readCA will fail (re-provisioning case).
+	projectServer := &fakeLocalTrustTenantResourceServer{files: map[string]string{"sc-ca:/ca.key": "CACHED KEY"}}
 	store := &fakeLocalTrustStore{}
 	manager := LocalTrustManager{
 		Remote: "sandcastle-alice",
@@ -161,8 +171,44 @@ func TestLocalTrustManagerRestoresCachedProjectCAForInstall(t *testing.T) {
 	if got := projectServer.files["sc-ca:/ca.crt"]; got != "CACHED CERT" {
 		t.Fatalf("restored cert = %q", got)
 	}
-	if got := projectServer.files["sc-ca:/ca.key"]; got != "CACHED KEY" {
-		t.Fatalf("restored key = %q", got)
+}
+
+// TestLocalTrustManagerUsesFreshCertAfterTenantRecreation verifies that when a tenant is
+// recreated (Incus returns a different CA cert than the local cache), the fresh cert from
+// Incus wins so the new CA is installed in the trust store.
+func TestLocalTrustManagerUsesFreshCertAfterTenantRecreation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	plan := localtrust.Plan{
+		Reference:       "alice/myproject",
+		IncusProject:    "sc-alice-myproject",
+		StoragePool:     "default",
+		CAVolume:        "sc-ca",
+		CertificatePath: "/ca.crt",
+		TrustName:       "Sandcastle alice/myproject tenant CA",
+	}
+	if err := writePersistentTenantCA("sandcastle-alice", plan, tenantCAMaterial{
+		certPEM:       []byte("OLD CERT"),
+		privateKeyPEM: []byte("OLD KEY"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Incus has a new cert (tenant was recreated).
+	projectServer := &fakeLocalTrustTenantResourceServer{files: map[string]string{
+		"sc-ca:/ca.crt": "NEW CERT",
+		"sc-ca:/ca.key": "NEW KEY",
+	}}
+	store := &fakeLocalTrustStore{}
+	manager := LocalTrustManager{
+		Remote: "sandcastle-alice",
+		Server: &fakeLocalTrustServer{project: projectServer},
+		Store:  store,
+	}
+	_, err := manager.Install(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.certPEM != "NEW CERT" {
+		t.Fatalf("certPEM = %q, want NEW CERT", store.certPEM)
 	}
 }
 

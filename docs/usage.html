@@ -265,7 +265,10 @@ remote: sc-alice</code></pre>
   <div class="step">
     <h3>List tenants</h3>
     <pre><code><span class="cmd">sandcastle-admin tenant list</span>
-<span class="cmd">sandcastle-admin tenant list</span> <span class="flag">--json</span>  <span class="comment"># JSON output</span></code></pre>
+<span class="cmd">sandcastle-admin tenant list</span> <span class="flag">--json</span>  <span class="comment"># JSON output</span>
+
+<span class="comment"># Show all resources (metadata + machines across all projects) for a specific tenant</span>
+<span class="cmd">sandcastle-admin tenant list</span> <span class="arg">acme</span></code></pre>
   </div>
 
   <div class="step">
@@ -450,6 +453,7 @@ Bootstrap:
 <span class="cmd">sandcastle connect</span> <span class="arg">website/codex</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
     <p><code>connect</code> uses SSH to the machine's private IP and uses the private machine hostname as the host-key alias. Local DNS is useful for private URLs, but it is not required for Machine SSH Access.</p>
     <p>If the machine is missing, <code>connect</code> logs that it is creating the machine, then connects after creation.</p>
+    <p>Before handing off to SSH, <code>connect</code> probes TCP port 22 with a 2-second timeout when the connection plan came from the local cache. If the host is unreachable (e.g. tenant was recreated with a new IP), the cache entry is invalidated and the plan is resolved fresh from Incus, so connect self-heals without manual intervention.</p>
   </div>
 
   <div class="step">
@@ -475,6 +479,13 @@ Bootstrap:
 <span class="cmd">sandcastle list</span> <span class="flag">--json</span></code></pre>
     <p>Text output is an aligned table with project, machine, FQDN, private IP, local creation time (<code>yyyy-mm-dd hh:mm:ss</code>), and state. Output includes unmanaged Incus instances. Machine FQDNs use <code>&lt;machine&gt;.&lt;project&gt;.&lt;tenant&gt;</code>, for example <code>codex.website.acme</code>.</p>
   </div>
+
+  <div class="step">
+    <h3>Clear the local connect cache <span class="badge badge-user">user</span></h3>
+    <p>The connect cache stores resolved SSH connection plans and keyscan timestamps at <code>~/.config/sandcastle/&lt;remote&gt;/connect-cache.json</code>. Clear it after a tenant is recreated or when a machine's IP has changed.</p>
+    <pre><code><span class="cmd">sandcastle cache clear</span> <span class="arg">acme</span>   <span class="comment"># clear cache for one tenant</span>
+<span class="cmd">sandcastle cache clear</span>          <span class="comment"># clear entire cache</span></code></pre>
+  </div>
 </section>
 
 <!-- ─── 5. Trust ──────────────────────────────────────────────────────── -->
@@ -483,8 +494,9 @@ Bootstrap:
 
   <div class="step">
     <h3>Trust the tenant CA on your machine <span class="badge badge-user">user</span></h3>
-    <p>Makes the tenant's self-signed CA trusted by your OS/browser so machine HTTPS URLs work without warnings.</p>
-    <p>On macOS, the CLI installs trust into the user's login keychain with <code>security add-trusted-cert</code>. Override the keychain with <code>SANDCASTLE_DARWIN_TRUST_KEYCHAIN</code> when a different local trust target is needed. After a successful tenant CA trust install, Sandcastle caches that tenant CA keypair at <code>~/.config/sandcastle/tenant-ca/&lt;remote&gt;/&lt;tenant-project&gt;</code> and restores it into a recreated tenant before checking local trust, so an approved tenant CA can survive <code>infra delete --purge</code> and later recreates.</p>
+    <p>Makes the tenant's self-signed CA trusted by your OS/browser so machine HTTPS URLs work without warnings. <code>sc login</code> runs trust install automatically for single-tenant users after credential enrollment.</p>
+    <p>On macOS, the CLI installs trust into the user's login keychain with <code>security add-trusted-cert</code>. Override the keychain with <code>SANDCASTLE_DARWIN_TRUST_KEYCHAIN</code> when a different local trust target is needed.</p>
+    <p>Sandcastle always reads the CA certificate fresh from Incus before installing. When a local cache exists at <code>~/.config/sandcastle/tenant-ca/&lt;remote&gt;/&lt;tenant-project&gt;</code> and the live Incus cert differs (tenant was recreated with a new CA key pair), the fresh Incus cert wins and is installed. The cache is used only when Incus returns the same cert (validating the cache) or when the Incus volume is empty (re-provisioning path). <code>tenant delete</code> and <code>tenant create</code> automatically invalidate the local CA cache so that trust install always picks up the new CA.</p>
     <pre><code><span class="cmd">sandcastle trust install</span>
 <span class="cmd">sandcastle trust install</span> <span class="arg">acme</span></code></pre>
   </div>

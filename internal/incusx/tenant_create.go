@@ -35,6 +35,7 @@ type TenantResourceServer interface {
 	CreateNetwork(network api.NetworksPost) error
 	GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error)
 	CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error
+	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 	GetProfile(name string) (*api.Profile, string, error)
 	CreateProfile(profile api.ProfilesPost) error
@@ -415,6 +416,13 @@ func ensureStorageVolume(server TenantResourceServer, pool string, volume api.St
 func ensureTenantCA(server TenantResourceServer, plan tenant.CreatePlan) error {
 	if len(plan.TenantCA.CertificatePEM) == 0 || len(plan.TenantCA.PrivateKeyPEM) == 0 {
 		return fmt.Errorf("tenant CA material is missing")
+	}
+	// Only write if no CA exists yet. A re-run on an existing tenant must not rotate the CA,
+	// as that would break all machine certificates signed by the original CA.
+	existing, _, err := server.GetStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.TenantCA.CertificatePath)
+	if err == nil {
+		existing.Close()
+		return nil
 	}
 	if err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", plan.CAVolume, plan.TenantCA.CertificatePath, incus.InstanceFileArgs{
 		Content:   strings.NewReader(string(plan.TenantCA.CertificatePEM)),
@@ -866,6 +874,10 @@ func (s sdkResourceServer) GetStoragePoolVolume(pool string, volType string, nam
 
 func (s sdkResourceServer) CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error {
 	return s.inner.CreateStoragePoolVolume(pool, volume)
+}
+
+func (s sdkResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
 }
 
 func (s sdkResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {

@@ -225,8 +225,8 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if err := client.DebugApprove(cmd.Context(), start.UserCode); err != nil {
 					return fmt.Errorf("debug approve: %w", err)
 				}
-			} else {
-				openBrowser(start.VerificationURI)
+			} else if config.openBrowser != nil {
+				config.openBrowser(start.VerificationURI)
 			}
 			if start.Message != "" {
 				fmt.Fprintln(config.stdout, start.Message)

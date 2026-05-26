@@ -3,7 +3,9 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
@@ -29,6 +31,11 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			}
 			if config.machineConnector == nil {
 				return fmt.Errorf("machine connect executor is not configured")
+			}
+			// If the plan came from cache and the SSH host is unreachable, don't let SSH
+			// hang — invalidate the cache immediately and retry with a fresh Incus lookup.
+			if fromCache && !probeSSHPort(plan.SSHHost, 2*time.Second) {
+				return retryConnectFresh(cmd, config, cache, reference, command, plan)
 			}
 			if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), config, plan); err != nil {
 				return err
@@ -214,6 +221,20 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 		Stdout: config.stdout,
 		Stderr: config.stderr,
 	})
+}
+
+// probeSSHPort returns true if TCP port 22 on host is reachable within the given timeout.
+// Used to detect stale cached IPs before handing off to SSH (which would hang on unreachable hosts).
+func probeSSHPort(host string, timeout time.Duration) bool {
+	if strings.TrimSpace(host) == "" {
+		return false
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, "22"), timeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func connectPlanFromCreatePlan(plan machine.CreatePlan, command []string) (machine.ConnectPlan, error) {

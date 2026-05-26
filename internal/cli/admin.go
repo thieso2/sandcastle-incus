@@ -70,16 +70,44 @@ func newAdminTenantCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 
 func newAdminTenantListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List Sandcastle tenants",
-		Args:  cobra.NoArgs,
+		Use:   "list [tenant]",
+		Short: "List Sandcastle tenants, or all resources in a specific tenant",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tenants, err := listTenants(cmd.Context(), config.tenantStore)
 			if err != nil {
 				return err
 			}
-			payload := tenantListPayload{Tenants: tenants}
-			return writeOutput(config.stdout, opts.output, formatTenantList(tenants), payload)
+			if len(args) == 0 {
+				payload := tenantListPayload{Tenants: tenants}
+				return writeOutput(config.stdout, opts.output, formatTenantList(tenants), payload)
+			}
+			ref := strings.TrimSpace(args[0])
+			var summary tenant.Summary
+			found := false
+			for _, t := range tenants {
+				if t.Tenant == ref {
+					summary = t
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("Sandcastle tenant %s not found", ref)
+			}
+			if config.machineStore == nil {
+				return fmt.Errorf("machine metadata store is not configured")
+			}
+			machines, unmanaged, err := listMachinesAndUnmanaged(cmd.Context(), config.machineStore, summary)
+			if err != nil {
+				return err
+			}
+			result := tenantResourcesPayload{
+				Tenant:    summary,
+				Machines:  machines,
+				Unmanaged: unmanaged,
+			}
+			return writeOutput(config.stdout, opts.output, formatTenantResources(result), result)
 		},
 	}
 }
@@ -135,6 +163,7 @@ func newAdminTenantCreateCommand(config commandConfig, opts *rootOptions) *cobra
 					return fmt.Errorf("tenant creation executor is not configured")
 				}
 				incusx.NewConnectCache(config.adminConfig.Remote).InvalidateTenant(plan.Reference)
+				incusx.InvalidateTenantCA(config.adminConfig.Remote, plan.IncusProject)
 				if err := config.tenantCreator.CreateTenant(cmd.Context(), plan); err != nil {
 					return err
 				}
@@ -142,7 +171,7 @@ func newAdminTenantCreateCommand(config commandConfig, opts *rootOptions) *cobra
 				if authKey == "" {
 					authKey = strings.TrimSpace(config.adminConfig.AuthTailscaleAuthKey)
 				}
-				if authKey != "" && config.tailscale != nil {
+				if config.tailscale != nil {
 					tsAdmin := config.adminConfig
 					tsAdmin.Tenant = plan.Reference
 					upPlan, err := tailscalePlanUpForTenant(cmd.Context(), tsAdmin, config.tenantStore, authKey)
@@ -216,6 +245,7 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 				return err
 			}
 			incusx.NewConnectCache(config.adminConfig.Remote).InvalidateTenant(plan.Reference)
+			incusx.InvalidateTenantCA(config.adminConfig.Remote, plan.IncusProject)
 			return writeOutput(config.stdout, opts.output, formatDeletePlan(plan), plan)
 		},
 	}

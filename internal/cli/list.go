@@ -27,6 +27,12 @@ type tenantListPayload struct {
 	Tenants []tenant.Summary `json:"tenants"`
 }
 
+type tenantResourcesPayload struct {
+	Tenant    tenant.Summary             `json:"tenant"`
+	Machines  []meta.Machine             `json:"machines"`
+	Unmanaged []machine.UnmanagedMachine `json:"unmanaged,omitempty"`
+}
+
 func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var allProjects bool
 	command := &cobra.Command{
@@ -254,4 +260,58 @@ func formatListCreatedAt(createdAt string) string {
 		return createdAt
 	}
 	return parsed.Local().Format("2006-01-02 15:04:05")
+}
+
+func formatTenantResources(result tenantResourcesPayload) string {
+	var b strings.Builder
+	t := result.Tenant
+	fmt.Fprintf(&b, "tenant:   %s\n", t.Tenant)
+	fmt.Fprintf(&b, "cidr:     %s\n", displayValue(t.PrivateCIDR))
+	fmt.Fprintf(&b, "dns:      %s\n", displayValue(t.DNSSuffix))
+	if len(t.Projects) > 0 {
+		names := make([]string, 0, len(t.Projects))
+		for _, p := range t.Projects {
+			names = append(names, p.Name)
+		}
+		fmt.Fprintf(&b, "projects: %s\n", strings.Join(names, ", "))
+	}
+	if len(t.PublicRoutes) > 0 {
+		routes := make([]string, 0, len(t.PublicRoutes))
+		for _, r := range t.PublicRoutes {
+			routes = append(routes, r.Hostname)
+		}
+		fmt.Fprintf(&b, "routes:   %s\n", strings.Join(routes, ", "))
+	}
+	if t.Tailscale.State != "" {
+		fmt.Fprintf(&b, "tailscale: %s\n", t.Tailscale.State)
+	}
+	if len(result.Machines) == 0 && len(result.Unmanaged) == 0 {
+		fmt.Fprintf(&b, "\nNo machines found.")
+		return b.String()
+	}
+	fmt.Fprintln(&b)
+	table := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "PROJECT\tMACHINE\tFQDN\tIP\tCREATED\tSTATE")
+	for _, m := range result.Machines {
+		state := "stopped"
+		if m.Running {
+			state = "running"
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			m.Project, m.Name, machineFQDN(t, m), m.PrivateIP, formatListCreatedAt(m.CreatedAt), state)
+	}
+	for _, u := range result.Unmanaged {
+		state := u.Status
+		if state == "" {
+			if u.Running {
+				state = "running"
+			} else {
+				state = "stopped"
+			}
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			"-", u.Name, "-", displayValue(u.PrivateIP), formatListCreatedAt(u.CreatedAt), "unmanaged:"+state)
+	}
+	_ = table.Flush()
+	return strings.TrimRight(b.String(), "\n")
 }

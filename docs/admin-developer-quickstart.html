@@ -438,31 +438,68 @@ sc create codex --detach</code></pre>
 
     <section id="verify">
       <h2>Verification</h2>
+
+      <h3>Post-setup checklist</h3>
+      <p>After <code>sc-adm tenant create</code> and developer setup, verify each layer in order:</p>
+      <ol>
+        <li><strong>Tenant resources are healthy</strong> — metadata, CIDR, DNS, network, volumes, and both sidecars are present and running.</li>
+        <li><strong>Tailscale is connected</strong> — the tenant private CIDR is advertised as an approved route in the tenant Tailnet.</li>
+        <li><strong>Local DNS resolves private hostnames</strong> — machine FQDNs like <code>codex.website.acme</code> resolve to private IPs.</li>
+        <li><strong>SSH connect works</strong> — <code>sc c codex</code> opens a shell without keyscan warnings or hangs.</li>
+        <li><strong>Tenant CA is trusted</strong> — <code>curl https://codex.website.acme</code> succeeds (no SSL error).</li>
+        <li><strong>Tenant CA matches the server cert</strong> — if curl fails after <code>sc trust install</code>, the keychain has a stale CA from a previous tenant creation. Run <code>sc trust install</code> again after rebuilding the CLI to force a fresh CA read from Incus.</li>
+      </ol>
+
       <div class="grid">
         <div class="panel">
           <h3>Admin checks</h3>
-          <pre><code>./bin/sc-adm tenant status acme
-./bin/sc-adm tenant users acme
-incus project show REMOTE:sc-acme
+          <pre><code># Tenant resource and sidecar health
+sc-adm tenant status acme
+sc-adm tenant list acme       # shows machines + metadata
+
+# Tailscale route
+sc-adm tailscale status acme
+
+# List all resources in tenant across all projects
 incus list REMOTE: --project sc-acme</code></pre>
         </div>
         <div class="panel">
           <h3>Developer checks</h3>
-          <pre><code>sc status
-sc project status website
-sc status codex
-sc connect codex</code></pre>
+          <pre><code># Status and DNS
+sc status
+sc dns status
+
+# SSH connect (uses private IP, no Tailscale required)
+sc connect codex
+sc c codex
+
+# HTTPS trust (must succeed after sc trust install)
+curl https://codex.website.acme
+
+# Connect cache health (clear if tenant was recreated)
+sc cache clear acme</code></pre>
         </div>
       </div>
+
       <h3>Expected healthy shape</h3>
       <ul>
         <li>Tenant metadata check is <code>ok</code>.</li>
         <li>Private CIDR and domain checks are <code>ok</code>.</li>
-        <li>Tenant network and volumes are present.</li>
+        <li>Tenant network (<code>sc-private</code>) and volumes (<code>sc-home</code>, <code>sc-workspace</code>, <code>sc-ca</code>) are present.</li>
         <li><code>sc-tailscale</code> and <code>sc-dns</code> sidecars are running.</li>
-        <li>Tailscale route check becomes <code>ok</code> after authentication and route approval.</li>
+        <li>Tailscale route check is <code>ok</code> after authentication and route approval in the tenant Tailnet.</li>
+        <li><code>sc c &lt;machine&gt;</code> connects immediately without SSH keyscan delays.</li>
+        <li><code>curl https://&lt;machine&gt;.&lt;project&gt;.&lt;tenant&gt;</code> returns HTTP 200 or application response without SSL errors.</li>
       </ul>
-      <p>For repo-level verification, the destructive <code>scripts/e2e.sh incus</code> tier covers tenant create/purge and listing, tenant DNS, the current <code>sc create</code> and <code>sc connect</code> machine flows, local trust, host override create/list/delete, infrastructure, and image-sync checks.</p>
+
+      <h3>After tenant recreation</h3>
+      <p>When a tenant is deleted and recreated, the following local state becomes stale and must be refreshed:</p>
+      <ul>
+        <li><strong>Connect cache</strong> — cached IPs and keyscan timestamps point to the old machines. Run <code>sc cache clear &lt;tenant&gt;</code> or let <code>sc c</code> self-heal via the TCP probe (detects unreachable IPs and re-resolves automatically).</li>
+        <li><strong>Known hosts</strong> — old host keys remain in <code>~/.ssh/known_hosts</code>. <code>sc c</code> removes and re-scans them automatically on first connect. SSH with <code>StrictHostKeyChecking=accept-new</code> also handles this without errors.</li>
+        <li><strong>Tenant CA trust</strong> — the new tenant has a new CA key pair. Run <code>sc trust install</code> to install the fresh CA. The CLI always reads the CA directly from Incus (never from stale local cache) and installs it if the keychain has an older version.</li>
+        <li><strong>Local DNS</strong> — DNS suffix does not change when a tenant is recreated with the same name; no action needed.</li>
+      </ul>
 
       <h3>Disposable VM local e2e</h3>
       <p>Use the host-side VM harness for local DNS resolver, platform trust, and <code>/etc/hosts</code> mutation coverage. The harness creates a 20GiB root disk by default.</p>
@@ -470,6 +507,7 @@ sc connect codex</code></pre>
       <pre><code>scripts/e2e-local-vm.sh
 SANDCASTLE_E2E_VM_KEEP=1 scripts/e2e-local-vm.sh</code></pre>
       <p>Run <code>go test ./internal/e2e -run TestFirstRunLoginWithMockGitHubOAuth -count=1 -v</code> to exercise the first-run login mock GitHub OAuth path without external GitHub calls.</p>
+      <p>For repo-level coverage, the destructive <code>scripts/e2e.sh incus</code> tier covers tenant create/purge and listing, tenant DNS, the current <code>sc create</code> and <code>sc connect</code> machine flows, local trust, host override create/list/delete, infrastructure, and image-sync checks.</p>
     </section>
 
     <section id="cleanup">
