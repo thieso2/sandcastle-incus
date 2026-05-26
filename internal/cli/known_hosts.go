@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
@@ -19,12 +20,18 @@ type machineKnownHostsManager interface {
 }
 
 type localKnownHostsManager struct {
-	verbose bool
-	stderr  io.Writer
+	verbose      bool
+	stderr       io.Writer
+	connectCache *incusx.ConnectCache
 }
 
 func newLocalKnownHostsManager(verbose bool, stderr io.Writer) localKnownHostsManager {
 	return localKnownHostsManager{verbose: verbose, stderr: stderr}
+}
+
+func (m localKnownHostsManager) WithConnectCache(cache incusx.ConnectCache) localKnownHostsManager {
+	m.connectCache = &cache
+	return m
 }
 
 func (m localKnownHostsManager) RefreshMachine(ctx context.Context, plan machine.CreatePlan) error {
@@ -36,6 +43,13 @@ func (m localKnownHostsManager) RefreshMachine(ctx context.Context, plan machine
 	if privateIP == "" {
 		return fmt.Errorf("machine %s has no private IP for SSH known_hosts refresh", plan.InstanceName)
 	}
+
+	// Fast path: skip the network keyscan if this host was scanned recently.
+	// SSH uses StrictHostKeyChecking=accept-new so the key is already in known_hosts.
+	if m.connectCache != nil && m.connectCache.IsKeyscanRecent(hostname) {
+		return nil
+	}
+
 	path, err := userKnownHostsPath()
 	if err != nil {
 		return err
@@ -70,6 +84,9 @@ func (m localKnownHostsManager) RefreshMachine(ctx context.Context, plan machine
 	m.log("updated " + path + " for " + hostname + " and " + privateIP)
 	if m.stderr != nil {
 		fmt.Fprintf(m.stderr, "Updated SSH known_hosts for %s (%s).\n", hostname, privateIP)
+	}
+	if m.connectCache != nil {
+		m.connectCache.MarkKeyscanned(hostname)
 	}
 	return nil
 }

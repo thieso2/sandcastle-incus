@@ -143,7 +143,7 @@ func Execute(name string, args []string) int {
 		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
-		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr),
+		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr).WithConnectCache(incusx.NewConnectCache(adminConfig.Remote)),
 		dnsApplier:          incusx.NewDNSManager(adminConfig.Remote),
 		localDNS:            localdns.FileManager{},
 		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),
