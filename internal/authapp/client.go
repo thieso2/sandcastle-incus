@@ -124,6 +124,32 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 	}, nil
 }
 
+// DebugApprove calls the server-side /debug/device/approve endpoint, which
+// auto-approves the pending device login without browser or GitHub interaction.
+// The server must be running with --debug-device-user set to an allowlisted user.
+func (c DeviceClient) DebugApprove(ctx context.Context, userCode string) error {
+	body := strings.NewReader("user_code=" + userCode)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/debug/device/approve"), body)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := c.client().Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(b))
+		if msg == "" {
+			msg = response.Status
+		}
+		return fmt.Errorf("debug approve: %s", msg)
+	}
+	return nil
+}
+
 func (c DeviceClient) url(path string) string {
 	base := strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
 	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {

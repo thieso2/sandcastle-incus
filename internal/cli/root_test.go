@@ -185,6 +185,10 @@ func (c *fakeAuthDeviceClient) Poll(ctx context.Context, deviceCode string, requ
 	return next, nil
 }
 
+func (c *fakeAuthDeviceClient) DebugApprove(ctx context.Context, userCode string) error {
+	return nil
+}
+
 func TestVersionText(t *testing.T) {
 	stdout, err := executeForTest(t, "sandcastle", "version")
 	if err != nil {

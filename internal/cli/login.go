@@ -179,6 +179,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var sshPublicKeyPath string
 	var skipSetup bool
 	var tailscaleAuthKey string
+	var debugApprove bool
 	command := &cobra.Command{
 		Use:   "login auth-host",
 		Short: "Sign in to Sandcastle through the Auth App",
@@ -220,7 +221,13 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(config.stdout, "Open: %s\nCode: %s\n", start.VerificationURI, start.UserCode)
-			openBrowser(start.VerificationURI)
+			if debugApprove {
+				if err := client.DebugApprove(cmd.Context(), start.UserCode); err != nil {
+					return fmt.Errorf("debug approve: %w", err)
+				}
+			} else {
+				openBrowser(start.VerificationURI)
+			}
 			if start.Message != "" {
 				fmt.Fprintln(config.stdout, start.Message)
 			}
@@ -367,6 +374,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&sshPublicKeyPath, "ssh-public-key", "", "SSH public key path to authorize for Machine SSH Access")
 	command.Flags().BoolVar(&skipSetup, "skip-setup", false, "skip automatic DNS and Tailscale setup after enrollment")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key for unattended post-login attachment")
+	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve via /debug/device/approve (requires server --debug-device-user)")
 	return command
 }
 

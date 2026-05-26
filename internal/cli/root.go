@@ -87,6 +87,7 @@ type commandConfig struct {
 type authDeviceClient interface {
 	Start(context.Context) (authapp.DeviceStartResult, error)
 	Poll(context.Context, string, authapp.DevicePollRequest) (authapp.DevicePollResult, error)
+	DebugApprove(context.Context, string) error
 }
 
 type rootOptions struct {
