@@ -316,6 +316,7 @@ admin setup. The minimal base image contains:
 - tmux;
 - mosh;
 - SSH agent socket handoff for refreshed forwarded-agent sockets;
+- Google Cloud CLI (`gcloud`);
 - vim;
 - sudo;
 - curl, ca-certificates, bash;
