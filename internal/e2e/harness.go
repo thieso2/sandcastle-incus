@@ -26,6 +26,12 @@ type Config struct {
 	LocalVM       bool
 	Tailscale     TailscaleConfig
 	Images        ImageConfig
+	Auth          AuthConfig
+}
+
+type AuthConfig struct {
+	Host      string // auth app URL for sc login e2e
+	DebugUser string // allowlisted user for --debug-device-user on the server
 }
 
 type RouteBrokerConfig struct {
@@ -85,6 +91,10 @@ func LoadConfig() Config {
 			CodexVersion:  os.Getenv("SANDCASTLE_E2E_CODEX_VERSION"),
 			ClaudeVersion: os.Getenv("SANDCASTLE_E2E_CLAUDE_CODE_VERSION"),
 			GeminiVersion: os.Getenv("SANDCASTLE_E2E_GEMINI_CLI_VERSION"),
+		},
+		Auth: AuthConfig{
+			Host:      os.Getenv("SANDCASTLE_E2E_AUTH_HOST"),
+			DebugUser: getenv("SANDCASTLE_E2E_DEBUG_USER", "thieso2"),
 		},
 	}
 }

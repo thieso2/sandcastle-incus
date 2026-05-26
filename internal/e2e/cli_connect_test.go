@@ -20,6 +20,9 @@ func TestCLIConnectCommandE2E(t *testing.T) {
 	if err := e2eConfig.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	if !e2eConfig.LocalVM {
+		t.Skip("set SANDCASTLE_E2E_LOCAL_VM=1 to run tests that require direct SSH access to machine private IPs")
+	}
 	baseSource := strings.TrimSpace(e2eConfig.Images.BaseSource)
 	aiSource := strings.TrimSpace(e2eConfig.Images.AISource)
 	if baseSource == "" || aiSource == "" {
