@@ -104,7 +104,7 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 	command.Flags().IntVar(&appPort, "app-port", 0, "application port proxied by machine Caddy")
 	command.Flags().StringVar(&homeDir, "home-dir", "", "project home volume subdirectory")
 	command.Flags().StringVar(&workspaceDir, "workspace-dir", "", "project workspace volume subdirectory")
-	command.Flags().BoolVar(&shareHome, "share-home", false, "confirm sharing a home subdirectory with another running machine")
+	command.Flags().BoolVar(&shareHome, "share-home", false, "deprecated no-op; project home storage is shared by default")
 	command.Flags().BoolVar(&containerTools, "container-tools", false, "enable nested container tooling for this machine")
 	return command
 }

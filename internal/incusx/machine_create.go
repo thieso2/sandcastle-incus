@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -137,6 +138,7 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
 	}
+	certificateResult, certificateStart := c.issueMachineCertificateFilesAsync(projectServer, plan)
 	if err := c.ensureMachineStorageDirsStep(projectServer, plan); err != nil {
 		return err
 	}
@@ -149,10 +151,44 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 	}); err != nil {
 		return fmt.Errorf("create machine %s: %w", plan.InstanceName, err)
 	}
+	if certificateResult != nil {
+		result := <-certificateResult
+		if result.err != nil {
+			if c.Log != nil {
+				c.log(fmt.Sprintf("issue certificate from tenant CA failed (%s)", formatVerboseDuration(time.Since(certificateStart))))
+			}
+			return result.err
+		}
+		if c.Log != nil {
+			c.log(fmt.Sprintf("issue certificate from tenant CA done (%s)", formatVerboseDuration(time.Since(certificateStart))))
+		}
+		plan.CertificateFiles = result.files
+	}
 	if err := c.configureMachineStep(projectServer, plan); err != nil {
 		return err
 	}
 	return nil
+}
+
+type machineCertificateIssueResult struct {
+	files []machine.File
+	err   error
+}
+
+func (c MachineCreator) issueMachineCertificateFilesAsync(server MachineResourceServer, plan machine.CreatePlan) (<-chan machineCertificateIssueResult, time.Time) {
+	if len(plan.CertificateFiles) > 0 {
+		return nil, time.Time{}
+	}
+	start := time.Now()
+	if c.Log != nil {
+		c.log("issue certificate from tenant CA started")
+	}
+	result := make(chan machineCertificateIssueResult, 1)
+	go func() {
+		files, err := issueMachineCertificateFilesFromProjectCA(server, plan)
+		result <- machineCertificateIssueResult{files: files, err: err}
+	}()
+	return result, start
 }
 
 func (c MachineCreator) configureMachine(server MachineResourceServer, plan machine.CreatePlan) error {
@@ -374,72 +410,33 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan, r
 			return err
 		}
 	}
-	if err := runMachineConfigStep(run, "run machine init script", func() error {
-		return runMachineInitScript(server, plan)
-	}); err != nil {
-		return err
-	}
-	if err := runMachineConfigStep(run, "write Caddy systemd override", func() error {
-		return server.CreateInstanceFile(plan.InstanceName, "/etc/systemd/system/caddy.service.d/machine.conf", incus.InstanceFileArgs{
-			Content:   strings.NewReader("[Service]\nUser=root\nGroup=root\n"),
-			Type:      "file",
-			Mode:      0o644,
-			WriteMode: "overwrite",
-		})
-	}); err != nil {
-		return fmt.Errorf("write Caddy service override: %w", err)
-	}
-	if err := runMachineConfigStep(run, "write Caddyfile", func() error {
-		return server.CreateInstanceFile(plan.InstanceName, plan.CaddyFile.Path, incus.InstanceFileArgs{
-			Content:   strings.NewReader(plan.CaddyFile.Content),
-			Type:      "file",
-			Mode:      plan.CaddyFile.Mode,
-			WriteMode: "overwrite",
-		})
-	}); err != nil {
-		return fmt.Errorf("write machine Caddyfile %s: %w", plan.CaddyFile.Path, err)
-	}
-	if err := runMachineConfigStep(run, fmt.Sprintf("write certificate files (%d)", len(certificateFiles)), func() error {
-		for _, file := range certificateFiles {
-			if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
-				Content:   strings.NewReader(string(file.Content)),
-				Type:      "file",
-				Mode:      file.Mode,
-				WriteMode: "overwrite",
-			}); err != nil {
-				return fmt.Errorf("write machine certificate file %s: %w", file.Path, err)
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if err := runMachineConfigStep(run, fmt.Sprintf("write workload identity files (%d)", len(plan.WorkloadFiles)), func() error {
-		for _, file := range plan.WorkloadFiles {
-			if err := server.CreateInstanceFile(plan.InstanceName, file.Path, incus.InstanceFileArgs{
-				Content:   strings.NewReader(string(file.Content)),
-				Type:      "file",
-				Mode:      file.Mode,
-				WriteMode: "overwrite",
-			}); err != nil {
-				return fmt.Errorf("write workload identity file %s: %w", file.Path, err)
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
+	return runMachineConfigStep(run, fmt.Sprintf("run machine configure script (%d cert files, %d workload files)", len(certificateFiles), len(plan.WorkloadFiles)), func() error {
+		return runMachineConfigureScript(server, plan, certificateFiles)
+	})
+}
+
+func runMachineConfigureScript(server MachineResourceServer, plan machine.CreatePlan, certificateFiles []machine.File) error {
 	ipWithPrefix, gateway, err := machineNetworkParams(plan)
 	if err != nil {
 		return err
 	}
-	return runMachineConfigStep(run, "restart Caddy", func() error {
-		return restartMachineCaddy(server, plan.InstanceName, ipWithPrefix, gateway)
-	})
-}
+	files := []machine.File{
+		{
+			Path:    "/etc/systemd/system/caddy.service.d/machine.conf",
+			Content: []byte("[Service]\nUser=root\nGroup=root\n"),
+			Mode:    0o644,
+		},
+		{
+			Path:    plan.CaddyFile.Path,
+			Content: []byte(plan.CaddyFile.Content),
+			Mode:    plan.CaddyFile.Mode,
+		},
+	}
+	files = append(files, certificateFiles...)
+	files = append(files, plan.WorkloadFiles...)
 
-func runMachineInitScript(server MachineResourceServer, plan machine.CreatePlan) error {
-	script := `set -eu
+	var script strings.Builder
+	script.WriteString(`set -eu
 step() { printf 'step=%s\n' "$1" >&2; }
 
 step hostname
@@ -461,38 +458,6 @@ fi
 step linux-user
 /usr/local/bin/sandcastle-bootstrap
 
-step shell-prompt
-user="${SANDCASTLE_USER:?}"
-home="/home/${user}"
-bashrc="${home}/.bashrc"
-profile="${home}/.bash_profile"
-install -d -o "${user}" -g "${user}" "${home}"
-touch "${bashrc}" "${profile}"
-chown "${user}:${user}" "${bashrc}" "${profile}"
-
-prompt_marker="# sandcastle prompt: full hostname"
-if ! grep -qF "${prompt_marker}" "${bashrc}"; then
-  cat >>"${bashrc}" <<'EOF_PROMPT'
-
-# sandcastle prompt: full hostname
-if [[ $- == *i* ]]; then
-  PS1='\u@\H:\w\$ '
-fi
-EOF_PROMPT
-fi
-
-profile_marker="# sandcastle bash profile: source bashrc"
-if ! grep -qF "${profile_marker}" "${profile}"; then
-  cat >>"${profile}" <<'EOF_PROFILE'
-
-# sandcastle bash profile: source bashrc
-if [[ -f ~/.bashrc ]]; then
-  . ~/.bashrc
-fi
-EOF_PROFILE
-fi
-chown "${user}:${user}" "${bashrc}" "${profile}"
-
 step ping-capability
 if command -v setcap >/dev/null 2>&1 && [ -x /usr/bin/ping ]; then
   setcap cap_net_raw+p /usr/bin/ping
@@ -504,14 +469,8 @@ if [ -n "${SANDCASTLE_DNS_ADDRESS:-}" ]; then
   printf 'nameserver %s\n' "${SANDCASTLE_DNS_ADDRESS}" >/etc/resolv.conf
   chmod 0644 /etc/resolv.conf
 fi
-
-step config-directories
-install -d -m 0755 /etc/caddy
-install -d -m 0755 /etc/caddy/certs
-install -d -m 0755 /etc/systemd/system/caddy.service.d
-install -d -m 0755 "${SANDCASTLE_WORKLOAD_DIR}"
-install -d -m 0755 /etc/profile.d
-`
+`)
+	appendMachineCaddyConfigScript(&script, files, ipWithPrefix, gateway)
 	var stderr bytes.Buffer
 	dataDone := make(chan bool)
 	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
@@ -523,19 +482,18 @@ install -d -m 0755 /etc/profile.d
 			"SANDCASTLE_SSH_PUBLIC_KEY": plan.SSHPublicKey,
 			"SANDCASTLE_HOSTNAME":       plan.Hostname,
 			"SANDCASTLE_DNS_ADDRESS":    plan.Tenant.DNSAddress,
-			"SANDCASTLE_WORKLOAD_DIR":   machine.WorkloadDir,
 		},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(script),
+		Stdin:    strings.NewReader(script.String()),
 		Stderr:   &stderr,
 		DataDone: dataDone,
 	})
 	if err != nil {
-		return fmt.Errorf("run machine init script in %s: %w", plan.InstanceName, err)
+		return fmt.Errorf("run machine configure script in %s: %w", plan.InstanceName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for machine init script in %s (stderr: %s): %w", plan.InstanceName, stderr.String(), err)
+		return fmt.Errorf("wait for machine configure script in %s (stderr: %s): %w", plan.InstanceName, stderr.String(), err)
 	}
 	<-dataDone
 	return nil
@@ -554,6 +512,39 @@ func machineNetworkParams(plan machine.CreatePlan) (string, string, error) {
 	base[3] = 1
 	gateway := netip.AddrFrom4(base).String()
 	return ipWithPrefix, gateway, nil
+}
+
+func appendMachineCaddyConfigScript(script *strings.Builder, files []machine.File, ipWithPrefix string, gateway string) {
+	script.WriteString("step caddy-config\n")
+	script.WriteString("write_file() {\n")
+	script.WriteString("  path=\"$1\"\n")
+	script.WriteString("  mode=\"$2\"\n")
+	script.WriteString("  install -d -m 0755 \"$(dirname \"$path\")\"\n")
+	script.WriteString("  base64 -d >\"$path\"\n")
+	script.WriteString("  chmod \"$mode\" \"$path\"\n")
+	script.WriteString("}\n")
+	for _, file := range files {
+		script.WriteString("write_file ")
+		script.WriteString(shellQuote(file.Path))
+		script.WriteString(" ")
+		script.WriteString(shellQuote(fmt.Sprintf("%04o", file.Mode)))
+		script.WriteString(" <<'EOF_FILE'\n")
+		script.WriteString(base64.StdEncoding.EncodeToString(file.Content))
+		script.WriteString("\nEOF_FILE\n")
+	}
+	if ipWithPrefix != "" && gateway != "" {
+		script.WriteString("/usr/sbin/ip link set eth0 up\n")
+		script.WriteString("/usr/sbin/ip addr add ")
+		script.WriteString(shellQuote(ipWithPrefix))
+		script.WriteString(" dev eth0 2>/dev/null || true\n")
+		script.WriteString("/usr/sbin/ip route add default via ")
+		script.WriteString(shellQuote(gateway))
+		script.WriteString(" 2>/dev/null || true\n")
+	}
+	script.WriteString("systemctl daemon-reload\n")
+	script.WriteString("systemctl restart caddy\n")
+	script.WriteString("for i in $(seq 1 50); do systemctl is-active caddy >/dev/null 2>&1 && exit 0; sleep 0.1; done\n")
+	script.WriteString("systemctl is-active caddy\n")
 }
 
 type machineCaddyRestarter interface {

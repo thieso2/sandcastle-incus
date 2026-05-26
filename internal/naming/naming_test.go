@@ -72,6 +72,16 @@ func TestParseUserMachineRefPreservesExplicitProject(t *testing.T) {
 	}
 }
 
+func TestParseUserMachineRefAcceptsColonProject(t *testing.T) {
+	projectRef, machine, err := ParseUserMachineRef("default:codex", "website")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projectRef.Project != "default" || machine != "codex" {
+		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
+	}
+}
+
 func TestTenantIncusProjectName(t *testing.T) {
 	name, err := TenantIncusProjectName(TenantRef{Tenant: "acme"})
 	if err != nil {

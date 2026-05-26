@@ -157,7 +157,7 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	if resource.created.Devices["home"]["path"] != "/home/acme" {
 		t.Fatalf("home device = %#v", resource.created.Devices["home"])
 	}
-	wantVolumeDirs := []string{"sc-home/default/codex", "sc-workspace/default/codex"}
+	wantVolumeDirs := []string{"sc-home/default", "sc-workspace/default"}
 	if strings.Join(resource.createdVolumeDirs, ",") != strings.Join(wantVolumeDirs, ",") {
 		t.Fatalf("created volume dirs = %#v, want %#v", resource.createdVolumeDirs, wantVolumeDirs)
 	}
@@ -170,46 +170,47 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	if _, ok := resource.created.Config["security.privileged"]; ok {
 		t.Fatalf("security.privileged is set by default: %#v", resource.created.Config)
 	}
-	if resource.createdFiles[machine.CaddyfilePath] == "" {
-		t.Fatal("expected Caddyfile write")
-	}
-	if resource.createdFiles[machine.MachineCertPath] == "" {
-		t.Fatal("expected certificate write")
-	}
-	if resource.createdFiles[machine.MachineCertKeyPath] == "" {
-		t.Fatal("expected private key write")
-	}
-	if len(resource.execCommands) != 2 {
+	if len(resource.execCommands) != 1 {
 		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
 	if strings.Join(resource.execCommands[0], " ") != "/bin/sh -se" {
-		t.Fatalf("machine init command = %#v", resource.execCommands[0])
+		t.Fatalf("machine configure command = %#v", resource.execCommands[0])
 	}
-	initScript := resource.execStdin[0]
+	configureScript := resource.execStdin[0]
 	for _, want := range []string{
 		"step hostname",
 		"ssh-keygen -A",
 		"/usr/local/bin/sandcastle-bootstrap",
-		"sandcastle prompt: full hostname",
 		"cap_net_raw+p /usr/bin/ping",
 		"resolv-conf",
-		"config-directories",
 	} {
-		if !strings.Contains(initScript, want) {
-			t.Fatalf("machine init script missing %q:\n%s", want, initScript)
+		if !strings.Contains(configureScript, want) {
+			t.Fatalf("machine configure script missing %q:\n%s", want, configureScript)
 		}
 	}
 	if resource.execEnvs[0]["SANDCASTLE_HOSTNAME"] != "codex.default.acme" {
-		t.Fatalf("machine init env = %#v", resource.execEnvs[0])
+		t.Fatalf("machine configure env = %#v", resource.execEnvs[0])
 	}
 	if resource.execEnvs[0]["SANDCASTLE_USER"] != "acme" {
-		t.Fatalf("machine init env = %#v", resource.execEnvs[0])
+		t.Fatalf("machine configure env = %#v", resource.execEnvs[0])
 	}
 	if resource.execEnvs[0]["SANDCASTLE_UID"] != "1000" || resource.execEnvs[0]["SANDCASTLE_GID"] != "1000" {
-		t.Fatalf("machine init uid/gid env = %#v", resource.execEnvs[0])
+		t.Fatalf("machine configure uid/gid env = %#v", resource.execEnvs[0])
 	}
-	if !strings.Contains(strings.Join(resource.execCommands[1], " "), "caddy") {
-		t.Fatalf("caddy command = %#v", resource.execCommands[1])
+	for _, want := range []string{
+		"step caddy-config",
+		"/etc/systemd/system/caddy.service.d/machine.conf",
+		machine.CaddyfilePath,
+		machine.MachineCertPath,
+		machine.MachineCertKeyPath,
+		"base64 -d",
+		"systemctl daemon-reload",
+		"systemctl restart caddy",
+		"systemctl is-active caddy",
+	} {
+		if !strings.Contains(configureScript, want) {
+			t.Fatalf("machine configure script missing %q:\n%s", want, configureScript)
+		}
 	}
 	if resource.updated != nil {
 		t.Fatalf("machine metadata updated unexpectedly: %#v", resource.updated)
@@ -239,14 +240,14 @@ func TestMachineCreatorVerboseLogsDurations(t *testing.T) {
 		"[machine-create] use project sc-acme ... done (",
 		"[machine-create] get instance default-codex ... done (",
 		"[machine-create] ensure machine storage dirs for default-codex\n",
-		"[machine-create] storage dirs for default-codex: create sc-home/default/codex via volume API ... done (",
-		"[machine-create] storage dirs for default-codex: create sc-workspace/default/codex via volume API ... done (",
+		"[machine-create] storage dirs for default-codex: create sc-home/default via volume API ... done (",
+		"[machine-create] storage dirs for default-codex: create sc-workspace/default via volume API ... done (",
 		"[machine-create] ensure machine storage dirs for default-codex done (",
 		"[machine-create] create instance default-codex (image: sandcastle/ai:latest) ... done (",
+		"[machine-create] issue certificate from tenant CA started\n",
+		"[machine-create] issue certificate from tenant CA done (",
 		"[machine-create] configure instance default-codex done (",
-		"[machine-create] configure instance default-codex: issue certificate from tenant CA ... done (",
-		"[machine-create] configure instance default-codex: run machine init script ... done (",
-		"[machine-create] configure instance default-codex: restart Caddy ... done (",
+		"[machine-create] configure instance default-codex: run machine configure script (2 cert files, 0 workload files) ... done (",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("verbose logs missing %q:\n%s", want, joined)
@@ -278,10 +279,10 @@ func TestMachineCreatorFallsBackToHelperForStorageDirs(t *testing.T) {
 		t.Fatal("expected machine instance creation")
 	}
 	commands := strings.Join(flattenCommands(resource.execCommands), "\n")
-	if !strings.Contains(commands, "install -d -o 1000 -g 1000 -m 0755 -- '/mnt/home/default/codex'") {
+	if !strings.Contains(commands, "install -d -o 1000 -g 1000 -m 0755 -- '/mnt/home/default'") {
 		t.Fatalf("helper commands missing home dir: %s", commands)
 	}
-	if !strings.Contains(commands, "install -d -o 1000 -g 1000 -m 0755 -- '/mnt/workspace/default/codex'") {
+	if !strings.Contains(commands, "install -d -o 1000 -g 1000 -m 0755 -- '/mnt/workspace/default'") {
 		t.Fatalf("helper commands missing workspace dir: %s", commands)
 	}
 }
@@ -324,8 +325,8 @@ func TestMachineCreatorStartsExistingStoppedInstance(t *testing.T) {
 	if !resource.started {
 		t.Fatal("expected stopped instance to be started")
 	}
-	if resource.createdFiles[machine.CaddyfilePath] == "" {
-		t.Fatal("expected Caddyfile write")
+	if len(resource.execStdin) < 1 || !strings.Contains(resource.execStdin[0], machine.CaddyfilePath) {
+		t.Fatal("expected Caddyfile in config script")
 	}
 }
 

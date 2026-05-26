@@ -258,7 +258,7 @@ func parseMachineRef(value string, currentTenant string, currentProject string) 
 	if len(parts) == 2 || len(parts) == 3 {
 		return naming.ParseAdminMachineRef(value)
 	}
-	return naming.MachineRef{}, fmt.Errorf("route target must be machine, project/machine, tenant/machine, or tenant/project/machine")
+	return naming.MachineRef{}, fmt.Errorf("route target must be machine, project:machine, project/machine, tenant/machine, or tenant/project/machine")
 }
 
 func findTenant(ctx context.Context, store tenant.IncusTenantStore, tenantName string) (tenant.Summary, error) {

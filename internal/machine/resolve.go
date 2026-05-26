@@ -26,7 +26,7 @@ type AmbiguousMachineError struct {
 }
 
 func (e AmbiguousMachineError) Error() string {
-	return fmt.Sprintf("Sandcastle machine %s is ambiguous across projects %s; use project/machine", e.Name, strings.Join(e.Projects, ", "))
+	return fmt.Sprintf("Sandcastle machine %s is ambiguous across projects %s; use project:machine or project/machine", e.Name, strings.Join(e.Projects, ", "))
 }
 
 func IsAmbiguousMachineError(err error) bool {
@@ -60,7 +60,7 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	if err != nil {
 		return resolvedMachine{}, err
 	}
-	if strings.Contains(reference, "/") || strings.TrimSpace(admin.Project) != "" {
+	if isExplicitProjectMachineRef(reference) || strings.TrimSpace(admin.Project) != "" {
 		for _, machine := range machines {
 			if machine.Project == projectRef.Project && machine.Name == machineName {
 				return resolveKnownProjectMachineWithIP(summary, projectRef.Project, machineName, machine.PrivateIP)
@@ -87,6 +87,10 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	default:
 		return resolvedMachine{}, AmbiguousMachineError{Name: machineName, Projects: matches}
 	}
+}
+
+func isExplicitProjectMachineRef(reference string) bool {
+	return strings.Contains(reference, "/") || strings.Contains(reference, ":")
 }
 
 func resolveMachineFQDN(ctx context.Context, machineStore Store, summary tenant.Summary, reference string) (resolvedMachine, bool, error) {

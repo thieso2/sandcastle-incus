@@ -29,8 +29,14 @@ func TestPlanCreateDefaultsToDefaultProject(t *testing.T) {
 	if plan.CaddyFile.Content == "" || !strings.Contains(plan.CaddyFile.Content, "codex.default.acme") {
 		t.Fatalf("CaddyFile = %#v", plan.CaddyFile)
 	}
-	if plan.Devices["home"]["source"] != tenant.HomeVolumeName+"/default/codex" {
+	if plan.HomeDir != "default" || plan.WorkspaceDir != "default" {
+		t.Fatalf("storage dirs = home %q workspace %q", plan.HomeDir, plan.WorkspaceDir)
+	}
+	if plan.Devices["home"]["source"] != tenant.HomeVolumeName+"/default" {
 		t.Fatalf("home source = %#v", plan.Devices["home"])
+	}
+	if plan.Devices["workspace"]["source"] != tenant.WorkspaceVolumeName+"/default" {
+		t.Fatalf("workspace source = %#v", plan.Devices["workspace"])
 	}
 	metadata, err := meta.ParseMachineConfig(plan.MetadataConfig)
 	if err != nil {
@@ -89,6 +95,19 @@ func TestPlanCreatePreservesExplicitProject(t *testing.T) {
 	}
 }
 
+func TestPlanCreateAcceptsColonProjectRef(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	plan, err := PlanCreate(context.Background(), admin, tenantStoreForTest(t), nil, CreateRequest{Reference: "default:codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project != "default" || plan.Name != "codex" || plan.InstanceName != "default-codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestPlanCreateRejectsMissingTenant(t *testing.T) {
 	_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), nil, CreateRequest{Reference: "codex"})
 	if err == nil {
@@ -118,13 +137,16 @@ func TestPlanCreateReusesExistingMachineIP(t *testing.T) {
 	}
 }
 
-func TestPlanCreateRequiresShareHomeForRunningMachineUsingSameHome(t *testing.T) {
+func TestPlanCreateSharesProjectStorageByDefault(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	store := fakeMachineStore{machines: []meta.Machine{{Project: "default", Name: "other", HomeDir: "shared", Running: true}}}
-	_, err := PlanCreate(context.Background(), admin, tenantStoreForTest(t), store, CreateRequest{Reference: "codex", HomeDir: "shared"})
-	if err == nil {
-		t.Fatal("expected error")
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "default", Name: "other", HomeDir: "default", WorkspaceDir: "default", Running: true}}}
+	plan, err := PlanCreate(context.Background(), admin, tenantStoreForTest(t), store, CreateRequest{Reference: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.HomeDir != "default" || plan.WorkspaceDir != "default" {
+		t.Fatalf("storage dirs = home %q workspace %q", plan.HomeDir, plan.WorkspaceDir)
 	}
 }
 
@@ -153,6 +175,23 @@ func TestPlanConnectSearchesBareMachineWhenUnique(t *testing.T) {
 		t.Fatalf("plan = %#v", plan)
 	}
 	if plan.SSHHost != "10.248.0.42" || plan.HostKeyAlias != "codex.website.acme" || plan.Hostname != "codex.website.acme" {
+		t.Fatalf("ssh target = %q alias %q", plan.SSHHost, plan.HostKeyAlias)
+	}
+}
+
+func TestPlanConnectAcceptsColonProjectRef(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	store := fakeMachineStore{machines: []meta.Machine{{Project: "default", Name: "codex", PrivateIP: "10.248.0.42"}}}
+	plan, err := PlanConnect(context.Background(), admin, tenantStoreForTest(t), store, ConnectRequest{Reference: "default:codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project != "default" || plan.Name != "codex" || plan.InstanceName != "default-codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if plan.SSHHost != "10.248.0.42" || plan.HostKeyAlias != "codex.default.acme" {
 		t.Fatalf("ssh target = %q alias %q", plan.SSHHost, plan.HostKeyAlias)
 	}
 }

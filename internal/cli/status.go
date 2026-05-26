@@ -26,7 +26,7 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if err == nil {
 					return writeOutput(config.stdout, opts.output, formatMachineStatus(result), result)
 				}
-				if machine.IsAmbiguousMachineError(err) || strings.Contains(args[0], "/") {
+				if machine.IsAmbiguousMachineError(err) || strings.Contains(args[0], "/") || strings.Contains(args[0], ":") {
 					return err
 				}
 			}

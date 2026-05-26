@@ -291,18 +291,18 @@ hostnames in that tenant.
 Storage is tenant-scoped. Tenant home and workspace volumes are shared by all
 projects, with project-aware subdirectories by default.
 
-Default paths include both project and machine names:
+Default paths include the project name, so all machines in a project share the
+same home and workspace trees:
 
 ```text
-home/default/codex
-workspace/default/codex
-home/website/app
-workspace/website/app
+home/default
+workspace/default
+home/website
+workspace/website
 ```
 
-Machine creation may allow explicit storage sharing. Sharing one home directory
-between running machines requires explicit confirmation or a dedicated flag,
-because concurrent writes to one Linux home can corrupt tool state.
+Machine creation may still allow explicit storage subdirectories for advanced
+cases, but project-level sharing is the default.
 
 ## Images And Templates
 

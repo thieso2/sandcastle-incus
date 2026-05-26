@@ -10,7 +10,7 @@ import (
 func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use string, action machine.Action, requireYes bool) *cobra.Command {
 	var yes bool
 	command := &cobra.Command{
-		Use:   use + " [project/]machine",
+		Use:   use + " [project:]machine",
 		Short: machineLifecycleShort(action),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

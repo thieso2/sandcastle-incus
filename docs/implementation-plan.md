@@ -66,25 +66,25 @@ sandcastle config show
 sandcastle config set tenant <tenant>
 sandcastle config unset <key>
 sandcastle list [project] [--all-projects]
-sandcastle create [project/]machine [--detach]
-sandcastle connect [project/]machine [-- command...]
+sandcastle create [project:]machine [--detach]
+sandcastle connect [project:]machine [-- command...]
 sandcastle status [machine|tenant]
-sandcastle start [project/]machine
-sandcastle stop [project/]machine
-sandcastle restart [project/]machine
-sandcastle delete [project/]machine --yes
+sandcastle start [project:]machine
+sandcastle stop [project:]machine
+sandcastle restart [project:]machine
+sandcastle delete [project:]machine --yes
 sandcastle project list
 sandcastle project create <name>
 sandcastle project status <name>
 sandcastle project delete <name> --yes
-sandcastle port set [project/]machine <port>
+sandcastle port set [project:]machine <port>
 sandcastle dns apply|status|install|refresh|uninstall <tenant>
 sandcastle tailscale up|status|down [tenant]
 sandcastle trust install|uninstall <tenant>
-sandcastle host override create [project/]machine <hostname>
+sandcastle host override create [project:]machine <hostname>
 sandcastle host override list [tenant]
-sandcastle host override delete [project/]machine <hostname>
-sandcastle route create <hostname> [project/]machine
+sandcastle host override delete [project:]machine <hostname>
+sandcastle route create <hostname> [project:]machine
 sandcastle route list
 sandcastle route status <hostname>
 sandcastle route delete <hostname>
@@ -153,7 +153,8 @@ sandcastle-admin route-broker serve
 
 ### 4. Machine Lifecycle
 
-- Machine refs are `[project/]machine` for users and
+- Machine refs are `[project:]machine` for users, with `[project/]machine` kept
+  as an alternate spelling, and
   `tenant[/project]/machine` for admin operations.
 - Bare machine refs use the configured current project when set; otherwise they
   resolve only when unambiguous across the tenant.
