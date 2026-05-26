@@ -11,6 +11,8 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
+	"github.com/thieso2/sandcastle-incus/internal/cidr"
+	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -77,9 +79,9 @@ func (c TenantCreator) log(msg string) {
 	}
 }
 
-// EnsureAuxProjects creates the infra and native Incus projects for mainProjectName if they are
-// missing. This is a lightweight recovery path for tenants whose aux projects were deleted.
-func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName string, reference string) error {
+// EnsureAuxProjects creates the infra/native Incus projects and their sidecar instances for
+// mainProjectName if missing. It is a recovery path for tenants in an incomplete state.
+func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName string, reference string, privateCIDR string, admin config.Admin) error {
 	server := c.Server
 	if server == nil {
 		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
@@ -97,16 +99,52 @@ func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName st
 		server = sdkTenantCreateServer{inner: instanceServer}
 	}
 	plan := tenant.CreatePlan{
-		Reference:     reference,
-		InfraProject:  naming.TenantInfraIncusProjectName(mainProjectName),
-		NativeProject: naming.TenantNativeIncusProjectName(mainProjectName),
+		Reference:         reference,
+		IncusProject:      mainProjectName,
+		InfraProject:      naming.TenantInfraIncusProjectName(mainProjectName),
+		NativeProject:     naming.TenantNativeIncusProjectName(mainProjectName),
+		StoragePool:       mainProjectName,
+		InfraImageAliases: tenant.UniqueImageAliases(admin.Images.Base),
+	}
+	// Derive sidecar addresses from the stored CIDR.
+	if privateCIDR != "" {
+		tenantCIDR, err := netip.ParsePrefix(privateCIDR)
+		if err == nil {
+			if tsAddr, err := cidr.RoleAddress(tenantCIDR, cidr.TailscaleHostOctet); err == nil {
+				if dnsAddr, err := cidr.RoleAddress(tenantCIDR, cidr.DNSHostOctet); err == nil {
+					ref := naming.TenantRef{Tenant: reference}
+					plan.Sidecars = []tenant.SidecarPlan{
+						tenant.NewSidecarPlan(ref, admin, mainProjectName, tenant.TailscaleInstanceName(mainProjectName), "tailscale", tsAddr.String()),
+						tenant.NewSidecarPlan(ref, admin, mainProjectName, tenant.DNSName, "dns", dnsAddr.String()),
+					}
+					plan.DNSInstance = tenant.DNSName
+				}
+			}
+		}
 	}
 	c.log("ensure infra project " + plan.InfraProject)
 	if err := ensureInfraProject(server, plan); err != nil {
 		return err
 	}
 	c.log("ensure native project " + plan.NativeProject)
-	return ensureNativeProject(server, plan)
+	if err := ensureNativeProject(server, plan); err != nil {
+		return err
+	}
+	if len(plan.Sidecars) == 0 || plan.InfraImageAliases[0] == "" {
+		return nil
+	}
+	infraServer := server.UseProject(plan.InfraProject)
+	c.log("ensure infra project images")
+	if err := ensureProjectImages(server, infraServer, plan.InfraImageAliases); err != nil {
+		return err
+	}
+	for _, sidecar := range plan.Sidecars {
+		c.log("ensure sidecar " + sidecar.Name)
+		if err := ensureSidecar(infraServer, sidecar); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c TenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan) error {
@@ -410,6 +448,15 @@ func ensureSidecar(server TenantResourceServer, sidecar tenant.SidecarPlan) erro
 	}
 	if err := op.Wait(); err != nil {
 		return fmt.Errorf("wait for sidecar %s create: %w", sidecar.Name, err)
+	}
+	if sidecar.Start {
+		op, err := server.UpdateInstanceState(sidecar.Name, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
+		if err != nil {
+			return fmt.Errorf("start sidecar %s: %w", sidecar.Name, err)
+		}
+		if err := op.Wait(); err != nil {
+			return fmt.Errorf("wait for sidecar %s start: %w", sidecar.Name, err)
+		}
 	}
 	return nil
 }

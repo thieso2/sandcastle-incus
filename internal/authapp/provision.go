@@ -17,7 +17,7 @@ type PersonalTenantProvisioner interface {
 }
 
 type AuxProjectEnsurer interface {
-	EnsureAuxProjects(ctx context.Context, mainProjectName string, reference string) error
+	EnsureAuxProjects(ctx context.Context, mainProjectName string, reference string, privateCIDR string, admin config.Admin) error
 }
 
 type PersonalTenantResult struct {
@@ -99,9 +99,9 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 		}
 		projects = append([]meta.Project{}, metadata.Projects...)
 	} else {
-		// Recreate infra/native projects if they were deleted (e.g. by a partial tenant delete).
+		// Recreate infra/native projects and sidecar instances if missing (e.g. partial delete or failed creation).
 		if p.AuxProjects != nil {
-			if err := p.AuxProjects.EnsureAuxProjects(ctx, incusProject, existing.Tenant); err != nil {
+			if err := p.AuxProjects.EnsureAuxProjects(ctx, incusProject, existing.Tenant, existing.PrivateCIDR, p.Admin); err != nil {
 				return PersonalTenantResult{}, err
 			}
 		}
