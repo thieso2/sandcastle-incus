@@ -203,6 +203,12 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 	if err != nil {
 		return err
 	}
+	cache := incusx.NewConnectCache(config.adminConfig.Remote)
+	if connectPlan.Managed {
+		if key := connectPlanCacheKey(connectPlan.Tenant.Tenant, connectPlan.Project, connectPlan.Name); key != "" {
+			cache.StorePlan(key, connectPlan)
+		}
+	}
 	return config.machineConnector.ConnectMachine(cmd.Context(), connectPlan, machine.ConnectSession{
 		Stdin:  config.stdin,
 		Stdout: config.stdout,
