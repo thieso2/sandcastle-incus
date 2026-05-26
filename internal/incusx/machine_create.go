@@ -137,9 +137,7 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 	if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get machine %s: %w", plan.InstanceName, err)
 	}
-	if err := c.runCommand("ensure machine storage dirs for "+plan.InstanceName, func() error {
-		return ensureMachineStorageDirs(projectServer, plan)
-	}); err != nil {
+	if err := c.ensureMachineStorageDirsStep(projectServer, plan); err != nil {
 		return err
 	}
 	if err := c.runCommand("create instance "+plan.InstanceName+" (image: "+plan.ImageAlias+")", func() error {
@@ -163,6 +161,22 @@ func (c MachineCreator) configureMachine(server MachineResourceServer, plan mach
 	})
 }
 
+func (c MachineCreator) ensureMachineStorageDirsStep(server MachineResourceServer, plan machine.CreatePlan) error {
+	if c.Log == nil {
+		return ensureMachineStorageDirs(server, plan, nil)
+	}
+	start := time.Now()
+	c.log("ensure machine storage dirs for " + plan.InstanceName)
+	if err := ensureMachineStorageDirs(server, plan, func(label string, expected func(error) bool, fn func() error) error {
+		return c.runCommandWithExpectedError("storage dirs for "+plan.InstanceName+": "+label, expected, fn)
+	}); err != nil {
+		c.log(fmt.Sprintf("ensure machine storage dirs for %s failed (%s)", plan.InstanceName, formatVerboseDuration(time.Since(start))))
+		return err
+	}
+	c.log(fmt.Sprintf("ensure machine storage dirs for %s done (%s)", plan.InstanceName, formatVerboseDuration(time.Since(start))))
+	return nil
+}
+
 func (c MachineCreator) configureMachineStep(server MachineResourceServer, plan machine.CreatePlan) error {
 	if c.Log == nil {
 		return c.configureMachine(server, plan)
@@ -176,7 +190,16 @@ func (c MachineCreator) configureMachineStep(server MachineResourceServer, plan 
 	return nil
 }
 
-func ensureMachineStorageDirs(server MachineResourceServer, plan machine.CreatePlan) error {
+type machineStorageStepRunner func(label string, expected func(error) bool, fn func() error) error
+
+func runMachineStorageStep(run machineStorageStepRunner, label string, expected func(error) bool, fn func() error) error {
+	if run == nil {
+		return fn()
+	}
+	return run(label, expected, fn)
+}
+
+func ensureMachineStorageDirs(server MachineResourceServer, plan machine.CreatePlan, run machineStorageStepRunner) error {
 	var helperDirs []machineStorageDir
 	for _, volumeDir := range []machineStorageDir{
 		{volume: tenant.HomeVolumeName, path: plan.HomeDir},
@@ -185,11 +208,15 @@ func ensureMachineStorageDirs(server MachineResourceServer, plan machine.CreateP
 		if volumeDir.path == "" || volumeDir.path == "." {
 			continue
 		}
-		err := server.CreateStorageVolumeFile(plan.StoragePool, "custom", volumeDir.volume, volumeDir.path, incus.InstanceFileArgs{
-			Type: "directory",
-			UID:  int64(machine.DefaultLinuxUID),
-			GID:  int64(machine.DefaultLinuxGID),
-			Mode: 0o755,
+		err := runMachineStorageStep(run, "create "+volumeDir.volume+"/"+volumeDir.path+" via volume API", func(err error) bool {
+			return api.StatusErrorCheck(err, http.StatusNotFound)
+		}, func() error {
+			return server.CreateStorageVolumeFile(plan.StoragePool, "custom", volumeDir.volume, volumeDir.path, incus.InstanceFileArgs{
+				Type: "directory",
+				UID:  int64(machine.DefaultLinuxUID),
+				GID:  int64(machine.DefaultLinuxGID),
+				Mode: 0o755,
+			})
 		})
 		if api.StatusErrorCheck(err, http.StatusNotFound) {
 			helperDirs = append(helperDirs, volumeDir)
@@ -200,7 +227,7 @@ func ensureMachineStorageDirs(server MachineResourceServer, plan machine.CreateP
 		}
 	}
 	if len(helperDirs) > 0 {
-		return ensureMachineStorageDirsWithHelper(server, plan, helperDirs)
+		return ensureMachineStorageDirsWithHelper(server, plan, helperDirs, run)
 	}
 	return nil
 }
@@ -210,19 +237,32 @@ type machineStorageDir struct {
 	path   string
 }
 
-func ensureMachineStorageDirsWithHelper(server MachineResourceServer, plan machine.CreatePlan, dirs []machineStorageDir) error {
+func ensureMachineStorageDirsWithHelper(server MachineResourceServer, plan machine.CreatePlan, dirs []machineStorageDir, run machineStorageStepRunner) error {
 	name := machineStorageHelperName(plan.InstanceName)
-	_ = deleteMachineStorageHelper(server, name)
+	_ = runMachineStorageStep(run, "delete stale helper "+name, nil, func() error {
+		return deleteMachineStorageHelper(server, name)
+	})
 	helper := machineStorageHelperRequest(plan, name)
-	op, err := server.CreateInstance(helper)
-	if err != nil {
-		return fmt.Errorf("create machine storage helper %s: %w", name, err)
-	}
-	if err := op.Wait(); err != nil {
+	var op incus.Operation
+	if err := runMachineStorageStep(run, "create helper "+name, nil, func() error {
+		var err error
+		op, err = server.CreateInstance(helper)
+		if err != nil {
+			return fmt.Errorf("create machine storage helper %s: %w", name, err)
+		}
+		if err := op.Wait(); err != nil {
+			return fmt.Errorf("wait for machine storage helper %s: %w", name, err)
+		}
+		return nil
+	}); err != nil {
 		_ = deleteMachineStorageHelper(server, name)
-		return fmt.Errorf("wait for machine storage helper %s: %w", name, err)
+		return err
 	}
-	defer deleteMachineStorageHelper(server, name)
+	defer func() {
+		_ = runMachineStorageStep(run, "delete helper "+name, nil, func() error {
+			return deleteMachineStorageHelper(server, name)
+		})
+	}()
 
 	var commands []string
 	for _, dir := range dirs {
@@ -230,21 +270,23 @@ func ensureMachineStorageDirsWithHelper(server MachineResourceServer, plan machi
 		commands = append(commands, "install -d -o 1000 -g 1000 -m 0755 -- "+shellQuote(target))
 	}
 	dataDone := make(chan bool)
-	op, err = server.ExecInstance(name, api.InstanceExecPost{
-		Command:   []string{"/bin/sh", "-c", strings.Join(commands, " && ")},
-		WaitForWS: true,
-	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(""),
-		DataDone: dataDone,
+	return runMachineStorageStep(run, "create directories with helper "+name, nil, func() error {
+		op, err := server.ExecInstance(name, api.InstanceExecPost{
+			Command:   []string{"/bin/sh", "-c", strings.Join(commands, " && ")},
+			WaitForWS: true,
+		}, &incus.InstanceExecArgs{
+			Stdin:    strings.NewReader(""),
+			DataDone: dataDone,
+		})
+		if err != nil {
+			return fmt.Errorf("create machine storage directories with helper %s: %w", name, err)
+		}
+		if err := op.Wait(); err != nil {
+			return fmt.Errorf("wait for machine storage helper %s directory creation: %w", name, err)
+		}
+		<-dataDone
+		return nil
 	})
-	if err != nil {
-		return fmt.Errorf("create machine storage directories with helper %s: %w", name, err)
-	}
-	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for machine storage helper %s directory creation: %w", name, err)
-	}
-	<-dataDone
-	return nil
 }
 
 func machineStorageHelperRequest(plan machine.CreatePlan, name string) api.InstancesPost {
@@ -322,38 +364,6 @@ func runMachineConfigStep(run machineConfigStepRunner, label string, fn func() e
 }
 
 func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan, run machineConfigStepRunner) error {
-	if err := runMachineConfigStep(run, "set hostname", func() error {
-		return setMachineHostname(server, plan)
-	}); err != nil {
-		return err
-	}
-	if err := runMachineConfigStep(run, "ensure SSH host keys", func() error {
-		return ensureMachineSSHHostKeys(server, plan.InstanceName)
-	}); err != nil {
-		return err
-	}
-	if err := runMachineConfigStep(run, "bootstrap Linux user "+plan.LinuxUser, func() error {
-		return bootstrapMachineUser(server, plan)
-	}); err != nil {
-		return err
-	}
-	if err := runMachineConfigStep(run, "configure shell prompt", func() error {
-		return ensureMachinePrompt(server, plan)
-	}); err != nil {
-		return err
-	}
-	if err := runMachineConfigStep(run, "enable ping capability", func() error {
-		return ensureMachinePingCapability(server, plan.InstanceName)
-	}); err != nil {
-		return err
-	}
-	if plan.Tenant.DNSAddress != "" {
-		if err := runMachineConfigStep(run, "write resolv.conf", func() error {
-			return writeMachineResolvConf(server, plan.InstanceName, plan.Tenant.DNSAddress)
-		}); err != nil {
-			return fmt.Errorf("write machine resolv.conf: %w", err)
-		}
-	}
 	certificateFiles := plan.CertificateFiles
 	if len(certificateFiles) == 0 {
 		if err := runMachineConfigStep(run, "issue certificate from tenant CA", func() error {
@@ -364,23 +374,8 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan, r
 			return err
 		}
 	}
-	if err := runMachineConfigStep(run, "create config directories", func() error {
-		for _, directory := range []string{
-			"/etc/caddy",
-			"/etc/caddy/certs",
-			"/etc/systemd/system/caddy.service.d",
-			machine.WorkloadDir,
-			"/etc/profile.d",
-		} {
-			err := server.CreateInstanceFile(plan.InstanceName, directory, incus.InstanceFileArgs{
-				Type: "directory",
-				Mode: 0o755,
-			})
-			if err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
-				return fmt.Errorf("create machine config directory %s: %w", directory, err)
-			}
-		}
-		return nil
+	if err := runMachineConfigStep(run, "run machine init script", func() error {
+		return runMachineInitScript(server, plan)
 	}); err != nil {
 		return err
 	}
@@ -443,163 +438,30 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan, r
 	})
 }
 
-func ensureMachineSSHHostKeys(server MachineResourceServer, instanceName string) error {
-	dataDone := make(chan bool)
-	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
-		Command: []string{
-			"/bin/sh",
-			"-c",
-			strings.Join([]string{
-				"set -eu",
-				"marker=/var/lib/sandcastle/ssh-host-keys-generated",
-				"if [ ! -e \"$marker\" ]; then",
-				"install -d -m 0755 /var/lib/sandcastle",
-				"rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub",
-				"ssh-keygen -A",
-				"touch \"$marker\"",
-				"systemctl try-restart ssh.service 2>/dev/null || systemctl try-restart ssh 2>/dev/null || true",
-				"fi",
-			}, "\n"),
-		},
-		WaitForWS: true,
-	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(""),
-		DataDone: dataDone,
-	})
-	if err != nil {
-		return fmt.Errorf("ensure SSH host keys in %s: %w", instanceName, err)
-	}
-	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for SSH host keys in %s: %w", instanceName, err)
-	}
-	<-dataDone
-	return nil
-}
-
-func ensureMachinePingCapability(server MachineResourceServer, instanceName string) error {
-	dataDone := make(chan bool)
-	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
-		Command: []string{
-			"/bin/sh",
-			"-c",
-			"if command -v setcap >/dev/null 2>&1 && [ -x /usr/bin/ping ]; then setcap cap_net_raw+p /usr/bin/ping; fi",
-		},
-		WaitForWS: true,
-	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(""),
-		DataDone: dataDone,
-	})
-	if err != nil {
-		return fmt.Errorf("set ping capability in %s: %w", instanceName, err)
-	}
-	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for ping capability in %s: %w", instanceName, err)
-	}
-	<-dataDone
-	return nil
-}
-
-func setMachineHostname(server MachineResourceServer, plan machine.CreatePlan) error {
-	if strings.TrimSpace(plan.Hostname) == "" {
-		return nil
-	}
-	if err := server.CreateInstanceFile(plan.InstanceName, "/etc/hostname", incus.InstanceFileArgs{
-		Content:   strings.NewReader(plan.Hostname + "\n"),
-		Type:      "file",
-		Mode:      0o644,
-		WriteMode: "overwrite",
-	}); err != nil {
-		return fmt.Errorf("write machine hostname file: %w", err)
-	}
-	dataDone := make(chan bool)
-	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
-		Command:   []string{"hostname", plan.Hostname},
-		WaitForWS: true,
-	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(""),
-		DataDone: dataDone,
-	})
-	if err != nil {
-		return fmt.Errorf("set machine hostname in %s: %w", plan.InstanceName, err)
-	}
-	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for machine hostname in %s: %w", plan.InstanceName, err)
-	}
-	<-dataDone
-	return nil
-}
-
-func writeMachineResolvConf(server MachineResourceServer, instanceName string, dnsAddress string) error {
-	content := "nameserver " + dnsAddress + "\n"
-	err := server.CreateInstanceFile(instanceName, "/etc/resolv.conf", incus.InstanceFileArgs{
-		Content:   strings.NewReader(content),
-		Type:      "file",
-		Mode:      0o644,
-		WriteMode: "overwrite",
-	})
-	if err == nil || !api.StatusErrorCheck(err, http.StatusNotFound) {
-		return err
-	}
-	dataDone := make(chan bool)
-	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
-		Command:   []string{"/bin/sh", "-c", "rm -f /etc/resolv.conf && cat > /etc/resolv.conf && chmod 0644 /etc/resolv.conf"},
-		WaitForWS: true,
-	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(content),
-		DataDone: dataDone,
-	})
-	if err != nil {
-		return err
-	}
-	if err := op.Wait(); err != nil {
-		return err
-	}
-	<-dataDone
-	return nil
-}
-
-func machineNetworkParams(plan machine.CreatePlan) (string, string, error) {
-	if plan.PrivateIP == "" || plan.Tenant.PrivateCIDR == "" {
-		return "", "", fmt.Errorf("machine plan missing private IP or CIDR")
-	}
-	prefix, err := netip.ParsePrefix(plan.Tenant.PrivateCIDR)
-	if err != nil {
-		return "", "", fmt.Errorf("parse machine CIDR %s: %w", plan.Tenant.PrivateCIDR, err)
-	}
-	ipWithPrefix := plan.PrivateIP + fmt.Sprintf("/%d", prefix.Bits())
-	base := prefix.Masked().Addr().As4()
-	base[3] = 1
-	gateway := netip.AddrFrom4(base).String()
-	return ipWithPrefix, gateway, nil
-}
-
-func bootstrapMachineUser(server MachineResourceServer, plan machine.CreatePlan) error {
-	dataDone := make(chan bool)
-	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
-		Command: []string{"/usr/local/bin/sandcastle-bootstrap"},
-		Environment: map[string]string{
-			"SANDCASTLE_USER":           plan.LinuxUser,
-			"SANDCASTLE_UID":            fmt.Sprintf("%d", machine.DefaultLinuxUID),
-			"SANDCASTLE_GID":            fmt.Sprintf("%d", machine.DefaultLinuxGID),
-			"SANDCASTLE_SSH_PUBLIC_KEY": plan.SSHPublicKey,
-		},
-		WaitForWS: true,
-	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(""),
-		DataDone: dataDone,
-	})
-	if err != nil {
-		return fmt.Errorf("bootstrap machine user %s in %s: %w", plan.LinuxUser, plan.InstanceName, err)
-	}
-	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for machine user bootstrap in %s: %w", plan.InstanceName, err)
-	}
-	<-dataDone
-	return nil
-}
-
-func ensureMachinePrompt(server MachineResourceServer, plan machine.CreatePlan) error {
+func runMachineInitScript(server MachineResourceServer, plan machine.CreatePlan) error {
 	script := `set -eu
+step() { printf 'step=%s\n' "$1" >&2; }
+
+step hostname
+if [ -n "${SANDCASTLE_HOSTNAME:-}" ]; then
+  printf '%s\n' "${SANDCASTLE_HOSTNAME}" >/etc/hostname
+  hostname "${SANDCASTLE_HOSTNAME}"
+fi
+
+step ssh-host-keys
+marker=/var/lib/sandcastle/ssh-host-keys-generated
+if [ ! -e "${marker}" ]; then
+  install -d -m 0755 /var/lib/sandcastle
+  rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+  ssh-keygen -A
+  touch "${marker}"
+  systemctl try-restart ssh.service 2>/dev/null || systemctl try-restart ssh 2>/dev/null || true
+fi
+
+step linux-user
+/usr/local/bin/sandcastle-bootstrap
+
+step shell-prompt
 user="${SANDCASTLE_USER:?}"
 home="/home/${user}"
 bashrc="${home}/.bashrc"
@@ -630,26 +492,68 @@ fi
 EOF_PROFILE
 fi
 chown "${user}:${user}" "${bashrc}" "${profile}"
+
+step ping-capability
+if command -v setcap >/dev/null 2>&1 && [ -x /usr/bin/ping ]; then
+  setcap cap_net_raw+p /usr/bin/ping
+fi
+
+step resolv-conf
+if [ -n "${SANDCASTLE_DNS_ADDRESS:-}" ]; then
+  rm -f /etc/resolv.conf
+  printf 'nameserver %s\n' "${SANDCASTLE_DNS_ADDRESS}" >/etc/resolv.conf
+  chmod 0644 /etc/resolv.conf
+fi
+
+step config-directories
+install -d -m 0755 /etc/caddy
+install -d -m 0755 /etc/caddy/certs
+install -d -m 0755 /etc/systemd/system/caddy.service.d
+install -d -m 0755 "${SANDCASTLE_WORKLOAD_DIR}"
+install -d -m 0755 /etc/profile.d
 `
+	var stderr bytes.Buffer
 	dataDone := make(chan bool)
 	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
-		Command: []string{"/bin/sh", "-c", script},
+		Command: []string{"/bin/sh", "-se"},
 		Environment: map[string]string{
-			"SANDCASTLE_USER": plan.LinuxUser,
+			"SANDCASTLE_USER":           plan.LinuxUser,
+			"SANDCASTLE_UID":            fmt.Sprintf("%d", machine.DefaultLinuxUID),
+			"SANDCASTLE_GID":            fmt.Sprintf("%d", machine.DefaultLinuxGID),
+			"SANDCASTLE_SSH_PUBLIC_KEY": plan.SSHPublicKey,
+			"SANDCASTLE_HOSTNAME":       plan.Hostname,
+			"SANDCASTLE_DNS_ADDRESS":    plan.Tenant.DNSAddress,
+			"SANDCASTLE_WORKLOAD_DIR":   machine.WorkloadDir,
 		},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(""),
+		Stdin:    strings.NewReader(script),
+		Stderr:   &stderr,
 		DataDone: dataDone,
 	})
 	if err != nil {
-		return fmt.Errorf("ensure machine prompt for %s in %s: %w", plan.LinuxUser, plan.InstanceName, err)
+		return fmt.Errorf("run machine init script in %s: %w", plan.InstanceName, err)
 	}
 	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for machine prompt in %s: %w", plan.InstanceName, err)
+		return fmt.Errorf("wait for machine init script in %s (stderr: %s): %w", plan.InstanceName, stderr.String(), err)
 	}
 	<-dataDone
 	return nil
+}
+
+func machineNetworkParams(plan machine.CreatePlan) (string, string, error) {
+	if plan.PrivateIP == "" || plan.Tenant.PrivateCIDR == "" {
+		return "", "", fmt.Errorf("machine plan missing private IP or CIDR")
+	}
+	prefix, err := netip.ParsePrefix(plan.Tenant.PrivateCIDR)
+	if err != nil {
+		return "", "", fmt.Errorf("parse machine CIDR %s: %w", plan.Tenant.PrivateCIDR, err)
+	}
+	ipWithPrefix := plan.PrivateIP + fmt.Sprintf("/%d", prefix.Bits())
+	base := prefix.Masked().Addr().As4()
+	base[3] = 1
+	gateway := netip.AddrFrom4(base).String()
+	return ipWithPrefix, gateway, nil
 }
 
 type machineCaddyRestarter interface {

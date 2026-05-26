@@ -37,6 +37,7 @@ type fakeMachineResource struct {
 	caFiles           map[string]string
 	execCommands      [][]string
 	execEnvs          []map[string]string
+	execStdin         []string
 	volumeFileErr     error
 }
 
@@ -122,6 +123,15 @@ func (r *fakeMachineResource) GetStorageVolumeFile(pool string, volumeType strin
 func (r *fakeMachineResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	r.execCommands = append(r.execCommands, exec.Command)
 	r.execEnvs = append(r.execEnvs, exec.Environment)
+	if args.Stdin != nil {
+		content, err := io.ReadAll(args.Stdin)
+		if err != nil {
+			return nil, err
+		}
+		r.execStdin = append(r.execStdin, string(content))
+	} else {
+		r.execStdin = append(r.execStdin, "")
+	}
 	if args.DataDone != nil {
 		close(args.DataDone)
 	}
@@ -163,44 +173,43 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 	if resource.createdFiles[machine.CaddyfilePath] == "" {
 		t.Fatal("expected Caddyfile write")
 	}
-	if strings.TrimSpace(resource.createdFiles["/etc/hostname"]) != "codex.default.acme" {
-		t.Fatalf("hostname file = %q", resource.createdFiles["/etc/hostname"])
-	}
 	if resource.createdFiles[machine.MachineCertPath] == "" {
 		t.Fatal("expected certificate write")
 	}
 	if resource.createdFiles[machine.MachineCertKeyPath] == "" {
 		t.Fatal("expected private key write")
 	}
-	if len(resource.execCommands) != 6 {
+	if len(resource.execCommands) != 2 {
 		t.Fatalf("exec commands = %#v", resource.execCommands)
 	}
-	if strings.Join(resource.execCommands[0], " ") != "hostname codex.default.acme" {
-		t.Fatalf("hostname command = %#v", resource.execCommands[0])
+	if strings.Join(resource.execCommands[0], " ") != "/bin/sh -se" {
+		t.Fatalf("machine init command = %#v", resource.execCommands[0])
 	}
-	if !strings.Contains(strings.Join(resource.execCommands[1], " "), "ssh-keygen -A") {
-		t.Fatalf("SSH host key command = %#v", resource.execCommands[1])
+	initScript := resource.execStdin[0]
+	for _, want := range []string{
+		"step hostname",
+		"ssh-keygen -A",
+		"/usr/local/bin/sandcastle-bootstrap",
+		"sandcastle prompt: full hostname",
+		"cap_net_raw+p /usr/bin/ping",
+		"resolv-conf",
+		"config-directories",
+	} {
+		if !strings.Contains(initScript, want) {
+			t.Fatalf("machine init script missing %q:\n%s", want, initScript)
+		}
 	}
-	if strings.Join(resource.execCommands[2], " ") != "/usr/local/bin/sandcastle-bootstrap" {
-		t.Fatalf("bootstrap command = %#v", resource.execCommands[2])
+	if resource.execEnvs[0]["SANDCASTLE_HOSTNAME"] != "codex.default.acme" {
+		t.Fatalf("machine init env = %#v", resource.execEnvs[0])
 	}
-	if resource.execEnvs[2]["SANDCASTLE_USER"] != "acme" {
-		t.Fatalf("bootstrap env = %#v", resource.execEnvs[2])
+	if resource.execEnvs[0]["SANDCASTLE_USER"] != "acme" {
+		t.Fatalf("machine init env = %#v", resource.execEnvs[0])
 	}
-	if resource.execEnvs[2]["SANDCASTLE_UID"] != "1000" || resource.execEnvs[2]["SANDCASTLE_GID"] != "1000" {
-		t.Fatalf("bootstrap uid/gid env = %#v", resource.execEnvs[2])
+	if resource.execEnvs[0]["SANDCASTLE_UID"] != "1000" || resource.execEnvs[0]["SANDCASTLE_GID"] != "1000" {
+		t.Fatalf("machine init uid/gid env = %#v", resource.execEnvs[0])
 	}
-	if !strings.Contains(strings.Join(resource.execCommands[3], " "), "sandcastle prompt: full hostname") {
-		t.Fatalf("prompt command = %#v", resource.execCommands[3])
-	}
-	if resource.execEnvs[3]["SANDCASTLE_USER"] != "acme" {
-		t.Fatalf("prompt env = %#v", resource.execEnvs[3])
-	}
-	if !strings.Contains(strings.Join(resource.execCommands[4], " "), "cap_net_raw+p /usr/bin/ping") {
-		t.Fatalf("ping capability command = %#v", resource.execCommands[4])
-	}
-	if !strings.Contains(strings.Join(resource.execCommands[5], " "), "caddy") {
-		t.Fatalf("caddy command = %#v", resource.execCommands[5])
+	if !strings.Contains(strings.Join(resource.execCommands[1], " "), "caddy") {
+		t.Fatalf("caddy command = %#v", resource.execCommands[1])
 	}
 	if resource.updated != nil {
 		t.Fatalf("machine metadata updated unexpectedly: %#v", resource.updated)
@@ -229,12 +238,14 @@ func TestMachineCreatorVerboseLogsDurations(t *testing.T) {
 	for _, want := range []string{
 		"[machine-create] use project sc-acme ... done (",
 		"[machine-create] get instance default-codex ... done (",
-		"[machine-create] ensure machine storage dirs for default-codex ... done (",
+		"[machine-create] ensure machine storage dirs for default-codex\n",
+		"[machine-create] storage dirs for default-codex: create sc-home/default/codex via volume API ... done (",
+		"[machine-create] storage dirs for default-codex: create sc-workspace/default/codex via volume API ... done (",
+		"[machine-create] ensure machine storage dirs for default-codex done (",
 		"[machine-create] create instance default-codex (image: sandcastle/ai:latest) ... done (",
 		"[machine-create] configure instance default-codex done (",
-		"[machine-create] configure instance default-codex: set hostname ... done (",
-		"[machine-create] configure instance default-codex: bootstrap Linux user acme ... done (",
 		"[machine-create] configure instance default-codex: issue certificate from tenant CA ... done (",
+		"[machine-create] configure instance default-codex: run machine init script ... done (",
 		"[machine-create] configure instance default-codex: restart Caddy ... done (",
 	} {
 		if !strings.Contains(joined, want) {
