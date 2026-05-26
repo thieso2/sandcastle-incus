@@ -103,18 +103,23 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 
 	env := append(os.Environ(), "INCUS_CONF="+incusDir)
 	if remoteExists(incusDir, name) {
-		if ioConfig.stderr != nil {
-			fmt.Fprintf(ioConfig.stderr, "Remote %s already exists; reusing existing Incus remote.\n", name)
+		// Wipe the per-remote incus config directory so that incus remote add
+		// starts fresh and the new token (which may carry an updated project list)
+		// creates a new certificate.
+		if err := os.RemoveAll(incusDir); err != nil {
+			return remoteAddResult{}, fmt.Errorf("remove existing incus config: %w", err)
 		}
-	} else {
-		addCmd := exec.CommandContext(ctx, "incus", "remote", "add", name, joinToken)
-		addCmd.Env = env
-		addCmd.Stdin = ioConfig.stdin
-		addCmd.Stdout = ioConfig.stdout
-		addCmd.Stderr = ioConfig.stderr
-		if err := addCmd.Run(); err != nil {
-			return remoteAddResult{}, fmt.Errorf("incus remote add: %w", err)
+		if err := os.MkdirAll(incusDir, 0o700); err != nil {
+			return remoteAddResult{}, fmt.Errorf("recreate incus config dir: %w", err)
 		}
+	}
+	addCmd := exec.CommandContext(ctx, "incus", "remote", "add", name, joinToken)
+	addCmd.Env = env
+	addCmd.Stdin = ioConfig.stdin
+	addCmd.Stdout = ioConfig.stdout
+	addCmd.Stderr = ioConfig.stderr
+	if err := addCmd.Run(); err != nil {
+		return remoteAddResult{}, fmt.Errorf("incus remote add: %w", err)
 	}
 
 	switchCmd := exec.CommandContext(ctx, "incus", "remote", "switch", name)

@@ -12,6 +12,7 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -74,6 +75,38 @@ func (c TenantCreator) log(msg string) {
 	if c.Log != nil {
 		c.Log(msg)
 	}
+}
+
+// EnsureAuxProjects creates the infra and native Incus projects for mainProjectName if they are
+// missing. This is a lightweight recovery path for tenants whose aux projects were deleted.
+func (c TenantCreator) EnsureAuxProjects(ctx context.Context, mainProjectName string, reference string) error {
+	server := c.Server
+	if server == nil {
+		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("load Incus config: %w", err)
+		}
+		remote := c.Remote
+		if remote == "" {
+			remote = loaded.DefaultRemote
+		}
+		instanceServer, err := loaded.GetInstanceServer(remote)
+		if err != nil {
+			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+		}
+		server = sdkTenantCreateServer{inner: instanceServer}
+	}
+	plan := tenant.CreatePlan{
+		Reference:     reference,
+		InfraProject:  naming.TenantInfraIncusProjectName(mainProjectName),
+		NativeProject: naming.TenantNativeIncusProjectName(mainProjectName),
+	}
+	c.log("ensure infra project " + plan.InfraProject)
+	if err := ensureInfraProject(server, plan); err != nil {
+		return err
+	}
+	c.log("ensure native project " + plan.NativeProject)
+	return ensureNativeProject(server, plan)
 }
 
 func (c TenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan) error {

@@ -16,6 +16,10 @@ type PersonalTenantProvisioner interface {
 	EnsurePersonalTenant(context.Context, User) (PersonalTenantResult, error)
 }
 
+type AuxProjectEnsurer interface {
+	EnsureAuxProjects(ctx context.Context, mainProjectName string, reference string) error
+}
+
 type PersonalTenantResult struct {
 	UserKey             string
 	Tenant              string
@@ -39,6 +43,7 @@ type Provisioner struct {
 	Tenants         tenant.IncusTenantStore
 	TenantCreator   tenant.Creator
 	ProjectUpdater  tenant.ProjectUpdater
+	AuxProjects     AuxProjectEnsurer
 	Trust           TrustTokenCreator
 	DefaultUnixUser string
 }
@@ -94,6 +99,12 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 		}
 		projects = append([]meta.Project{}, metadata.Projects...)
 	} else {
+		// Recreate infra/native projects if they were deleted (e.g. by a partial tenant delete).
+		if p.AuxProjects != nil {
+			if err := p.AuxProjects.EnsureAuxProjects(ctx, incusProject, existing.Tenant); err != nil {
+				return PersonalTenantResult{}, err
+			}
+		}
 		updatedProjects, err := p.ensureDefaultProject(ctx, existing)
 		if err != nil {
 			return PersonalTenantResult{}, err

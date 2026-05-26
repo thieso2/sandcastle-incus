@@ -149,6 +149,7 @@ func ExecuteAdmin(name string, args []string) int {
 				Tenants:        authAppTenants,
 				TenantCreator:  authAppCreator,
 				ProjectUpdater: authAppProjectUpdater,
+				AuxProjects:    authAppCreator,
 				Trust:          authAppTrust,
 			},
 		},
