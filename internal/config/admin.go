@@ -9,17 +9,18 @@ import (
 )
 
 const (
-	DefaultRemote                = "local"
-	DefaultStoragePool           = "default"
-	DefaultCIDRPool              = "10.248.0.0/16"
-	DefaultIncusProjectPrefix    = "sc"
-	DefaultInfrastructureProject = "sc-infra"
-	DefaultInfrastructureHost    = ""
-	DefaultLetsEncryptEmail      = ""
-	DefaultInfrastructureTLSMode = "acme"
-	DefaultAuthHostname          = ""
-	DefaultBaseImageAlias        = "sandcastle/base:latest"
-	DefaultAIImageAlias          = "sandcastle/ai:latest"
+	DefaultRemote                 = "local"
+	DefaultStoragePool            = "default"
+	DefaultCIDRPool               = "10.248.0.0/16"
+	DefaultIncusProjectPrefix     = "sc"
+	DefaultInfrastructureProject  = "sc-infra"
+	DefaultInfrastructureHost     = ""
+	DefaultLetsEncryptEmail       = ""
+	DefaultInfrastructureTLSMode  = "acme"
+	DefaultAuthHostname           = ""
+	DefaultBaseImageAlias         = "sandcastle/base:latest"
+	DefaultAIImageAlias           = "sandcastle/ai:latest"
+	DefaultRouteBrokerIncusSocket = "/var/lib/incus/unix.socket"
 )
 
 type Admin struct {
@@ -59,12 +60,13 @@ func LoadAdminFromEnv() Admin {
 
 func AdminDefaults() Admin {
 	return Admin{
-		Remote:                DefaultRemote,
-		StoragePool:           DefaultStoragePool,
-		CIDRPool:              DefaultCIDRPool,
-		IncusProjectPrefix:    DefaultIncusProjectPrefix,
-		InfrastructureProject: DefaultInfrastructureProject,
-		InfrastructureTLSMode: DefaultInfrastructureTLSMode,
+		Remote:                 DefaultRemote,
+		StoragePool:            DefaultStoragePool,
+		CIDRPool:               DefaultCIDRPool,
+		IncusProjectPrefix:     DefaultIncusProjectPrefix,
+		InfrastructureProject:  DefaultInfrastructureProject,
+		InfrastructureTLSMode:  DefaultInfrastructureTLSMode,
+		RouteBrokerIncusSocket: DefaultRouteBrokerIncusSocket,
 		Images: Images{
 			Base: DefaultBaseImageAlias,
 			AI:   DefaultAIImageAlias,

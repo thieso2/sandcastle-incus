@@ -1292,8 +1292,8 @@ func TestCreateDryRunJSON(t *testing.T) {
 	if payload.Template != "ai" {
 		t.Fatalf("Template = %q", payload.Template)
 	}
-	if payload.HomeDir != "default/codex" || payload.WorkspaceDir != "default/codex" {
-		t.Fatalf("HomeDir/WorkspaceDir = %q/%q, want default/codex", payload.HomeDir, payload.WorkspaceDir)
+	if payload.HomeDir != "default" || payload.WorkspaceDir != "default" {
+		t.Fatalf("HomeDir/WorkspaceDir = %q/%q, want default", payload.HomeDir, payload.WorkspaceDir)
 	}
 	if payload.LinuxUser != "acme" {
 		t.Fatalf("LinuxUser = %q", payload.LinuxUser)

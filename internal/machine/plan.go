@@ -168,9 +168,6 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	if err := validateHomeSharing(projectRef.Project, machineName, homeDir, request.ShareHome, existingMachines); err != nil {
-		return CreatePlan{}, err
-	}
 	state := meta.Machine{
 		Tenant:         summary.Tenant,
 		Project:        projectRef.Project,
@@ -274,25 +271,10 @@ func DefaultAppPortForTemplate(template string) (int, error) {
 	}
 }
 
-func validateHomeSharing(projectName string, machineName string, homeDir string, shareHome bool, existing []meta.Machine) error {
-	if shareHome {
-		return nil
-	}
-	for _, machine := range existing {
-		if machine.Project == projectName && machine.Name == machineName || !machine.Running {
-			continue
-		}
-		if machine.HomeDir == homeDir {
-			return fmt.Errorf("home directory %q is already used by running machine %s/%s; pass --share-home to confirm sharing", homeDir, machine.Project, machine.Name)
-		}
-	}
-	return nil
-}
-
-func normalizeStorageSubdir(kind string, value string, projectName string, machineName string) (string, error) {
+func normalizeStorageSubdir(kind string, value string, projectName string, _ string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return path.Join(projectName, machineName), nil
+		return projectName, nil
 	}
 	if strings.Contains(value, "\\") {
 		return "", fmt.Errorf("%s directory %q must use forward-slash relative paths", kind, value)

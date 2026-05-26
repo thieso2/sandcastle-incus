@@ -19,7 +19,7 @@ func newPortCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func newPortSetCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "set [project/]machine port",
+		Use:   "set [project:]machine port",
 		Short: "Set a machine app port",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

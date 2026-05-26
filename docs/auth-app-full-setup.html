@@ -240,6 +240,7 @@ export SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=...
 export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot
 export SANDCASTLE_AUTH_DEBUG_DEVICE_USER=octocat
 export SANDCASTLE_AUTH_TAILSCALE_AUTHKEY=tskey-auth-...
+# Optional override; infra create mounts this default host socket path automatically.
 export SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET=/var/lib/incus/unix.socket
 export SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE=~/.config/sandcastle/infra-caddy-data/big/sc-infra/caddy-data.tgz
 export SANDCASTLE_ADMIN_BIN=$PWD/bin/linux-amd64/sc-adm
@@ -253,7 +254,7 @@ export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
       <p>The admin binary uses the global Incus config. The user CLI stores restricted remote credentials under <code>~/.config/sandcastle/&lt;remote&gt;/incus/</code>.</p>
       <pre><code>incus remote list
 incus project list "$SANDCASTLE_ADMIN_REMOTE:"</code></pre>
-      <p>If the Auth App and Route Broker run inside infrastructure sidecars, mount the host Incus socket with <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code>. Both sidecars use that socket for trusted server-side mutations.</p>
+      <p>When the Auth App and Route Broker run inside infrastructure sidecars, <code>infra create</code> mounts the host Incus socket from <code>/var/lib/incus/unix.socket</code> by default. Set <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> only when the Incus host uses a different socket path. Both sidecars use that socket for trusted server-side mutations.</p>
     </section>
 
     <section id="images">

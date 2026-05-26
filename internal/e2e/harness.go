@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 )
 
@@ -64,7 +65,7 @@ func LoadConfig() Config {
 		SandcastleBin: os.Getenv("SANDCASTLE_E2E_SANDCASTLE_BIN"),
 		SSHPublicKey:  os.Getenv("SANDCASTLE_E2E_SSH_PUBLIC_KEY"),
 		RouteBroker: RouteBrokerConfig{
-			IncusSocket: os.Getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"),
+			IncusSocket: getenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET", config.DefaultRouteBrokerIncusSocket),
 		},
 		PublicRoutes: PublicRouteConfig{
 			Domain:             strings.TrimPrefix(os.Getenv("SANDCASTLE_E2E_PUBLIC_DOMAIN"), "."),

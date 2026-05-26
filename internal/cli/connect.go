@@ -11,7 +11,7 @@ import (
 
 func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:     "connect [project/]machine [-- command...]",
+		Use:     "connect [project:]machine [-- command...]",
 		Aliases: []string{"c"},
 		Short:   "Connect to a Sandcastle machine",
 		Args:    cobra.MinimumNArgs(1),

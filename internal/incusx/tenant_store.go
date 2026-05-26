@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -97,11 +98,8 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 	if metadata == nil {
 		return output, nil
 	}
-	if !s.LoadSSHKey {
-		return output, nil
-	}
 	for i := range output {
-		config, err := tenantConfigWithMetadataFiles(metadata.UseProject(output[i].Name), output[i].Name, output[i].Config)
+		config, err := tenantConfigWithMetadataFiles(metadata.UseProject(output[i].Name), output[i].Name, output[i].Config, s.LoadSSHKey)
 		if err != nil {
 			return nil, err
 		}
@@ -124,9 +122,10 @@ func FromAPIProjects(projects []api.Project) []tenant.IncusProject {
 const (
 	tenantMetadataDir      = "/.sandcastle"
 	tenantSSHPublicKeyFile = tenantMetadataDir + "/ssh_public_key"
+	tenantProjectsFile     = tenantMetadataDir + "/projects"
 )
 
-func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusProjectName string, config map[string]string) (map[string]string, error) {
+func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusProjectName string, config map[string]string, loadSSHKey bool) (map[string]string, error) {
 	if !meta.IsManaged(config) || config[meta.KeyKind] != meta.KindTenant {
 		return config, nil
 	}
@@ -134,10 +133,17 @@ func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusPro
 	if err != nil {
 		return nil, fmt.Errorf("parse tenant metadata for %s: %w", incusProjectName, err)
 	}
-	if sshKey, ok, err := readTenantSSHKey(server, incusProjectName); err != nil {
+	if loadSSHKey {
+		if sshKey, ok, err := readTenantSSHKey(server, incusProjectName); err != nil {
+			return nil, err
+		} else if ok {
+			managed.SSHPublicKey = sshKey
+		}
+	}
+	if projects, ok, err := readTenantProjects(server, incusProjectName); err != nil {
 		return nil, err
 	} else if ok {
-		managed.SSHPublicKey = sshKey
+		managed.Projects = projects
 	}
 	updated, err := meta.TenantConfig(managed)
 	if err != nil {
@@ -160,6 +166,26 @@ func readTenantSSHKey(server TenantMetadataResourceServer, incusProjectName stri
 		return "", false, fmt.Errorf("read tenant SSH key metadata for %s: %w", incusProjectName, err)
 	}
 	return strings.TrimSpace(string(data)), true, nil
+}
+
+func readTenantProjects(server TenantMetadataResourceServer, incusProjectName string) ([]meta.Project, bool, error) {
+	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantProjectsFile)
+	if isMissingTenantMetadata(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read tenant projects metadata for %s: %w", incusProjectName, err)
+	}
+	defer content.Close()
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return nil, false, fmt.Errorf("read tenant projects metadata for %s: %w", incusProjectName, err)
+	}
+	var projects []meta.Project
+	if err := json.Unmarshal(data, &projects); err != nil {
+		return nil, false, fmt.Errorf("parse tenant projects metadata for %s: %w", incusProjectName, err)
+	}
+	return projects, true, nil
 }
 
 func isMissingTenantMetadata(err error) bool {
