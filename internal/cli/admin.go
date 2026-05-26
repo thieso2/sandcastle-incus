@@ -19,6 +19,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
@@ -107,6 +108,7 @@ func newAdminTenantStatusCommand(config commandConfig, opts *rootOptions) *cobra
 func newAdminTenantCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	var sshKey string
+	var tailscaleAuthKey string
 	command := &cobra.Command{
 		Use:   "create tenant",
 		Short: "Create a Sandcastle tenant",
@@ -136,13 +138,39 @@ func newAdminTenantCreateCommand(config commandConfig, opts *rootOptions) *cobra
 				if err := config.tenantCreator.CreateTenant(cmd.Context(), plan); err != nil {
 					return err
 				}
+				authKey := strings.TrimSpace(tailscaleAuthKey)
+				if authKey == "" {
+					authKey = strings.TrimSpace(config.adminConfig.AuthTailscaleAuthKey)
+				}
+				if authKey != "" && config.tailscale != nil {
+					tsAdmin := config.adminConfig
+					tsAdmin.Tenant = plan.Reference
+					upPlan, err := tailscalePlanUpForTenant(cmd.Context(), tsAdmin, config.tenantStore, authKey)
+					if err != nil {
+						fmt.Fprintf(config.stderr, "Warning: tailscale up plan failed: %v\n", err)
+					} else if err := config.tailscale.RunUp(cmd.Context(), upPlan, tailscale.RunSession{
+						Stdout: config.stdout,
+						Stderr: config.stderr,
+					}); err != nil {
+						fmt.Fprintf(config.stderr, "Warning: tailscale up failed: %v\n", err)
+					}
+				}
 			}
 			return writeOutput(config.stdout, opts.output, formatCreatePlan(plan), plan)
 		},
 	}
 	command.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key to inject into all tenant machines")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the Incus creation plan without mutating resources")
+	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key; if set, runs tailscale up after tenant creation")
 	return command
+}
+
+func tailscalePlanUpForTenant(ctx context.Context, admin scconfig.Admin, store tenant.IncusTenantStore, authKey string) (tailscale.UpPlan, error) {
+	return tailscale.PlanUp(ctx, admin, store, tailscale.UpRequest{
+		Reference:     admin.Tenant,
+		AuthKey:       authKey,
+		AdvertiseTags: defaultAdvertiseTags(),
+	})
 }
 
 func formatCreatePlan(plan tenant.CreatePlan) string {
