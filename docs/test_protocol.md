@@ -132,7 +132,36 @@ The assumed environment is a Linux VM with direct Incus access, reachable privat
 
 ---
 
-## 7. DNS
+## 7. Tenant Storage Shares
+
+*Requires `SANDCASTLE_E2E=1`, `SANDCASTLE_E2E_LOCAL_VM=1`, and imported base/AI image aliases.*
+
+**Verify cross-tenant read-only sharing:**
+
+- [ ] Create two disposable Tenants.
+- [ ] Create a source Machine with project-scoped `/workspace`.
+- [ ] Create `/workspace/docs` in the source Machine and write a marker file.
+- [ ] Create an outbound Tenant Storage Share for `project:/workspace/docs`.
+- [ ] Accept the offer for the recipient Tenant.
+- [ ] Reconcile recipient shares.
+- [ ] Create or reconcile a recipient Machine and verify the share appears at `/shared/<source-tenant>/<source-project>/docs`.
+- [ ] Verify the recipient can read the marker file.
+- [ ] Write a second marker from the source Tenant and verify the recipient sees it.
+- [ ] Verify recipient writes under `/shared/...` fail.
+- [ ] Revoke or delete the share, reconcile, and verify the recipient mount is removed.
+- [ ] Cleanup leaves no disposable share state, Machines, or Tenants unless `SANDCASTLE_E2E_KEEP=1`.
+
+Run:
+
+```sh
+SANDCASTLE_E2E=1 SANDCASTLE_E2E_LOCAL_VM=1 go test ./internal/e2e -run TestTenantStorageShareReadOnlyE2E -count=1 -v
+```
+
+**Why:** This catches cross-project disk-device regressions, missing read-only flags, stale recipient metadata, and cleanup paths that unit tests cannot prove against real Incus.
+
+---
+
+## 8. DNS
 
 **Verify CoreDNS after `sc-adm dns apply`:**
 
@@ -150,7 +179,7 @@ The assumed environment is a Linux VM with direct Incus access, reachable privat
 
 ---
 
-## 8. Tailscale
+## 9. Tailscale
 
 *Requires `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.*
 
@@ -172,7 +201,7 @@ The assumed environment is a Linux VM with direct Incus access, reachable privat
 
 ---
 
-## 9. Sidecar NIC Invariants
+## 10. Sidecar NIC Invariants
 
 These are low-level structural checks that catch the class of errors seen during the 3-project migration. Assert on the live Incus instance config after tenant creation:
 
@@ -186,7 +215,7 @@ These are low-level structural checks that catch the class of errors seen during
 
 ---
 
-## 10. Idempotency
+## 11. Idempotency
 
 Each creation operation (`CreateTenant`, `EnsureAuxProjects`, `ensureSidecar`) must be idempotent:
 
@@ -199,7 +228,7 @@ Each creation operation (`CreateTenant`, `EnsureAuxProjects`, `ensureSidecar`) m
 
 ---
 
-## 11. Auth App End-to-End
+## 12. Auth App End-to-End
 
 **Verify with `--debug-approve`:**
 
