@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
@@ -40,6 +41,10 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 				return err
 			}
 			if plan.Action == machine.ActionDelete {
+				cache := incusx.NewConnectCache(config.adminConfig.Remote)
+				if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
+					cache.InvalidatePlan(key)
+				}
 				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
 					return err
 				}

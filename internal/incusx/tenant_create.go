@@ -582,8 +582,15 @@ func configureSidecarNetwork(server TenantResourceServer, sidecar tenant.Sidecar
 	}
 	if sidecar.Role == "dns" {
 		cmds = append(cmds,
-			"systemctl stop tailscale.service 2>/dev/null || true",
-			"systemctl mask tailscale.service",
+			"pkill -x tailscaled >/dev/null 2>&1 || true",
+			"systemctl disable --now tailscaled.service 2>/dev/null || true",
+			"systemctl mask tailscaled.service",
+		)
+	}
+	if sidecar.Role == "tailscale" {
+		cmds = append(cmds,
+			"systemctl unmask tailscaled.service 2>/dev/null || true",
+			"systemctl disable --now tailscaled.service 2>/dev/null || true",
 		)
 	}
 	op, err := server.ExecInstance(sidecar.Name, api.InstanceExecPost{

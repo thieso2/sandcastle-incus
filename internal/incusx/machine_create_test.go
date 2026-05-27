@@ -184,6 +184,9 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 		"cap_net_raw+p /usr/bin/ping",
 		"step docker",
 		"systemctl disable docker.service docker.socket containerd.service",
+		"step tailscale",
+		"systemctl disable --now tailscaled.service",
+		"systemctl mask tailscaled.service",
 		"resolv-conf",
 	} {
 		if !strings.Contains(configureScript, want) {

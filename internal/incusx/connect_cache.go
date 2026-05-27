@@ -97,6 +97,39 @@ func (c ConnectCache) StorePlan(key string, plan machine.ConnectPlan) {
 	_ = c.writeData(data)
 }
 
+// InvalidatePlansByNameExcept removes cached plans for tenant/name except the
+// selected project. Use this after a live lookup proves a bare machine name is
+// currently unambiguous.
+func (c ConnectCache) InvalidatePlansByNameExcept(tenant, name, keepProject string) {
+	data := c.readData()
+	if data == nil || data.Plans == nil {
+		return
+	}
+	prefix := strings.TrimSpace(tenant) + ":"
+	suffix := "/" + strings.TrimSpace(name)
+	keepKey := prefix + strings.TrimSpace(keepProject) + suffix
+	if prefix == ":" || suffix == "/" || strings.TrimSpace(keepProject) == "" {
+		return
+	}
+	var hostsToInvalidate []string
+	for key, entry := range data.Plans {
+		if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, suffix) || key == keepKey {
+			continue
+		}
+		if h := strings.TrimSpace(entry.Plan.PrivateIP); h != "" {
+			hostsToInvalidate = append(hostsToInvalidate, h)
+		}
+		if h := strings.TrimSpace(entry.Plan.Hostname); h != "" {
+			hostsToInvalidate = append(hostsToInvalidate, h)
+		}
+		delete(data.Plans, key)
+	}
+	for _, host := range hostsToInvalidate {
+		delete(data.Keyscans, host)
+	}
+	_ = c.writeData(data)
+}
+
 // IsKeyscanRecent returns true if hostname was successfully keyscanned within the TTL.
 func (c ConnectCache) IsKeyscanRecent(hostname string) bool {
 	data := c.readData()

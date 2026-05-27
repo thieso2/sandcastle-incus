@@ -127,6 +127,7 @@ func planConnectCached(ctx context.Context, cfg commandConfig, cache incusx.Conn
 	if plan.Managed {
 		if canonKey := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); canonKey != "" {
 			cache.StorePlan(canonKey, plan)
+			pruneBareNameConnectCache(cache, cfg, reference, plan)
 		}
 	}
 	return plan, false, nil
@@ -220,6 +221,14 @@ func connectPlanCacheKey(tenant, project, name string) string {
 		return ""
 	}
 	return tenant + ":" + project + "/" + name
+}
+
+func pruneBareNameConnectCache(cache incusx.ConnectCache, cfg commandConfig, reference string, plan machine.ConnectPlan) {
+	reference = strings.TrimSpace(reference)
+	if reference == "" || strings.ContainsAny(reference, "./: ") || strings.TrimSpace(cfg.adminConfig.Project) != "" {
+		return
+	}
+	cache.InvalidatePlansByNameExcept(plan.Tenant.Tenant, plan.Name, plan.Project)
 }
 
 // applyConnectCommand sets the command and interactive flag on a cached plan.

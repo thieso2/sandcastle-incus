@@ -45,6 +45,9 @@ func TestPlanUp(t *testing.T) {
 	if !strings.Contains(strings.Join(ExecCommand(plan), " "), "tailscaled --state=/var/lib/tailscale/tailscaled.state") {
 		t.Fatalf("ExecCommand missing tailscaled bootstrap: %#v", ExecCommand(plan))
 	}
+	if !strings.Contains(strings.Join(ExecCommand(plan), " "), "systemctl unmask tailscaled.service") {
+		t.Fatalf("ExecCommand missing tailscaled unmask: %#v", ExecCommand(plan))
+	}
 	encoded, err := json.Marshal(plan)
 	if err != nil {
 		t.Fatal(err)

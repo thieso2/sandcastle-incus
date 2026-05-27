@@ -485,6 +485,12 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 			t.Fatalf("exec[%d] command = %q, want persistent sidecar network setup", i, got)
 		}
 	}
+	if got := strings.Join(infraServer.execCommands[0], " "); !strings.Contains(got, "systemctl unmask tailscaled.service") || !strings.Contains(got, "systemctl disable --now tailscaled.service") {
+		t.Fatalf("tailscale sidecar command = %q", got)
+	}
+	if got := strings.Join(infraServer.execCommands[1], " "); !strings.Contains(got, "systemctl mask tailscaled.service") || !strings.Contains(got, "pkill -x tailscaled") {
+		t.Fatalf("dns sidecar command = %q", got)
+	}
 	// Third exec restarts CoreDNS.
 	if infraServer.execInstances[2] != tenant.DNSName {
 		t.Fatalf("exec[2] instance = %q, want %q", infraServer.execInstances[2], tenant.DNSName)

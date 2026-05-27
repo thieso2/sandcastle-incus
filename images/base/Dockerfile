@@ -90,6 +90,10 @@ RUN install -d -m 0755 /usr/share/keyrings \
     && apt-get install -y --no-install-recommends tailscale \
     && rm -rf /var/lib/apt/lists/*
 
+RUN systemctl disable tailscaled.service >/dev/null 2>&1 || true \
+    && systemctl mask tailscaled.service >/dev/null 2>&1 || true \
+    && rm -f /etc/systemd/system/multi-user.target.wants/tailscaled.service
+
 RUN printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1\n' >/etc/sysctl.d/99-sandcastle-tailscale.conf
 
 RUN install -d \

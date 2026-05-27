@@ -413,7 +413,7 @@ Bootstrap:
   <div class="step">
     <h3>Create and connect to a machine <span class="badge badge-user">user</span></h3>
     <p>Creates an Incus container machine from the selected template and connects to a shell.</p>
-    <p>Machines use private tenant-network IPs. Tailscale is attached at the tenant sidecar, which advertises the tenant CIDR; containers do not need their own Tailscale IPs.</p>
+    <p>Machines use private tenant-network IPs. Tailscale is attached at the tenant sidecar, which advertises the tenant CIDR; containers do not need their own Tailscale IPs. Machine configuration stops and masks <code>tailscaled</code> even though the base image includes the Tailscale client package for sidecar reuse.</p>
     <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span></code></pre>
   </div>
 
@@ -540,7 +540,7 @@ Bootstrap:
   <div class="step">
     <h3>How it works</h3>
     <p>Every tenant gets an <code>sc-tailscale</code> sidecar container created automatically during <code>tenant create</code>. It sits on the tenant's private bridge at <code>.2</code> (e.g. <code>10.248.0.2</code>) and has a <code>/dev/net/tun</code> device.</p>
-    <p>The container is started but <strong>Tailscale is not activated yet</strong> — <code>tailscaled</code> and <code>tailscale up</code> are only run when you explicitly call <code>tailscale up</code>.</p>
+    <p>The container is started but <strong>Tailscale is not activated yet</strong> — <code>tailscaled</code> and <code>tailscale up</code> are only run when you explicitly call <code>tailscale up</code>. The shared base image keeps <code>tailscaled.service</code> masked by default; the sidecar setup unmasks it for this role only.</p>
     <p>Once activated, the sidecar acts as a <strong>subnet router</strong>: it advertises the entire tenant private CIDR (e.g. <code>10.248.0.0/24</code>) to your Tailnet. Any device on your Tailnet can then reach all machines in the tenant directly by their private IP, without needing Tailscale installed in each machine.</p>
     <div class="note"><strong>Tailscale admin console step:</strong> After running <code>tailscale up</code>, approve the advertised route in your Tailscale admin console under the machine's routing settings.</div>
   </div>

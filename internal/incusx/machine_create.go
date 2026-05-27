@@ -528,6 +528,13 @@ if [ -e /lib/systemd/system/docker.service ] || command -v docker >/dev/null 2>&
   fi
 fi
 
+step tailscale
+if command -v tailscaled >/dev/null 2>&1 || [ -e /lib/systemd/system/tailscaled.service ]; then
+  pkill -x tailscaled >/dev/null 2>&1 || true
+  systemctl disable --now tailscaled.service >/dev/null 2>&1 || true
+  systemctl mask tailscaled.service >/dev/null 2>&1 || true
+fi
+
 step resolv-conf
 if [ -n "${SANDCASTLE_DNS_ADDRESS:-}" ]; then
   rm -f /etc/resolv.conf

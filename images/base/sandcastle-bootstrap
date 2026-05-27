@@ -52,6 +52,16 @@ fi
 EOF_PROMPT
 fi
 
+alias_marker="# sandcastle aliases: yolo codex"
+if ! grep -qF "${alias_marker}" "${bashrc}"; then
+  cat >>"${bashrc}" <<'EOF_ALIASES'
+
+# sandcastle aliases: yolo codex
+alias ycodex='codex --dangerously-bypass-approvals-and-sandbox'
+alias yolo='claude --dangerously-skip-permissions'
+EOF_ALIASES
+fi
+
 profile_marker="# sandcastle bash profile: source bashrc"
 if ! grep -qF "${profile_marker}" "${bash_profile}"; then
   cat >>"${bash_profile}" <<'EOF_PROFILE'
