@@ -2125,6 +2125,54 @@ func TestStatusJSON(t *testing.T) {
 	}
 }
 
+func TestStatusJSONIncludesShareReconciliationHealth(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
+		Tenant: "acme",
+		Machines: []share.MachineReconcileResult{{
+			Project: "default",
+			Machine: "codex",
+			Status:  "would-update",
+			Changed: true,
+		}, {
+			Project: "default",
+			Machine: "current",
+			Status:  "current",
+		}},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		authShares: client,
+	}, "--output", "json", "status", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload tenant.Status
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Shares.UnreconciledMachineCount != 1 {
+		t.Fatalf("share health = %#v", payload.Shares)
+	}
+	if len(client.reconcileRequests) != 1 || client.reconcileRequests[0].Tenant != "acme" || !client.reconcileRequests[0].DryRun {
+		t.Fatalf("reconcileRequests = %#v", client.reconcileRequests)
+	}
+}
+
 func TestStatusJSONUsesTenantRef(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",

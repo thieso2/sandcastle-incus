@@ -132,6 +132,7 @@ func newAdminTenantStatusCommand(config commandConfig, opts *rootOptions) *cobra
 			if err != nil {
 				return err
 			}
+			addTenantShareReconciliationHealth(cmd.Context(), config, &status)
 			return writeOutput(config.stdout, opts.output, formatTenantStatus(status), status)
 		},
 	}
