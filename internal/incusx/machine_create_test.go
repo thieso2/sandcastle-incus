@@ -204,6 +204,7 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 		machine.MachineCertPath,
 		machine.MachineCertKeyPath,
 		"base64 -d",
+		"/var/lib/sandcastle/workload/runtime-secret|/var/lib/sandcastle/workload/gcp-credential.json",
 		"systemctl daemon-reload",
 		"systemctl restart caddy",
 		"systemctl is-active caddy",
@@ -255,6 +256,27 @@ func TestMachineCreatorVerboseLogsDurations(t *testing.T) {
 	}
 	if strings.Contains(joined, "Tailscale Machine IP") {
 		t.Fatalf("verbose logs should not mention machine-level Tailscale IP:\n%s", joined)
+	}
+}
+
+func TestMachineCreatorSkipsCertificateIssueWhenExplicitlyEmpty(t *testing.T) {
+	plan := machinePlanForTest(t)
+	plan.CertificateFiles = []machine.File{}
+	plan.WorkloadFiles = []machine.File{{Path: machine.WorkloadTokenHelperPath, Content: []byte("#!/bin/sh\n"), Mode: 0o755}}
+	resource := fakeMachineResourceWithCA(t)
+	resource.instance = &api.Instance{Name: plan.InstanceName, StatusCode: api.Running}
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(resource.execStdin) != 1 {
+		t.Fatalf("exec count = %d", len(resource.execStdin))
+	}
+	if strings.Contains(resource.execStdin[0], machine.MachineCertPath) {
+		t.Fatalf("configure script unexpectedly rewrites certificate:\n%s", resource.execStdin[0])
+	}
+	if !strings.Contains(resource.execStdin[0], machine.WorkloadTokenHelperPath) {
+		t.Fatalf("configure script missing workload helper:\n%s", resource.execStdin[0])
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 
 func TestOIDCSigningKeyBootstrapStoresEncryptedPrivateKey(t *testing.T) {
 	db := authDBForTest(t)
-	key, err := EnsureOIDCSigningKey(context.Background(), db)
+	key, err := EnsureOIDCSigningKey(context.Background(), db, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestOIDCSigningKeyBootstrapStoresEncryptedPrivateKey(t *testing.T) {
 	if strings.Contains(key.EncryptedPrivateKey, "PRIVATE KEY") || strings.Contains(key.EncryptedPrivateKey, `"d"`) {
 		t.Fatalf("private key appears unencrypted: %s", key.EncryptedPrivateKey)
 	}
-	again, err := EnsureOIDCSigningKey(context.Background(), db)
+	again, err := EnsureOIDCSigningKey(context.Background(), db, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +34,32 @@ func TestOIDCSigningKeyBootstrapStoresEncryptedPrivateKey(t *testing.T) {
 	}
 	if columns != 7 {
 		t.Fatalf("rotation-ready columns = %d", columns)
+	}
+}
+
+func TestOIDCSigningKeysAreScopedByTenant(t *testing.T) {
+	db := authDBForTest(t)
+	global, err := EnsureOIDCSigningKey(context.Background(), db, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acme, err := EnsureOIDCSigningKey(context.Background(), db, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := EnsureOIDCSigningKey(context.Background(), db, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if global.KID == acme.KID || acme.KID == other.KID {
+		t.Fatalf("tenant keys were not isolated: global=%q acme=%q other=%q", global.KID, acme.KID, other.KID)
+	}
+	acmeKeys, err := ListPublicOIDCSigningKeys(context.Background(), db, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acmeKeys) != 1 || !strings.Contains(string(acmeKeys[0]), acme.KID) {
+		t.Fatalf("acme keys = %#v, want kid %q", acmeKeys, acme.KID)
 	}
 }
 
@@ -54,6 +80,38 @@ func TestOIDCDiscoveryUsesConfiguredIssuerAndCacheHeaders(t *testing.T) {
 	}
 	if payload["issuer"] != "https://auth.example.com" || payload["jwks_uri"] != "https://auth.example.com/.well-known/jwks.json" {
 		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestTenantOIDCDiscoveryUsesTenantIssuerAndJWKS(t *testing.T) {
+	db := authDBForTest(t)
+	handler := NewHandler(db, HandlerOptions{AuthHostname: "auth.example.com"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/t/acme/.well-known/openid-configuration", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("tenant discovery = %d %q", response.Code, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["issuer"] != "https://auth.example.com/t/acme" || payload["jwks_uri"] != "https://auth.example.com/t/acme/.well-known/jwks.json" {
+		t.Fatalf("payload = %#v", payload)
+	}
+
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/t/acme/.well-known/jwks.json", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("tenant jwks = %d %q", response.Code, response.Body.String())
+	}
+	var jwks struct {
+		Keys []map[string]any `json:"keys"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &jwks); err != nil {
+		t.Fatal(err)
+	}
+	if len(jwks.Keys) != 1 || jwks.Keys[0]["kid"] == "" {
+		t.Fatalf("jwks = %#v", jwks)
 	}
 }
 

@@ -11,35 +11,35 @@ func TestLoadSandcastleConfigMissingFileReturnsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Tenant != "" || cfg.Project != "" || cfg.Remote != "" {
+	if cfg.Tenant != "" || cfg.Project != "" || cfg.Remote != "" || cfg.AuthHostname != "" || cfg.AuthToken != "" {
 		t.Fatalf("expected empty config, got %+v", cfg)
 	}
 }
 
 func TestLoadSandcastleConfigReadsTenantProjectAndRemote(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yml")
-	if err := os.WriteFile(path, []byte("tenant: acme\nproject: website\nremote: sandcastle-acme\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("tenant: acme\nproject: website\nremote: sandcastle-acme\nauth_hostname: big.example.dev\nauth_token: token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadSandcastleConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Tenant != "acme" || cfg.Project != "website" || cfg.Remote != "sandcastle-acme" {
+	if cfg.Tenant != "acme" || cfg.Project != "website" || cfg.Remote != "sandcastle-acme" || cfg.AuthHostname != "big.example.dev" || cfg.AuthToken != "token" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }
 
 func TestSaveAndReloadSandcastleConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yml")
-	if err := SaveSandcastleConfig(path, SandcastleConfig{Tenant: "acme", Project: "website", Remote: "prod"}); err != nil {
+	if err := SaveSandcastleConfig(path, SandcastleConfig{Tenant: "acme", Project: "website", Remote: "prod", AuthHostname: "big.example.dev", AuthToken: "token"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadSandcastleConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Tenant != "acme" || cfg.Project != "website" || cfg.Remote != "prod" {
+	if cfg.Tenant != "acme" || cfg.Project != "website" || cfg.Remote != "prod" || cfg.AuthHostname != "big.example.dev" || cfg.AuthToken != "token" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }
@@ -101,6 +101,32 @@ func TestLoadAdminFromFileAndEnvFileUsedWhenNoEnv(t *testing.T) {
 	}
 	if admin.Remote != "file-remote" {
 		t.Fatalf("Remote = %q, want file-remote", admin.Remote)
+	}
+}
+
+func TestLoadAdminFromFileAndEnvUsesAuthHostname(t *testing.T) {
+	t.Setenv("SANDCASTLE_AUTH_HOSTNAME", "")
+	admin := loadAdminFromFileAndEnv(SandcastleConfig{AuthHostname: "big.example.dev"})
+	if admin.AuthHostname != "big.example.dev" {
+		t.Fatalf("AuthHostname = %q, want big.example.dev", admin.AuthHostname)
+	}
+	t.Setenv("SANDCASTLE_AUTH_HOSTNAME", "auth.example.dev")
+	admin = loadAdminFromFileAndEnv(SandcastleConfig{AuthHostname: "big.example.dev"})
+	if admin.AuthHostname != "auth.example.dev" {
+		t.Fatalf("AuthHostname = %q, want auth.example.dev", admin.AuthHostname)
+	}
+}
+
+func TestLoadAdminFromFileAndEnvUsesAuthToken(t *testing.T) {
+	t.Setenv("SANDCASTLE_AUTH_TOKEN", "")
+	admin := loadAdminFromFileAndEnv(SandcastleConfig{AuthToken: "file-token"})
+	if admin.AuthToken != "file-token" {
+		t.Fatalf("AuthToken = %q, want file-token", admin.AuthToken)
+	}
+	t.Setenv("SANDCASTLE_AUTH_TOKEN", "env-token")
+	admin = loadAdminFromFileAndEnv(SandcastleConfig{AuthToken: "file-token"})
+	if admin.AuthToken != "env-token" {
+		t.Fatalf("AuthToken = %q, want env-token", admin.AuthToken)
 	}
 }
 

@@ -10,10 +10,12 @@ import (
 
 // SandcastleConfig holds user-facing defaults stored in ~/.config/sandcastle/config.yml.
 type SandcastleConfig struct {
-	Tenant      string `yaml:"tenant,omitempty"`
-	Project     string `yaml:"project,omitempty"`
-	Remote      string `yaml:"remote,omitempty"`
-	AdminRemote string `yaml:"admin_remote,omitempty"`
+	Tenant       string `yaml:"tenant,omitempty"`
+	Project      string `yaml:"project,omitempty"`
+	Remote       string `yaml:"remote,omitempty"`
+	AdminRemote  string `yaml:"admin_remote,omitempty"`
+	AuthHostname string `yaml:"auth_hostname,omitempty"`
+	AuthToken    string `yaml:"auth_token,omitempty"`
 }
 
 // DefaultConfigDir returns ~/.config/sandcastle.
@@ -100,7 +102,8 @@ func adminFromConfigAndEnv(cfg SandcastleConfig, env map[string]string) Admin {
 		InfrastructureHost:     strings.TrimSpace(env["SANDCASTLE_INFRA_HOST"]),
 		LetsEncryptEmail:       strings.TrimSpace(env["SANDCASTLE_LETSENCRYPT_EMAIL"]),
 		InfrastructureTLSMode:  strings.TrimSpace(env["SANDCASTLE_INFRA_TLS_MODE"]),
-		AuthHostname:           strings.TrimSpace(env["SANDCASTLE_AUTH_HOSTNAME"]),
+		AuthHostname:           firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_AUTH_HOSTNAME"]), cfg.AuthHostname),
+		AuthToken:              firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_AUTH_TOKEN"]), cfg.AuthToken),
 		AuthGitHubClientID:     getenvFrom(env, "SANDCASTLE_AUTH_GITHUB_CLIENT_ID", ""),
 		AuthGitHubClientSecret: getenvFrom(env, "SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", ""),
 		AuthAdminGitHubUsers:   splitListFrom(env, "SANDCASTLE_AUTH_ADMIN_GITHUB_USERS"),

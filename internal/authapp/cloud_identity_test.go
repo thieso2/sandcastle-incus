@@ -2,6 +2,7 @@ package authapp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -100,6 +101,40 @@ func TestCloudIdentityConfigUIUsesSessionOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(configs) != 1 || configs[0].Name != "prod" {
+		t.Fatalf("configs = %#v", configs)
+	}
+}
+
+func TestCloudIdentityConfigAPIAcceptsCLIToken(t *testing.T) {
+	db := authDBForTest(t)
+	if err := UpsertUser(context.Background(), db, User{UserKey: "octocat", GitHubUsername: "octocat", Allowlisted: true}); err != nil {
+		t.Fatal(err)
+	}
+	token, err := CreateCLIToken(context.Background(), db, "octocat", timeNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(db, HandlerOptions{})
+	body := `{"name":"gcp","provider":"gcp","gcp_audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider","gcp_service_account_impersonation_url":"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@example.iam.gserviceaccount.com:generateAccessToken"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/cloud-identities", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("save = %d %q", response.Code, response.Body.String())
+	}
+	var payload CloudIdentityUpsertRequest
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Name != "gcp" || payload.GCPAudience == "" || payload.GCPServiceAccountImpersonationURL == "" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	configs, err := ListCloudIdentityConfigs(context.Background(), db, "octocat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(configs) != 1 || configs[0].Name != "gcp" {
 		t.Fatalf("configs = %#v", configs)
 	}
 }

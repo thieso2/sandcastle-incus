@@ -322,8 +322,9 @@
           <tr><th>Endpoint</th><th>Behavior</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/.well-known/openid-configuration</code></td><td>Returns the issuer, JWKS URI, supported signing algorithm <code>RS256</code>, response type <code>id_token</code>, and public subject type.</td></tr>
-          <tr><td><code>/.well-known/jwks.json</code></td><td>Returns active public signing keys from the Auth Database. Private keys are never published.</td></tr>
+          <tr><td><code>/t/&lt;tenant&gt;/.well-known/openid-configuration</code></td><td>Returns the tenant-scoped issuer, JWKS URI, supported signing algorithm <code>RS256</code>, response type <code>id_token</code>, and public subject type.</td></tr>
+          <tr><td><code>/t/&lt;tenant&gt;/.well-known/jwks.json</code></td><td>Returns active public signing keys for one tenant from the Auth Database. Private keys are never published.</td></tr>
+          <tr><td><code>/.well-known/openid-configuration</code> and <code>/.well-known/jwks.json</code></td><td>Remain available for the legacy global issuer key set.</td></tr>
           <tr><td><code>/internal/workload/token</code></td><td>Accepts a machine runtime secret and returns a short-lived bearer token when the machine is enabled and still exists.</td></tr>
         </tbody>
       </table>
@@ -352,7 +353,7 @@
         <div>2. Inject</div>
         <div>The machine receives <code>/var/lib/sandcastle/workload/runtime-secret</code> and <code>/var/lib/sandcastle/workload/token-endpoint</code>.</div>
         <div>3. Request</div>
-        <div>The machine posts <code>tenant</code>, <code>project</code>, <code>machine</code>, and <code>runtime_secret</code> to <code>/internal/workload/token</code>.</div>
+        <div>The machine posts <code>tenant</code>, <code>project</code>, <code>machine</code>, <code>runtime_secret</code>, and <code>audience</code> to <code>/internal/workload/token</code>.</div>
         <div>4. Verify</div>
         <div>The Auth App verifies the runtime secret, the enabled flag, the tenant, and the machine record.</div>
         <div>5. Mint</div>
@@ -362,9 +363,10 @@
       <h3>Token Claims</h3>
       <p>Minted workload identity tokens include:</p>
       <ul>
-        <li><code>iss</code>: the Auth Hostname issuer URL.</li>
+        <li><code>iss</code>: the per-tenant issuer URL.</li>
         <li><code>sub</code>: <code>machine:&lt;tenant&gt;/&lt;project&gt;/&lt;machine&gt;</code>.</li>
-        <li><code>iat</code> and <code>exp</code>: issue and expiry timestamps. The v1 token lifetime is 15 minutes.</li>
+        <li><code>aud</code>: the Cloud Identity Audience requested by the machine.</li>
+        <li><code>iat</code>, <code>nbf</code>, and <code>exp</code>: issue, valid-from, and expiry timestamps. The v1 token lifetime is 15 minutes.</li>
         <li><code>tenant</code>, <code>project</code>, and <code>machine</code>: Sandcastle workload identity vocabulary.</li>
         <li><code>sandcastle_user_key</code> and <code>github_username</code>: the user identity associated with the machine runtime secret.</li>
       </ul>
@@ -372,12 +374,20 @@
 
     <section id="gcp">
       <h2>GCP Cloud Identity Configs</h2>
-      <p>Users manage cloud identity configs at:</p>
+      <p>Users can confirm or repair cloud identity configs at:</p>
       <pre><code>https://auth.example.com/cloud-identities</code></pre>
 
       <p>For GCP, a config requires a Workload Identity audience. The subject token type defaults to <code>urn:ietf:params:oauth:token-type:jwt</code> when omitted. A service account impersonation URL is optional.</p>
+      <p>To configure the GCP side for one Sandcastle tenant, use the user CLI with the Auth Hostname and CLI Auth Token remembered by <code>sc login</code> and the active <code>gcloud</code> project, or pass <code>--project</code> explicitly:</p>
+      <pre><code>sc cloud-identity gcp setup \
+  --tenant acme</code></pre>
+      <p>The command creates or updates the Workload Identity Pool and OIDC provider, sets the provider allowed audience to the <code>//iam.googleapis.com/...</code> provider resource name, creates the tenant service account if needed, grants <code>roles/iam.workloadIdentityUser</code>, saves the user-owned Sandcastle Cloud Identity Config named <code>gcp</code>, and prints the audience and service account impersonation URL for confirmation.</p>
+      <p>Use the verification helper to display and check the GCP provider, service account IAM binding, and reachable Sandcastle issuer metadata:</p>
+      <pre><code>scripts/verify-gcp-oidc.sh \
+  --tenant acme \
+  --auth-hostname auth.example.com</code></pre>
 
-      <p>When a machine selects a GCP config, Sandcastle writes an external account credential file and profile exports:</p>
+      <p>Enable workload identity on a tenant machine with <code>sc workload enable &lt;machine&gt; --cloud-identity gcp</code>. The command rotates the Machine Runtime Secret through the Auth App and injects the helper, external account credential file, and profile exports:</p>
       <table>
         <thead>
           <tr><th>Machine File</th><th>Purpose</th></tr>
@@ -385,8 +395,10 @@
         <tbody>
           <tr><td><code>/var/lib/sandcastle/workload/runtime-secret</code></td><td>Secret used by the machine to request a Sandcastle workload identity token.</td></tr>
           <tr><td><code>/var/lib/sandcastle/workload/token-endpoint</code></td><td>Auth App token endpoint URL.</td></tr>
-          <tr><td><code>/var/lib/sandcastle/workload/gcp-credential.json</code></td><td>GCP external account credential JSON using the Sandcastle token as the subject token.</td></tr>
-          <tr><td><code>/etc/profile.d/sandcastle-workload-identity.sh</code></td><td>Exports <code>GOOGLE_APPLICATION_CREDENTIALS</code> and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code>.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/gcp-audience</code></td><td>Cloud Identity Audience used in the token's <code>aud</code> claim.</td></tr>
+          <tr><td><code>/usr/local/bin/sandcastle-workload-token</code></td><td>Executable credential helper that fetches fresh Sandcastle tokens for Google ADC.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/gcp-credential.json</code></td><td>GCP external account credential JSON using the executable helper as the subject token source.</td></tr>
+          <tr><td><code>/etc/profile.d/sandcastle-workload-identity.sh</code></td><td>Exports <code>GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES</code>, <code>GOOGLE_APPLICATION_CREDENTIALS</code>, and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code>.</td></tr>
         </tbody>
       </table>
     </section>
@@ -398,12 +410,12 @@
         <li>The JWKS endpoint publishes public keys only. Private signing keys remain encrypted in the Auth Database.</li>
         <li>Machine runtime secrets are rotated when workload identity is enabled or re-enabled for a machine.</li>
         <li>Cloud Identity Configs are user-owned and selected per machine in v1. They are not applied automatically at Tenant or Project level.</li>
-        <li>The current code contains the OIDC provider, database tables, token endpoint, GCP credential writer, and planner support. A complete user/admin CLI for selecting a cloud identity config during machine creation should be confirmed before relying on this end to end.</li>
+        <li>The <code>sc cloud-identity gcp setup</code> command configures tenant-scoped GCP trust and saves the user-owned Cloud Identity Config when the CLI has a stored Auth Token. Users can still manage the saved config at <code>/cloud-identities</code>.</li>
       </ul>
 
       <h3>Smoke Checks</h3>
-      <pre><code>curl https://auth.example.com/.well-known/openid-configuration
-curl https://auth.example.com/.well-known/jwks.json</code></pre>
+      <pre><code>curl https://auth.example.com/t/acme/.well-known/openid-configuration
+curl https://auth.example.com/t/acme/.well-known/jwks.json</code></pre>
     </section>
   </main>
 </body>

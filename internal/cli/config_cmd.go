@@ -32,11 +32,14 @@ func newConfigShowCommand(config commandConfig) *cobra.Command {
 			fmt.Fprintf(config.stdout, "  file.tenant:  %q\n", fileCfg.Tenant)
 			fmt.Fprintf(config.stdout, "  file.project: %q\n", fileCfg.Project)
 			fmt.Fprintf(config.stdout, "  file.remote:  %q\n", fileCfg.Remote)
+			fmt.Fprintf(config.stdout, "  file.auth.hostname: %q\n", fileCfg.AuthHostname)
 			userPath := scconfig.ResolveConfigPath(config.adminConfig.Remote)
 			fmt.Fprintf(config.stdout, "\nresolved:\n")
 			fmt.Fprintf(config.stdout, "  tenant:       %q\n", config.adminConfig.Tenant)
 			fmt.Fprintf(config.stdout, "  project:      %q\n", config.adminConfig.Project)
 			fmt.Fprintf(config.stdout, "  remote:       %q\n", config.adminConfig.Remote)
+			fmt.Fprintf(config.stdout, "  auth.hostname: %q\n", config.adminConfig.AuthHostname)
+			fmt.Fprintf(config.stdout, "  auth.hostname.effective: %q\n", commandAuthHostname(config, ""))
 			fmt.Fprintf(config.stdout, "  admin_remote: %q  (used by sc admin; SANDCASTLE_ADMIN_REMOTE overrides)\n", config.adminConfig.AdminRemote)
 			fmt.Fprintf(config.stdout, "  user incus config:  %q\n", userPath)
 			fmt.Fprintf(config.stdout, "  admin incus config: ~/.config/incus/ (global default)\n")
@@ -53,6 +56,7 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
   tenant        default tenant name (e.g. acme)
   project       default project name (e.g. default)
   remote        default Sandcastle user remote name (e.g. sc-alice)
+  auth.hostname public Auth App hostname (e.g. big.example.dev)
   admin_remote  Incus remote for sc admin commands in global ~/.config/incus/ (e.g. big)`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -82,6 +86,7 @@ func newConfigUnsetCommand(_ commandConfig) *cobra.Command {
   tenant        default tenant name
   project       default project name
   remote        default Sandcastle user remote name
+  auth.hostname public Auth App hostname
   admin_remote  Incus remote for sc admin commands in global ~/.config/incus/`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -113,8 +118,10 @@ func setConfigValue(cfg *scconfig.SandcastleConfig, key string, value string) er
 		cfg.Remote = value
 	case "admin_remote":
 		cfg.AdminRemote = value
+	case "auth.hostname", "auth_hostname":
+		cfg.AuthHostname = value
 	default:
-		return fmt.Errorf("unknown config key %q; supported keys: tenant, project, remote, admin_remote", key)
+		return fmt.Errorf("unknown config key %q; supported keys: tenant, project, remote, auth.hostname, admin_remote", key)
 	}
 	return nil
 }

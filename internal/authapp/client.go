@@ -15,6 +15,7 @@ const defaultDeviceClientTimeout = 2 * time.Minute
 
 type DeviceClient struct {
 	BaseURL    string
+	AuthToken  string
 	HTTPClient *http.Client
 }
 
@@ -32,6 +33,7 @@ type DevicePollResult struct {
 	Status             string
 	Message            string
 	UserKey            string
+	CLIAuthToken       string
 	Token              string
 	RemoteName         string
 	AccessibleTenants  []string
@@ -109,6 +111,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		Status:             payload.Status,
 		Message:            payload.Message,
 		UserKey:            payload.UserKey,
+		CLIAuthToken:       payload.CLIAuthToken,
 		Token:              payload.Token,
 		RemoteName:         payload.RemoteName,
 		AccessibleTenants:  append([]string{}, payload.AccessibleTenants...),
@@ -148,6 +151,82 @@ func (c DeviceClient) DebugApprove(ctx context.Context, userCode string) error {
 		return fmt.Errorf("debug approve: %s", msg)
 	}
 	return nil
+}
+
+func (c DeviceClient) EnableWorkload(ctx context.Context, request WorkloadEnableRequest) (WorkloadEnableResult, error) {
+	body, _ := json.Marshal(request)
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/workload/enable"), bytes.NewReader(body))
+	if err != nil {
+		return WorkloadEnableResult{}, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return WorkloadEnableResult{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return WorkloadEnableResult{}, fmt.Errorf("auth app workload enable: %s", msg)
+	}
+	var payload WorkloadEnableResult
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return WorkloadEnableResult{}, err
+	}
+	return payload, nil
+}
+
+func (c DeviceClient) UpsertCloudIdentity(ctx context.Context, request CloudIdentityUpsertRequest) (CloudIdentityConfig, error) {
+	body, _ := json.Marshal(request)
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/cloud-identities"), bytes.NewReader(body))
+	if err != nil {
+		return CloudIdentityConfig{}, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return CloudIdentityConfig{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return CloudIdentityConfig{}, fmt.Errorf("auth app cloud identity upsert: %s", msg)
+	}
+	var payload struct {
+		ID                                string `json:"id"`
+		UserKey                           string `json:"user_key"`
+		Name                              string `json:"name"`
+		Provider                          string `json:"provider"`
+		GCPAudience                       string `json:"gcp_audience"`
+		GCPSubjectTokenType               string `json:"gcp_subject_token_type"`
+		GCPServiceAccountImpersonationURL string `json:"gcp_service_account_impersonation_url"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return CloudIdentityConfig{}, err
+	}
+	return CloudIdentityConfig{
+		ID:                                payload.ID,
+		UserKey:                           payload.UserKey,
+		Name:                              payload.Name,
+		Provider:                          payload.Provider,
+		GCPAudience:                       payload.GCPAudience,
+		GCPSubjectTokenType:               payload.GCPSubjectTokenType,
+		GCPServiceAccountImpersonationURL: payload.GCPServiceAccountImpersonationURL,
+	}, nil
 }
 
 func (c DeviceClient) url(path string) string {

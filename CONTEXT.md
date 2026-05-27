@@ -69,9 +69,17 @@ _Avoid_: Browser provisioner, SSH key upload page
 The public issuer that signs Sandcastle workload identity tokens for external cloud trust.
 _Avoid_: GitHub OIDC provider, OAuth login provider
 
+**Per-Tenant OIDC Issuer**:
+The tenant-scoped Sandcastle OIDC issuer used for external cloud trust isolation.
+_Avoid_: Global tenant claim filter, per-project issuer
+
 **Workload Identity Token**:
 A short-lived OIDC token that identifies both the User and the Machine for external cloud trust.
 _Avoid_: Sandbox token, cloud key
+
+**Cloud Identity Audience**:
+The external cloud provider audience value that a Workload Identity Token is minted for.
+_Avoid_: Auth Hostname, OIDC issuer, service account email
 
 **OIDC Signing Key**:
 The Auth App private key used to sign Workload Identity Tokens.
@@ -371,17 +379,22 @@ _Avoid_: Projectless mode
 - The **Auth App** manages **Tenant Access** by applying the same restricted Incus certificate grants as `sandcastle-admin`.
 - A **User** may authenticate to Sandcastle through **GitHub OAuth Login**.
 - The **Sandcastle OIDC Provider** issues workload identity tokens for **Machines**, not browser login sessions.
+- A **Per-Tenant OIDC Issuer** is scoped to exactly one **Tenant**.
+- A **Workload Identity Token** issuer is the **Per-Tenant OIDC Issuer** for the token's **Tenant**.
 - A **Workload Identity Token** identifies both the **User** and the **Machine**.
-- A **Workload Identity Token** may expose **Tenant**, **Project**, **Machine**, **Sandcastle User Key**, and **GitHub Username** claims.
+- A **Workload Identity Token** may expose **Tenant**, **Project**, **Machine**, **Sandcastle User Key**, **GitHub Username**, and **Cloud Identity Audience** claims.
 - A **Workload Identity Token** does not use the legacy `sandbox` vocabulary.
 - A **Workload Identity Token** expires after 15 minutes in v1.
 - An **OIDC Signing Key** is stored encrypted in the **Auth Database**.
+- An **OIDC Signing Key** belongs to one **Per-Tenant OIDC Issuer**.
 - The **Sandcastle OIDC Provider** publishes public signing keys through JWKS.
 - The Auth App deployment secret protects encrypted sensitive state and web sessions.
 - A **Machine** uses a **Machine Runtime Secret** to request **Workload Identity Tokens**.
 - A **Machine Runtime Secret** is rotated when workload identity is enabled, re-enabled, or the **Machine** is rebuilt.
 - The **Auth App** stores only a verifier for a **Machine Runtime Secret**, not the raw secret.
 - A **User** may define one or more **Cloud Identity Configs**.
+- The `sc cloud-identity gcp setup` command configures external GCP trust for a **Tenant** and prints the values stored in a **Cloud Identity Config**.
+- The `sc workload enable` command rotates a **Machine Runtime Secret** through the **Auth App** and injects workload identity files into a **Machine** through the tenant-scoped user remote.
 - **Cloud Identity Configs** are selected per **Machine** when workload identity is enabled.
 - Sandcastle v1 does not apply **Cloud Identity Configs** automatically at the **Tenant** or **Project** level.
 - The **Auth App** is implemented as part of the Go Sandcastle codebase.

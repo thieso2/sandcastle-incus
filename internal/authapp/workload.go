@@ -34,11 +34,15 @@ type MachineRuntimeSecretResult struct {
 	Machine         string `json:"machine"`
 	RuntimeSecret   string `json:"runtimeSecret"`
 	TokenEndpoint   string `json:"tokenEndpoint"`
+	Issuer          string `json:"issuer"`
 	ExpiresInSecond int    `json:"expiresInSeconds"`
 }
 
 func EnableMachineWorkloadIdentity(ctx context.Context, db *sql.DB, authHostname string, request MachineRuntimeSecretRequest) (MachineRuntimeSecretResult, error) {
 	if err := validateMachineRuntimeSecretRequest(request); err != nil {
+		return MachineRuntimeSecretResult{}, err
+	}
+	if _, err := EnsureOIDCSigningKey(ctx, db, request.Tenant); err != nil {
 		return MachineRuntimeSecretResult{}, err
 	}
 	secret, err := randomToken(32)
@@ -63,12 +67,17 @@ ON CONFLICT(tenant, project, machine) DO UPDATE SET
 	if err != nil {
 		return MachineRuntimeSecretResult{}, err
 	}
+	tenantIssuer, err := tenantOIDCIssuer(authHostname, request.Tenant)
+	if err != nil {
+		return MachineRuntimeSecretResult{}, err
+	}
 	return MachineRuntimeSecretResult{
 		Tenant:          request.Tenant,
 		Project:         request.Project,
 		Machine:         request.Machine,
 		RuntimeSecret:   secret,
 		TokenEndpoint:   issuer + "/internal/workload/token",
+		Issuer:          tenantIssuer,
 		ExpiresInSecond: int(workloadTokenTTL.Seconds()),
 	}, nil
 }
@@ -83,12 +92,17 @@ func (h handler) workloadToken(w http.ResponseWriter, r *http.Request) {
 		Project       string `json:"project"`
 		Machine       string `json:"machine"`
 		RuntimeSecret string `json:"runtime_secret"`
+		Audience      string `json:"audience"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	token, err := h.mintWorkloadToken(r.Context(), request.Tenant, request.Project, request.Machine, request.RuntimeSecret)
+	if strings.TrimSpace(request.Audience) == "" {
+		http.Error(w, "audience is required", http.StatusBadRequest)
+		return
+	}
+	token, err := h.mintWorkloadToken(r.Context(), request.Tenant, request.Project, request.Machine, request.RuntimeSecret, request.Audience)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -100,7 +114,11 @@ func (h handler) workloadToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h handler) mintWorkloadToken(ctx context.Context, tenantName string, projectName string, machineName string, secret string) (string, error) {
+func (h handler) mintWorkloadToken(ctx context.Context, tenantName string, projectName string, machineName string, secret string, audience string) (string, error) {
+	audience = strings.TrimSpace(audience)
+	if audience == "" {
+		return "", fmt.Errorf("audience is required")
+	}
 	if h.tenants == nil || h.machines == nil {
 		return "", fmt.Errorf("machine verification stores are not configured")
 	}
@@ -118,15 +136,17 @@ func (h handler) mintWorkloadToken(ctx context.Context, tenantName string, proje
 	if err != nil {
 		return "", err
 	}
-	issuer, err := oidcIssuer(h.authHostname)
+	issuer, err := tenantOIDCIssuer(h.authHostname, summary.Tenant)
 	if err != nil {
 		return "", err
 	}
 	now := timeNow().UTC()
+	issuedAt := now.Add(-30 * time.Second)
 	claims := map[string]any{
 		"iss":                 issuer,
 		"sub":                 "machine:" + summary.Tenant + "/" + machineState.Project + "/" + machineState.Name,
-		"iat":                 now.Unix(),
+		"iat":                 issuedAt.Unix(),
+		"nbf":                 issuedAt.Unix(),
 		"exp":                 now.Add(workloadTokenTTL).Unix(),
 		"tenant":              summary.Tenant,
 		"project":             machineState.Project,
@@ -134,7 +154,8 @@ func (h handler) mintWorkloadToken(ctx context.Context, tenantName string, proje
 		"sandcastle_user_key": enabled.UserKey,
 		"github_username":     enabled.GitHubUsername,
 	}
-	key, privateKey, err := activeOIDCPrivateKey(ctx, h.db)
+	claims["aud"] = audience
+	key, privateKey, err := activeOIDCPrivateKey(ctx, h.db, summary.Tenant)
 	if err != nil {
 		return "", err
 	}

@@ -3,6 +3,7 @@ package authapp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -19,6 +20,14 @@ type CloudIdentityConfig struct {
 	GCPAudience                       string
 	GCPSubjectTokenType               string
 	GCPServiceAccountImpersonationURL string
+}
+
+type CloudIdentityUpsertRequest struct {
+	Name                              string `json:"name"`
+	Provider                          string `json:"provider,omitempty"`
+	GCPAudience                       string `json:"gcp_audience"`
+	GCPSubjectTokenType               string `json:"gcp_subject_token_type,omitempty"`
+	GCPServiceAccountImpersonationURL string `json:"gcp_service_account_impersonation_url,omitempty"`
 }
 
 func UpsertCloudIdentityConfig(ctx context.Context, db *sql.DB, config CloudIdentityConfig) (CloudIdentityConfig, error) {
@@ -190,6 +199,56 @@ func (h handler) cloudIdentityDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/cloud-identities", http.StatusSeeOther)
+}
+
+func (h handler) cloudIdentitiesAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, err := h.requireBearerUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var request CloudIdentityUpsertRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	saved, err := UpsertCloudIdentityConfig(r.Context(), h.db, CloudIdentityConfig{
+		UserKey:                           user.UserKey,
+		Name:                              request.Name,
+		Provider:                          request.Provider,
+		GCPAudience:                       request.GCPAudience,
+		GCPSubjectTokenType:               request.GCPSubjectTokenType,
+		GCPServiceAccountImpersonationURL: request.GCPServiceAccountImpersonationURL,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, cloudIdentityAPIResponse(saved))
+}
+
+func (h handler) requireBearerUser(r *http.Request) (User, error) {
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
+		return User{}, fmt.Errorf("bearer token is required")
+	}
+	return UserForCLIToken(r.Context(), h.db, token, timeNow())
+}
+
+func cloudIdentityAPIResponse(config CloudIdentityConfig) map[string]any {
+	return map[string]any{
+		"id":                                    config.ID,
+		"user_key":                              config.UserKey,
+		"name":                                  config.Name,
+		"provider":                              config.Provider,
+		"gcp_audience":                          config.GCPAudience,
+		"gcp_subject_token_type":                config.GCPSubjectTokenType,
+		"gcp_service_account_impersonation_url": config.GCPServiceAccountImpersonationURL,
+	}
 }
 
 var cloudIdentityTemplate = template.Must(template.New("cloud-identities").Parse(`<!doctype html>

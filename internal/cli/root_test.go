@@ -115,6 +115,19 @@ type fakeAuthDeviceClient struct {
 	pollRequests     []authapp.DevicePollRequest
 }
 
+type fakeAuthWorkloadClient struct {
+	start          authapp.DeviceStartResult
+	starts         int
+	polls          []authapp.DevicePollResult
+	enableRequests []authapp.WorkloadEnableRequest
+	enableResult   authapp.WorkloadEnableResult
+}
+
+type fakeAuthCloudIdentityClient struct {
+	upsertRequests []authapp.CloudIdentityUpsertRequest
+	upsertResult   authapp.CloudIdentityConfig
+}
+
 type fakeLoginRemoteInstaller struct {
 	requests []loginRemoteInstallRequest
 }
@@ -128,6 +141,70 @@ type fakeLoginTailnetVerifier struct {
 type fakeLoginSetupRunner struct {
 	requests []loginSetupRequest
 	result   loginSetupResult
+}
+
+type fakeGCloudRunner struct {
+	calls         [][]string
+	projectNumber string
+	existing      map[string]bool
+}
+
+func (r *fakeGCloudRunner) run(_ context.Context, args []string, _ io.Writer) (string, error) {
+	copied := append([]string{}, args...)
+	r.calls = append(r.calls, copied)
+	if r.projectNumber == "" {
+		r.projectNumber = "123456789012"
+	}
+	if len(args) == 3 && args[0] == "config" && args[1] == "get-value" && args[2] == "project" {
+		return "example-gcp", nil
+	}
+	if len(args) == 4 && args[0] == "projects" && args[1] == "describe" && args[3] == "--format=value(projectNumber)" {
+		return r.projectNumber, nil
+	}
+	if containsArg(args, "describe") {
+		if r.existing != nil && r.existing[strings.Join(args, "\x00")] {
+			return "", nil
+		}
+		return "", fmt.Errorf("not found")
+	}
+	return "", nil
+}
+
+func (r *fakeGCloudRunner) hasCall(want ...string) bool {
+	for _, call := range r.calls {
+		if len(call) != len(want) {
+			continue
+		}
+		matches := true
+		for i := range call {
+			if call[i] != want[i] {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *fakeGCloudRunner) hasCallContaining(fragment string) bool {
+	for _, call := range r.calls {
+		if strings.Contains(strings.Join(call, " "), fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (i *fakeLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, request loginRemoteInstallRequest) (loginRemoteInstallResult, error) {
@@ -187,6 +264,59 @@ func (c *fakeAuthDeviceClient) Poll(ctx context.Context, deviceCode string, requ
 
 func (c *fakeAuthDeviceClient) DebugApprove(ctx context.Context, userCode string) error {
 	return nil
+}
+
+func (c *fakeAuthWorkloadClient) Start(ctx context.Context) (authapp.DeviceStartResult, error) {
+	c.starts++
+	if c.start.DeviceCode == "" {
+		c.start = authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1}
+	}
+	return c.start, nil
+}
+
+func (c *fakeAuthWorkloadClient) Poll(ctx context.Context, deviceCode string, request authapp.DevicePollRequest) (authapp.DevicePollResult, error) {
+	if len(c.polls) == 0 {
+		return authapp.DevicePollResult{Status: authapp.DeviceStatusApproved, UserKey: "acme"}, nil
+	}
+	result := c.polls[0]
+	c.polls = c.polls[1:]
+	return result, nil
+}
+
+func (c *fakeAuthWorkloadClient) DebugApprove(ctx context.Context, userCode string) error {
+	return nil
+}
+
+func (c *fakeAuthWorkloadClient) EnableWorkload(ctx context.Context, request authapp.WorkloadEnableRequest) (authapp.WorkloadEnableResult, error) {
+	c.enableRequests = append(c.enableRequests, request)
+	if c.enableResult.RuntimeSecret == "" {
+		c.enableResult = authapp.WorkloadEnableResult{
+			Tenant:                            request.Tenant,
+			Project:                           request.Project,
+			Machine:                           request.Machine,
+			RuntimeSecret:                     "runtime-secret",
+			TokenEndpoint:                     "https://auth.example.com/internal/workload/token",
+			Issuer:                            "https://auth.example.com/t/" + request.Tenant,
+			CloudIdentityConfig:               request.CloudIdentityConfig,
+			GCPAudience:                       "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/sandcastle-" + request.Tenant + "/providers/sandcastle",
+			GCPServiceAccountImpersonationURL: "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@example.iam.gserviceaccount.com:generateAccessToken",
+		}
+	}
+	return c.enableResult, nil
+}
+
+func (c *fakeAuthCloudIdentityClient) UpsertCloudIdentity(ctx context.Context, request authapp.CloudIdentityUpsertRequest) (authapp.CloudIdentityConfig, error) {
+	c.upsertRequests = append(c.upsertRequests, request)
+	if c.upsertResult.Name == "" {
+		c.upsertResult = authapp.CloudIdentityConfig{
+			Name:                              request.Name,
+			Provider:                          request.Provider,
+			GCPAudience:                       request.GCPAudience,
+			GCPSubjectTokenType:               request.GCPSubjectTokenType,
+			GCPServiceAccountImpersonationURL: request.GCPServiceAccountImpersonationURL,
+		}
+	}
+	return c.upsertResult, nil
 }
 
 func TestVersionText(t *testing.T) {
@@ -255,6 +385,7 @@ func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 			Status:            authapp.DeviceStatusApproved,
 			Message:           "Personal tenant octocat is ready.",
 			UserKey:           "octocat",
+			CLIAuthToken:      "cli-token",
 			Token:             "token",
 			RemoteName:        "sandcastle-octocat",
 			AccessibleTenants: []string{"octocat"},
@@ -288,6 +419,16 @@ func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 	}
 	if len(installer.requests) != 1 || installer.requests[0].Token != "token" || installer.requests[0].Tenant != "octocat" {
 		t.Fatalf("installer requests = %#v", installer.requests)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthHostname != "https://auth.example.com" {
+		t.Fatalf("AuthHostname = %q", cfg.AuthHostname)
+	}
+	if cfg.AuthToken != "cli-token" {
+		t.Fatalf("AuthToken = %q", cfg.AuthToken)
 	}
 }
 
@@ -679,11 +820,307 @@ func TestConfigUnsetClearsStoredValue(t *testing.T) {
 	}
 }
 
+func TestConfigSetAuthHostname(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configPath := scconfig.DefaultConfigPath()
+	stdout, err := executeForTest(t, "sandcastle", "config", "set", "auth.hostname", "big.example.dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Set auth.hostname") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthHostname != "big.example.dev" {
+		t.Fatalf("AuthHostname = %q", cfg.AuthHostname)
+	}
+}
+
 func TestConfigUnsetRejectsUnknownKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	_, err := executeForTest(t, "sandcastle", "config", "unset", "bad")
-	if err == nil || !strings.Contains(err.Error(), "supported keys: tenant, project, remote, admin_remote") {
+	if err == nil || !strings.Contains(err.Error(), "supported keys: tenant, project, remote, auth.hostname, admin_remote") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCommandAuthHostnameInfersFromRemoteConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	incusDir := scconfig.RemoteIncusDir("sandcastle-acme")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte("remotes:\n  sandcastle-acme:\n    addr: https://big.thieso2.dev:8443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	admin := testAdminConfig()
+	admin.Remote = "sandcastle-acme"
+	admin.AuthHostname = ""
+	if got := commandAuthHostname(commandConfig{adminConfig: admin}, ""); got != "big.thieso2.dev" {
+		t.Fatalf("auth hostname = %q", got)
+	}
+}
+
+func TestCommandAuthHostnamePrefersCurrentRemoteOverSavedConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	incusDir := scconfig.RemoteIncusDir("sandcastle-thieso2")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte("remotes:\n  sandcastle-thieso2:\n    addr: https://big.thieso2.dev:8443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	admin := testAdminConfig()
+	admin.Remote = "sandcastle-thieso2"
+	admin.AuthHostname = "https://auth.example.com"
+	if got := commandAuthHostname(commandConfig{adminConfig: admin}, ""); got != "big.thieso2.dev" {
+		t.Fatalf("auth hostname = %q", got)
+	}
+}
+
+func TestCommandAuthHostnameExplicitOverridesRemoteInference(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SANDCASTLE_AUTH_HOSTNAME", "env.example.dev")
+	incusDir := scconfig.RemoteIncusDir("sandcastle-thieso2")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte("remotes:\n  sandcastle-thieso2:\n    addr: https://big.thieso2.dev:8443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	admin := testAdminConfig()
+	admin.Remote = "sandcastle-thieso2"
+	admin.AuthHostname = "https://auth.example.com"
+	config := commandConfig{adminConfig: admin}
+	if got := commandAuthHostname(config, "flag.example.dev"); got != "flag.example.dev" {
+		t.Fatalf("flag auth hostname = %q", got)
+	}
+	if got := commandAuthHostname(config, ""); got != "env.example.dev" {
+		t.Fatalf("env auth hostname = %q", got)
+	}
+}
+
+func TestCloudIdentityGCPSetupConfiguresTenantFederation(t *testing.T) {
+	runner := &fakeGCloudRunner{}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.AuthHostname = "big.thieso2.dev"
+	stdout, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle",
+		adminConfig:  admin,
+		gcloudRunner: runner.run,
+	}, "cloud-identity", "gcp", "setup", "--project", "example-gcp", "--role", "roles/storage.objectAdmin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Configured Sandcastle GCP Workload Identity Federation.",
+		"Issuer URI:               https://big.thieso2.dev/t/thieso2",
+		"Cloud Identity Audience:  //iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/sandcastle-thieso2/providers/sandcastle",
+		"Impersonation URL:        https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sandcastle-thieso2@example-gcp.iam.gserviceaccount.com:generateAccessToken",
+		"Web UI:                   https://big.thieso2.dev/cloud-identities",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	for _, want := range []string{
+		"+ gcloud services enable iam.googleapis.com",
+		"+ gcloud iam workload-identity-pools create sandcastle-thieso2",
+		"+ gcloud iam workload-identity-pools providers create-oidc sandcastle",
+		"+ gcloud iam service-accounts create sandcastle-thieso2",
+		"+ gcloud projects add-iam-policy-binding example-gcp",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+	if !runner.hasCall("iam", "service-accounts", "add-iam-policy-binding", "sandcastle-thieso2@example-gcp.iam.gserviceaccount.com", "--project=example-gcp", "--role=roles/iam.workloadIdentityUser", "--member=principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/sandcastle-thieso2/attribute.tenant/thieso2") {
+		t.Fatalf("missing tenant-scoped workloadIdentityUser binding: %#v", runner.calls)
+	}
+	if !runner.hasCallContaining("--attribute-condition=assertion.tenant=='thieso2'") {
+		t.Fatalf("missing tenant attribute condition: %#v", runner.calls)
+	}
+}
+
+func TestCloudIdentityGCPSetupSavesConfigInAuthApp(t *testing.T) {
+	runner := &fakeGCloudRunner{}
+	authClient := &fakeAuthCloudIdentityClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.AuthHostname = "big.thieso2.dev"
+	admin.AuthToken = "stored-token"
+	stdout, _, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:              "sandcastle",
+		adminConfig:       admin,
+		gcloudRunner:      runner.run,
+		authCloudIdentity: authClient,
+	}, "cloud-identity", "gcp", "setup", "--project", "example-gcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authClient.upsertRequests) != 1 {
+		t.Fatalf("upsert requests = %#v", authClient.upsertRequests)
+	}
+	request := authClient.upsertRequests[0]
+	if request.Name != "gcp" || request.Provider != "gcp" {
+		t.Fatalf("upsert request = %#v", request)
+	}
+	if request.GCPAudience != "//iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/sandcastle-thieso2/providers/sandcastle" {
+		t.Fatalf("audience = %q", request.GCPAudience)
+	}
+	if request.GCPServiceAccountImpersonationURL != "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sandcastle-thieso2@example-gcp.iam.gserviceaccount.com:generateAccessToken" {
+		t.Fatalf("impersonation URL = %q", request.GCPServiceAccountImpersonationURL)
+	}
+	if !strings.Contains(stdout, "Saved in Auth App:        yes") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestCloudIdentityGCPSetupUsesCurrentRemoteHostWhenSavedAuthHostnameIsStale(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	incusDir := scconfig.RemoteIncusDir("sandcastle-thieso2")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte("remotes:\n  sandcastle-thieso2:\n    addr: https://big.thieso2.dev:8443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeGCloudRunner{}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.Remote = "sandcastle-thieso2"
+	admin.AuthHostname = "https://auth.example.com"
+	stdout, _, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle",
+		adminConfig:  admin,
+		gcloudRunner: runner.run,
+	}, "cloud-identity", "gcp", "setup", "--project", "example-gcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Issuer URI:               https://big.thieso2.dev/t/thieso2") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if strings.Contains(stdout, "https://auth.example.com/t/thieso2") {
+		t.Fatalf("stale auth hostname used:\n%s", stdout)
+	}
+}
+
+func TestCloudIdentityGCPSetupCanRestrictImpersonationToMachine(t *testing.T) {
+	runner := &fakeGCloudRunner{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	_, _, err := executeForTestWithConfigAndStderr(t, commandConfig{
+		name:         "sandcastle",
+		adminConfig:  admin,
+		gcloudRunner: runner.run,
+	}, "cloud", "gcp", "setup", "--project", "example-gcp", "--machine-project", "website", "--machine", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.hasCall("iam", "service-accounts", "add-iam-policy-binding", "sandcastle-acme@example-gcp.iam.gserviceaccount.com", "--project=example-gcp", "--role=roles/iam.workloadIdentityUser", "--member=principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/sandcastle-acme/subject/machine:acme/website/codex") {
+		t.Fatalf("missing machine-scoped workloadIdentityUser binding: %#v", runner.calls)
+	}
+}
+
+func TestWorkloadEnableInjectsHelperAndGCPConfig(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authClient := &fakeAuthWorkloadClient{}
+	creator := &fakeMachineCreator{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:   fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20"}}},
+		machineCreator: creator,
+		authWorkload:   authClient,
+	}, "workload", "enable", "codex", "--cloud-identity", "gcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authClient.enableRequests) != 1 {
+		t.Fatalf("enable requests = %#v", authClient.enableRequests)
+	}
+	if authClient.enableRequests[0].CloudIdentityConfig != "gcp" || authClient.enableRequests[0].Tenant != "acme" || authClient.enableRequests[0].Machine != "codex" {
+		t.Fatalf("enable request = %#v", authClient.enableRequests[0])
+	}
+	if creator.plan.InstanceName != "default-codex" {
+		t.Fatalf("instance = %q", creator.plan.InstanceName)
+	}
+	if creator.plan.CertificateFiles == nil || len(creator.plan.CertificateFiles) != 0 {
+		t.Fatalf("certificate files = %#v, want explicit empty slice", creator.plan.CertificateFiles)
+	}
+	paths := map[string]bool{}
+	for _, file := range creator.plan.WorkloadFiles {
+		paths[file.Path] = true
+	}
+	for _, want := range []string{
+		machine.WorkloadRuntimeSecretPath,
+		machine.WorkloadTokenHelperPath,
+		machine.GCPCredentialPath,
+		machine.WorkloadGCPAudiencePath,
+	} {
+		if !paths[want] {
+			t.Fatalf("workload files missing %s: %#v", want, creator.plan.WorkloadFiles)
+		}
+	}
+	if !strings.Contains(stdout, "Helper:         "+machine.WorkloadTokenHelperPath) {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestWorkloadEnableUsesStoredAuthToken(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authClient := &fakeAuthWorkloadClient{}
+	creator := &fakeMachineCreator{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:   fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20"}}},
+		machineCreator: creator,
+		authWorkload:   authClient,
+	}, "workload", "enable", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authClient.starts != 0 {
+		t.Fatalf("device flow started %d times", authClient.starts)
+	}
+	if len(authClient.enableRequests) != 1 || authClient.enableRequests[0].DeviceCode != "" {
+		t.Fatalf("enable requests = %#v", authClient.enableRequests)
 	}
 }
 

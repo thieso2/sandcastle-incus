@@ -15,8 +15,8 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
-	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
+	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/route"
@@ -1618,9 +1618,10 @@ From within the machine:
   tenant=$(cat /var/lib/sandcastle/workload/tenant)
   project=$(cat /var/lib/sandcastle/workload/project)
   machine=$(cat /var/lib/sandcastle/workload/machine)
+  audience="//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/sandcastle-$tenant/providers/sandcastle"
   curl -s -X POST "$endpoint" \
     -H "Content-Type: application/json" \
-    -d "{\"tenant\":\"$tenant\",\"project\":\"$project\",\"machine\":\"$machine\",\"runtime_secret\":\"$secret\"}"`,
+    -d "{\"tenant\":\"$tenant\",\"project\":\"$project\",\"machine\":\"$machine\",\"runtime_secret\":\"$secret\",\"audience\":\"$audience\"}"`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			host := strings.TrimSpace(authHostname)
@@ -1673,7 +1674,7 @@ From within the machine:
 				"Workload identity enabled for %s/%s/%s\nToken endpoint: %s\nOIDC issuer:    %s",
 				plan.Tenant.Tenant, plan.Project, plan.Name,
 				result.TokenEndpoint,
-				strings.TrimSuffix(result.TokenEndpoint, "/internal/workload/token"),
+				result.Issuer,
 			), result)
 		},
 	}

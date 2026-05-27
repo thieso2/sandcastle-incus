@@ -401,7 +401,7 @@ func runMachineConfigStep(run machineConfigStepRunner, label string, fn func() e
 
 func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan, run machineConfigStepRunner) error {
 	certificateFiles := plan.CertificateFiles
-	if len(certificateFiles) == 0 {
+	if certificateFiles == nil {
 		if err := runMachineConfigStep(run, "issue certificate from tenant CA", func() error {
 			var err error
 			certificateFiles, err = issueMachineCertificateFilesFromProjectCA(server, plan)
@@ -522,6 +522,9 @@ func appendMachineCaddyConfigScript(script *strings.Builder, files []machine.Fil
 	script.WriteString("  install -d -m 0755 \"$(dirname \"$path\")\"\n")
 	script.WriteString("  base64 -d >\"$path\"\n")
 	script.WriteString("  chmod \"$mode\" \"$path\"\n")
+	script.WriteString("  case \"$path\" in\n")
+	script.WriteString("    /var/lib/sandcastle/workload/runtime-secret|/var/lib/sandcastle/workload/gcp-credential.json) chown \"${SANDCASTLE_USER}:${SANDCASTLE_USER}\" \"$path\" 2>/dev/null || true ;;\n")
+	script.WriteString("  esac\n")
 	script.WriteString("}\n")
 	for _, file := range files {
 		script.WriteString("write_file ")

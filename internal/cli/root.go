@@ -78,17 +78,31 @@ type commandConfig struct {
 	routeBroker         routebroker.Runner
 	authApp             authapp.Runner
 	authDevice          authDeviceClient
+	authWorkload        authWorkloadClient
+	authCloudIdentity   authCloudIdentityClient
 	openBrowser         func(string)
 	loginRemote         loginRemoteInstaller
 	loginTailnet        loginTailnetVerifier
 	loginSetup          loginSetupRunner
 	incusRunner         incusRunner
+	gcloudRunner        gcloudRunner
 }
 
 type authDeviceClient interface {
 	Start(context.Context) (authapp.DeviceStartResult, error)
 	Poll(context.Context, string, authapp.DevicePollRequest) (authapp.DevicePollResult, error)
 	DebugApprove(context.Context, string) error
+}
+
+type authWorkloadClient interface {
+	Start(context.Context) (authapp.DeviceStartResult, error)
+	Poll(context.Context, string, authapp.DevicePollRequest) (authapp.DevicePollResult, error)
+	DebugApprove(context.Context, string) error
+	EnableWorkload(context.Context, authapp.WorkloadEnableRequest) (authapp.WorkloadEnableResult, error)
+}
+
+type authCloudIdentityClient interface {
+	UpsertCloudIdentity(context.Context, authapp.CloudIdentityUpsertRequest) (authapp.CloudIdentityConfig, error)
 }
 
 type rootOptions struct {
@@ -260,6 +274,8 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newLoginCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))
 	root.AddCommand(newCacheCommand(config, opts))
+	root.AddCommand(newCloudIdentityCommand(config, opts))
+	root.AddCommand(newWorkloadCommand(config, opts))
 
 	return root
 }

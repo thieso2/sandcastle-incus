@@ -55,6 +55,7 @@ type devicePollResponse struct {
 	Status             string          `json:"status"`
 	Message            string          `json:"message"`
 	UserKey            string          `json:"user_key,omitempty"`
+	CLIAuthToken       string          `json:"cli_auth_token,omitempty"`
 	Token              string          `json:"incus_certificate_add_token,omitempty"`
 	RemoteName         string          `json:"remote_name,omitempty"`
 	AccessibleTenants  []string        `json:"accessible_tenants,omitempty"`
@@ -140,10 +141,19 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		expiresIn = 0
 	}
 	loginResult := loginResultForDeviceLogin(login, sshFingerprint)
+	cliAuthToken := ""
+	if login.Status == DeviceStatusApproved && login.UserKey != "" {
+		cliAuthToken, err = CreateCLIToken(r.Context(), h.db, login.UserKey, timeNow())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, devicePollResponse{
 		Status:             login.Status,
 		Message:            login.Message,
 		UserKey:            login.UserKey,
+		CLIAuthToken:       cliAuthToken,
 		Token:              login.Token,
 		RemoteName:         login.RemoteName,
 		AccessibleTenants:  login.AccessibleTenants,

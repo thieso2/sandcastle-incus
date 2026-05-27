@@ -326,18 +326,27 @@ https://auth.example.com/admin/access</code></pre>
     <section id="workload">
       <h2>9. Configure Workload Identity</h2>
       <p>The Auth App publishes OIDC provider metadata under the Auth Hostname. See <a href="oidc-configuration.html">Sandcastle OIDC Configuration</a> for the full provider and machine token flow.</p>
-      <pre><code>curl https://auth.example.com/.well-known/openid-configuration
-curl https://auth.example.com/.well-known/jwks.json</code></pre>
-      <p>Users manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. For GCP, provide the Workload Identity audience and optional service account impersonation URL.</p>
+      <pre><code>curl https://auth.example.com/t/acme/.well-known/openid-configuration
+curl https://auth.example.com/t/acme/.well-known/jwks.json</code></pre>
+      <p>Users manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. For GCP, the CLI can configure GCP and save the Auth App config named <code>gcp</code> when the user has completed <code>sc login</code>.</p>
+      <pre><code>sc cloud-identity gcp setup \
+  --tenant acme</code></pre>
+      <p>The user CLI uses the Auth Hostname and CLI Auth Token remembered by <code>sc login</code> and the active <code>gcloud</code> project by default, configures the tenant Workload Identity Pool and OIDC provider, creates the tenant service account if needed, saves the Sandcastle Cloud Identity Config, and prints the provider resource audience and service account impersonation URL for confirmation.</p>
+      <pre><code>scripts/verify-gcp-oidc.sh \
+  --tenant acme \
+  --auth-hostname auth.example.com</code></pre>
       <pre><code>https://auth.example.com/cloud-identities</code></pre>
-      <p>When workload identity is enabled for a Machine, Sandcastle rotates a Machine Runtime Secret, stores only a verifier in the Auth Database, injects token endpoint metadata, and writes GCP external account credentials plus shell environment variables into the Machine.</p>
+      <pre><code>sc workload enable codex --cloud-identity gcp</code></pre>
+      <p>When workload identity is enabled for a Machine, Sandcastle rotates a Machine Runtime Secret through the Auth App, stores only a verifier in the Auth Database, injects token endpoint metadata and <code>/usr/local/bin/sandcastle-workload-token</code>, and writes GCP external account credentials plus shell environment variables into the Machine.</p>
       <table>
         <thead><tr><th>Machine File</th><th>Purpose</th></tr></thead>
         <tbody>
           <tr><td><code>/var/lib/sandcastle/workload/runtime-secret</code></td><td>Machine Runtime Secret.</td></tr>
           <tr><td><code>/var/lib/sandcastle/workload/token-endpoint</code></td><td>Auth App internal token endpoint.</td></tr>
-          <tr><td><code>/var/lib/sandcastle/workload/gcp-credential.json</code></td><td>GCP external account credential file.</td></tr>
-          <tr><td><code>/etc/profile.d/sandcastle-workload-identity.sh</code></td><td>Exports <code>GOOGLE_APPLICATION_CREDENTIALS</code> and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code>.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/gcp-audience</code></td><td>Cloud Identity Audience for the selected GCP provider.</td></tr>
+          <tr><td><code>/usr/local/bin/sandcastle-workload-token</code></td><td>Executable credential helper.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/gcp-credential.json</code></td><td>GCP external account credential file using the helper as its subject token source.</td></tr>
+          <tr><td><code>/etc/profile.d/sandcastle-workload-identity.sh</code></td><td>Exports <code>GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES</code>, <code>GOOGLE_APPLICATION_CREDENTIALS</code>, and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code>.</td></tr>
         </tbody>
       </table>
     </section>

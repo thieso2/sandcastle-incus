@@ -214,6 +214,14 @@ CREATE TABLE IF NOT EXISTS web_sessions (
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS cli_tokens (
+    id TEXT PRIMARY KEY,
+    user_key TEXT NOT NULL REFERENCES users(user_key) ON DELETE CASCADE,
+    token_verifier TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_used_at TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS oauth_states (
     state TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -232,6 +240,7 @@ CREATE TABLE IF NOT EXISTS device_logins (
 );
 CREATE TABLE IF NOT EXISTS oidc_signing_keys (
     kid TEXT PRIMARY KEY,
+    tenant TEXT NOT NULL DEFAULT '',
     alg TEXT NOT NULL,
     encrypted_private_key TEXT NOT NULL,
     public_jwk TEXT NOT NULL,
@@ -277,6 +286,9 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 		return err
 	}
 	if err := ensureColumn(ctx, db, "users", "ssh_key_fingerprint", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "oidc_signing_keys", "tenant", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil
@@ -364,14 +376,17 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/admin/access/revoke", app.adminTenantAccessRevoke)
 	mux.HandleFunc("/cloud-identities", app.cloudIdentities)
 	mux.HandleFunc("/cloud-identities/delete", app.cloudIdentityDelete)
+	mux.HandleFunc("/api/cloud-identities", app.cloudIdentitiesAPI)
 	mux.HandleFunc("/api/device/start", app.deviceStart)
 	mux.HandleFunc("/api/device/poll", app.devicePoll)
+	mux.HandleFunc("/api/workload/enable", app.workloadEnable)
 	mux.HandleFunc("/device", app.deviceApprove)
 	if app.debugDeviceUser != "" {
 		mux.HandleFunc("/debug/device/approve", app.debugDeviceApprove)
 	}
 	mux.HandleFunc("/.well-known/openid-configuration", app.oidcDiscovery)
 	mux.HandleFunc("/.well-known/jwks.json", app.oidcJWKS)
+	mux.HandleFunc("/t/", app.tenantOIDC)
 	mux.HandleFunc("/internal/workload/token", app.workloadToken)
 	return mux
 }

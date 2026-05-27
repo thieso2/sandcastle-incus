@@ -290,6 +290,9 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					} else {
 						fmt.Fprintln(config.stdout, "Approved.")
 					}
+					if err := saveAuthDefaults(args[0], result.CLIAuthToken); err != nil {
+						return err
+					}
 					if result.Token != "" {
 						tenant := defaultLoginTenant(result.AccessibleTenants)
 						remoteName := result.RemoteName

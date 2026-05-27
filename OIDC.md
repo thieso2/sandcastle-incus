@@ -15,9 +15,9 @@ This is separate from GitHub OAuth login, which only authenticates humans into t
 
 ---
 
-## Current State: Global OIDC
+## Legacy: Global OIDC
 
-The Auth App currently operates a single global OIDC issuer shared across all tenants.
+Older Auth App deployments operated a single global OIDC issuer shared across all tenants.
 
 | Endpoint | URL |
 |---|---|
@@ -27,11 +27,11 @@ The Auth App currently operates a single global OIDC issuer shared across all te
 
 **Issuer:** `https://auth.host`
 
-All machines across all tenants receive a `iss` claim pointing to this shared issuer. Any cloud provider Workload Identity Pool configured to trust this issuer would accept tokens from any tenant's machine. This is acceptable in single-tenant deployments but prevents per-tenant cloud isolation.
+Machines on the legacy issuer receive an `iss` claim pointing to this shared issuer. Any cloud provider Workload Identity Pool configured to trust this issuer can accept tokens from any tenant's machine. This is acceptable in single-tenant deployments but prevents per-tenant cloud isolation.
 
 ---
 
-## Planned: Per-Tenant OIDC
+## Per-Tenant OIDC
 
 Each tenant gets its own OIDC issuer, its own signing key pair, and its own discovery/JWKS endpoints. Cloud provider trust relationships are scoped per tenant — a GCP pool that trusts tenant A cannot accept tokens minted for tenant B.
 
@@ -47,9 +47,9 @@ Endpoints per tenant:
 |---|---|
 | Discovery | `https://auth.host/t/{tenant}/.well-known/openid-configuration` |
 | JWKS | `https://auth.host/t/{tenant}/.well-known/jwks.json` |
-| Token | `https://auth.host/internal/workload/token` (shared — tenant resolved from runtime secret) |
+| Token | `https://auth.host/internal/workload/token` (shared — tenant/project/machine verified against runtime secret state) |
 
-The token endpoint does not need to be per-tenant because the server looks up the tenant from the runtime secret at request time. The `iss` claim in the minted JWT will use the per-tenant issuer URL regardless.
+The token endpoint does not need to be per-tenant because the server verifies the requested tenant, project, and machine against the stored Machine Runtime Secret state before minting. The `iss` claim in the minted JWT uses the per-tenant issuer URL.
 
 ### Database Schema Change
 
@@ -84,27 +84,26 @@ Global routes `/.well-known/openid-configuration` and `/.well-known/jwks.json` a
 |---|---|
 | `internal/authapp/app.go` | `Migrate`: add `ensureColumn` for `tenant`; register 2 new per-tenant routes |
 | `internal/authapp/oidc.go` | New `tenantOIDCIssuer(host, tenant)`; add `tenant` param to all key functions |
-| `internal/authapp/workload.go` | `mintWorkloadToken`: use per-tenant issuer + key |
-| `internal/authapp/cloud_identity.go` | `EnableMachineWorkloadIdentity`: call `EnsureOIDCSigningKey` with tenant |
+| `internal/authapp/workload.go` | `EnableMachineWorkloadIdentity`: ensure the tenant signing key; `mintWorkloadToken`: use per-tenant issuer + key + audience |
+| `internal/machine/workload_identity.go` | Write executable-sourced GCP credential material |
 
 ### Migration for Existing Machines
 
-Machines provisioned before per-tenant OIDC was deployed have `iss = https://auth.host` in their tokens. If those machines had cloud federation configured with the global issuer, re-running `sc-adm workload enable` will rotate their runtime secret and move them to the per-tenant issuer. Update the cloud provider trust configuration to match.
+Machines provisioned before per-tenant OIDC was deployed have no tenant helper files, or have `iss = https://auth.host` in older tokens. Re-running `sc workload enable --cloud-identity {name} [project:]machine` rotates their runtime secret, injects `/usr/local/bin/sandcastle-workload-token`, and moves them to the per-tenant issuer. Update the cloud provider trust configuration to match.
 
 ---
 
 ## Enabling Workload Identity on a Machine
 
 ```sh
-sc-adm workload enable [project:]machine \
-  --database /var/lib/sandcastle/auth/auth.db \
-  --auth-hostname auth.example.com
+sc workload enable [project:]machine --cloud-identity gcp
 ```
 
 This command:
 1. Resolves the machine and its tenant from Incus state.
-2. Calls `EnableMachineWorkloadIdentity` in the auth DB: stores a new runtime secret verifier, returns the plaintext secret once.
-3. Writes workload files into the machine via Incus file push.
+2. Uses the CLI Auth Token saved by `sc login` to authorize the current User with the Auth App.
+3. Asks the Auth App to rotate the Machine Runtime Secret and store only its verifier.
+4. Writes workload files into the machine through the user's tenant-scoped Incus remote.
 
 ### Files Written to the Machine
 
@@ -115,14 +114,16 @@ This command:
 | `/var/lib/sandcastle/workload/tenant` | `0644` | Tenant slug |
 | `/var/lib/sandcastle/workload/project` | `0644` | Incus project name |
 | `/var/lib/sandcastle/workload/machine` | `0644` | Machine name |
+| `/usr/local/bin/sandcastle-workload-token` | `0755` | Helper executable that requests fresh Workload Identity Tokens |
 | `/etc/profile.d/sandcastle-workload-identity.sh` | `0644` | Exports `SANDCASTLE_WORKLOAD_RUNTIME_SECRET_FILE`, `SANDCASTLE_WORKLOAD_TOKEN_ENDPOINT_FILE`, `SANDCASTLE_TENANT`, `SANDCASTLE_PROJECT`, `SANDCASTLE_MACHINE` |
 
-If a GCP config is provided, two additional files are written:
+If a GCP config is provided, additional files are written:
 
 | Path | Mode | Content |
 |---|---|---|
-| `/var/lib/sandcastle/workload/gcp-credential.json` | `0644` | GCP external account credential JSON |
-| `/etc/profile.d/sandcastle-workload-identity.sh` | `0644` | Also exports `GOOGLE_APPLICATION_CREDENTIALS` and `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` |
+| `/var/lib/sandcastle/workload/gcp-audience` | `0644` | Cloud Identity Audience for the selected GCP provider |
+| `/var/lib/sandcastle/workload/gcp-credential.json` | `0600` | GCP external account credential JSON using the helper executable |
+| `/etc/profile.d/sandcastle-workload-identity.sh` | `0644` | Also exports `GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES`, `GOOGLE_APPLICATION_CREDENTIALS`, and `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` |
 
 ---
 
@@ -134,10 +135,13 @@ RUNTIME_SECRET=$(cat /var/lib/sandcastle/workload/runtime-secret)
 TENANT=$(cat /var/lib/sandcastle/workload/tenant)
 PROJECT=$(cat /var/lib/sandcastle/workload/project)
 MACHINE=$(cat /var/lib/sandcastle/workload/machine)
+AUDIENCE=$(cat /var/lib/sandcastle/workload/gcp-audience) # or set this to another Cloud Identity Audience
+
+/usr/local/bin/sandcastle-workload-token token "$AUDIENCE"
 
 curl -s -X POST "$TOKEN_ENDPOINT" \
   -H 'Content-Type: application/json' \
-  -d "{\"tenant\":\"$TENANT\",\"project\":\"$PROJECT\",\"machine\":\"$MACHINE\",\"runtime_secret\":\"$RUNTIME_SECRET\"}"
+  -d "{\"tenant\":\"$TENANT\",\"project\":\"$PROJECT\",\"machine\":\"$MACHINE\",\"runtime_secret\":\"$RUNTIME_SECRET\",\"audience\":\"$AUDIENCE\"}"
 ```
 
 Response:
@@ -155,10 +159,11 @@ Response:
 | Claim | Example | Meaning |
 |---|---|---|
 | `iss` | `https://auth.host/t/acme` | Per-tenant issuer (or global in v1) |
-| `sub` | `machine:acme/sc-acme-default/dev` | Tenant/project/machine |
-| `iat` / `exp` | Unix timestamps | Issued at / expires (15-minute window) |
+| `sub` | `machine:acme/default/dev` | Tenant/project/machine |
+| `aud` | `//iam.googleapis.com/projects/.../providers/sandcastle` | Cloud Identity Audience |
+| `iat` / `nbf` / `exp` | Unix timestamps | Issued at / valid from / expires (15-minute window) |
 | `tenant` | `acme` | Sandcastle tenant slug |
-| `project` | `sc-acme-default` | Incus project name |
+| `project` | `default` | Sandcastle project name |
 | `machine` | `dev` | Machine name |
 | `sandcastle_user_key` | `acme` | Auth DB user key associated with this machine |
 | `github_username` | `acme` | GitHub username associated with this machine |
@@ -170,6 +175,23 @@ Response:
 ### One-Time GCP Setup (per tenant)
 
 GCP Workload Identity Federation lets GCP workloads impersonate service accounts using external JWTs. After per-tenant OIDC is deployed, configure this per tenant.
+
+The user CLI uses the Auth Hostname and CLI Auth Token remembered by `sc login`, plus the active `gcloud` project by default:
+
+```sh
+sc cloud-identity gcp setup \
+  --tenant {tenant}
+```
+
+It creates or updates the Workload Identity Pool and OIDC provider, creates a service account if needed, grants `roles/iam.workloadIdentityUser`, and saves the user-owned Sandcastle Cloud Identity Config named `gcp` in the Auth App. The command also prints the GCP audience and service account impersonation URL so the web UI can be used to confirm or repair the saved config.
+
+Verify the configured GCP and Sandcastle issuer state with:
+
+```sh
+scripts/verify-gcp-oidc.sh \
+  --tenant {tenant} \
+  --auth-hostname auth.host
+```
 
 #### 1. Create a Workload Identity Pool
 
@@ -188,11 +210,12 @@ gcloud iam workload-identity-pools providers create-oidc sandcastle \
   --location=global \
   --workload-identity-pool=sandcastle-{tenant} \
   --issuer-uri=https://auth.host/t/{tenant} \
-  --allowed-audiences=https://auth.host/t/{tenant} \
+  --allowed-audiences=//iam.googleapis.com/projects/{gcp-project-number}/locations/global/workloadIdentityPools/sandcastle-{tenant}/providers/sandcastle \
   --attribute-mapping="google.subject=assertion.sub,attribute.tenant=assertion.tenant,attribute.machine=assertion.machine"
 ```
 
 > The `issuer-uri` must match the `iss` claim in the JWT exactly. GCP fetches `{issuer-uri}/.well-known/openid-configuration` to verify tokens.
+> The token `aud` claim must match one of the provider's allowed audiences. The helper script sets it to the full provider resource name: `//iam.googleapis.com/projects/{gcp-project-number}/locations/global/workloadIdentityPools/sandcastle-{tenant}/providers/sandcastle`.
 
 #### 3. Grant a Service Account to Be Impersonated
 
@@ -217,7 +240,7 @@ The audience is the full pool + provider resource name:
 
 ### Enable on a Machine with GCP Config
 
-When per-tenant OIDC and a GCP identity config are wired together via `sc-adm workload enable`, Sandcastle writes `gcp-credential.json` to the machine. The file format is GCP's external account credential:
+When a machine selects a GCP identity config, Sandcastle writes `gcp-credential.json` to the machine. The file format is GCP's external account credential:
 
 ```json
 {
@@ -226,20 +249,16 @@ When per-tenant OIDC and a GCP identity config are wired together via `sc-adm wo
   "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
   "token_url": "https://sts.googleapis.com/v1/token",
   "credential_source": {
-    "file": "/var/lib/sandcastle/workload/gcp-credential.json",
-    "format": { "type": "text" }
+    "executable": {
+      "command": "/usr/local/bin/sandcastle-workload-token gcp-executable",
+      "timeout_millis": 30000
+    }
   },
   "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{sa}@{project}.iam.gserviceaccount.com:generateAccessToken"
 }
 ```
 
-Wait — there's a self-reference problem here: `credential_source.file` points to the credential file itself. The actual flow is:
-
-1. Sandcastle writes the JWT (obtained from `/internal/workload/token`) to a token file.
-2. `gcp-credential.json` points `credential_source.file` at that token file.
-3. Google ADC reads the token file, exchanges it at `sts.googleapis.com`, and returns a GCP access token.
-
-In practice, a sidecar or helper script fetches the Sandcastle JWT first and writes it to the token file path referenced in `gcp-credential.json`. The credential file itself does not self-reference.
+Google ADC runs the helper executable when it needs a subject token. The helper reads the Machine Runtime Secret and Cloud Identity Audience from machine-local files, requests a fresh Workload Identity Token from the Auth App, and returns executable-sourced credentials in the format expected by Google.
 
 ### Smoke Test (inside machine)
 

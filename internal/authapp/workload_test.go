@@ -71,7 +71,7 @@ func TestWorkloadTokenEndpointMintsClaimsAndRejectsBadSecret(t *testing.T) {
 		}}},
 		Machines: fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex"}}},
 	})
-	requestBody := `{"tenant":"acme","project":"default","machine":"codex","runtime_secret":"` + enabled.RuntimeSecret + `"}`
+	requestBody := `{"tenant":"acme","project":"default","machine":"codex","runtime_secret":"` + enabled.RuntimeSecret + `","audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/sandcastle-acme/providers/sandcastle"}`
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/internal/workload/token", strings.NewReader(requestBody))
 	handler.ServeHTTP(response, request)
@@ -90,7 +90,8 @@ func TestWorkloadTokenEndpointMintsClaimsAndRejectsBadSecret(t *testing.T) {
 	}
 	claims := jwtClaimsForTest(t, payload.AccessToken)
 	for key, want := range map[string]string{
-		"iss":                 "https://auth.example.com",
+		"iss":                 "https://auth.example.com/t/acme",
+		"aud":                 "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/sandcastle-acme/providers/sandcastle",
 		"tenant":              "acme",
 		"project":             "default",
 		"machine":             "codex",
@@ -106,9 +107,15 @@ func TestWorkloadTokenEndpointMintsClaimsAndRejectsBadSecret(t *testing.T) {
 	}
 
 	bad := httptest.NewRecorder()
-	handler.ServeHTTP(bad, httptest.NewRequest(http.MethodPost, "/internal/workload/token", strings.NewReader(`{"tenant":"acme","project":"default","machine":"codex","runtime_secret":"bad"}`)))
+	handler.ServeHTTP(bad, httptest.NewRequest(http.MethodPost, "/internal/workload/token", strings.NewReader(`{"tenant":"acme","project":"default","machine":"codex","runtime_secret":"bad","audience":"aud"}`)))
 	if bad.Code != http.StatusForbidden {
 		t.Fatalf("bad secret = %d %q", bad.Code, bad.Body.String())
+	}
+
+	missingAudience := httptest.NewRecorder()
+	handler.ServeHTTP(missingAudience, httptest.NewRequest(http.MethodPost, "/internal/workload/token", strings.NewReader(`{"tenant":"acme","project":"default","machine":"codex","runtime_secret":"`+enabled.RuntimeSecret+`"}`)))
+	if missingAudience.Code != http.StatusBadRequest {
+		t.Fatalf("missing audience = %d %q", missingAudience.Code, missingAudience.Body.String())
 	}
 }
 
@@ -127,7 +134,7 @@ func TestWorkloadTokenEndpointRejectsDisabledAndDeletedMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := NewHandler(db, HandlerOptions{AuthHostname: "auth.example.com", Tenants: tenant.MemoryStore{}, Machines: fakeWorkloadMachineStore{}})
-	body := `{"tenant":"acme","project":"default","machine":"codex","runtime_secret":"` + enabled.RuntimeSecret + `"}`
+	body := `{"tenant":"acme","project":"default","machine":"codex","runtime_secret":"` + enabled.RuntimeSecret + `","audience":"aud"}`
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/internal/workload/token", strings.NewReader(body)))
 	if response.Code != http.StatusForbidden {
@@ -141,6 +148,93 @@ func TestWorkloadTokenEndpointRejectsDisabledAndDeletedMachine(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/internal/workload/token", strings.NewReader(body)))
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("deleted = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestWorkloadEnableAPIUsesApprovedDeviceAndCloudConfig(t *testing.T) {
+	db := authDBForTest(t)
+	if err := UpsertUser(context.Background(), db, User{UserKey: "octocat", GitHubUsername: "octocat", Allowlisted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpsertCloudIdentityConfig(context.Background(), db, CloudIdentityConfig{
+		UserKey:                           "octocat",
+		Name:                              "gcp",
+		GCPAudience:                       "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/sandcastle-acme/providers/sandcastle",
+		GCPServiceAccountImpersonationURL: "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@example.iam.gserviceaccount.com:generateAccessToken",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", timeNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApproveDeviceLogin(context.Background(), db, login.UserCode, "octocat", timeNow()); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(db, HandlerOptions{
+		AuthHostname: "auth.example.com",
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-octocat",
+			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "octocat", Personal: true, PrivateCIDR: "10.248.0.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}}},
+		Machines: fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "octocat", Project: "default", Name: "codex"}}},
+	})
+	body := `{"device_code":"` + login.DeviceCode + `","tenant":"octocat","project":"default","machine":"codex","cloud_identity_config":"gcp"}`
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/workload/enable", strings.NewReader(body)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("enable = %d %q", response.Code, response.Body.String())
+	}
+	var payload WorkloadEnableResult
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.RuntimeSecret == "" || payload.TokenEndpoint != "https://auth.example.com/internal/workload/token" || payload.Issuer != "https://auth.example.com/t/octocat" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.GCPAudience == "" || payload.GCPServiceAccountImpersonationURL == "" {
+		t.Fatalf("missing GCP config in payload: %#v", payload)
+	}
+	var storedUser string
+	if err := db.QueryRow("SELECT user_key FROM machine_runtime_secrets WHERE tenant = 'octocat' AND project = 'default' AND machine = 'codex'").Scan(&storedUser); err != nil {
+		t.Fatal(err)
+	}
+	if storedUser != "octocat" {
+		t.Fatalf("stored user = %q", storedUser)
+	}
+}
+
+func TestWorkloadEnableAPIAcceptsCLIToken(t *testing.T) {
+	db := authDBForTest(t)
+	if err := UpsertUser(context.Background(), db, User{UserKey: "octocat", GitHubUsername: "octocat", Allowlisted: true}); err != nil {
+		t.Fatal(err)
+	}
+	token, err := CreateCLIToken(context.Background(), db, "octocat", timeNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(db, HandlerOptions{
+		AuthHostname: "auth.example.com",
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-octocat",
+			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "octocat", Personal: true, PrivateCIDR: "10.248.0.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}}},
+		Machines: fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "octocat", Project: "default", Name: "codex"}}},
+	})
+	body := `{"tenant":"octocat","project":"default","machine":"codex"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/workload/enable", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("enable = %d %q", response.Code, response.Body.String())
+	}
+	var payload WorkloadEnableResult
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.RuntimeSecret == "" || payload.Issuer != "https://auth.example.com/t/octocat" {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
 

@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
 const (
@@ -25,6 +27,7 @@ const (
 )
 
 type oidcSigningKey struct {
+	Tenant              string
 	KID                 string
 	Alg                 string
 	EncryptedPrivateKey string
@@ -41,16 +44,20 @@ type publicJWK struct {
 }
 
 func (h handler) oidcDiscovery(w http.ResponseWriter, r *http.Request) {
+	h.oidcDiscoveryForTenant(w, r, "")
+}
+
+func (h handler) oidcDiscoveryForTenant(w http.ResponseWriter, r *http.Request, tenantName string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	issuer, err := oidcIssuer(h.authHostname)
+	issuer, err := tenantOIDCIssuer(h.authHostname, tenantName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if _, err := EnsureOIDCSigningKey(r.Context(), h.db); err != nil {
+	if _, err := EnsureOIDCSigningKey(r.Context(), h.db, tenantName); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -66,11 +73,15 @@ func (h handler) oidcDiscovery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h handler) oidcJWKS(w http.ResponseWriter, r *http.Request) {
+	h.oidcJWKSForTenant(w, r, "")
+}
+
+func (h handler) oidcJWKSForTenant(w http.ResponseWriter, r *http.Request, tenantName string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	keys, err := ListPublicOIDCSigningKeys(r.Context(), h.db)
+	keys, err := ListPublicOIDCSigningKeys(r.Context(), h.db, tenantName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -80,8 +91,34 @@ func (h handler) oidcJWKS(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"keys": keys})
 }
 
-func EnsureOIDCSigningKey(ctx context.Context, db *sql.DB) (oidcSigningKey, error) {
-	key, err := activeOIDCSigningKey(ctx, db)
+func (h handler) tenantOIDC(w http.ResponseWriter, r *http.Request) {
+	tenantName, endpoint, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/t/"), "/")
+	if !ok || strings.TrimSpace(tenantName) == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if err := validateOIDCTenant(tenantName); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	switch endpoint {
+	case ".well-known/openid-configuration":
+		h.oidcDiscoveryForTenant(w, r, tenantName)
+	case ".well-known/jwks.json":
+		h.oidcJWKSForTenant(w, r, tenantName)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func EnsureOIDCSigningKey(ctx context.Context, db *sql.DB, tenantName string) (oidcSigningKey, error) {
+	tenantName = strings.TrimSpace(tenantName)
+	if tenantName != "" {
+		if err := validateOIDCTenant(tenantName); err != nil {
+			return oidcSigningKey{}, err
+		}
+	}
+	key, err := activeOIDCSigningKey(ctx, db, tenantName)
 	if err == nil {
 		return key, nil
 	}
@@ -111,25 +148,31 @@ func EnsureOIDCSigningKey(ctx context.Context, db *sql.DB) (oidcSigningKey, erro
 	}
 	now := timeNow().UTC().Format(time.RFC3339)
 	_, err = db.ExecContext(ctx, `
-INSERT INTO oidc_signing_keys (kid, alg, encrypted_private_key, public_jwk, active, created_at, not_before)
-VALUES (?, ?, ?, ?, 1, ?, ?)
-`, jwk.KID, oidcSigningAlg, encrypted, string(publicJSON), now, now)
+INSERT INTO oidc_signing_keys (tenant, kid, alg, encrypted_private_key, public_jwk, active, created_at, not_before)
+VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+`, tenantName, jwk.KID, oidcSigningAlg, encrypted, string(publicJSON), now, now)
 	if err != nil {
 		return oidcSigningKey{}, fmt.Errorf("store OIDC signing key: %w", err)
 	}
-	return activeOIDCSigningKey(ctx, db)
+	return activeOIDCSigningKey(ctx, db, tenantName)
 }
 
-func ListPublicOIDCSigningKeys(ctx context.Context, db *sql.DB) ([]json.RawMessage, error) {
-	if _, err := EnsureOIDCSigningKey(ctx, db); err != nil {
+func ListPublicOIDCSigningKeys(ctx context.Context, db *sql.DB, tenantName string) ([]json.RawMessage, error) {
+	tenantName = strings.TrimSpace(tenantName)
+	if tenantName != "" {
+		if err := validateOIDCTenant(tenantName); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := EnsureOIDCSigningKey(ctx, db, tenantName); err != nil {
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx, `
 SELECT public_jwk
 FROM oidc_signing_keys
-WHERE active = 1 AND retired_at = ''
+WHERE tenant = ? AND active = 1 AND retired_at = ''
 ORDER BY created_at
-`)
+`, tenantName)
 	if err != nil {
 		return nil, err
 	}
@@ -148,16 +191,22 @@ ORDER BY created_at
 	return keys, nil
 }
 
-func activeOIDCSigningKey(ctx context.Context, db *sql.DB) (oidcSigningKey, error) {
+func activeOIDCSigningKey(ctx context.Context, db *sql.DB, tenantName string) (oidcSigningKey, error) {
+	tenantName = strings.TrimSpace(tenantName)
+	if tenantName != "" {
+		if err := validateOIDCTenant(tenantName); err != nil {
+			return oidcSigningKey{}, err
+		}
+	}
 	row := db.QueryRowContext(ctx, `
-SELECT kid, alg, encrypted_private_key, public_jwk
+SELECT tenant, kid, alg, encrypted_private_key, public_jwk
 FROM oidc_signing_keys
-WHERE active = 1 AND retired_at = ''
+WHERE tenant = ? AND active = 1 AND retired_at = ''
 ORDER BY created_at DESC
 LIMIT 1
-`)
+`, tenantName)
 	var key oidcSigningKey
-	if err := row.Scan(&key.KID, &key.Alg, &key.EncryptedPrivateKey, &key.PublicJWK); err != nil {
+	if err := row.Scan(&key.Tenant, &key.KID, &key.Alg, &key.EncryptedPrivateKey, &key.PublicJWK); err != nil {
 		return oidcSigningKey{}, err
 	}
 	return key, nil
@@ -232,8 +281,8 @@ func decryptOIDCPrivateKey(key []byte, encoded string) ([]byte, error) {
 	return gcm.Open(nil, nonce, ciphertext, nil)
 }
 
-func activeOIDCPrivateKey(ctx context.Context, db *sql.DB) (oidcSigningKey, *rsa.PrivateKey, error) {
-	key, err := EnsureOIDCSigningKey(ctx, db)
+func activeOIDCPrivateKey(ctx context.Context, db *sql.DB, tenantName string) (oidcSigningKey, *rsa.PrivateKey, error) {
+	key, err := EnsureOIDCSigningKey(ctx, db, tenantName)
 	if err != nil {
 		return oidcSigningKey{}, nil, err
 	}
@@ -271,12 +320,40 @@ func publicJWKForKey(privateKey *rsa.PrivateKey) publicJWK {
 }
 
 func oidcIssuer(authHostname string) (string, error) {
+	return tenantOIDCIssuer(authHostname, "")
+}
+
+func tenantOIDCIssuer(authHostname string, tenantName string) (string, error) {
 	host := strings.TrimRight(strings.TrimSpace(authHostname), "/")
 	if host == "" {
 		return "", fmt.Errorf("auth hostname is required for OIDC issuer")
 	}
+	base := ""
 	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
-		return host, nil
+		base = host
+	} else {
+		base = "https://" + strings.Trim(host, ".")
 	}
-	return "https://" + strings.Trim(host, "."), nil
+	tenantName = strings.TrimSpace(tenantName)
+	if tenantName == "" {
+		return base, nil
+	}
+	if err := validateOIDCTenant(tenantName); err != nil {
+		return "", err
+	}
+	return base + "/t/" + tenantName, nil
+}
+
+func validateOIDCTenant(tenantName string) error {
+	tenantName = strings.TrimSpace(tenantName)
+	if tenantName == "" {
+		return fmt.Errorf("tenant is required for OIDC issuer")
+	}
+	if err := naming.ValidateTenantName(tenantName); err == nil {
+		return nil
+	}
+	if err := naming.ValidateGitHubUsernameTenantName(tenantName); err == nil {
+		return nil
+	}
+	return fmt.Errorf("invalid tenant %q", tenantName)
 }
