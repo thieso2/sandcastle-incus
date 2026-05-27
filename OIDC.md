@@ -99,6 +99,13 @@ Machines provisioned before per-tenant OIDC was deployed have no tenant helper f
 sc workload enable [project:]machine --cloud-identity gcp
 ```
 
+For a new machine, the same injection can happen during creation or connect auto-creation:
+
+```sh
+sc create [project:]machine --cloud-identity gcp
+sc connect [project:]machine --cloud-identity gcp
+```
+
 This command:
 1. Resolves the machine and its tenant from Incus state.
 2. Uses the CLI Auth Token saved by `sc login` to authorize the current User with the Auth App.

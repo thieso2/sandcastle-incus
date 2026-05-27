@@ -98,12 +98,10 @@ func sshArgs(plan machine.ConnectPlan) []string {
 
 func remoteCommand(plan machine.ConnectPlan) string {
 	command := remoteShellCommand(plan.Command)
-	if command == "" {
+	if command == "" || (plan.Interactive && command == "/bin/bash -l") {
 		command = "exec /bin/bash -l"
-	} else if len(plan.Command) != 1 {
-		command = "exec " + command
 	} else {
-		command = strings.TrimSpace(command)
+		command = "exec /bin/bash -lc " + shellRemoteQuote(command)
 	}
 	if strings.TrimSpace(plan.WorkingDir) == "" {
 		return command

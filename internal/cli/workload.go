@@ -40,51 +40,16 @@ func newWorkloadEnableCommand(config commandConfig, opts *rootOptions) *cobra.Co
 			if err != nil {
 				return err
 			}
-			client := config.authWorkload
-			if client == nil {
-				client = authapp.DeviceClient{BaseURL: host, AuthToken: strings.TrimSpace(config.adminConfig.AuthToken)}
-			}
-			deviceCode := ""
-			if strings.TrimSpace(config.adminConfig.AuthToken) == "" {
-				device, err := approveWorkloadDevice(cmd.Context(), config, client, maxPolls, debugApprove)
-				if err != nil {
-					return err
-				}
-				deviceCode = device.DeviceCode
-			}
-			result, err := client.EnableWorkload(cmd.Context(), authapp.WorkloadEnableRequest{
-				DeviceCode:          deviceCode,
-				Tenant:              plan.Tenant.Tenant,
-				Project:             plan.Project,
-				Machine:             plan.Name,
-				CloudIdentityConfig: cloudIdentity,
+			result, err := enableWorkloadIdentityForPlan(cmd.Context(), config, plan, workloadEnableOptions{
+				AuthHostname:  host,
+				CloudIdentity: cloudIdentity,
+				MaxPolls:      maxPolls,
+				DebugApprove:  debugApprove,
 			})
 			if err != nil {
 				return err
 			}
-			workloadRequest := &machine.WorkloadIdentityRequest{
-				TokenEndpoint: result.TokenEndpoint,
-				RuntimeSecret: result.RuntimeSecret,
-				Tenant:        result.Tenant,
-				Project:       result.Project,
-				Machine:       result.Machine,
-			}
-			if strings.TrimSpace(result.GCPAudience) != "" {
-				workloadRequest.GCP = &machine.GCPWorkloadIdentityConfig{
-					Audience:                       result.GCPAudience,
-					SubjectTokenType:               result.GCPSubjectTokenType,
-					ServiceAccountImpersonationURL: result.GCPServiceAccountImpersonationURL,
-				}
-			}
-			plan.WorkloadFiles, err = machine.WorkloadIdentityFiles(workloadRequest)
-			if err != nil {
-				return fmt.Errorf("build workload identity files: %w", err)
-			}
-			plan.CertificateFiles = []machine.File{}
-			if config.machineCreator == nil {
-				return fmt.Errorf("machine creation executor is not configured")
-			}
-			if err := config.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
+			if err := applyWorkloadIdentityToMachine(cmd.Context(), config, plan, result); err != nil {
 				return err
 			}
 			return writeOutput(config.stdout, opts.output, formatWorkloadEnable(result), result)
@@ -95,6 +60,66 @@ func newWorkloadEnableCommand(config commandConfig, opts *rootOptions) *cobra.Co
 	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts")
 	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve via /debug/device/approve (requires server --debug-device-user)")
 	return command
+}
+
+type workloadEnableOptions struct {
+	AuthHostname  string
+	CloudIdentity string
+	MaxPolls      int
+	DebugApprove  bool
+}
+
+func enableWorkloadIdentityForPlan(ctx context.Context, config commandConfig, plan machine.CreatePlan, options workloadEnableOptions) (authapp.WorkloadEnableResult, error) {
+	host := commandAuthHostname(config, options.AuthHostname)
+	if host == "" {
+		return authapp.WorkloadEnableResult{}, fmt.Errorf("--auth-hostname is required (or run sc login again to remember the Auth Hostname)")
+	}
+	client := config.authWorkload
+	if client == nil {
+		client = authapp.DeviceClient{BaseURL: host, AuthToken: strings.TrimSpace(config.adminConfig.AuthToken)}
+	}
+	deviceCode := ""
+	if strings.TrimSpace(config.adminConfig.AuthToken) == "" {
+		device, err := approveWorkloadDevice(ctx, config, client, options.MaxPolls, options.DebugApprove)
+		if err != nil {
+			return authapp.WorkloadEnableResult{}, err
+		}
+		deviceCode = device.DeviceCode
+	}
+	return client.EnableWorkload(ctx, authapp.WorkloadEnableRequest{
+		DeviceCode:          deviceCode,
+		Tenant:              plan.Tenant.Tenant,
+		Project:             plan.Project,
+		Machine:             plan.Name,
+		CloudIdentityConfig: strings.TrimSpace(options.CloudIdentity),
+	})
+}
+
+func applyWorkloadIdentityToMachine(ctx context.Context, config commandConfig, plan machine.CreatePlan, result authapp.WorkloadEnableResult) error {
+	workloadRequest := &machine.WorkloadIdentityRequest{
+		TokenEndpoint: result.TokenEndpoint,
+		RuntimeSecret: result.RuntimeSecret,
+		Tenant:        result.Tenant,
+		Project:       result.Project,
+		Machine:       result.Machine,
+	}
+	if strings.TrimSpace(result.GCPAudience) != "" {
+		workloadRequest.GCP = &machine.GCPWorkloadIdentityConfig{
+			Audience:                       result.GCPAudience,
+			SubjectTokenType:               result.GCPSubjectTokenType,
+			ServiceAccountImpersonationURL: result.GCPServiceAccountImpersonationURL,
+		}
+	}
+	files, err := machine.WorkloadIdentityFiles(workloadRequest)
+	if err != nil {
+		return fmt.Errorf("build workload identity files: %w", err)
+	}
+	plan.WorkloadFiles = files
+	plan.CertificateFiles = []machine.File{}
+	if config.machineCreator == nil {
+		return fmt.Errorf("machine creation executor is not configured")
+	}
+	return config.machineCreator.CreateMachine(ctx, plan)
 }
 
 type workloadApprovedDevice struct {

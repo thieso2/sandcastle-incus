@@ -145,7 +145,7 @@ func TestMachineConnectorSSHsCommandNonInteractively(t *testing.T) {
 	if strings.Contains(joined, " -t ") {
 		t.Fatalf("non-interactive ssh should not force tty: %q", joined)
 	}
-	if !strings.Contains(joined, "alice@10.248.0.20") || !strings.Contains(joined, "cd /workspace && pwd") {
+	if !strings.Contains(joined, "alice@10.248.0.20") || !strings.Contains(joined, "cd /workspace && exec /bin/bash -lc pwd") {
 		t.Fatalf("ssh args = %q", joined)
 	}
 }
@@ -172,7 +172,7 @@ func TestMachineConnectorSSHsSingleStringCommandThroughRemoteShell(t *testing.T)
 		t.Fatal(err)
 	}
 	joined := strings.Join(runner.args, " ")
-	if !strings.Contains(joined, "cd /workspace && touch hase") {
+	if !strings.Contains(joined, `cd /workspace && exec /bin/bash -lc 'touch hase'`) {
 		t.Fatalf("ssh args = %q", joined)
 	}
 	if strings.Contains(joined, "exec 'touch hase'") {

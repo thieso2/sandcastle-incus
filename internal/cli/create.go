@@ -17,6 +17,10 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var workspaceDir string
 	var shareHome bool
 	var containerTools bool
+	var cloudIdentity string
+	var authHostname string
+	var maxPolls int
+	var debugApprove bool
 	command := &cobra.Command{
 		Use:   "create [project:]machine",
 		Short: "Create a Sandcastle container machine",
@@ -41,6 +45,20 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				}
 				if err := config.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
 					return err
+				}
+				if strings.TrimSpace(cloudIdentity) != "" {
+					result, err := enableWorkloadIdentityForPlan(cmd.Context(), config, plan, workloadEnableOptions{
+						AuthHostname:  authHostname,
+						CloudIdentity: cloudIdentity,
+						MaxPolls:      maxPolls,
+						DebugApprove:  debugApprove,
+					})
+					if err != nil {
+						return err
+					}
+					if err := applyWorkloadIdentityToMachine(cmd.Context(), config, plan, result); err != nil {
+						return err
+					}
 				}
 				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
 					return err
@@ -77,6 +95,10 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&workspaceDir, "workspace-dir", "", "project workspace volume subdirectory")
 	command.Flags().BoolVar(&shareHome, "share-home", false, "deprecated no-op; project home storage is shared by default")
 	command.Flags().BoolVar(&containerTools, "container-tools", false, "enable nested container tooling for this machine")
+	command.Flags().StringVar(&cloudIdentity, "cloud-identity", "", "Cloud Identity Config name to inject, for example gcp")
+	command.Flags().StringVar(&authHostname, "auth-hostname", "", "public Auth Hostname (overrides config auth.hostname)")
+	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts when enabling workload identity")
+	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve workload identity device login (requires server --debug-device-user)")
 	return command
 }
 

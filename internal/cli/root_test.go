@@ -1909,6 +1909,51 @@ func TestCreateDetachSkipsConnect(t *testing.T) {
 	}
 }
 
+func TestCreateWithCloudIdentityInjectsWorkloadFiles(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeMachineCreator{}
+	authClient := &fakeAuthWorkloadClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineCreator: creator,
+		authWorkload:   authClient,
+	}, "create", "codex", "--detach", "--cloud-identity", "gcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authClient.enableRequests) != 1 {
+		t.Fatalf("enable requests = %#v", authClient.enableRequests)
+	}
+	if authClient.enableRequests[0].CloudIdentityConfig != "gcp" || authClient.enableRequests[0].Machine != "codex" {
+		t.Fatalf("enable request = %#v", authClient.enableRequests[0])
+	}
+	if len(creator.plans) != 2 {
+		t.Fatalf("create plans = %#v", creator.plans)
+	}
+	if len(creator.plans[0].WorkloadFiles) != 0 {
+		t.Fatalf("initial create workload files = %#v", creator.plans[0].WorkloadFiles)
+	}
+	if len(creator.plans[1].WorkloadFiles) == 0 || creator.plans[1].CertificateFiles == nil || len(creator.plans[1].CertificateFiles) != 0 {
+		t.Fatalf("workload update plan = %#v", creator.plans[1])
+	}
+}
+
 func TestCreateBackgroundSkipsConnect(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -4635,6 +4680,50 @@ func TestConnectAliasCreatesMissingMachineBeforeConnecting(t *testing.T) {
 	}
 }
 
+func TestConnectAliasCanEnableCloudIdentityWhenAutoCreating(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
+	authClient := &fakeAuthWorkloadClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, _, err = executeForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:     fakeMachineStatusStore{},
+		machineCreator:   creator,
+		machineConnector: connector,
+		knownHosts:       &fakeKnownHostsManager{},
+		dnsApplier:       &fakeDNSApplier{},
+		authWorkload:     authClient,
+	}, "c", "codex", "--cloud-identity", "gcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authClient.enableRequests) != 1 {
+		t.Fatalf("enable requests = %#v", authClient.enableRequests)
+	}
+	if len(creator.plans) != 2 || len(creator.plans[1].WorkloadFiles) == 0 {
+		t.Fatalf("create plans = %#v", creator.plans)
+	}
+	if !connector.called {
+		t.Fatal("expected connect after workload identity injection")
+	}
+}
+
 func TestRejectsUnknownOutputFormat(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "--output", "yaml", "version")
 	if err == nil {
@@ -4643,11 +4732,13 @@ func TestRejectsUnknownOutputFormat(t *testing.T) {
 }
 
 type fakeMachineCreator struct {
-	plan machine.CreatePlan
+	plan  machine.CreatePlan
+	plans []machine.CreatePlan
 }
 
 func (f *fakeMachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePlan) error {
 	f.plan = plan
+	f.plans = append(f.plans, plan)
 	return nil
 }
 

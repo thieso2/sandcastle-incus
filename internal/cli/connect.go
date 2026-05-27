@@ -13,7 +13,11 @@ import (
 )
 
 func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	return &cobra.Command{
+	var cloudIdentity string
+	var authHostname string
+	var maxPolls int
+	var debugApprove bool
+	command := &cobra.Command{
 		Use:     "connect [project:]machine [-- command...]",
 		Aliases: []string{"c"},
 		Short:   "Connect to a Sandcastle machine",
@@ -25,7 +29,12 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			plan, fromCache, err := planConnectCached(cmd.Context(), config, cache, reference, command)
 			if err != nil {
 				if shouldCreateOnConnectFailure(err) {
-					return createAndConnect(cmd, config, reference, command)
+					return createAndConnect(cmd, config, reference, command, workloadEnableOptions{
+						AuthHostname:  authHostname,
+						CloudIdentity: cloudIdentity,
+						MaxPolls:      maxPolls,
+						DebugApprove:  debugApprove,
+					})
 				}
 				return err
 			}
@@ -35,7 +44,22 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			// If the plan came from cache and the SSH host is unreachable, don't let SSH
 			// hang — invalidate the cache immediately and retry with a fresh Incus lookup.
 			if fromCache && !probeSSHPort(plan.SSHHost, 2*time.Second) {
-				return retryConnectFresh(cmd, config, cache, reference, command, plan)
+				return retryConnectFresh(cmd, config, cache, reference, command, plan, workloadEnableOptions{
+					AuthHostname:  authHostname,
+					CloudIdentity: cloudIdentity,
+					MaxPolls:      maxPolls,
+					DebugApprove:  debugApprove,
+				})
+			}
+			if strings.TrimSpace(cloudIdentity) != "" {
+				if err := enableWorkloadIdentityForConnect(cmd, config, reference, workloadEnableOptions{
+					AuthHostname:  authHostname,
+					CloudIdentity: cloudIdentity,
+					MaxPolls:      maxPolls,
+					DebugApprove:  debugApprove,
+				}); err != nil {
+					return err
+				}
 			}
 			if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), config, plan); err != nil {
 				return err
@@ -46,19 +70,34 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				Stderr: config.stderr,
 			}); err != nil {
 				if shouldCreateOnConnectFailure(err) {
-					return createAndConnect(cmd, config, reference, command)
+					return createAndConnect(cmd, config, reference, command, workloadEnableOptions{
+						AuthHostname:  authHostname,
+						CloudIdentity: cloudIdentity,
+						MaxPolls:      maxPolls,
+						DebugApprove:  debugApprove,
+					})
 				}
 				// If the plan came from the cache, stale metadata (changed IP or host key)
 				// may have caused the failure. Invalidate both caches and retry once with
 				// a fresh Incus lookup and keyscan.
 				if fromCache {
-					return retryConnectFresh(cmd, config, cache, reference, command, plan)
+					return retryConnectFresh(cmd, config, cache, reference, command, plan, workloadEnableOptions{
+						AuthHostname:  authHostname,
+						CloudIdentity: cloudIdentity,
+						MaxPolls:      maxPolls,
+						DebugApprove:  debugApprove,
+					})
 				}
 				return err
 			}
 			return nil
 		},
 	}
+	command.Flags().StringVar(&cloudIdentity, "cloud-identity", "", "Cloud Identity Config name to inject before connecting, for example gcp")
+	command.Flags().StringVar(&authHostname, "auth-hostname", "", "public Auth Hostname (overrides config auth.hostname)")
+	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts when enabling workload identity")
+	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve workload identity device login (requires server --debug-device-user)")
+	return command
 }
 
 // planConnectCached resolves a ConnectPlan using the local cache when available.
@@ -101,7 +140,7 @@ func lookupCachedPlan(cache incusx.ConnectCache, tenant, project, reference stri
 // retryConnectFresh invalidates stale cache entries from oldPlan, re-resolves the plan
 // from Incus, re-scans the SSH host key, and retries the connection once.
 // This handles machine recreation (new IP or new host key) transparently.
-func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.ConnectCache, reference string, command []string, oldPlan machine.ConnectPlan) error {
+func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.ConnectCache, reference string, command []string, oldPlan machine.ConnectPlan, workloadOptions workloadEnableOptions) error {
 	if key := connectPlanCacheKey(cfg.adminConfig.Tenant, cfg.adminConfig.Project, reference); key != "" {
 		cache.InvalidatePlan(key)
 	}
@@ -116,13 +155,18 @@ func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.Conne
 	})
 	if err != nil {
 		if shouldCreateOnConnectFailure(err) {
-			return createAndConnect(cmd, cfg, reference, command)
+			return createAndConnect(cmd, cfg, reference, command, workloadOptions)
 		}
 		return err
 	}
 	if plan.Managed {
 		if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
 			cache.StorePlan(key, plan)
+		}
+	}
+	if strings.TrimSpace(workloadOptions.CloudIdentity) != "" {
+		if err := enableWorkloadIdentityForConnect(cmd, cfg, reference, workloadOptions); err != nil {
+			return err
 		}
 	}
 	if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), cfg, plan); err != nil {
@@ -181,7 +225,7 @@ func refreshKnownHostsForPrivateIPConnect(ctx context.Context, config commandCon
 	})
 }
 
-func createAndConnect(cmd *cobra.Command, config commandConfig, reference string, command []string) error {
+func createAndConnect(cmd *cobra.Command, config commandConfig, reference string, command []string, workloadOptions workloadEnableOptions) error {
 	if config.stderr != nil {
 		fmt.Fprintf(config.stderr, "Machine %s not found; creating it before connecting.\n", reference)
 	}
@@ -196,6 +240,15 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 	}
 	if err := config.machineCreator.CreateMachine(cmd.Context(), createPlan); err != nil {
 		return err
+	}
+	if strings.TrimSpace(workloadOptions.CloudIdentity) != "" {
+		result, err := enableWorkloadIdentityForPlan(cmd.Context(), config, createPlan, workloadOptions)
+		if err != nil {
+			return err
+		}
+		if err := applyWorkloadIdentityToMachine(cmd.Context(), config, createPlan, result); err != nil {
+			return err
+		}
 	}
 	if err := refreshTenantDNS(cmd.Context(), config, createPlan.Tenant); err != nil {
 		return err
@@ -221,6 +274,20 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 		Stdout: config.stdout,
 		Stderr: config.stderr,
 	})
+}
+
+func enableWorkloadIdentityForConnect(cmd *cobra.Command, config commandConfig, reference string, workloadOptions workloadEnableOptions) error {
+	plan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
+		Reference: reference,
+	})
+	if err != nil {
+		return err
+	}
+	result, err := enableWorkloadIdentityForPlan(cmd.Context(), config, plan, workloadOptions)
+	if err != nil {
+		return err
+	}
+	return applyWorkloadIdentityToMachine(cmd.Context(), config, plan, result)
 }
 
 // probeSSHPort returns true if TCP port 22 on host is reachable within the given timeout.
