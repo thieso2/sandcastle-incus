@@ -614,11 +614,21 @@ func SourcePath(storageShare meta.TenantStorageShare, workspaceVolumeName string
 	return workspaceVolumeName + "/" + storageShare.SourceProject + "/" + storageShare.SourceDir
 }
 
+func HostSourcePath(storageShare meta.TenantStorageShare, sourceIncusProject string, workspaceVolumeName string) string {
+	return path.Join(
+		"/var/lib/incus/storage-pools",
+		sourceIncusProject,
+		"custom",
+		sourceIncusProject+"_"+workspaceVolumeName,
+		storageShare.SourceProject,
+		storageShare.SourceDir,
+	)
+}
+
 func DesiredDevice(storageShare meta.TenantStorageShare, sourceIncusProject string, workspaceVolumeName string) map[string]string {
 	return map[string]string{
 		"type":     "disk",
-		"pool":     sourceIncusProject,
-		"source":   SourcePath(storageShare, workspaceVolumeName),
+		"source":   HostSourcePath(storageShare, sourceIncusProject, workspaceVolumeName),
 		"path":     MountPath(storageShare),
 		"readonly": "true",
 	}

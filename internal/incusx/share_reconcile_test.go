@@ -98,7 +98,10 @@ func TestShareReconcilerAddsAcceptedShareDevice(t *testing.T) {
 		t.Fatal("expected instance update")
 	}
 	device := resource.updated.Devices[share.DeviceName(acceptedShare())]
-	if device["readonly"] != "true" || device["pool"] != "sc-thieso2" || device["path"] != "/shared/thieso2/default/docs" {
+	if device["readonly"] != "true" || device["pool"] != "" || device["path"] != "/shared/thieso2/default/docs" {
+		t.Fatalf("device = %#v", device)
+	}
+	if device["source"] != "/var/lib/incus/storage-pools/sc-thieso2/custom/sc-thieso2_sc-workspace/default/docs" {
 		t.Fatalf("device = %#v", device)
 	}
 }

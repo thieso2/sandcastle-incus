@@ -107,7 +107,10 @@ func TestPlanCreateMountsAcceptedTenantStorageSharesReadOnly(t *testing.T) {
 	if shareDevice == nil {
 		t.Fatalf("share device missing from %#v", plan.Devices)
 	}
-	if shareDevice["pool"] != "sc-thieso2" || shareDevice["source"] != tenant.WorkspaceVolumeName+"/default/docs" || shareDevice["path"] != "/shared/thieso2/default/docs" || shareDevice["readonly"] != "true" {
+	if shareDevice["pool"] != "" ||
+		shareDevice["source"] != "/var/lib/incus/storage-pools/sc-thieso2/custom/sc-thieso2_sc-workspace/default/docs" ||
+		shareDevice["path"] != "/shared/thieso2/default/docs" ||
+		shareDevice["readonly"] != "true" {
 		t.Fatalf("share device = %#v", shareDevice)
 	}
 }
