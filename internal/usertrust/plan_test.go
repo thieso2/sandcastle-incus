@@ -1,6 +1,7 @@
 package usertrust
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -43,7 +44,7 @@ func TestPlanGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Projects) != 1 || plan.Projects[0] != "sc-acme" {
+	if !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
 		t.Fatalf("Projects = %#v", plan.Projects)
 	}
 }
@@ -57,7 +58,7 @@ func TestPlanGrantPersonalTenantAllowsGitHubUsernameNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.CertificateName != "sandcastle-1octocat" || len(plan.Projects) != 1 || plan.Projects[0] != "sc-1octocat" {
+	if plan.CertificateName != "sandcastle-1octocat" || !slices.Equal(plan.Projects, []string{"sc-1octocat", "sc-1octocat-infra", "sc-1octocat-native"}) {
 		t.Fatalf("plan = %#v", plan)
 	}
 }
@@ -70,7 +71,7 @@ func TestPlanGrantDeduplicatesProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Projects) != 1 || plan.Projects[0] != "sc-acme" {
+	if !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
 		t.Fatalf("Projects = %#v", plan.Projects)
 	}
 }
@@ -97,7 +98,7 @@ func TestPlanTenantGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.User != "alice" || len(plan.Projects) != 1 || plan.Projects[0] != "sc-acme" {
+	if plan.User != "alice" || !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
 		t.Fatalf("plan = %#v", plan)
 	}
 }
