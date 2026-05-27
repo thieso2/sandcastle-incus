@@ -40,7 +40,7 @@ func newShareCreateCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			if err != nil {
 				return err
 			}
-			created, err := client.CreateShare(cmd.Context(), authapp.ShareCreateRequest{
+			result, err := client.CreateShare(cmd.Context(), authapp.ShareCreateRequest{
 				SourceTenant: strings.TrimSpace(config.adminConfig.Tenant),
 				Source:       args[0],
 				Recipients:   recipients,
@@ -50,7 +50,7 @@ func newShareCreateCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatShare(created), created)
+			return writeOutput(config.stdout, opts.output, formatShareResult(result), result)
 		},
 	}
 	command.Flags().StringArrayVar(&recipients, "to", nil, "recipient tenant to offer the share to (repeatable)")

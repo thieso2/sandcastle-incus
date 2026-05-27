@@ -97,7 +97,7 @@ func (h handler) shareCreateAPI(w http.ResponseWriter, r *http.Request, user Use
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, result.Share)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h handler) shareListAPI(w http.ResponseWriter, r *http.Request, user User) {

@@ -131,7 +131,7 @@ type fakeAuthCloudIdentityClient struct {
 
 type fakeAuthShareClient struct {
 	createRequests    []authapp.ShareCreateRequest
-	createResult      meta.TenantStorageShare
+	createResult      share.Result
 	shares            []meta.TenantStorageShare
 	inboundShares     []meta.TenantStorageShare
 	offers            []meta.TenantStorageShare
@@ -334,10 +334,13 @@ func (c *fakeAuthCloudIdentityClient) UpsertCloudIdentity(ctx context.Context, r
 	return c.upsertResult, nil
 }
 
-func (c *fakeAuthShareClient) CreateShare(ctx context.Context, request authapp.ShareCreateRequest) (meta.TenantStorageShare, error) {
+func (c *fakeAuthShareClient) CreateShare(ctx context.Context, request authapp.ShareCreateRequest) (share.Result, error) {
 	c.createRequests = append(c.createRequests, request)
-	if c.createResult.Name == "" {
-		c.createResult = meta.TenantStorageShare{SourceTenant: request.SourceTenant, SourceProject: "default", SourceDir: "docs", Name: "docs", Availability: "available"}
+	if c.createResult.Share.Name == "" {
+		c.createResult = share.Result{
+			Share:  meta.TenantStorageShare{SourceTenant: request.SourceTenant, SourceProject: "default", SourceDir: "docs", Name: "docs", Availability: "available"},
+			DryRun: request.DryRun,
+		}
 	}
 	return c.createResult, nil
 }
@@ -1074,6 +1077,28 @@ func TestShareCreateUsesAuthAppClient(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Share: default/docs") {
 		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareCreateDryRunJSONReturnsPlan(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "--output", "json", "share", "create", "default:/workspace/docs", "--to", "skorfman", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload share.Result
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.DryRun || payload.Share.Name != "docs" {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
 

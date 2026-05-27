@@ -235,11 +235,11 @@ func (c DeviceClient) UpsertCloudIdentity(ctx context.Context, request CloudIden
 	}, nil
 }
 
-func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateRequest) (meta.TenantStorageShare, error) {
+func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateRequest) (share.Result, error) {
 	body, _ := json.Marshal(request)
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/shares"), bytes.NewReader(body))
 	if err != nil {
-		return meta.TenantStorageShare{}, err
+		return share.Result{}, err
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	if strings.TrimSpace(c.AuthToken) != "" {
@@ -247,7 +247,7 @@ func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateReques
 	}
 	response, err := c.client().Do(httpRequest)
 	if err != nil {
-		return meta.TenantStorageShare{}, err
+		return share.Result{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -256,11 +256,11 @@ func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateReques
 		if msg == "" {
 			msg = response.Status
 		}
-		return meta.TenantStorageShare{}, fmt.Errorf("auth app share create: %s", msg)
+		return share.Result{}, fmt.Errorf("auth app share create: %s", msg)
 	}
-	var payload meta.TenantStorageShare
+	var payload share.Result
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return meta.TenantStorageShare{}, err
+		return share.Result{}, err
 	}
 	return payload, nil
 }
