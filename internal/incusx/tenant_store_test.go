@@ -122,6 +122,52 @@ func TestTenantStoreMergesSSHKeyMetadataFile(t *testing.T) {
 	}
 }
 
+func TestTenantStoreFilterSkipsUnrelatedTenantMetadataHydration(t *testing.T) {
+	acmeConfig, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	someConfig, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "some",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.1.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usedProjects := []string{}
+	store := TenantStore{
+		Server: fakeTenantListServer{projects: []api.Project{{
+			Name: "sc-acme",
+			ProjectPut: api.ProjectPut{
+				Config: api.ConfigMap(acmeConfig),
+			},
+		}, {
+			Name: "sc-some",
+			ProjectPut: api.ProjectPut{
+				Config: api.ConfigMap(someConfig),
+			},
+		}}},
+		Metadata: fakeTenantMetadataServer{files: map[string]string{tenantUnixUserFile: "localuser\n"}, usedProjects: &usedProjects},
+	}
+
+	filtered := store.WithTenantFilter("some")
+	projects, err := filtered.ListProjects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "sc-some" {
+		t.Fatalf("projects = %#v", projects)
+	}
+	if len(usedProjects) != 1 || usedProjects[0] != "sc-some" {
+		t.Fatalf("usedProjects = %#v, want only sc-some", usedProjects)
+	}
+}
+
 func TestTenantStoreWrapsListErrors(t *testing.T) {
 	store := TenantStore{Server: fakeTenantListServer{err: errors.New("boom")}}
 	_, err := store.ListProjects(context.Background())
@@ -131,11 +177,15 @@ func TestTenantStoreWrapsListErrors(t *testing.T) {
 }
 
 type fakeTenantMetadataServer struct {
-	files map[string]string
-	err   error
+	files        map[string]string
+	err          error
+	usedProjects *[]string
 }
 
 func (s fakeTenantMetadataServer) UseProject(name string) TenantMetadataResourceServer {
+	if s.usedProjects != nil {
+		*s.usedProjects = append(*s.usedProjects, name)
+	}
 	return fakeTenantMetadataResource{files: s.files, err: s.err}
 }
 

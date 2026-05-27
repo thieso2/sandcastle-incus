@@ -31,12 +31,13 @@ type TenantMetadataResourceServer interface {
 }
 
 type TenantStore struct {
-	Remote     string
-	ConfigPath string
-	Server     TenantListServer
-	Metadata   TenantMetadataServer
-	Log        func(string)
-	LoadSSHKey bool
+	Remote       string
+	ConfigPath   string
+	Server       TenantListServer
+	Metadata     TenantMetadataServer
+	Log          func(string)
+	LoadSSHKey   bool
+	TenantFilter []string
 }
 
 func NewTenantStore(remote string) TenantStore {
@@ -53,6 +54,11 @@ func NewTenantStoreForSharedRemote(remote *SharedRemote) TenantStore {
 
 func (s TenantStore) WithSSHKeyMetadata() tenant.IncusTenantStore {
 	s.LoadSSHKey = true
+	return s
+}
+
+func (s TenantStore) WithTenantFilter(names ...string) tenant.IncusTenantStore {
+	s.TenantFilter = append([]string{}, names...)
 	return s
 }
 
@@ -95,6 +101,7 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 		return nil, fmt.Errorf("list Incus projects: %w", err)
 	}
 	output := FromAPIProjects(projects)
+	output = filterTenantProjects(output, s.TenantFilter)
 	if metadata == nil {
 		return output, nil
 	}
@@ -106,6 +113,34 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 		output[i].Config = config
 	}
 	return output, nil
+}
+
+func filterTenantProjects(projects []tenant.IncusProject, tenantNames []string) []tenant.IncusProject {
+	filter := map[string]struct{}{}
+	for _, name := range tenantNames {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			filter[name] = struct{}{}
+		}
+	}
+	if len(filter) == 0 {
+		return projects
+	}
+	output := make([]tenant.IncusProject, 0, len(projects))
+	for _, project := range projects {
+		if !meta.IsManaged(project.Config) || project.Config[meta.KeyKind] != meta.KindTenant {
+			continue
+		}
+		tenantConfig, err := meta.ParseTenantConfig(project.Config)
+		if err != nil {
+			output = append(output, project)
+			continue
+		}
+		if _, ok := filter[tenantConfig.Tenant]; ok {
+			output = append(output, project)
+		}
+	}
+	return output
 }
 
 func FromAPIProjects(projects []api.Project) []tenant.IncusProject {

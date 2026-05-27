@@ -314,6 +314,24 @@ func TestPlanConnectAcceptsTenantScopedMachineRef(t *testing.T) {
 	}
 }
 
+func TestPlanConnectTenantScopedMachineRefFiltersTenantStore(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	filters := [][]string{}
+	store := filteringTenantStoreForTest{inner: tenantStoreForTestWithTenants(t, "acme", "some"), filtersUsed: &filters}
+	machineStore := fakeMachineStore{machines: []meta.Machine{{Project: "default", Name: "codex", PrivateIP: "10.248.4.42"}}}
+	plan, err := PlanConnect(context.Background(), admin, store, machineStore, ConnectRequest{Reference: "some/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Tenant.Tenant != "some" || plan.Project != "default" || plan.Name != "codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if len(filters) != 1 || len(filters[0]) != 1 || filters[0][0] != "some" {
+		t.Fatalf("filters = %#v, want only some", filters)
+	}
+}
+
 func TestPlanConnectKeepsProjectSlashMachineWhenLeftSideIsNotTenant(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
@@ -525,6 +543,45 @@ func tenantStoreForTestWithTenants(t *testing.T, names ...string) tenant.MemoryS
 type fakeMachineStore struct {
 	machines  []meta.Machine
 	unmanaged []UnmanagedMachine
+}
+
+type filteringTenantStoreForTest struct {
+	inner       tenant.MemoryStore
+	filters     []string
+	filtersUsed *[][]string
+}
+
+func (s filteringTenantStoreForTest) WithTenantFilter(names ...string) tenant.IncusTenantStore {
+	s.filters = append([]string{}, names...)
+	return s
+}
+
+func (s filteringTenantStoreForTest) ListProjects(ctx context.Context) ([]tenant.IncusProject, error) {
+	if s.filtersUsed != nil {
+		*s.filtersUsed = append(*s.filtersUsed, append([]string{}, s.filters...))
+	}
+	projects, err := s.inner.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(s.filters) == 0 {
+		return projects, nil
+	}
+	wanted := map[string]struct{}{}
+	for _, name := range s.filters {
+		wanted[name] = struct{}{}
+	}
+	filtered := make([]tenant.IncusProject, 0, len(projects))
+	for _, project := range projects {
+		config, err := meta.ParseTenantConfig(project.Config)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := wanted[config.Tenant]; ok {
+			filtered = append(filtered, project)
+		}
+	}
+	return filtered, nil
 }
 
 func (s fakeMachineStore) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {

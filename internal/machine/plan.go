@@ -375,18 +375,21 @@ type machineTarget struct {
 }
 
 func parseMachineTarget(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, reference string) (machineTarget, error) {
-	tenants, err := tenant.List(ctx, store)
-	if err != nil {
-		return machineTarget{}, err
-	}
 	currentTenant := strings.TrimSpace(admin.Tenant)
 	projectSyntax := strings.TrimSpace(reference)
-	explicitTenant := false
-	if tenantName, rest, ok := splitTenantMachineReference(projectSyntax, tenants); ok {
-		currentTenant = tenantName
-		projectSyntax = rest
-		explicitTenant = true
+	if tenantName, rest, ok := explicitTenantProjectMachineReference(projectSyntax); ok {
+		return parseMachineTargetInTenant(ctx, admin, store, tenantName, rest, true)
 	}
+	if tenantName, rest, ok := possibleTenantMachineReference(projectSyntax); ok {
+		if target, ok, err := tryParseTenantMachineTarget(ctx, admin, store, tenantName, rest); err != nil || ok {
+			return target, err
+		}
+	}
+	return parseMachineTargetInTenant(ctx, admin, store, currentTenant, projectSyntax, false)
+}
+
+func parseMachineTargetInTenant(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, tenantName string, projectSyntax string, explicitTenant bool) (machineTarget, error) {
+	currentTenant := strings.TrimSpace(tenantName)
 	if currentTenant == "" {
 		return machineTarget{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
 	}
@@ -400,6 +403,10 @@ func parseMachineTarget(ctx context.Context, admin config.Admin, store tenant.In
 	if projectRef.Tenant != "" {
 		currentTenant = projectRef.Tenant
 		explicitTenant = true
+	}
+	tenants, err := tenant.List(ctx, tenantFilteredStore(store, currentTenant))
+	if err != nil {
+		return machineTarget{}, err
 	}
 	summary, ok := findTenantSummary(tenants, currentTenant)
 	if !ok {
@@ -415,7 +422,7 @@ func parseMachineTarget(ctx context.Context, admin config.Admin, store tenant.In
 	}, nil
 }
 
-func splitTenantMachineReference(reference string, tenants []tenant.Summary) (string, string, bool) {
+func explicitTenantProjectMachineReference(reference string) (string, string, bool) {
 	left, right, ok := strings.Cut(strings.TrimSpace(reference), "/")
 	if !ok || strings.Contains(left, ":") || strings.Contains(right, "/") || strings.TrimSpace(right) == "" {
 		return "", "", false
@@ -423,15 +430,71 @@ func splitTenantMachineReference(reference string, tenants []tenant.Summary) (st
 	if strings.Contains(right, ":") {
 		return strings.TrimSpace(left), strings.TrimSpace(right), true
 	}
-	if tenantSummaryExists(tenants, left) {
-		return strings.TrimSpace(left), strings.TrimSpace(right), true
-	}
 	return "", "", false
 }
 
-func tenantSummaryExists(tenants []tenant.Summary, name string) bool {
-	_, ok := findTenantSummary(tenants, strings.TrimSpace(name))
-	return ok
+func possibleTenantMachineReference(reference string) (string, string, bool) {
+	left, right, ok := strings.Cut(strings.TrimSpace(reference), "/")
+	if !ok || strings.Contains(left, ":") || strings.Contains(right, "/:") || strings.TrimSpace(right) == "" {
+		return "", "", false
+	}
+	return strings.TrimSpace(left), strings.TrimSpace(right), true
+}
+
+func tryParseTenantMachineTarget(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, tenantName string, machineName string) (machineTarget, bool, error) {
+	tenantName = strings.TrimSpace(tenantName)
+	if tenantName == "" {
+		return machineTarget{}, false, nil
+	}
+	if err := naming.ValidateTenantName(tenantName); err != nil {
+		return machineTarget{}, false, nil
+	}
+	tenants, err := tenant.List(ctx, tenantFilteredStore(store, tenantName))
+	if err != nil {
+		return machineTarget{}, false, err
+	}
+	if _, ok := findTenantSummary(tenants, tenantName); !ok {
+		return machineTarget{}, false, nil
+	}
+	target, err := parseMachineTargetInTenant(ctx, admin, tenantListMemoryStore(tenants), tenantName, machineName, true)
+	return target, true, err
+}
+
+type tenantFilterableStore interface {
+	WithTenantFilter(...string) tenant.IncusTenantStore
+}
+
+func tenantFilteredStore(store tenant.IncusTenantStore, tenantName string) tenant.IncusTenantStore {
+	if filterable, ok := store.(tenantFilterableStore); ok {
+		return filterable.WithTenantFilter(tenantName)
+	}
+	return store
+}
+
+func tenantListMemoryStore(summaries []tenant.Summary) tenant.MemoryStore {
+	projects := make([]tenant.IncusProject, 0, len(summaries))
+	for _, summary := range summaries {
+		projects = append(projects, tenant.IncusProject{Name: summary.IncusName, Config: summaryConfig(summary)})
+	}
+	return tenant.MemoryStore{Projects: projects}
+}
+
+func summaryConfig(summary tenant.Summary) map[string]string {
+	config, err := meta.TenantConfig(meta.Tenant{
+		Tenant:        summary.Tenant,
+		Personal:      summary.Personal,
+		UnixUser:      summary.UnixUser,
+		PrivateCIDR:   summary.PrivateCIDR,
+		Projects:      append([]meta.Project{}, summary.Projects...),
+		SSHPublicKey:  summary.SSHPublicKey,
+		Tailscale:     summary.Tailscale,
+		PublicRoutes:  append([]meta.PublicRoute{}, summary.PublicRoutes...),
+		StorageShares: append([]meta.TenantStorageShare{}, summary.StorageShares...),
+	})
+	if err != nil {
+		return nil
+	}
+	return config
 }
 
 func findTenantSummary(tenants []tenant.Summary, name string) (tenant.Summary, bool) {
