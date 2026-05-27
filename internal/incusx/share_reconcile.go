@@ -24,6 +24,7 @@ type ShareReconcileServer interface {
 type ShareReconcileResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error)
+	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
 }
 
 type ShareReconciler struct {
@@ -103,6 +104,11 @@ func (r ShareReconciler) reconcileMachine(ctx context.Context, server ShareRecon
 	}
 	next := copyDeviceMap(current)
 	for name, device := range desired {
+		if err := ensureShareMountPathAvailable(server, instance, name, device, current); err != nil {
+			machineResult.Status = "failed"
+			machineResult.Error = err.Error()
+			return machineResult
+		}
 		next[name] = device
 	}
 	for name := range next {
@@ -206,6 +212,54 @@ func copyDeviceMap(input map[string]map[string]string) map[string]map[string]str
 	return output
 }
 
+func ensureShareMountPathAvailable(server ShareReconcileResourceServer, instance *api.Instance, desiredName string, desiredDevice map[string]string, current map[string]map[string]string) error {
+	desiredPath := strings.TrimSpace(desiredDevice["path"])
+	if desiredPath == "" {
+		return fmt.Errorf("share device %s has no mount path", desiredName)
+	}
+	for name, device := range current {
+		if name != desiredName && strings.TrimSpace(device["path"]) == desiredPath {
+			return fmt.Errorf("share mount path %s is already occupied by device %s", desiredPath, name)
+		}
+	}
+	currentDevice, exists := current[desiredName]
+	if exists && strings.TrimSpace(currentDevice["path"]) == desiredPath {
+		return nil
+	}
+	if instance == nil || !instance.IsActive() {
+		return nil
+	}
+	occupied, err := instancePathExists(server, instance.Name, desiredPath)
+	if err != nil {
+		return fmt.Errorf("check share mount path %s: %w", desiredPath, err)
+	}
+	if occupied {
+		return fmt.Errorf("share mount path %s already exists in machine %s", desiredPath, instance.Name)
+	}
+	return nil
+}
+
+func instancePathExists(server ShareReconcileResourceServer, instanceName string, path string) (bool, error) {
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
+		Command:   []string{"/bin/sh", "-lc", "test -e " + shareShellQuote(path)},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return false, err
+	}
+	waitErr := op.Wait()
+	<-dataDone
+	return waitErr == nil, nil
+}
+
+func shareShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 type sdkShareReconcileServer struct {
 	inner incus.InstanceServer
 }
@@ -224,4 +278,8 @@ func (s sdkShareReconcileResourceServer) GetInstance(name string) (*api.Instance
 
 func (s sdkShareReconcileResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {
 	return s.inner.UpdateInstance(name, instance, etag)
+}
+
+func (s sdkShareReconcileResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	return s.inner.ExecInstance(instanceName, exec, args)
 }

@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
@@ -31,10 +32,11 @@ func (s fakeShareReconcileServer) UseProject(name string) ShareReconcileResource
 }
 
 type fakeShareReconcileResource struct {
-	instance  *api.Instance
-	updated   *api.InstancePut
-	updateErr error
-	waitErr   error
+	instance   *api.Instance
+	updated    *api.InstancePut
+	updateErr  error
+	waitErr    error
+	pathExists bool
 }
 
 func (r *fakeShareReconcileResource) GetInstance(name string) (*api.Instance, string, error) {
@@ -47,6 +49,16 @@ func (r *fakeShareReconcileResource) UpdateInstance(name string, instance api.In
 		return nil, r.updateErr
 	}
 	return failingOperation{err: r.waitErr}, nil
+}
+
+func (r *fakeShareReconcileResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	if args.DataDone != nil {
+		close(args.DataDone)
+	}
+	if r.pathExists {
+		return failingOperation{}, nil
+	}
+	return failingOperation{err: errors.New("missing")}, nil
 }
 
 type failingOperation struct {
@@ -133,6 +145,27 @@ func TestShareReconcilerReportsHotplugFailureWithoutRollback(t *testing.T) {
 	}
 	if resource.updated == nil {
 		t.Fatal("expected attempted update")
+	}
+}
+
+func TestShareReconcilerReportsOccupiedSharePath(t *testing.T) {
+	resource := &fakeShareReconcileResource{
+		instance: &api.Instance{
+			Name:        "default-codex",
+			Status:      "Running",
+			InstancePut: api.InstancePut{Devices: map[string]map[string]string{}},
+		},
+		pathExists: true,
+	}
+	result, err := shareReconcilerForTest(resource).ReconcileTenantShares(context.Background(), tenantSummaryWithShare(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.HasFailures() || result.Machines[0].Status != "failed" || !strings.Contains(result.Machines[0].Error, "already exists") {
+		t.Fatalf("result = %#v", result)
+	}
+	if resource.updated != nil {
+		t.Fatal("expected no update when share path is occupied")
 	}
 }
 
