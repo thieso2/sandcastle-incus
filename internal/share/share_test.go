@@ -72,6 +72,20 @@ func TestPlanCreateDryRunDoesNotSave(t *testing.T) {
 	}
 }
 
+func TestPlanCreateRejectsUnsafeSource(t *testing.T) {
+	_, err := PlanCreate(context.Background(), tenantStore(), &fakeStatusStore{
+		fakeStore: fakeStore{exists: true},
+		status:    SourceStatus{Exists: true, Safe: false, Reason: "symlink escapes source directory"},
+	}, CreateRequest{
+		SourceTenant: "acme",
+		Source:       "default:docs",
+		Recipients:   []string{"skorfman"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestListInboundShowsPendingOffers(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
 		"sc-acme": {{
@@ -90,6 +104,58 @@ func TestListInboundShowsPendingOffers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Shares) != 1 || result.Shares[0].Recipients[0].State != RecipientStatePending {
+		t.Fatalf("shares = %#v", result.Shares)
+	}
+}
+
+func TestListOutboundMarksMissingSourceUnavailable(t *testing.T) {
+	store := &fakeStatusStore{
+		fakeStore: fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+			"sc-acme": {{
+				SourceTenant:  "acme",
+				SourceProject: "default",
+				SourceDir:     "docs",
+				Name:          "docs",
+				Availability:  AvailabilityAvailable,
+				Recipients: []meta.TenantStorageShareRecipient{{
+					Tenant: "skorfman",
+					State:  RecipientStatePending,
+				}},
+			}},
+		}},
+		status: SourceStatus{Exists: false, Safe: false, Reason: "source directory is missing"},
+	}
+	result, err := ListOutbound(context.Background(), tenantStore(), store, ListRequest{Tenant: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Shares) != 1 || result.Shares[0].Availability != AvailabilityUnavailable {
+		t.Fatalf("shares = %#v", result.Shares)
+	}
+}
+
+func TestListOutboundRestoresAvailableSource(t *testing.T) {
+	store := &fakeStatusStore{
+		fakeStore: fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+			"sc-acme": {{
+				SourceTenant:  "acme",
+				SourceProject: "default",
+				SourceDir:     "docs",
+				Name:          "docs",
+				Availability:  AvailabilityUnavailable,
+				Recipients: []meta.TenantStorageShareRecipient{{
+					Tenant: "skorfman",
+					State:  RecipientStatePending,
+				}},
+			}},
+		}},
+		status: SourceStatus{Exists: true, Safe: true},
+	}
+	result, err := ListOutbound(context.Background(), tenantStore(), store, ListRequest{Tenant: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Shares) != 1 || result.Shares[0].Availability != AvailabilityAvailable {
 		t.Fatalf("shares = %#v", result.Shares)
 	}
 }
@@ -259,6 +325,15 @@ type fakeStore struct {
 	sharesByProject map[string][]meta.TenantStorageShare
 	saved           []meta.TenantStorageShare
 	exists          bool
+}
+
+type fakeStatusStore struct {
+	fakeStore
+	status SourceStatus
+}
+
+func (s fakeStatusStore) SourceDirectoryStatus(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (SourceStatus, error) {
+	return s.status, nil
 }
 
 func (s *fakeStore) GetTenantShares(ctx context.Context, incusProjectName string) ([]meta.TenantStorageShare, error) {

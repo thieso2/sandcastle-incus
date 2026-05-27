@@ -96,7 +96,7 @@ func ExecuteAdmin(name string, args []string) int {
 			authAppTrust = incusx.NewTrustManagerForServer(socketServer)
 			authAppSSHKeys = incusx.NewMachineSSHKeyReconcilerForServer(socketServer, authAppMachines)
 			authAppMetadataUpdater = incusx.NewTenantSSHKeyManagerForServer(socketServer)
-			authAppShareReconciler = incusx.NewShareReconcilerForServer(socketServer, authAppMachines, adminConfig)
+			authAppShareReconciler = incusx.NewShareReconcilerForServer(socketServer, authAppMachines, authAppMetadataUpdater, adminConfig)
 			authAppProjectUpdater = authAppMetadataUpdater
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)

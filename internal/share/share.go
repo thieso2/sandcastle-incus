@@ -16,16 +16,27 @@ import (
 )
 
 const (
-	RecipientStatePending  = "pending"
-	RecipientStateAccepted = "accepted"
-	RecipientStateDeclined = "declined"
-	AvailabilityAvailable  = "available"
+	RecipientStatePending   = "pending"
+	RecipientStateAccepted  = "accepted"
+	RecipientStateDeclined  = "declined"
+	AvailabilityAvailable   = "available"
+	AvailabilityUnavailable = "unavailable"
 )
 
 type Store interface {
 	GetTenantShares(ctx context.Context, incusProjectName string) ([]meta.TenantStorageShare, error)
 	SetTenantShares(ctx context.Context, incusProjectName string, shares []meta.TenantStorageShare) error
 	SourceDirectoryExists(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error)
+}
+
+type SourceStatus struct {
+	Exists bool   `json:"exists"`
+	Safe   bool   `json:"safe"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type SourceStatusStore interface {
+	SourceDirectoryStatus(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (SourceStatus, error)
 }
 
 type CreateRequest struct {
@@ -153,12 +164,15 @@ func PlanCreate(ctx context.Context, tenants tenantpkg.IncusTenantStore, store S
 	if err != nil {
 		return Result{}, err
 	}
-	exists, err := store.SourceDirectoryExists(ctx, source.IncusName, project, dir)
+	status, err := sourceDirectoryStatus(ctx, store, source.IncusName, project, dir)
 	if err != nil {
 		return Result{}, err
 	}
-	if !exists {
+	if !status.Exists {
 		return Result{}, fmt.Errorf("source directory %s:/workspace/%s does not exist", project, dir)
+	}
+	if !status.Safe {
+		return Result{}, fmt.Errorf("source directory %s:/workspace/%s is not safe to share: %s", project, dir, status.Reason)
 	}
 	existing, err := store.GetTenantShares(ctx, source.IncusName)
 	if err != nil {
@@ -213,6 +227,10 @@ func ListOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store
 	if err != nil {
 		return Result{}, err
 	}
+	shares, err = withAvailability(ctx, store, summary, shares)
+	if err != nil {
+		return Result{}, err
+	}
 	sortShares(shares)
 	return Result{Shares: shares}, nil
 }
@@ -240,6 +258,10 @@ func ListInbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store 
 			continue
 		}
 		sourceShares, err := store.GetTenantShares(ctx, source.IncusName)
+		if err != nil {
+			return Result{}, err
+		}
+		sourceShares, err = withAvailability(ctx, store, source, sourceShares)
 		if err != nil {
 			return Result{}, err
 		}
@@ -437,6 +459,10 @@ func GetOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store 
 	if err != nil {
 		return Result{}, err
 	}
+	shares, err = withAvailability(ctx, store, summary, shares)
+	if err != nil {
+		return Result{}, err
+	}
 	for _, candidate := range shares {
 		if candidate.SourceProject == project && candidate.Name == name {
 			return Result{Share: candidate}, nil
@@ -501,6 +527,48 @@ func IsAcceptedAvailable(storageShare meta.TenantStorageShare, recipientTenant s
 		}
 	}
 	return false
+}
+
+func MarkAvailability(storageShare meta.TenantStorageShare, status SourceStatus) meta.TenantStorageShare {
+	if status.Exists && status.Safe {
+		storageShare.Availability = AvailabilityAvailable
+		return storageShare
+	}
+	storageShare.Availability = AvailabilityUnavailable
+	return storageShare
+}
+
+func sourceDirectoryStatus(ctx context.Context, store Store, incusProjectName string, project string, workspaceRelativeDir string) (SourceStatus, error) {
+	if typed, ok := store.(SourceStatusStore); ok {
+		status, err := typed.SourceDirectoryStatus(ctx, incusProjectName, project, workspaceRelativeDir)
+		if err != nil {
+			return SourceStatus{}, err
+		}
+		if status.Exists && status.Safe == false && status.Reason == "" {
+			status.Reason = "source boundary is unsafe"
+		}
+		return status, nil
+	}
+	exists, err := store.SourceDirectoryExists(ctx, incusProjectName, project, workspaceRelativeDir)
+	if err != nil {
+		return SourceStatus{}, err
+	}
+	return SourceStatus{Exists: exists, Safe: exists}, nil
+}
+
+func withAvailability(ctx context.Context, store Store, source tenantpkg.Summary, shares []meta.TenantStorageShare) ([]meta.TenantStorageShare, error) {
+	output := append([]meta.TenantStorageShare{}, shares...)
+	for i := range output {
+		if output[i].SourceTenant != source.Tenant {
+			continue
+		}
+		status, err := sourceDirectoryStatus(ctx, store, source.IncusName, output[i].SourceProject, output[i].SourceDir)
+		if err != nil {
+			return nil, err
+		}
+		output[i] = MarkAvailability(output[i], status)
+	}
+	return output, nil
 }
 
 func ParseStatusRef(value string) (string, string, error) {

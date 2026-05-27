@@ -136,6 +136,45 @@ func TestShareReconcilerReportsHotplugFailureWithoutRollback(t *testing.T) {
 	}
 }
 
+func TestShareReconcilerRemovesUnavailableShareDevice(t *testing.T) {
+	storageShare := acceptedShare()
+	resource := &fakeShareReconcileResource{instance: &api.Instance{
+		InstancePut: api.InstancePut{Devices: map[string]map[string]string{
+			share.DeviceName(storageShare): share.DesiredDevice(storageShare, "sc-thieso2", tenant.WorkspaceVolumeName),
+		}},
+	}}
+	reconciler := shareReconcilerForTest(resource)
+	reconciler.ShareStore = fakeShareStatusStore{status: share.SourceStatus{Exists: false, Safe: false}}
+	result, err := reconciler.ReconcileTenantShares(context.Background(), tenantSummaryWithShare(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Machines[0].Status != "updated" || !result.Machines[0].Changed {
+		t.Fatalf("result = %#v", result)
+	}
+	if _, ok := resource.updated.Devices[share.DeviceName(storageShare)]; ok {
+		t.Fatalf("share device was not removed: %#v", resource.updated.Devices)
+	}
+}
+
+func TestShareReconcilerRestoresAvailableShareDevice(t *testing.T) {
+	resource := &fakeShareReconcileResource{instance: &api.Instance{
+		InstancePut: api.InstancePut{Devices: map[string]map[string]string{}},
+	}}
+	reconciler := shareReconcilerForTest(resource)
+	reconciler.ShareStore = fakeShareStatusStore{status: share.SourceStatus{Exists: true, Safe: true}}
+	result, err := reconciler.ReconcileTenantShares(context.Background(), tenantSummaryWithShare(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Machines[0].Status != "updated" || !result.Machines[0].Changed {
+		t.Fatalf("result = %#v", result)
+	}
+	if _, ok := resource.updated.Devices[share.DeviceName(acceptedShare())]; !ok {
+		t.Fatalf("share device was not restored: %#v", resource.updated.Devices)
+	}
+}
+
 func shareReconcilerForTest(resource *fakeShareReconcileResource) ShareReconciler {
 	return ShareReconciler{
 		Admin:  config.Admin{IncusProjectPrefix: config.DefaultIncusProjectPrefix},
@@ -147,6 +186,26 @@ func shareReconcilerForTest(resource *fakeShareReconcileResource) ShareReconcile
 			Type:    meta.MachineTypeContainer,
 		}}},
 	}
+}
+
+type fakeShareStatusStore struct {
+	status share.SourceStatus
+}
+
+func (s fakeShareStatusStore) GetTenantShares(ctx context.Context, incusProjectName string) ([]meta.TenantStorageShare, error) {
+	return nil, nil
+}
+
+func (s fakeShareStatusStore) SetTenantShares(ctx context.Context, incusProjectName string, shares []meta.TenantStorageShare) error {
+	return nil
+}
+
+func (s fakeShareStatusStore) SourceDirectoryExists(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error) {
+	return s.status.Exists && s.status.Safe, nil
+}
+
+func (s fakeShareStatusStore) SourceDirectoryStatus(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (share.SourceStatus, error) {
+	return s.status, nil
 }
 
 func tenantSummaryWithShare() tenant.Summary {

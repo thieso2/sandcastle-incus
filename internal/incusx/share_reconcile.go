@@ -31,15 +31,16 @@ type ShareReconciler struct {
 	ConfigPath string
 	Admin      config.Admin
 	Store      machine.Store
+	ShareStore share.Store
 	Server     ShareReconcileServer
 }
 
 func NewShareReconciler(remote string, store machine.Store) ShareReconciler {
-	return ShareReconciler{Remote: remote, Store: store, Admin: config.LoadAdmin()}
+	return ShareReconciler{Remote: remote, Store: store, ShareStore: NewTenantSSHKeyManager(remote), Admin: config.LoadAdmin()}
 }
 
-func NewShareReconcilerForServer(server incus.InstanceServer, store machine.Store, admin config.Admin) ShareReconciler {
-	return ShareReconciler{Server: sdkShareReconcileServer{inner: server}, Store: store, Admin: admin}
+func NewShareReconcilerForServer(server incus.InstanceServer, store machine.Store, shareStore share.Store, admin config.Admin) ShareReconciler {
+	return ShareReconciler{Server: sdkShareReconcileServer{inner: server}, Store: store, ShareStore: shareStore, Admin: admin}
 }
 
 func (r ShareReconciler) ReconcileTenantShares(ctx context.Context, summary tenant.Summary, dryRun bool) (share.ReconcileResult, error) {
@@ -60,12 +61,12 @@ func (r ShareReconciler) ReconcileTenantShares(ctx context.Context, summary tena
 	}
 	projectServer := server.UseProject(summary.IncusName)
 	for _, managed := range machines {
-		result.Machines = append(result.Machines, r.reconcileMachine(projectServer, summary, managed, dryRun))
+		result.Machines = append(result.Machines, r.reconcileMachine(ctx, projectServer, summary, managed, dryRun))
 	}
 	return result, nil
 }
 
-func (r ShareReconciler) reconcileMachine(server ShareReconcileResourceServer, summary tenant.Summary, managed meta.Machine, dryRun bool) share.MachineReconcileResult {
+func (r ShareReconciler) reconcileMachine(ctx context.Context, server ShareReconcileResourceServer, summary tenant.Summary, managed meta.Machine, dryRun bool) share.MachineReconcileResult {
 	machineResult := share.MachineReconcileResult{
 		Project: managed.Project,
 		Machine: managed.Name,
@@ -94,7 +95,7 @@ func (r ShareReconciler) reconcileMachine(server ShareReconcileResourceServer, s
 	}
 	put := instance.Writable()
 	current := copyDeviceMap(put.Devices)
-	desired, err := r.desiredShareDevices(summary)
+	desired, err := r.desiredShareDevices(ctx, summary)
 	if err != nil {
 		machineResult.Status = "failed"
 		machineResult.Error = err.Error()
@@ -136,7 +137,7 @@ func (r ShareReconciler) reconcileMachine(server ShareReconcileResourceServer, s
 	return machineResult
 }
 
-func (r ShareReconciler) desiredShareDevices(summary tenant.Summary) (map[string]map[string]string, error) {
+func (r ShareReconciler) desiredShareDevices(ctx context.Context, summary tenant.Summary) (map[string]map[string]string, error) {
 	devices := map[string]map[string]string{}
 	prefix := strings.TrimSpace(r.Admin.IncusProjectPrefix)
 	if prefix == "" {
@@ -150,9 +151,29 @@ func (r ShareReconciler) desiredShareDevices(summary tenant.Summary) (map[string
 		if err != nil {
 			return nil, err
 		}
+		if r.ShareStore != nil {
+			status, err := sourceShareStatus(ctx, r.ShareStore, sourceIncusProject, storageShare)
+			if err != nil {
+				return nil, err
+			}
+			if !status.Exists || !status.Safe {
+				continue
+			}
+		}
 		devices[share.DeviceName(storageShare)] = share.DesiredDevice(storageShare, sourceIncusProject, tenant.WorkspaceVolumeName)
 	}
 	return devices, nil
+}
+
+func sourceShareStatus(ctx context.Context, store share.Store, sourceIncusProject string, storageShare meta.TenantStorageShare) (share.SourceStatus, error) {
+	if typed, ok := store.(share.SourceStatusStore); ok {
+		return typed.SourceDirectoryStatus(ctx, sourceIncusProject, storageShare.SourceProject, storageShare.SourceDir)
+	}
+	exists, err := store.SourceDirectoryExists(ctx, sourceIncusProject, storageShare.SourceProject, storageShare.SourceDir)
+	if err != nil {
+		return share.SourceStatus{}, err
+	}
+	return share.SourceStatus{Exists: exists, Safe: exists}, nil
 }
 
 func (r ShareReconciler) server() (ShareReconcileServer, error) {

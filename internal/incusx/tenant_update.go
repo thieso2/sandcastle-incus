@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -76,22 +78,92 @@ func (m TenantSSHKeyManager) SetTenantShares(_ context.Context, incusProjectName
 	return m.writeTenantMetadataFile(incusProjectName, tenantStorageSharesFile, string(data), "write tenant storage shares metadata")
 }
 
-func (m TenantSSHKeyManager) SourceDirectoryExists(_ context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error) {
-	server, err := m.server()
+func (m TenantSSHKeyManager) SourceDirectoryExists(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error) {
+	status, err := m.SourceDirectoryStatus(ctx, incusProjectName, project, workspaceRelativeDir)
 	if err != nil {
 		return false, err
 	}
-	content, _, err := server.UseProject(incusProjectName).GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, project+"/"+workspaceRelativeDir)
+	return status.Exists && status.Safe, nil
+}
+
+func (m TenantSSHKeyManager) SourceDirectoryStatus(_ context.Context, incusProjectName string, project string, workspaceRelativeDir string) (share.SourceStatus, error) {
+	server, err := m.server()
+	if err != nil {
+		return share.SourceStatus{}, err
+	}
+	resource := server.UseProject(incusProjectName)
+	sourcePath := path.Clean(project + "/" + workspaceRelativeDir)
+	status, err := validateStorageTree(resource, incusProjectName, tenant.WorkspaceVolumeName, sourcePath, sourcePath)
 	if isMissingTenantMetadata(err) {
-		return false, nil
+		return share.SourceStatus{Exists: false, Safe: false, Reason: "source directory is missing"}, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("check source directory %s/%s for %s: %w", project, workspaceRelativeDir, incusProjectName, err)
+		return share.SourceStatus{}, fmt.Errorf("check source directory %s for %s: %w", sourcePath, incusProjectName, err)
 	}
-	if content != nil {
-		_ = content.Close()
+	return status, nil
+}
+
+func validateStorageTree(resource TenantMetadataUpdateResourceServer, pool string, volumeName string, rootPath string, filePath string) (share.SourceStatus, error) {
+	content, response, err := resource.GetStorageVolumeFile(pool, "custom", volumeName, filePath)
+	if isMissingTenantMetadata(err) {
+		return share.SourceStatus{Exists: false, Safe: false, Reason: "source directory is missing"}, nil
 	}
-	return true, nil
+	if err != nil {
+		return share.SourceStatus{}, err
+	}
+	defer closeReader(content)
+	if response == nil {
+		return share.SourceStatus{Exists: true, Safe: false, Reason: "missing file metadata"}, nil
+	}
+	switch response.Type {
+	case "directory":
+		for _, entry := range response.Entries {
+			if strings.Contains(entry, "/") || entry == "." || entry == ".." {
+				return share.SourceStatus{Exists: true, Safe: false, Reason: "directory entry escapes source path"}, nil
+			}
+			childStatus, err := validateStorageTree(resource, pool, volumeName, rootPath, path.Join(filePath, entry))
+			if err != nil {
+				return share.SourceStatus{}, err
+			}
+			if !childStatus.Exists || !childStatus.Safe {
+				return childStatus, nil
+			}
+		}
+		return share.SourceStatus{Exists: true, Safe: true}, nil
+	case "symlink":
+		if content == nil {
+			return share.SourceStatus{Exists: true, Safe: false, Reason: "symlink target is unavailable"}, nil
+		}
+		targetBytes, _ := io.ReadAll(content)
+		if !symlinkTargetStaysWithin(rootPath, filePath, strings.TrimSpace(string(targetBytes))) {
+			return share.SourceStatus{Exists: true, Safe: false, Reason: "symlink escapes source directory"}, nil
+		}
+		return share.SourceStatus{Exists: true, Safe: true}, nil
+	case "file":
+		if filePath == rootPath {
+			return share.SourceStatus{Exists: true, Safe: false, Reason: "source path is not a directory"}, nil
+		}
+		return share.SourceStatus{Exists: true, Safe: true}, nil
+	default:
+		return share.SourceStatus{Exists: true, Safe: false, Reason: "unsupported source entry type " + response.Type}, nil
+	}
+}
+
+func symlinkTargetStaysWithin(rootPath string, linkPath string, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" || path.IsAbs(target) {
+		return false
+	}
+	linkDir := path.Dir(linkPath)
+	resolved := path.Clean(path.Join(linkDir, target))
+	root := path.Clean(rootPath)
+	return resolved == root || strings.HasPrefix(resolved, root+"/")
+}
+
+func closeReader(reader io.ReadCloser) {
+	if reader != nil {
+		_ = reader.Close()
+	}
 }
 
 func (m TenantSSHKeyManager) writeTenantMetadataFile(incusProjectName string, filePath string, content string, action string) error {
