@@ -92,19 +92,25 @@ func optionalArg(args []string) string {
 }
 
 func listMachines(ctx context.Context, config commandConfig, request listMachinesRequest) (listPayload, error) {
-	ref, err := naming.ParseTenantRef(config.adminConfig.Tenant)
-	if err != nil {
-		return listPayload{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
-	}
 	tenants, err := listTenants(ctx, config.tenantStore)
 	if err != nil {
 		return listPayload{}, err
 	}
-	var tenant tenant.Summary
+	tenantName := strings.TrimSpace(config.adminConfig.Tenant)
+	projectFilter := strings.TrimSpace(request.Project)
+	if scopedTenant, scopedProject, ok := strings.Cut(projectFilter, "/"); ok {
+		tenantName = strings.TrimSpace(scopedTenant)
+		projectFilter = strings.TrimSpace(scopedProject)
+	}
+	ref, err := naming.ParseTenantRef(tenantName)
+	if err != nil {
+		return listPayload{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
+	}
+	var summary tenant.Summary
 	found := false
 	for _, candidate := range tenants {
 		if candidate.Tenant == ref.Tenant {
-			tenant = candidate
+			summary = candidate
 			found = true
 			break
 		}
@@ -115,18 +121,17 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	if config.machineStore == nil {
 		return listPayload{}, fmt.Errorf("machine metadata store is not configured")
 	}
-	projectFilter := strings.TrimSpace(request.Project)
 	if projectFilter != "" {
 		if err := naming.ValidateProjectName(projectFilter); err != nil {
 			return listPayload{}, err
 		}
-		if !summaryHasProject(tenant, projectFilter) {
-			return listPayload{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectFilter, tenant.Tenant)
+		if !summaryHasProject(summary, projectFilter) {
+			return listPayload{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectFilter, summary.Tenant)
 		}
 	} else if strings.TrimSpace(config.adminConfig.Project) != "" && !request.AllProjects {
 		projectFilter = strings.TrimSpace(config.adminConfig.Project)
 	}
-	machines, unmanaged, err := listMachinesAndUnmanaged(ctx, config.machineStore, tenant)
+	machines, unmanaged, err := listMachinesAndUnmanaged(ctx, config.machineStore, summary)
 	if err != nil {
 		return listPayload{}, err
 	}
@@ -138,7 +143,7 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 		filtered = append(filtered, machine)
 	}
 	return listPayload{
-		Tenant:         tenant,
+		Tenant:         summary,
 		Project:        projectFilter,
 		AllProjects:    projectFilter == "",
 		Machines:       filtered,

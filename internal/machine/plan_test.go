@@ -185,6 +185,33 @@ func TestPlanCreateAcceptsColonProjectRef(t *testing.T) {
 	}
 }
 
+func TestPlanCreateAcceptsTenantScopedMachineRef(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := tenantStoreForTestWithTenants(t, "acme", "some")
+	plan, err := PlanCreate(context.Background(), admin, store, nil, CreateRequest{Reference: "some/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Tenant.Tenant != "some" || plan.Project != "default" || plan.Name != "codex" || plan.Hostname != "codex.default.some" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestPlanCreateAcceptsTenantScopedProjectMachineRef(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	store := tenantStoreForTestWithTenants(t, "acme", "some")
+	plan, err := PlanCreate(context.Background(), admin, store, nil, CreateRequest{Reference: "some/default:codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Tenant.Tenant != "some" || plan.Project != "default" || plan.Name != "codex" || plan.InstanceName != "default-codex" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestPlanCreateRejectsMissingTenant(t *testing.T) {
 	_, err := PlanCreate(context.Background(), config.LoadAdminFromEnv(), tenantStoreForTest(t), nil, CreateRequest{Reference: "codex"})
 	if err == nil {
@@ -270,6 +297,34 @@ func TestPlanConnectAcceptsColonProjectRef(t *testing.T) {
 	}
 	if plan.SSHHost != "10.248.0.42" || plan.HostKeyAlias != "codex.default.acme" {
 		t.Fatalf("ssh target = %q alias %q", plan.SSHHost, plan.HostKeyAlias)
+	}
+}
+
+func TestPlanConnectAcceptsTenantScopedMachineRef(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := tenantStoreForTestWithTenants(t, "acme", "some")
+	machineStore := fakeMachineStore{machines: []meta.Machine{{Project: "default", Name: "codex", PrivateIP: "10.248.4.42"}}}
+	plan, err := PlanConnect(context.Background(), admin, store, machineStore, ConnectRequest{Reference: "some/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Tenant.Tenant != "some" || plan.Project != "default" || plan.Name != "codex" || plan.HostKeyAlias != "codex.default.some" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestPlanConnectKeepsProjectSlashMachineWhenLeftSideIsNotTenant(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := tenantStoreForTest(t)
+	machineStore := fakeMachineStore{machines: []meta.Machine{{Project: "website", Name: "codex", PrivateIP: "10.248.0.42"}}}
+	plan, err := PlanConnect(context.Background(), admin, store, machineStore, ConnectRequest{Reference: "website/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Tenant.Tenant != "acme" || plan.Project != "website" || plan.Name != "codex" {
+		t.Fatalf("plan = %#v", plan)
 	}
 }
 
@@ -428,21 +483,43 @@ func TestPlanSetPort(t *testing.T) {
 	}
 }
 
-func tenantStoreForTest(t *testing.T) tenant.MemoryStore {
-	t.Helper()
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects: []meta.Project{
-			{Name: "default"},
-			{Name: "website"},
-		},
-		SSHPublicKey: "ssh-ed25519 test",
-	})
+func TestPlanSetPortAcceptsTenantScopedProjectMachineRef(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	store := tenantStoreForTestWithTenants(t, "acme", "some")
+	plan, err := PlanSetPort(context.Background(), admin, store, PortSetRequest{Reference: "some/website:codex", AppPort: 5173})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tenant.MemoryStore{Projects: []tenant.IncusProject{{Name: "sc-acme", Config: config}}}
+	if plan.Tenant.Tenant != "some" || plan.Project != "website" || plan.InstanceName != "website-codex" || !strings.Contains(plan.CaddyFile.Content, "codex.website.some") {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func tenantStoreForTest(t *testing.T) tenant.MemoryStore {
+	t.Helper()
+	return tenantStoreForTestWithTenants(t, "acme")
+}
+
+func tenantStoreForTestWithTenants(t *testing.T, names ...string) tenant.MemoryStore {
+	t.Helper()
+	projects := make([]tenant.IncusProject, 0, len(names))
+	for _, name := range names {
+		config, err := meta.TenantConfig(meta.Tenant{
+			Tenant:      name,
+			PrivateCIDR: "10.248.0.0/24",
+			Projects: []meta.Project{
+				{Name: "default"},
+				{Name: "website"},
+			},
+			SSHPublicKey: "ssh-ed25519 test",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		projects = append(projects, tenant.IncusProject{Name: "sc-" + name, Config: config})
+	}
+	return tenant.MemoryStore{Projects: projects}
 }
 
 type fakeMachineStore struct {

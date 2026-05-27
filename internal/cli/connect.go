@@ -20,7 +20,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var maxPolls int
 	var debugApprove bool
 	command := &cobra.Command{
-		Use:     "connect [project:]machine [-- command...]",
+		Use:     "connect [tenant/][project:]machine [-- command...]",
 		Aliases: []string{"c"},
 		Short:   "Connect to a Sandcastle machine",
 		Args:    cobra.MinimumNArgs(1),
@@ -140,7 +140,14 @@ func lookupCachedPlan(cache incusx.ConnectCache, tenant, project, reference stri
 	if strings.ContainsAny(reference, ". ") {
 		return machine.ConnectPlan{}, false // FQDN or invalid ref — skip cache
 	}
-	if strings.ContainsAny(reference, ":/") {
+	if tenantName, rest, ok := strings.Cut(reference, "/"); ok {
+		projectName, machineName, ok := strings.Cut(rest, ":")
+		if !ok || strings.Contains(projectName, "/") || strings.Contains(machineName, "/:") {
+			return machine.ConnectPlan{}, false
+		}
+		return cache.LookupPlan(connectPlanCacheKey(tenantName, projectName, machineName))
+	}
+	if strings.Contains(reference, ":") {
 		projectRef, machineName, err := naming.ParseUserMachineRef(reference, project)
 		if err != nil {
 			return machine.ConnectPlan{}, false
@@ -289,10 +296,16 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 	if config.stderr != nil {
 		fmt.Fprintf(config.stderr, "Machine %s not found; creating it before connecting.\n", reference)
 	}
-	if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config); err != nil {
+	createPlan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
+		Reference: reference,
+	})
+	if err != nil {
 		return err
 	}
-	createPlan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
+	if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config, createPlan.Tenant); err != nil {
+		return err
+	}
+	createPlan, err = machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
 		Reference: reference,
 	})
 	if err != nil {

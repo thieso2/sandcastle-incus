@@ -28,7 +28,7 @@ type AmbiguousMachineError struct {
 }
 
 func (e AmbiguousMachineError) Error() string {
-	return fmt.Sprintf("Sandcastle machine %s is ambiguous across projects %s; use project:machine or project/machine", e.Name, strings.Join(e.Projects, ", "))
+	return fmt.Sprintf("Sandcastle machine %s is ambiguous across projects %s; use project:machine or tenant/project:machine", e.Name, strings.Join(e.Projects, ", "))
 }
 
 func IsAmbiguousMachineError(err error) bool {
@@ -37,35 +37,36 @@ func IsAmbiguousMachineError(err error) bool {
 }
 
 func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore tenant.IncusTenantStore, machineStore Store, reference string) (resolvedMachine, error) {
-	tenantRef, err := currentTenantRef(admin)
-	if err != nil {
-		return resolvedMachine{}, err
-	}
-	summary, err := findTenant(ctx, tenantStore, tenantRef)
-	if err != nil {
-		return resolvedMachine{}, err
+	target, targetErr := parseMachineTarget(ctx, admin, tenantStore, reference)
+	summary := target.Summary
+	if targetErr != nil {
+		tenantRef, err := currentTenantRef(admin)
+		if err == nil {
+			if currentSummary, err := findTenant(ctx, tenantStore, tenantRef); err == nil {
+				summary = currentSummary
+			}
+		}
 	}
 	if resolved, ok, err := resolveMachineFQDN(ctx, machineStore, summary, reference); ok || err != nil {
 		return resolved, err
 	}
-	projectRef, machineName, err := naming.ParseUserMachineRef(reference, admin.Project)
-	if err != nil {
+	if targetErr != nil {
 		if unmanaged, unmanagedErr := resolveUnmanagedMachine(ctx, machineStore, summary, reference); unmanagedErr == nil {
 			return unmanaged, nil
 		}
-		return resolvedMachine{}, err
+		return resolvedMachine{}, targetErr
 	}
 	if machineStore == nil {
-		return resolveKnownProjectMachine(summary, projectRef.Project, machineName)
+		return resolveKnownProjectMachine(summary, target.Project, target.Name)
 	}
 	machines, err := listExistingMachines(ctx, machineStore, summary)
 	if err != nil {
 		return resolvedMachine{}, err
 	}
-	if isExplicitProjectMachineRef(reference) || strings.TrimSpace(admin.Project) != "" {
+	if target.ExplicitProject {
 		for _, machine := range machines {
-			if machine.Project == projectRef.Project && machine.Name == machineName {
-				return resolveKnownProjectMachineWithMetadata(summary, projectRef.Project, machineName, machine.PrivateIP, machine.LinuxUser, machine.CloudIdentity)
+			if machine.Project == target.Project && machine.Name == target.Name {
+				return resolveKnownProjectMachineWithMetadata(summary, target.Project, target.Name, machine.PrivateIP, machine.LinuxUser, machine.CloudIdentity)
 			}
 		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
@@ -75,7 +76,7 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	matchUsers := map[string]string{}
 	matchCloudIdentities := map[string]string{}
 	for _, machine := range machines {
-		if machine.Name == machineName {
+		if machine.Name == target.Name {
 			matches = append(matches, machine.Project)
 			matchIPs[machine.Project] = machine.PrivateIP
 			matchUsers[machine.Project] = machine.LinuxUser
@@ -89,14 +90,10 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
 	case 1:
-		return resolveKnownProjectMachineWithMetadata(summary, matches[0], machineName, matchIPs[matches[0]], matchUsers[matches[0]], matchCloudIdentities[matches[0]])
+		return resolveKnownProjectMachineWithMetadata(summary, matches[0], target.Name, matchIPs[matches[0]], matchUsers[matches[0]], matchCloudIdentities[matches[0]])
 	default:
-		return resolvedMachine{}, AmbiguousMachineError{Name: machineName, Projects: matches}
+		return resolvedMachine{}, AmbiguousMachineError{Name: target.Name, Projects: matches}
 	}
-}
-
-func isExplicitProjectMachineRef(reference string) bool {
-	return strings.Contains(reference, "/") || strings.Contains(reference, ":")
 }
 
 func resolveMachineFQDN(ctx context.Context, machineStore Store, summary tenant.Summary, reference string) (resolvedMachine, bool, error) {

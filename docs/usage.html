@@ -421,38 +421,40 @@ Bootstrap:
   <div class="step">
     <h3>Create and connect to a machine <span class="badge badge-user">user</span></h3>
     <p>Creates an Incus container machine from the selected template and connects to a shell.</p>
+    <p>Machine references accept <code>machine</code>, <code>project:machine</code>, <code>tenant/machine</code>, and <code>tenant/project:machine</code>. Use the tenant-qualified forms to work in another accessible tenant without changing the Current Tenant.</p>
     <p>Machines use private tenant-network IPs. Tailscale is attached at the tenant sidecar, which advertises the tenant CIDR; containers do not need their own Tailscale IPs. Machine configuration stops and masks <code>tailscaled</code> even though the base image includes the Tailscale client package for sidecar reuse.</p>
-    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:codex</span>
+<span class="cmd">sandcastle create</span> <span class="arg">skorfman/default:codex</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Create in background <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span> <span class="flag">--detach</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:codex</span> <span class="flag">--detach</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Create with workload identity <span class="badge badge-user">user</span></h3>
     <p>Creates the machine, rotates a Machine Runtime Secret through the Auth App, injects the selected Cloud Identity Config, and then connects unless <code>--detach</code> is set.</p>
-    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span> <span class="flag">--cloud-identity</span> <span class="arg">gcp</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:codex</span> <span class="flag">--cloud-identity</span> <span class="arg">gcp</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Choose a template <span class="badge badge-user">user</span></h3>
     <p>Use <code>ai</code> for an AI-tool-equipped image, <code>base</code> for the minimal image.</p>
-    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/ai-box</span> <span class="flag">--template</span> <span class="arg">ai</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:ai-box</span> <span class="flag">--template</span> <span class="arg">ai</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Enable nested container tools (Docker/Incus inside machine) <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/builder</span> <span class="flag">--container-tools</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:builder</span> <span class="flag">--container-tools</span></code></pre>
     <p>The base image includes Docker. The Sandcastle user is added to the <code>docker</code> group during machine configuration. Docker does not start by default; start it manually with <code>sudo systemctl start docker</code>, or enable project autostart for future machines with <code>sandcastle project set-docker-autostart website on</code>.</p>
   </div>
 
   <div class="step">
     <h3>Use project-shared storage <span class="badge badge-user">user</span></h3>
     <p>Machines in the same project share <code>$HOME</code> and <code>/workspace</code> by default.</p>
-    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/box1</span>
-<span class="cmd">sandcastle create</span> <span class="arg">website/box2</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:box1</span>
+<span class="cmd">sandcastle create</span> <span class="arg">website:box2</span></code></pre>
   </div>
 
   <div class="step">
@@ -484,26 +486,26 @@ Bootstrap:
   <div class="step">
     <h3>Expose an app port <span class="badge badge-user">user</span></h3>
     <p>Configures Caddy inside the machine to reverse-proxy port <code>3000</code> at the machine's private URL.</p>
-    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/webapp</span> <span class="flag">--app-port</span> <span class="arg">3000</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:webapp</span> <span class="flag">--app-port</span> <span class="arg">3000</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Change app port on an existing machine <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle port set</span> <span class="arg">website/webapp</span> <span class="arg">8080</span></code></pre>
+    <pre><code><span class="cmd">sandcastle port set</span> <span class="arg">website:webapp</span> <span class="arg">8080</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Preview the creation plan without creating <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/codex</span> <span class="flag">--dry-run</span></code></pre>
+    <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:codex</span> <span class="flag">--dry-run</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Connect to a running machine <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle connect</span> <span class="arg">website/codex</span>
-<span class="cmd">sandcastle c</span> <span class="arg">website/codex</span>
+    <pre><code><span class="cmd">sandcastle connect</span> <span class="arg">website:codex</span>
+<span class="cmd">sandcastle c</span> <span class="arg">skorfman/default:codex</span>
 
 <span class="comment"># Run a specific command</span>
-<span class="cmd">sandcastle connect</span> <span class="arg">website/codex</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
+<span class="cmd">sandcastle connect</span> <span class="arg">website:codex</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
     <p><code>connect</code> uses SSH to the machine's private IP and uses the private machine hostname as the host-key alias. Local DNS is useful for private URLs, but it is not required for Machine SSH Access.</p>
     <p>If the machine is missing, <code>connect</code> logs that it is creating the machine, then connects after creation. Pass <code>--cloud-identity gcp</code> to inject workload identity before connecting, including when <code>connect</code> auto-creates the machine. If the target project has a default Cloud Identity Config, auto-creation uses that default when the flag is omitted.</p>
     <p>Before handing off to SSH, <code>connect</code> probes TCP port 22 with a 2-second timeout when the connection plan came from the local cache. If the host is unreachable (e.g. tenant was recreated with a new IP), the cache entry is invalidated and the plan is resolved fresh from Incus, so connect self-heals without manual intervention.</p>
@@ -511,17 +513,17 @@ Bootstrap:
 
   <div class="step">
     <h3>Lifecycle commands <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle start</span>   <span class="arg">website/codex</span>
-<span class="cmd">sandcastle stop</span>    <span class="arg">website/codex</span>
-<span class="cmd">sandcastle restart</span> <span class="arg">website/codex</span>
-<span class="cmd">sandcastle delete</span>  <span class="arg">website/codex</span> <span class="flag">--yes</span></code></pre>
+    <pre><code><span class="cmd">sandcastle start</span>   <span class="arg">website:codex</span>
+<span class="cmd">sandcastle stop</span>    <span class="arg">website:codex</span>
+<span class="cmd">sandcastle restart</span> <span class="arg">website:codex</span>
+<span class="cmd">sandcastle delete</span>  <span class="arg">website:codex</span> <span class="flag">--yes</span></code></pre>
     <p><code>delete</code> prompts for confirmation when run interactively. Use <code>--yes</code> for scripts, pipes, and other non-interactive runs.</p>
   </div>
 
   <div class="step">
     <h3>Show machine status <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle status</span> <span class="arg">website/codex</span>
-<span class="cmd">sandcastle status</span> <span class="arg">website/codex</span> <span class="flag">--json</span></code></pre>
+    <pre><code><span class="cmd">sandcastle status</span> <span class="arg">website:codex</span>
+<span class="cmd">sandcastle status</span> <span class="arg">skorfman/default:codex</span> <span class="flag">--json</span></code></pre>
   </div>
 
   <div class="step">
@@ -613,7 +615,7 @@ Bootstrap:
     <h3>Create a public HTTP route <span class="badge badge-user">user</span></h3>
     <p>Routes external HTTPS traffic for <code>myapp.example.com</code> to the machine's app port through the shared Caddy infrastructure.</p>
     <pre><code><span class="comment"># Requires SANDCASTLE_ROUTE_BROKER_URL to be set</span>
-<span class="cmd">sandcastle route create</span> <span class="arg">myapp.example.com website/webapp</span></code></pre>
+<span class="cmd">sandcastle route create</span> <span class="arg">myapp.example.com website:webapp</span></code></pre>
     <div class="note"><strong>DNS proof required:</strong> The route broker will tell you which DNS record to create before the route is activated.</div>
   </div>
 
@@ -1045,14 +1047,16 @@ Bootstrap:
   </div>
 
   <div class="step">
-    <h3>Reference: tenant/project/machine</h3>
-    <p>Sandcastle accepts project-qualified user machine references with either a colon or a slash.</p>
+    <h3>Reference: [tenant/][project:]machine</h3>
+    <p>User machine commands accept tenant-qualified references so one CLI can operate across multiple accessible tenants without changing the Current Tenant. The legacy <code>project/machine</code> form still works when the left side is not an accessible tenant.</p>
     <table>
       <thead><tr><th>Format</th><th>Meaning</th><th>Example</th></tr></thead>
       <tbody>
-        <tr><td>machine</td><td>Machine in the current project</td><td>codex</td></tr>
+        <tr><td>machine</td><td>Machine in the current project of the Current Tenant</td><td>codex</td></tr>
         <tr><td>project:machine</td><td>Machine in a project in the current tenant</td><td>website:codex</td></tr>
-        <tr><td>project/machine</td><td>Alternate project-qualified machine form</td><td>website/codex</td></tr>
+        <tr><td>tenant/machine</td><td>Machine in another accessible tenant's current project</td><td>skorfman/codex</td></tr>
+        <tr><td>tenant/project:machine</td><td>Machine in another accessible tenant and project</td><td>skorfman/default:codex</td></tr>
+        <tr><td>project/machine</td><td>Legacy project-qualified form, used only when <code>project</code> is not an accessible tenant</td><td>website/codex</td></tr>
         <tr><td>tenant/project/machine</td><td>Admin machine reference</td><td>acme/website/codex</td></tr>
       </tbody>
     </table>

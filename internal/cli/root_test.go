@@ -1036,7 +1036,7 @@ func TestTenantSwitchValidatesAccessAndPreservesProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "Current Tenant set to \"skorfman\"") || !strings.Contains(stdout, "Local setup is unchanged") {
+	if !strings.Contains(stdout, "Current Tenant set to \"skorfman\"") || !strings.Contains(stdout, "sc dns setup skorfman") {
 		t.Fatalf("stdout = %q", stdout)
 	}
 	cfg, err := scconfig.LoadSandcastleConfig(configPath)
@@ -1048,6 +1048,58 @@ func TestTenantSwitchValidatesAccessAndPreservesProject(t *testing.T) {
 	}
 	if client.listRequests != 1 {
 		t.Fatalf("listRequests = %d", client.listRequests)
+	}
+}
+
+func TestTenantSwitchListsOnlyMissingLocalSetupActions(t *testing.T) {
+	useLoginHomeForTest(t)
+	resolverDir := t.TempDir()
+	trustDir := t.TempDir()
+	t.Setenv("SANDCASTLE_RESOLVER_DIR", resolverDir)
+	t.Setenv("SANDCASTLE_TRUST_DIR", trustDir)
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant:       "acme",
+		Remote:       "sandcastle-acme",
+		AuthHostname: "auth.example.com",
+		AuthToken:    "stored-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := tenantSwitchStoreForTest(t, "acme", "skorfman")
+	if err := os.WriteFile(filepath.Join(resolverDir, "skorfman"), []byte("nameserver 10.248.7.3\nport 53\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trustPlan, err := localtrust.PlanInstall(context.Background(), testAdminConfig(), store, localtrust.Request{Reference: "skorfman"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(trustDir, localtrust.CertFilename(trustPlan)), []byte("cert"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthTenantClient{tenants: []authapp.TenantAccessSummary{{Tenant: "acme"}, {Tenant: "skorfman"}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authTenants: client,
+		tenantStore: store,
+		tailscale: &fakeTailscaleRunner{status: tailscale.StatusResult{
+			Tailscale: meta.Tailscale{State: "running-logged-out"},
+		}},
+	}, "tenant", "switch", "skorfman")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "sc tailscale up skorfman") {
+		t.Fatalf("stdout = %q, want tailscale action", stdout)
+	}
+	for _, unexpected := range []string{"sc dns setup skorfman", "sc trust install skorfman"} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("stdout = %q, did not want %q", stdout, unexpected)
+		}
 	}
 }
 
@@ -1110,6 +1162,27 @@ func TestTenantSwitchLocalOnlySkipsValidation(t *testing.T) {
 	if client.listRequests != 0 {
 		t.Fatalf("listRequests = %d", client.listRequests)
 	}
+}
+
+func tenantSwitchStoreForTest(t *testing.T, tenants ...string) tenant.MemoryStore {
+	t.Helper()
+	projects := make([]tenant.IncusProject, 0, len(tenants))
+	for _, name := range tenants {
+		privateCIDR := "10.248.0.0/24"
+		if name == "skorfman" {
+			privateCIDR = "10.248.7.0/24"
+		}
+		configMap, err := meta.TenantConfig(meta.Tenant{
+			Tenant:      name,
+			PrivateCIDR: privateCIDR,
+			Projects:    []meta.Project{{Name: "default"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		projects = append(projects, tenant.IncusProject{Name: "sc-" + name, Config: configMap})
+	}
+	return tenant.MemoryStore{Projects: projects}
 }
 
 func TestConfigUnsetRejectsUnknownKey(t *testing.T) {

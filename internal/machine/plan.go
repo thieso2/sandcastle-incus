@@ -114,20 +114,13 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if err := admin.Validate(); err != nil {
 		return CreatePlan{}, err
 	}
-	tenantRef, err := currentTenantRef(admin)
+	target, err := parseMachineTarget(ctx, admin, store, request.Reference)
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	projectRef, machineName, err := naming.ParseUserMachineRef(request.Reference, admin.Project)
-	if err != nil {
-		return CreatePlan{}, err
-	}
-	summary, err := findTenant(ctx, store, tenantRef)
-	if err != nil {
-		return CreatePlan{}, err
-	}
-	if !tenantHasProject(summary, projectRef.Project) {
-		return CreatePlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectRef.Project, summary.Tenant)
+	summary := target.Summary
+	if !tenantHasProject(summary, target.Project) {
+		return CreatePlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", target.Project, summary.Tenant)
 	}
 	template := request.Template
 	if template == "" {
@@ -154,31 +147,31 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if err := naming.ValidateUnixUsername(linuxUser); err != nil {
 		return CreatePlan{}, err
 	}
-	projectConfig, ok := findProjectConfig(summary, projectRef.Project)
+	projectConfig, ok := findProjectConfig(summary, target.Project)
 	if !ok {
-		return CreatePlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectRef.Project, summary.Tenant)
+		return CreatePlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", target.Project, summary.Tenant)
 	}
 	containerTools := request.ContainerTools || projectConfig.DockerAutostart
 	existingMachines, err := listExistingMachines(ctx, machineStore, summary)
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	privateIP, err := allocateMachineIP(summary.PrivateCIDR, projectRef.Project, machineName, existingMachines)
+	privateIP, err := allocateMachineIP(summary.PrivateCIDR, target.Project, target.Name, existingMachines)
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	homeDir, err := normalizeStorageSubdir("home", request.HomeDir, projectRef.Project, machineName)
+	homeDir, err := normalizeStorageSubdir("home", request.HomeDir, target.Project, target.Name)
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	workspaceDir, err := normalizeStorageSubdir("workspace", request.WorkspaceDir, projectRef.Project, machineName)
+	workspaceDir, err := normalizeStorageSubdir("workspace", request.WorkspaceDir, target.Project, target.Name)
 	if err != nil {
 		return CreatePlan{}, err
 	}
 	state := meta.Machine{
 		Tenant:          summary.Tenant,
-		Project:         projectRef.Project,
-		Name:            machineName,
+		Project:         target.Project,
+		Name:            target.Name,
 		Type:            meta.MachineTypeContainer,
 		Template:        template,
 		AppPort:         appPort,
@@ -193,14 +186,14 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	machineRef := naming.MachineRef{Tenant: summary.Tenant, Project: projectRef.Project, Machine: machineName}
+	machineRef := naming.MachineRef{Tenant: summary.Tenant, Project: target.Project, Machine: target.Name}
 	instanceName, err := naming.MachineIncusInstanceName(machineRef)
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	hostname := machineName + "." + projectRef.Project + "." + summary.DNSSuffix
+	hostname := target.Name + "." + target.Project + "." + summary.DNSSuffix
 	caddyFile := caddy.RenderMachine(hostname, appPort, MachineCertPath, MachineCertKeyPath)
-	certificateFiles, err := certificateFilesFromRequest(request, machineName, projectRef.Project, summary.DNSSuffix)
+	certificateFiles, err := certificateFilesFromRequest(request, target.Name, target.Project, summary.DNSSuffix)
 	if err != nil {
 		return CreatePlan{}, err
 	}
@@ -215,8 +208,8 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	return CreatePlan{
 		Reference:        request.Reference,
 		Tenant:           summary,
-		Project:          projectRef.Project,
-		Name:             machineName,
+		Project:          target.Project,
+		Name:             target.Name,
 		InstanceName:     instanceName,
 		Hostname:         hostname,
 		PrivateIP:        privateIP,
@@ -370,6 +363,88 @@ func currentTenantRef(admin config.Admin) (naming.TenantRef, error) {
 		return naming.TenantRef{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
 	}
 	return ref, nil
+}
+
+type machineTarget struct {
+	Summary         tenant.Summary
+	Project         string
+	Name            string
+	ExplicitTenant  bool
+	ExplicitProject bool
+	ProjectSyntax   string
+}
+
+func parseMachineTarget(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, reference string) (machineTarget, error) {
+	tenants, err := tenant.List(ctx, store)
+	if err != nil {
+		return machineTarget{}, err
+	}
+	currentTenant := strings.TrimSpace(admin.Tenant)
+	projectSyntax := strings.TrimSpace(reference)
+	explicitTenant := false
+	if tenantName, rest, ok := splitTenantMachineReference(projectSyntax, tenants); ok {
+		currentTenant = tenantName
+		projectSyntax = rest
+		explicitTenant = true
+	}
+	if currentTenant == "" {
+		return machineTarget{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
+	}
+	if err := naming.ValidateTenantName(currentTenant); err != nil {
+		return machineTarget{}, err
+	}
+	projectRef, machineName, err := naming.ParseUserMachineRef(projectSyntax, admin.Project)
+	if err != nil {
+		return machineTarget{}, err
+	}
+	if projectRef.Tenant != "" {
+		currentTenant = projectRef.Tenant
+		explicitTenant = true
+	}
+	summary, ok := findTenantSummary(tenants, currentTenant)
+	if !ok {
+		return machineTarget{}, fmt.Errorf("Sandcastle tenant %s not found", currentTenant)
+	}
+	return machineTarget{
+		Summary:         summary,
+		Project:         projectRef.Project,
+		Name:            machineName,
+		ExplicitTenant:  explicitTenant,
+		ExplicitProject: isExplicitProjectSyntax(projectSyntax) || strings.TrimSpace(admin.Project) != "",
+		ProjectSyntax:   projectSyntax,
+	}, nil
+}
+
+func splitTenantMachineReference(reference string, tenants []tenant.Summary) (string, string, bool) {
+	left, right, ok := strings.Cut(strings.TrimSpace(reference), "/")
+	if !ok || strings.Contains(left, ":") || strings.Contains(right, "/") || strings.TrimSpace(right) == "" {
+		return "", "", false
+	}
+	if strings.Contains(right, ":") {
+		return strings.TrimSpace(left), strings.TrimSpace(right), true
+	}
+	if tenantSummaryExists(tenants, left) {
+		return strings.TrimSpace(left), strings.TrimSpace(right), true
+	}
+	return "", "", false
+}
+
+func tenantSummaryExists(tenants []tenant.Summary, name string) bool {
+	_, ok := findTenantSummary(tenants, strings.TrimSpace(name))
+	return ok
+}
+
+func findTenantSummary(tenants []tenant.Summary, name string) (tenant.Summary, bool) {
+	for _, summary := range tenants {
+		if summary.Tenant == name {
+			return summary, true
+		}
+	}
+	return tenant.Summary{}, false
+}
+
+func isExplicitProjectSyntax(reference string) bool {
+	return strings.Contains(reference, "/") || strings.Contains(reference, ":")
 }
 
 func findTenant(ctx context.Context, store tenant.IncusTenantStore, ref naming.TenantRef) (tenant.Summary, error) {

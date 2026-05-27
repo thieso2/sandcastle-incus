@@ -67,9 +67,26 @@ func ParseAdminMachineRef(value string) (MachineRef, error) {
 
 func ParseUserMachineRef(value string, currentProject string) (ProjectRef, string, error) {
 	value = strings.TrimSpace(value)
+	if scope, rest, ok := strings.Cut(value, "/"); ok && strings.Contains(rest, ":") {
+		if strings.Contains(scope, ":") || strings.Contains(rest, "/") {
+			return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, project:machine, tenant/machine, or tenant/project:machine")
+		}
+		project, machine, ok := strings.Cut(rest, ":")
+		if !ok || strings.Contains(machine, ":") {
+			return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, project:machine, tenant/machine, or tenant/project:machine")
+		}
+		ref := ProjectRef{Tenant: scope, Project: project}
+		if err := ref.Validate(); err != nil {
+			return ProjectRef{}, "", err
+		}
+		if err := ValidateMachineName(machine); err != nil {
+			return ProjectRef{}, "", err
+		}
+		return ref, machine, nil
+	}
 	if project, machine, ok := strings.Cut(value, ":"); ok {
 		if strings.Contains(project, "/") || strings.Contains(machine, "/") || strings.Contains(machine, ":") {
-			return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, or project:machine")
+			return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, project:machine, tenant/machine, or tenant/project:machine")
 		}
 		ref := ProjectRef{Project: project}
 		if err := ValidateProjectName(ref.Project); err != nil {
@@ -105,7 +122,7 @@ func ParseUserMachineRef(value string, currentProject string) (ProjectRef, strin
 		}
 		return ref, parts[1], nil
 	default:
-		return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, or project:machine")
+		return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, project:machine, tenant/machine, or tenant/project:machine")
 	}
 }
 

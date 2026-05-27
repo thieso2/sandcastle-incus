@@ -6,9 +6,10 @@ import (
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/naming"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-func ensureTenantUnixUserForMachineCreate(ctx context.Context, config commandConfig) error {
+func ensureTenantUnixUserForMachineCreate(ctx context.Context, config commandConfig, summary tenant.Summary) error {
 	localUser := strings.TrimSpace(defaultLocalUnixUsername())
 	if localUser == "" {
 		verboseCLI(config, "tenant unix user: local OS username is empty; keeping tenant metadata unchanged")
@@ -16,10 +17,6 @@ func ensureTenantUnixUserForMachineCreate(ctx context.Context, config commandCon
 	}
 	if err := naming.ValidateUnixUsername(localUser); err != nil {
 		return fmt.Errorf("local OS username %q cannot be used as machine Unix user: %w", localUser, err)
-	}
-	summary, err := currentTenantSummary(ctx, config)
-	if err != nil {
-		return err
 	}
 	if summary.UnixUser != "" && summary.UnixUser != summary.Tenant {
 		verboseCLI(config, "tenant unix user: keeping existing tenant Unix user %q for tenant %s", summary.UnixUser, summary.Tenant)

@@ -3,11 +3,19 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/localdns"
+	"github.com/thieso2/sandcastle-incus/internal/localtrust"
+	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 )
 
 type tenantListRow struct {
@@ -21,10 +29,11 @@ type tenantListOutput struct {
 }
 
 type tenantSwitchOutput struct {
-	Tenant     string `json:"tenant"`
-	LocalOnly  bool   `json:"local_only,omitempty"`
-	ConfigPath string `json:"config_path"`
-	Message    string `json:"message"`
+	Tenant     string   `json:"tenant"`
+	LocalOnly  bool     `json:"local_only,omitempty"`
+	ConfigPath string   `json:"config_path"`
+	Message    string   `json:"message"`
+	Actions    []string `json:"actions,omitempty"`
 }
 
 func newTenantCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -86,8 +95,9 @@ func newTenantSwitchCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 				Tenant:     tenantName,
 				LocalOnly:  localOnly,
 				ConfigPath: cfgPath,
-				Message:    tenantSwitchHint(tenantName, localOnly),
+				Actions:    tenantSwitchSetupActions(cmd.Context(), config, tenantName),
 			}
+			result.Message = tenantSwitchHint(localOnly, result.Actions)
 			return writeOutput(config.stdout, opts.output, formatTenantSwitch(result), result)
 		},
 	}
@@ -159,12 +169,103 @@ func formatTenantSwitch(result tenantSwitchOutput) string {
 	return fmt.Sprintf("Current Tenant set to %q in %s.\n%s", result.Tenant, result.ConfigPath, result.Message)
 }
 
-func tenantSwitchHint(tenantName string, localOnly bool) string {
-	hint := fmt.Sprintf("Local setup is unchanged; run sc dns setup %s, sc trust install %s, and sc tailscale up %s if this tenant has not been set up locally.", tenantName, tenantName, tenantName)
+func tenantSwitchHint(localOnly bool, actions []string) string {
+	var prefix string
 	if localOnly {
-		return "Skipped Auth App Tenant Access validation. " + hint
+		prefix = "Skipped Auth App Tenant Access validation.\n"
 	}
-	return hint
+	if len(actions) == 0 {
+		return prefix + "No local setup actions needed."
+	}
+	return prefix + "Local setup actions needed:\n  " + strings.Join(actions, "\n  ")
+}
+
+func tenantSwitchSetupActions(ctx context.Context, config commandConfig, tenantName string) []string {
+	var actions []string
+	if !tenantSwitchDNSReady(ctx, config, tenantName) {
+		actions = append(actions, "sc dns setup "+tenantName)
+	}
+	if !tenantSwitchTrustReady(ctx, config, tenantName) {
+		actions = append(actions, "sc trust install "+tenantName)
+	}
+	if !tenantSwitchTailscaleReady(ctx, config, tenantName) {
+		actions = append(actions, "sc tailscale up "+tenantName)
+	}
+	return actions
+}
+
+func tenantSwitchDNSReady(ctx context.Context, config commandConfig, tenantName string) bool {
+	if config.tenantStore == nil {
+		return false
+	}
+	plan, err := localdns.PlanInstall(ctx, config.adminConfig, config.tenantStore, localdns.Request{Reference: tenantName})
+	if err != nil {
+		return false
+	}
+	content, err := os.ReadFile(plan.ResolverPath)
+	if err != nil {
+		return false
+	}
+	host, port, err := net.SplitHostPort(plan.DNSEndpoint)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(content), "nameserver "+host) && strings.Contains(string(content), "port "+port)
+}
+
+func tenantSwitchTrustReady(ctx context.Context, config commandConfig, tenantName string) bool {
+	if config.tenantStore == nil {
+		return false
+	}
+	plan, err := localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, localtrust.Request{Reference: tenantName})
+	if err != nil {
+		return false
+	}
+	if dir := strings.TrimSpace(os.Getenv("SANDCASTLE_TRUST_DIR")); dir != "" {
+		return fileExists(filepath.Join(dir, localtrust.CertFilename(plan)))
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		keychain := strings.TrimSpace(os.Getenv("SANDCASTLE_DARWIN_TRUST_KEYCHAIN"))
+		if keychain == "" {
+			if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+				keychain = filepath.Join(home, "Library", "Keychains", "login.keychain-db")
+			}
+		}
+		args := []string{"find-certificate", "-c", plan.TrustName}
+		if keychain != "" {
+			args = append(args, keychain)
+		}
+		return exec.CommandContext(ctx, "security", args...).Run() == nil
+	case "linux":
+		return fileExists(filepath.Join("/usr/local/share/ca-certificates", localtrust.CertFilename(plan)))
+	default:
+		return false
+	}
+}
+
+func tenantSwitchTailscaleReady(ctx context.Context, config commandConfig, tenantName string) bool {
+	if config.tenantStore == nil || config.tailscale == nil {
+		return false
+	}
+	plan, err := tailscale.PlanStatus(ctx, config.adminConfig, config.tenantStore, tailscale.StatusRequest{Reference: tenantName})
+	if err != nil {
+		return false
+	}
+	result, err := config.tailscale.RunStatus(ctx, plan, tailscale.RunSession{
+		Stdin:  config.stdin,
+		Stdout: config.stderr,
+		Stderr: config.stderr,
+	})
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(result.Tailscale.State), "running")
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func yesNo(value bool) string {
