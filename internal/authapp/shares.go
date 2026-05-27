@@ -286,14 +286,14 @@ func (h handler) shareRecipientMutationAPI(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if state == share.RecipientStateAccepted && h.shareReconciler != nil {
+	if (state == share.RecipientStateAccepted || state == share.RecipientStateDeclined) && h.shareReconciler != nil {
 		summary, err := h.findTenantSummary(r, tenantName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if request.DryRun {
-			summary.StorageShares = append(append([]meta.TenantStorageShare{}, summary.StorageShares...), result.Share)
+			summary.StorageShares = append(append([]meta.TenantStorageShare{}, share.RemoveShare(summary.StorageShares, result.Share.SourceTenant, result.Share.SourceProject, result.Share.Name)...), result.Share)
 		}
 		reconcile, err := h.shareReconciler.ReconcileTenantShares(r.Context(), summary, request.DryRun)
 		if err != nil {
