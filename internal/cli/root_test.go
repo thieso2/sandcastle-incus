@@ -135,6 +135,7 @@ type fakeAuthShareClient struct {
 	shares            []meta.TenantStorageShare
 	inboundShares     []meta.TenantStorageShare
 	offers            []meta.TenantStorageShare
+	statusRequests    []authapp.ShareStatusRequest
 	acceptRequests    []authapp.ShareRecipientRequest
 	declineRequests   []authapp.ShareRecipientRequest
 	revokeRequests    []authapp.ShareRevokeRequest
@@ -357,13 +358,27 @@ func (c *fakeAuthShareClient) ListShareOffers(ctx context.Context, tenant string
 	return append([]meta.TenantStorageShare{}, c.offers...), nil
 }
 
-func (c *fakeAuthShareClient) GetShare(ctx context.Context, tenant string, project string, name string) (meta.TenantStorageShare, error) {
-	for _, share := range c.shares {
-		if share.SourceProject == project && share.Name == name {
-			return share, nil
+func (c *fakeAuthShareClient) GetShare(ctx context.Context, request authapp.ShareStatusRequest) (share.Result, error) {
+	c.statusRequests = append(c.statusRequests, request)
+	for _, storageShare := range c.shares {
+		if !request.Inbound && storageShare.SourceProject == request.Project && storageShare.Name == request.Name {
+			return c.shareStatusResult(request, storageShare), nil
 		}
 	}
-	return meta.TenantStorageShare{}, fmt.Errorf("not found")
+	for _, storageShare := range c.inboundShares {
+		if request.Inbound && storageShare.SourceTenant == request.SourceTenant && storageShare.SourceProject == request.Project && storageShare.Name == request.Name {
+			return c.shareStatusResult(request, storageShare), nil
+		}
+	}
+	return share.Result{}, fmt.Errorf("not found")
+}
+
+func (c *fakeAuthShareClient) shareStatusResult(request authapp.ShareStatusRequest, storageShare meta.TenantStorageShare) share.Result {
+	result := share.Result{Share: storageShare}
+	if len(c.reconcileResult.Machines) > 0 {
+		result.Reconcile = &c.reconcileResult
+	}
+	return result
 }
 
 func (c *fakeAuthShareClient) AcceptShare(ctx context.Context, request authapp.ShareRecipientRequest) (share.Result, error) {
@@ -1099,6 +1114,89 @@ func TestShareCreateDryRunJSONReturnsPlan(t *testing.T) {
 	}
 	if !payload.DryRun || payload.Share.Name != "docs" {
 		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestShareStatusShowsReconciliationHealth(t *testing.T) {
+	client := &fakeAuthShareClient{
+		shares: []meta.TenantStorageShare{{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Availability:  "available",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  "accepted",
+			}},
+		}},
+		reconcileResult: share.ReconcileResult{
+			Tenant: "skorfman",
+			Machines: []share.MachineReconcileResult{{
+				Project: "default",
+				Machine: "codex",
+				Status:  "would-update",
+				Changed: true,
+			}},
+		},
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "status", "default/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Reconciliation: 1 machine(s), 1 unreconciled") || strings.Contains(stdout, "- default/codex") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if len(client.statusRequests) != 1 || client.statusRequests[0].Inbound || client.statusRequests[0].Project != "default" || client.statusRequests[0].Name != "docs" {
+		t.Fatalf("statusRequests = %#v", client.statusRequests)
+	}
+}
+
+func TestShareStatusVerboseShowsMachineReconciliation(t *testing.T) {
+	client := &fakeAuthShareClient{
+		inboundShares: []meta.TenantStorageShare{{
+			SourceTenant:  "thieso2",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Availability:  "available",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "acme",
+				State:  "accepted",
+			}},
+		}},
+		reconcileResult: share.ReconcileResult{
+			Tenant: "acme",
+			Machines: []share.MachineReconcileResult{{
+				Project: "default",
+				Machine: "codex",
+				Status:  "current",
+			}},
+		},
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "status", "thieso2/default/docs", "--verbose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Reconcile acme:") || !strings.Contains(stdout, "- default/codex: current") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if len(client.statusRequests) != 1 || !client.statusRequests[0].Inbound || client.statusRequests[0].SourceTenant != "thieso2" || !client.statusRequests[0].Verbose {
+		t.Fatalf("statusRequests = %#v", client.statusRequests)
 	}
 }
 

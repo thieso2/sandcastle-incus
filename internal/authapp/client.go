@@ -309,18 +309,27 @@ func (c DeviceClient) listShares(ctx context.Context, tenant string, direction s
 	return payload.Shares, nil
 }
 
-func (c DeviceClient) GetShare(ctx context.Context, tenant string, project string, name string) (meta.TenantStorageShare, error) {
-	query := "?tenant=" + url.QueryEscape(strings.TrimSpace(tenant)) + "&project=" + url.QueryEscape(strings.TrimSpace(project)) + "&name=" + url.QueryEscape(strings.TrimSpace(name))
+func (c DeviceClient) GetShare(ctx context.Context, request ShareStatusRequest) (share.Result, error) {
+	query := "?tenant=" + url.QueryEscape(strings.TrimSpace(request.Tenant)) + "&project=" + url.QueryEscape(strings.TrimSpace(request.Project)) + "&name=" + url.QueryEscape(strings.TrimSpace(request.Name))
+	if strings.TrimSpace(request.SourceTenant) != "" {
+		query += "&source_tenant=" + url.QueryEscape(strings.TrimSpace(request.SourceTenant))
+	}
+	if request.Inbound {
+		query += "&direction=inbound"
+	}
+	if request.Verbose {
+		query += "&verbose=1"
+	}
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/shares/status")+query, nil)
 	if err != nil {
-		return meta.TenantStorageShare{}, err
+		return share.Result{}, err
 	}
 	if strings.TrimSpace(c.AuthToken) != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
 	}
 	response, err := c.client().Do(httpRequest)
 	if err != nil {
-		return meta.TenantStorageShare{}, err
+		return share.Result{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -329,11 +338,11 @@ func (c DeviceClient) GetShare(ctx context.Context, tenant string, project strin
 		if msg == "" {
 			msg = response.Status
 		}
-		return meta.TenantStorageShare{}, fmt.Errorf("auth app share status: %s", msg)
+		return share.Result{}, fmt.Errorf("auth app share status: %s", msg)
 	}
-	var payload meta.TenantStorageShare
+	var payload share.Result
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return meta.TenantStorageShare{}, err
+		return share.Result{}, err
 	}
 	return payload, nil
 }

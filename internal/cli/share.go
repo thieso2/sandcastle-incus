@@ -113,26 +113,42 @@ func acceptedSharesForTenant(shares []meta.TenantStorageShare, tenantName string
 }
 
 func newShareStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var verbose bool
 	command := &cobra.Command{
-		Use:   "status project/share-name",
-		Short: "Show an outbound Tenant Storage Share",
+		Use:   "status project/share-name | source-tenant/source-project/share-name",
+		Short: "Show Tenant Storage Share status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			project, name, err := share.ParseStatusRef(args[0])
-			if err != nil {
-				return err
-			}
 			client, err := shareClient(config)
 			if err != nil {
 				return err
 			}
-			found, err := client.GetShare(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant), project, name)
+			request := authapp.ShareStatusRequest{
+				Tenant:  strings.TrimSpace(config.adminConfig.Tenant),
+				Verbose: verbose,
+			}
+			sourceTenant, sourceProject, shareName, inboundErr := parseInboundShareRef(args[0])
+			if inboundErr == nil {
+				request.SourceTenant = sourceTenant
+				request.Project = sourceProject
+				request.Name = shareName
+				request.Inbound = true
+			} else {
+				project, name, err := share.ParseStatusRef(args[0])
+				if err != nil {
+					return err
+				}
+				request.Project = project
+				request.Name = name
+			}
+			result, err := client.GetShare(cmd.Context(), request)
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatShare(found), found)
+			return writeOutput(config.stdout, opts.output, formatShareStatusResult(result, verbose), result)
 		},
 	}
+	command.Flags().BoolVar(&verbose, "verbose", false, "include per-machine reconciliation detail")
 	return command
 }
 
@@ -369,6 +385,44 @@ func formatShareResult(result share.Result) string {
 		text += formatReconcileResult(reconcile)
 	}
 	return text
+}
+
+func formatShareStatusResult(result share.Result, verbose bool) string {
+	text := formatShare(result.Share)
+	reconcileCount, machineCount, unreconciledCount := reconcileSummary(result)
+	if reconcileCount == 0 {
+		text += "Reconciliation: not checked\n"
+		return text
+	}
+	text += fmt.Sprintf("Reconciliation: %d machine(s), %d unreconciled\n", machineCount, unreconciledCount)
+	if !verbose {
+		return text
+	}
+	if result.Reconcile != nil {
+		text += formatReconcileResult(*result.Reconcile)
+	}
+	for _, reconcile := range result.Reconciles {
+		text += formatReconcileResult(reconcile)
+	}
+	return text
+}
+
+func reconcileSummary(result share.Result) (int, int, int) {
+	reconciles := append([]share.ReconcileResult{}, result.Reconciles...)
+	if result.Reconcile != nil {
+		reconciles = append(reconciles, *result.Reconcile)
+	}
+	machineCount := 0
+	unreconciledCount := 0
+	for _, reconcile := range reconciles {
+		for _, machine := range reconcile.Machines {
+			machineCount++
+			if machine.Changed || strings.TrimSpace(machine.Error) != "" {
+				unreconciledCount++
+			}
+		}
+	}
+	return len(reconciles), machineCount, unreconciledCount
 }
 
 func formatReconcileResult(result share.ReconcileResult) string {

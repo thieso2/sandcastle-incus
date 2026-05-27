@@ -120,7 +120,7 @@ type authShareClient interface {
 	ListShares(context.Context, string) ([]meta.TenantStorageShare, error)
 	ListInboundShares(context.Context, string) ([]meta.TenantStorageShare, error)
 	ListShareOffers(context.Context, string) ([]meta.TenantStorageShare, error)
-	GetShare(context.Context, string, string, string) (meta.TenantStorageShare, error)
+	GetShare(context.Context, authapp.ShareStatusRequest) (share.Result, error)
 	AcceptShare(context.Context, authapp.ShareRecipientRequest) (share.Result, error)
 	DeclineShare(context.Context, authapp.ShareRecipientRequest) (share.Result, error)
 	RevokeShare(context.Context, authapp.ShareRevokeRequest) (share.Result, error)

@@ -47,6 +47,15 @@ type ShareDeleteRequest struct {
 	DryRun  bool   `json:"dry_run,omitempty"`
 }
 
+type ShareStatusRequest struct {
+	Tenant       string `json:"tenant,omitempty"`
+	SourceTenant string `json:"source_tenant,omitempty"`
+	Project      string `json:"project"`
+	Name         string `json:"name"`
+	Inbound      bool   `json:"inbound,omitempty"`
+	Verbose      bool   `json:"verbose,omitempty"`
+}
+
 type ShareListResult struct {
 	Shares []meta.TenantStorageShare `json:"shares"`
 }
@@ -145,16 +154,84 @@ func (h handler) shareStatusAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	result, err := share.GetOutbound(r.Context(), h.tenants, h.shareStore, share.StatusRequest{
-		Tenant:  tenantName,
-		Project: r.URL.Query().Get("project"),
-		Name:    r.URL.Query().Get("name"),
-	})
+	statusRequest := ShareStatusRequest{
+		Tenant:       tenantName,
+		SourceTenant: r.URL.Query().Get("source_tenant"),
+		Project:      r.URL.Query().Get("project"),
+		Name:         r.URL.Query().Get("name"),
+		Inbound:      r.URL.Query().Get("direction") == "inbound",
+		Verbose:      r.URL.Query().Get("verbose") == "1",
+	}
+	result, err := h.shareStatusResult(r, statusRequest)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, result.Share)
+	if err := h.addShareStatusReconciles(r, &result, statusRequest); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h handler) shareStatusResult(r *http.Request, request ShareStatusRequest) (share.Result, error) {
+	if request.Inbound {
+		visible, err := share.ListInbound(r.Context(), h.tenants, h.shareStore, share.ListRequest{Tenant: request.Tenant, Inbound: true})
+		if err != nil {
+			return share.Result{}, err
+		}
+		pending, err := share.ListInbound(r.Context(), h.tenants, h.shareStore, share.ListRequest{Tenant: request.Tenant, Inbound: true, Offers: true})
+		if err != nil {
+			return share.Result{}, err
+		}
+		for _, candidate := range append(visible.Shares, pending.Shares...) {
+			if candidate.SourceTenant == strings.TrimSpace(request.SourceTenant) && candidate.SourceProject == strings.TrimSpace(request.Project) && candidate.Name == strings.TrimSpace(request.Name) {
+				return share.Result{Share: candidate}, nil
+			}
+		}
+		return share.Result{}, fmt.Errorf("inbound Tenant Storage Share %s/%s/%s not found", request.SourceTenant, request.Project, request.Name)
+	}
+	return share.GetOutbound(r.Context(), h.tenants, h.shareStore, share.StatusRequest{
+		Tenant:  request.Tenant,
+		Project: request.Project,
+		Name:    request.Name,
+	})
+}
+
+func (h handler) addShareStatusReconciles(r *http.Request, result *share.Result, request ShareStatusRequest) error {
+	if h.shareReconciler == nil {
+		return nil
+	}
+	if request.Inbound {
+		if !share.IsAcceptedAvailable(result.Share, request.Tenant) {
+			return nil
+		}
+		summary, err := h.findTenantSummary(r, request.Tenant)
+		if err != nil {
+			return err
+		}
+		reconcile, err := h.shareReconciler.ReconcileTenantShares(r.Context(), summary, true)
+		if err != nil {
+			return err
+		}
+		result.Reconcile = &reconcile
+		return nil
+	}
+	for _, recipient := range result.Share.Recipients {
+		if recipient.State != share.RecipientStateAccepted {
+			continue
+		}
+		summary, err := h.findTenantSummary(r, recipient.Tenant)
+		if err != nil {
+			return err
+		}
+		reconcile, err := h.shareReconciler.ReconcileTenantShares(r.Context(), summary, true)
+		if err != nil {
+			return err
+		}
+		result.Reconciles = append(result.Reconciles, reconcile)
+	}
+	return nil
 }
 
 func (h handler) shareAcceptAPI(w http.ResponseWriter, r *http.Request) {
