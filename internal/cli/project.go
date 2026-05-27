@@ -19,6 +19,8 @@ func newProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.AddCommand(newProjectListCommand(config, opts))
 	command.AddCommand(newProjectCreateCommand(config, opts))
 	command.AddCommand(newProjectStatusCommand(config, opts))
+	command.AddCommand(newProjectSetCloudIdentityCommand(config, opts))
+	command.AddCommand(newProjectUnsetCloudIdentityCommand(config, opts))
 	command.AddCommand(newProjectDeleteCommand(config, opts))
 	return command
 }
@@ -142,6 +144,61 @@ func newProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Com
 	return command
 }
 
+func newProjectSetCloudIdentityCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "set-cloud-identity name cloud-identity",
+		Short: "Set a default Cloud Identity Config for a project",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := tenant.PlanSetProjectCloudIdentity(cmd.Context(), config.adminConfig, config.tenantStore, tenant.ProjectMutationRequest{
+				Name:          args[0],
+				CloudIdentity: strings.TrimSpace(args[1]),
+			})
+			if err != nil {
+				return err
+			}
+			if !dryRun {
+				if config.tenantUpdater == nil {
+					return fmt.Errorf("project metadata updater is not configured")
+				}
+				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
+					return err
+				}
+			}
+			return writeOutput(config.stdout, opts.output, formatProjectMutationPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the project metadata update without mutating resources")
+	return command
+}
+
+func newProjectUnsetCloudIdentityCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "unset-cloud-identity name",
+		Short: "Clear the default Cloud Identity Config for a project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := tenant.PlanSetProjectCloudIdentity(cmd.Context(), config.adminConfig, config.tenantStore, tenant.ProjectMutationRequest{Name: args[0]})
+			if err != nil {
+				return err
+			}
+			if !dryRun {
+				if config.tenantUpdater == nil {
+					return fmt.Errorf("project metadata updater is not configured")
+				}
+				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
+					return err
+				}
+			}
+			return writeOutput(config.stdout, opts.output, formatProjectMutationPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the project metadata update without mutating resources")
+	return command
+}
+
 func currentTenantMachines(cmd *cobra.Command, config commandConfig) (tenant.Summary, []meta.Machine, error) {
 	result, err := listMachines(cmd.Context(), config, listMachinesRequest{AllProjects: true})
 	if err != nil {
@@ -179,7 +236,14 @@ func formatProjectNamespaceList(tenant tenant.Summary) string {
 }
 
 func formatProjectNamespaceStatus(status projectStatusPayload) string {
-	return fmt.Sprintf("Project: %s\nTenant: %s\nMachines: %d", status.Project.Name, status.Tenant.Tenant, status.MachineCount)
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Project: %s\n", status.Project.Name)
+	fmt.Fprintf(&builder, "Tenant: %s\n", status.Tenant.Tenant)
+	if status.Project.CloudIdentity != "" {
+		fmt.Fprintf(&builder, "Cloud identity: %s\n", status.Project.CloudIdentity)
+	}
+	fmt.Fprintf(&builder, "Machines: %d", status.MachineCount)
+	return builder.String()
 }
 
 func formatProjectMutationPlan(plan tenant.ProjectMutationPlan) string {

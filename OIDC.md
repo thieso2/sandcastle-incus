@@ -106,6 +106,15 @@ sc create [project:]machine --cloud-identity gcp
 sc connect [project:]machine --cloud-identity gcp
 ```
 
+Projects can also carry a default Cloud Identity Config, including the default project:
+
+```sh
+sc project set-cloud-identity default gcp
+sc project unset-cloud-identity default
+```
+
+When a project default is set, `sc create` and `sc connect` auto-creation use it when `--cloud-identity` is omitted.
+
 This command:
 1. Resolves the machine and its tenant from Incus state.
 2. Uses the CLI Auth Token saved by `sc login` to authorize the current User with the Auth App.

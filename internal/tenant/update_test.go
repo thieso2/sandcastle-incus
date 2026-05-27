@@ -60,6 +60,24 @@ func TestPlanDeleteProjectRemovesNamespace(t *testing.T) {
 	}
 }
 
+func TestPlanSetProjectCloudIdentityUpdatesDefaultProject(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	plan, err := PlanSetProjectCloudIdentity(context.Background(), admin, tenantStoreForUpdateTest(t, "default"), ProjectMutationRequest{
+		Name:          "default",
+		CloudIdentity: "gcp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Action != "set cloud identity on" || plan.Project.Name != "default" || plan.Project.CloudIdentity != "gcp" {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if len(plan.Projects) != 1 || plan.Projects[0].CloudIdentity != "gcp" {
+		t.Fatalf("projects = %#v", plan.Projects)
+	}
+}
+
 func tenantStoreForUpdateTest(t *testing.T, names ...string) MemoryStore {
 	t.Helper()
 	projects := make([]meta.Project, 0, len(names))

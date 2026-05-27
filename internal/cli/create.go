@@ -58,16 +58,17 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if config.machineCreator == nil {
 					return fmt.Errorf("machine creation executor is not configured")
 				}
-				if strings.TrimSpace(cloudIdentity) == "" {
+				effectiveCloudIdentity := effectiveProjectCloudIdentity(config, plan.Tenant, plan.Project, cloudIdentity)
+				if strings.TrimSpace(effectiveCloudIdentity) == "" {
 					verboseCLI(config, "workload identity: not requested for create %s; gcloud credentials will not be configured (use --cloud-identity gcp)", plan.Reference)
 				}
 				if err := config.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
 					return err
 				}
-				if strings.TrimSpace(cloudIdentity) != "" {
+				if strings.TrimSpace(effectiveCloudIdentity) != "" {
 					result, err := enableWorkloadIdentityForPlan(cmd.Context(), config, plan, workloadEnableOptions{
 						AuthHostname:  authHostname,
-						CloudIdentity: cloudIdentity,
+						CloudIdentity: effectiveCloudIdentity,
 						MaxPolls:      maxPolls,
 						DebugApprove:  debugApprove,
 					})

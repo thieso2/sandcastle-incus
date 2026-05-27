@@ -48,8 +48,9 @@ type Tenant struct {
 }
 
 type Project struct {
-	Name      string `json:"name"`
-	CreatedBy string `json:"createdBy,omitempty"`
+	Name          string `json:"name"`
+	CreatedBy     string `json:"createdBy,omitempty"`
+	CloudIdentity string `json:"cloudIdentity,omitempty"`
 }
 
 type Tailscale struct {

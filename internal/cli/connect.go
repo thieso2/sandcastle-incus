@@ -244,6 +244,9 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 		return fmt.Errorf("machine creation executor is not configured")
 	}
 	if strings.TrimSpace(workloadOptions.CloudIdentity) == "" {
+		workloadOptions.CloudIdentity = effectiveProjectCloudIdentity(config, createPlan.Tenant, createPlan.Project, "")
+	}
+	if strings.TrimSpace(workloadOptions.CloudIdentity) == "" {
 		verboseCLI(config, "workload identity: not requested for auto-create %s; gcloud credentials will not be configured (use --cloud-identity gcp)", createPlan.Reference)
 	}
 	if err := config.machineCreator.CreateMachine(cmd.Context(), createPlan); err != nil {

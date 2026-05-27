@@ -26,8 +26,9 @@ type ResolvedRef struct {
 }
 
 type ProjectMutationRequest struct {
-	Name     string
-	Machines []meta.Machine
+	Name          string
+	Machines      []meta.Machine
+	CloudIdentity string
 }
 
 type ProjectMutationPlan struct {
@@ -111,6 +112,40 @@ func PlanDeleteProject(ctx context.Context, admin config.Admin, store IncusTenan
 		Action:       "delete",
 		Tenant:       summary,
 		Project:      deleted,
+		Projects:     projects,
+		IncusProject: summary.IncusName,
+	}, nil
+}
+
+func PlanSetProjectCloudIdentity(ctx context.Context, admin config.Admin, store IncusTenantStore, request ProjectMutationRequest) (ProjectMutationPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	if err := naming.ValidateProjectName(request.Name); err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	summary, err := findCurrentTenant(ctx, admin, store)
+	if err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	projects := append([]meta.Project{}, summary.Projects...)
+	var updated meta.Project
+	found := false
+	for i := range projects {
+		if projects[i].Name == request.Name {
+			projects[i].CloudIdentity = request.CloudIdentity
+			updated = projects[i]
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ProjectMutationPlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", request.Name, summary.Tenant)
+	}
+	return ProjectMutationPlan{
+		Action:       "set cloud identity on",
+		Tenant:       summary,
+		Project:      updated,
 		Projects:     projects,
 		IncusProject: summary.IncusName,
 	}, nil

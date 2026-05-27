@@ -1429,6 +1429,35 @@ func TestProjectCreateCallsUpdater(t *testing.T) {
 	}
 }
 
+func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updater := &fakeProjectUpdater{}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		tenantUpdater: updater,
+	}, "project", "set-cloud-identity", "default", "gcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "set cloud identity on project default") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if !updater.called || updater.incusProject != "sc-acme" || !projectHasCloudIdentity(updater.projects, "default", "gcp") {
+		t.Fatalf("updater = %#v", updater)
+	}
+}
+
 func TestProjectDeleteRejectsNonEmptyProject(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -4722,6 +4751,47 @@ func TestConnectAliasCanEnableCloudIdentityWhenAutoCreating(t *testing.T) {
 	}
 	if !connector.called {
 		t.Fatal("expected connect after workload identity injection")
+	}
+}
+
+func TestConnectAliasUsesProjectDefaultCloudIdentityWhenAutoCreating(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default", CloudIdentity: "gcp"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
+	authClient := &fakeAuthWorkloadClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, _, err = executeForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:     fakeMachineStatusStore{},
+		machineCreator:   creator,
+		machineConnector: connector,
+		knownHosts:       &fakeKnownHostsManager{},
+		dnsApplier:       &fakeDNSApplier{},
+		authWorkload:     authClient,
+	}, "c", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authClient.enableRequests) != 1 || authClient.enableRequests[0].CloudIdentityConfig != "gcp" {
+		t.Fatalf("enable requests = %#v", authClient.enableRequests)
+	}
+	if len(creator.plans) != 2 || len(creator.plans[1].WorkloadFiles) == 0 {
+		t.Fatalf("create plans = %#v", creator.plans)
 	}
 }
 
