@@ -21,6 +21,18 @@ func TestPlanCreateProjectAddsNamespace(t *testing.T) {
 	}
 }
 
+func TestPlanCreateProjectAcceptsLeadingDigit(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	plan, err := PlanCreateProject(context.Background(), admin, tenantStoreForUpdateTest(t, "default"), ProjectMutationRequest{Name: "7ed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Project.Name != "7ed" {
+		t.Fatalf("project name = %q", plan.Project.Name)
+	}
+}
+
 func TestPlanCreateProjectRejectsDefault(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"

@@ -166,6 +166,12 @@ func TestValidateIncusProjectName(t *testing.T) {
 	}
 }
 
+func TestValidateProjectNameAcceptsLeadingDigit(t *testing.T) {
+	if err := ValidateProjectName("7ed"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReservedProjectNames(t *testing.T) {
 	for _, name := range []string{"default", "admin", "ca", "dns", "infra", "route", "tailscale"} {
 		if !IsReservedProjectName(name) {

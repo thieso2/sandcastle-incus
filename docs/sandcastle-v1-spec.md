@@ -78,9 +78,10 @@ names, or admin-denied local suffixes.
 A project is a lightweight namespace inside a tenant. Projects do not map to
 Incus projects and have no v1 settings beyond their names.
 
-Project names are DNS-safe lowercase labels. Infrastructure words such as
-`default`, `dns`, `tailscale`, `ca`, `route`, `admin`, and `infra` are reserved.
-The `default` project is created only by tenant creation.
+Project names are DNS-safe lowercase labels and may start with a digit.
+Infrastructure words such as `default`, `dns`, `tailscale`, `ca`, `route`,
+`admin`, and `infra` are reserved. The `default` project is created only by
+tenant creation.
 
 Users with tenant access may create named projects. Users may delete named
 projects only when they contain no machines. The default project cannot be

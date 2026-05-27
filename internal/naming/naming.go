@@ -13,6 +13,7 @@ const (
 
 var (
 	safeNamePattern           = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
+	projectNamePattern        = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}$`)
 	githubUsernameNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$`)
 	unixUsernamePattern       = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 )
@@ -214,7 +215,7 @@ func ValidateGitHubUsernameTenantName(name string) error {
 }
 
 func ValidateProjectName(name string) error {
-	if !safeNamePattern.MatchString(name) {
+	if !projectNamePattern.MatchString(name) {
 		return fmt.Errorf("invalid project %q", name)
 	}
 	return nil

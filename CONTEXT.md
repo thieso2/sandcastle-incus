@@ -278,7 +278,7 @@ _Avoid_: Projectless mode
 - Users with tenant access create named **Projects** inside that **Tenant**.
 - Users with tenant access may delete named **Projects** only when they contain no **Machines**.
 - The **Default Project** cannot be deleted.
-- **Project** names are DNS-safe lowercase labels.
+- **Project** names are DNS-safe lowercase labels and may start with a digit.
 - **GitHub Username Tenant Name** may start with a digit.
 - Infrastructure words such as `default`, `dns`, `tailscale`, `ca`, `route`, `admin`, and `infra` are reserved **Project** names; `default` is created only by tenant creation.
 - A **Project** has zero or more **Machines**.
