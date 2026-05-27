@@ -19,6 +19,14 @@ type ShareCreateRequest struct {
 	DryRun       bool     `json:"dry_run,omitempty"`
 }
 
+type ShareRecipientRequest struct {
+	Tenant        string `json:"tenant,omitempty"`
+	SourceTenant  string `json:"source_tenant"`
+	SourceProject string `json:"source_project"`
+	Name          string `json:"name"`
+	DryRun        bool   `json:"dry_run,omitempty"`
+}
+
 type ShareListResult struct {
 	Shares []meta.TenantStorageShare `json:"shares"`
 }
@@ -81,7 +89,17 @@ func (h handler) shareListAPI(w http.ResponseWriter, r *http.Request, user User)
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	result, err := share.ListOutbound(r.Context(), h.tenants, h.shareStore, share.ListRequest{Tenant: tenantName, Outbound: true})
+	direction := strings.TrimSpace(r.URL.Query().Get("direction"))
+	var result share.Result
+	var err error
+	switch direction {
+	case "inbound":
+		result, err = share.ListInbound(r.Context(), h.tenants, h.shareStore, share.ListRequest{Tenant: tenantName, Inbound: true})
+	case "offers":
+		result, err = share.ListInbound(r.Context(), h.tenants, h.shareStore, share.ListRequest{Tenant: tenantName, Inbound: true, Offers: true})
+	default:
+		result, err = share.ListOutbound(r.Context(), h.tenants, h.shareStore, share.ListRequest{Tenant: tenantName, Outbound: true})
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -111,6 +129,57 @@ func (h handler) shareStatusAPI(w http.ResponseWriter, r *http.Request) {
 		Tenant:  tenantName,
 		Project: r.URL.Query().Get("project"),
 		Name:    r.URL.Query().Get("name"),
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, result.Share)
+}
+
+func (h handler) shareAcceptAPI(w http.ResponseWriter, r *http.Request) {
+	h.shareRecipientMutationAPI(w, r, share.RecipientStateAccepted)
+}
+
+func (h handler) shareDeclineAPI(w http.ResponseWriter, r *http.Request) {
+	h.shareRecipientMutationAPI(w, r, share.RecipientStateDeclined)
+}
+
+func (h handler) shareRecipientMutationAPI(w http.ResponseWriter, r *http.Request, state string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, err := h.requireBearerUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if h.shareStore == nil {
+		http.Error(w, "share store is not configured", http.StatusInternalServerError)
+		return
+	}
+	var request ShareRecipientRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	tenantName := strings.TrimSpace(request.Tenant)
+	if tenantName == "" {
+		tenantName = strings.TrimSpace(h.admin.Tenant)
+	}
+	if err := h.requireTenantAccess(r, user.UserKey, tenantName); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	result, err := share.SetRecipientState(r.Context(), h.tenants, h.shareStore, share.RecipientRequest{
+		Tenant:        tenantName,
+		SourceTenant:  request.SourceTenant,
+		SourceProject: request.SourceProject,
+		Name:          request.Name,
+		Actor:         user.UserKey,
+		State:         state,
+		DryRun:        request.DryRun,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

@@ -39,12 +39,25 @@ type CreateRequest struct {
 type ListRequest struct {
 	Tenant   string `json:"tenant"`
 	Outbound bool   `json:"outbound"`
+	Inbound  bool   `json:"inbound"`
+	Offers   bool   `json:"offers"`
 }
 
 type StatusRequest struct {
 	Tenant  string `json:"tenant"`
 	Project string `json:"project"`
 	Name    string `json:"name"`
+}
+
+type RecipientRequest struct {
+	Tenant        string `json:"tenant"`
+	SourceTenant  string `json:"source_tenant"`
+	SourceProject string `json:"source_project"`
+	Name          string `json:"name"`
+	Actor         string `json:"actor,omitempty"`
+	State         string `json:"state"`
+	DryRun        bool   `json:"dry_run,omitempty"`
+	Now           string `json:"now,omitempty"`
 }
 
 type Result struct {
@@ -157,6 +170,103 @@ func ListOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store
 	}
 	sortShares(shares)
 	return Result{Shares: shares}, nil
+}
+
+func ListInbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request ListRequest) (Result, error) {
+	recipient, err := resolveTenant(ctx, tenants, request.Tenant)
+	if err != nil {
+		return Result{}, err
+	}
+	summaries, err := tenantpkg.List(ctx, tenants)
+	if err != nil {
+		return Result{}, err
+	}
+	local, err := store.GetTenantShares(ctx, recipient.IncusName)
+	if err != nil {
+		return Result{}, err
+	}
+	localByID := map[string]meta.TenantStorageShare{}
+	for _, candidate := range local {
+		localByID[shareID(candidate.SourceTenant, candidate.SourceProject, candidate.Name)] = candidate
+	}
+	var output []meta.TenantStorageShare
+	for _, source := range summaries {
+		if source.Tenant == recipient.Tenant {
+			continue
+		}
+		sourceShares, err := store.GetTenantShares(ctx, source.IncusName)
+		if err != nil {
+			return Result{}, err
+		}
+		for _, offered := range sourceShares {
+			if !shareOfferedTo(offered, recipient.Tenant) {
+				continue
+			}
+			state := RecipientStatePending
+			if localShare, ok := localByID[shareID(offered.SourceTenant, offered.SourceProject, offered.Name)]; ok {
+				state = recipientState(localShare, recipient.Tenant, state)
+			}
+			if request.Offers && state != RecipientStatePending {
+				continue
+			}
+			copy := offered
+			copy.Recipients = []meta.TenantStorageShareRecipient{{Tenant: recipient.Tenant, State: state}}
+			output = append(output, copy)
+		}
+	}
+	sortShares(output)
+	return Result{Shares: output}, nil
+}
+
+func SetRecipientState(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request RecipientRequest) (Result, error) {
+	if request.State != RecipientStateAccepted && request.State != RecipientStateDeclined {
+		return Result{}, fmt.Errorf("unsupported recipient state %q", request.State)
+	}
+	recipient, err := resolveTenant(ctx, tenants, request.Tenant)
+	if err != nil {
+		return Result{}, err
+	}
+	source, err := resolveTenant(ctx, tenants, request.SourceTenant)
+	if err != nil {
+		return Result{}, err
+	}
+	sourceShares, err := store.GetTenantShares(ctx, source.IncusName)
+	if err != nil {
+		return Result{}, err
+	}
+	var offered meta.TenantStorageShare
+	found := false
+	for _, candidate := range sourceShares {
+		if candidate.SourceProject == request.SourceProject && candidate.Name == request.Name {
+			offered = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return Result{}, fmt.Errorf("Tenant Storage Share %s/%s not found in tenant %s", request.SourceProject, request.Name, source.Tenant)
+	}
+	if !shareOfferedTo(offered, recipient.Tenant) {
+		return Result{}, fmt.Errorf("Tenant Storage Share %s/%s is not offered to tenant %s", request.SourceProject, request.Name, recipient.Tenant)
+	}
+	now := strings.TrimSpace(request.Now)
+	if now == "" {
+		now = time.Now().UTC().Format(time.RFC3339)
+	}
+	localShares, err := store.GetTenantShares(ctx, recipient.IncusName)
+	if err != nil {
+		return Result{}, err
+	}
+	updated := upsertRecipientShare(localShares, offered, recipient.Tenant, request.State, request.Actor, now)
+	sortShares(updated)
+	resultShare := offered
+	resultShare.Recipients = []meta.TenantStorageShareRecipient{recipientEntry(recipient.Tenant, request.State, request.Actor, now)}
+	if !request.DryRun {
+		if err := store.SetTenantShares(ctx, recipient.IncusName, updated); err != nil {
+			return Result{}, err
+		}
+	}
+	return Result{Share: resultShare, DryRun: request.DryRun}, nil
 }
 
 func GetOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request StatusRequest) (Result, error) {
@@ -303,4 +413,57 @@ func sortShares(shares []meta.TenantStorageShare) {
 		}
 		return shares[i].Name < shares[j].Name
 	})
+}
+
+func shareID(sourceTenant string, sourceProject string, name string) string {
+	return sourceTenant + "/" + sourceProject + "/" + name
+}
+
+func shareOfferedTo(share meta.TenantStorageShare, tenant string) bool {
+	for _, recipient := range share.Recipients {
+		if recipient.Tenant == tenant {
+			return true
+		}
+	}
+	return false
+}
+
+func recipientState(share meta.TenantStorageShare, tenant string, fallback string) string {
+	for _, recipient := range share.Recipients {
+		if recipient.Tenant == tenant && recipient.State != "" {
+			return recipient.State
+		}
+	}
+	return fallback
+}
+
+func upsertRecipientShare(shares []meta.TenantStorageShare, offered meta.TenantStorageShare, tenant string, state string, actor string, at string) []meta.TenantStorageShare {
+	id := shareID(offered.SourceTenant, offered.SourceProject, offered.Name)
+	entry := recipientEntry(tenant, state, actor, at)
+	output := append([]meta.TenantStorageShare{}, shares...)
+	for i := range output {
+		if shareID(output[i].SourceTenant, output[i].SourceProject, output[i].Name) == id {
+			output[i].SourceDir = offered.SourceDir
+			output[i].Availability = offered.Availability
+			output[i].Recipients = []meta.TenantStorageShareRecipient{entry}
+			return output
+		}
+	}
+	copy := offered
+	copy.Recipients = []meta.TenantStorageShareRecipient{entry}
+	output = append(output, copy)
+	return output
+}
+
+func recipientEntry(tenant string, state string, actor string, at string) meta.TenantStorageShareRecipient {
+	entry := meta.TenantStorageShareRecipient{Tenant: tenant, State: state}
+	switch state {
+	case RecipientStateAccepted:
+		entry.AcceptedBy = strings.TrimSpace(actor)
+		entry.AcceptedAt = at
+	case RecipientStateDeclined:
+		entry.DeclinedBy = strings.TrimSpace(actor)
+		entry.DeclinedAt = at
+	}
+	return entry
 }

@@ -111,7 +111,11 @@ type authCloudIdentityClient interface {
 type authShareClient interface {
 	CreateShare(context.Context, authapp.ShareCreateRequest) (meta.TenantStorageShare, error)
 	ListShares(context.Context, string) ([]meta.TenantStorageShare, error)
+	ListInboundShares(context.Context, string) ([]meta.TenantStorageShare, error)
+	ListShareOffers(context.Context, string) ([]meta.TenantStorageShare, error)
 	GetShare(context.Context, string, string, string) (meta.TenantStorageShare, error)
+	AcceptShare(context.Context, authapp.ShareRecipientRequest) (meta.TenantStorageShare, error)
+	DeclineShare(context.Context, authapp.ShareRecipientRequest) (meta.TenantStorageShare, error)
 }
 
 type rootOptions struct {

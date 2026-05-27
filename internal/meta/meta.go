@@ -89,10 +89,14 @@ type TenantStorageShare struct {
 }
 
 type TenantStorageShareRecipient struct {
-	Tenant    string `json:"tenant"`
-	State     string `json:"state"`
-	OfferedBy string `json:"offeredBy,omitempty"`
-	OfferedAt string `json:"offeredAt,omitempty"`
+	Tenant     string `json:"tenant"`
+	State      string `json:"state"`
+	OfferedBy  string `json:"offeredBy,omitempty"`
+	OfferedAt  string `json:"offeredAt,omitempty"`
+	AcceptedBy string `json:"acceptedBy,omitempty"`
+	AcceptedAt string `json:"acceptedAt,omitempty"`
+	DeclinedBy string `json:"declinedBy,omitempty"`
+	DeclinedAt string `json:"declinedAt,omitempty"`
 }
 
 type Machine struct {

@@ -129,9 +129,13 @@ type fakeAuthCloudIdentityClient struct {
 }
 
 type fakeAuthShareClient struct {
-	createRequests []authapp.ShareCreateRequest
-	createResult   meta.TenantStorageShare
-	shares         []meta.TenantStorageShare
+	createRequests  []authapp.ShareCreateRequest
+	createResult    meta.TenantStorageShare
+	shares          []meta.TenantStorageShare
+	inboundShares   []meta.TenantStorageShare
+	offers          []meta.TenantStorageShare
+	acceptRequests  []authapp.ShareRecipientRequest
+	declineRequests []authapp.ShareRecipientRequest
 }
 
 type fakeLoginRemoteInstaller struct {
@@ -337,6 +341,14 @@ func (c *fakeAuthShareClient) ListShares(ctx context.Context, tenant string) ([]
 	return append([]meta.TenantStorageShare{}, c.shares...), nil
 }
 
+func (c *fakeAuthShareClient) ListInboundShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return append([]meta.TenantStorageShare{}, c.inboundShares...), nil
+}
+
+func (c *fakeAuthShareClient) ListShareOffers(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return append([]meta.TenantStorageShare{}, c.offers...), nil
+}
+
 func (c *fakeAuthShareClient) GetShare(ctx context.Context, tenant string, project string, name string) (meta.TenantStorageShare, error) {
 	for _, share := range c.shares {
 		if share.SourceProject == project && share.Name == name {
@@ -344,6 +356,36 @@ func (c *fakeAuthShareClient) GetShare(ctx context.Context, tenant string, proje
 		}
 	}
 	return meta.TenantStorageShare{}, fmt.Errorf("not found")
+}
+
+func (c *fakeAuthShareClient) AcceptShare(ctx context.Context, request authapp.ShareRecipientRequest) (meta.TenantStorageShare, error) {
+	c.acceptRequests = append(c.acceptRequests, request)
+	return meta.TenantStorageShare{
+		SourceTenant:  request.SourceTenant,
+		SourceProject: request.SourceProject,
+		SourceDir:     "docs",
+		Name:          request.Name,
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: request.Tenant,
+			State:  "accepted",
+		}},
+	}, nil
+}
+
+func (c *fakeAuthShareClient) DeclineShare(ctx context.Context, request authapp.ShareRecipientRequest) (meta.TenantStorageShare, error) {
+	c.declineRequests = append(c.declineRequests, request)
+	return meta.TenantStorageShare{
+		SourceTenant:  request.SourceTenant,
+		SourceProject: request.SourceProject,
+		SourceDir:     "docs",
+		Name:          request.Name,
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: request.Tenant,
+			State:  "declined",
+		}},
+	}, nil
 }
 
 func TestVersionText(t *testing.T) {
@@ -1024,6 +1066,56 @@ func TestShareListOutputsOutboundShares(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Recipients: skorfman (pending)") {
 		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareOffersListsPendingInboundShares(t *testing.T) {
+	client := &fakeAuthShareClient{offers: []meta.TenantStorageShare{{
+		SourceTenant:  "thieso2",
+		SourceProject: "default",
+		SourceDir:     "docs",
+		Name:          "docs",
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: "acme",
+			State:  "pending",
+		}},
+	}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "offers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Share: default/docs") || !strings.Contains(stdout, "Recipients: acme (pending)") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareAcceptUsesRecipientAuthAppClient(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "skorfman"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "accept", "thieso2/default/docs", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.acceptRequests) != 1 {
+		t.Fatalf("acceptRequests = %#v", client.acceptRequests)
+	}
+	request := client.acceptRequests[0]
+	if request.Tenant != "skorfman" || request.SourceTenant != "thieso2" || request.SourceProject != "default" || request.Name != "docs" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
 	}
 }
 

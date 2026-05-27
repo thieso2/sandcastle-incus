@@ -265,7 +265,23 @@ func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateReques
 }
 
 func (c DeviceClient) ListShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/shares")+"?tenant="+url.QueryEscape(strings.TrimSpace(tenant)), nil)
+	return c.listShares(ctx, tenant, "")
+}
+
+func (c DeviceClient) ListInboundShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return c.listShares(ctx, tenant, "inbound")
+}
+
+func (c DeviceClient) ListShareOffers(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return c.listShares(ctx, tenant, "offers")
+}
+
+func (c DeviceClient) listShares(ctx context.Context, tenant string, direction string) ([]meta.TenantStorageShare, error) {
+	query := "?tenant=" + url.QueryEscape(strings.TrimSpace(tenant))
+	if strings.TrimSpace(direction) != "" {
+		query += "&direction=" + url.QueryEscape(strings.TrimSpace(direction))
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/shares")+query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -313,6 +329,44 @@ func (c DeviceClient) GetShare(ctx context.Context, tenant string, project strin
 			msg = response.Status
 		}
 		return meta.TenantStorageShare{}, fmt.Errorf("auth app share status: %s", msg)
+	}
+	var payload meta.TenantStorageShare
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	return payload, nil
+}
+
+func (c DeviceClient) AcceptShare(ctx context.Context, request ShareRecipientRequest) (meta.TenantStorageShare, error) {
+	return c.shareRecipientMutation(ctx, "/api/shares/accept", request, "accept")
+}
+
+func (c DeviceClient) DeclineShare(ctx context.Context, request ShareRecipientRequest) (meta.TenantStorageShare, error) {
+	return c.shareRecipientMutation(ctx, "/api/shares/decline", request, "decline")
+}
+
+func (c DeviceClient) shareRecipientMutation(ctx context.Context, path string, request ShareRecipientRequest, label string) (meta.TenantStorageShare, error) {
+	body, _ := json.Marshal(request)
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewReader(body))
+	if err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return meta.TenantStorageShare{}, fmt.Errorf("auth app share %s: %s", label, msg)
 	}
 	var payload meta.TenantStorageShare
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {

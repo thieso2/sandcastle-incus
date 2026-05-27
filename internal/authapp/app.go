@@ -384,6 +384,8 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/api/cloud-identities", app.cloudIdentitiesAPI)
 	mux.HandleFunc("/api/shares", app.sharesAPI)
 	mux.HandleFunc("/api/shares/status", app.shareStatusAPI)
+	mux.HandleFunc("/api/shares/accept", app.shareAcceptAPI)
+	mux.HandleFunc("/api/shares/decline", app.shareDeclineAPI)
 	mux.HandleFunc("/api/device/start", app.deviceStart)
 	mux.HandleFunc("/api/device/poll", app.devicePoll)
 	mux.HandleFunc("/api/workload/enable", app.workloadEnable)

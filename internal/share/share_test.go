@@ -72,17 +72,80 @@ func TestPlanCreateDryRunDoesNotSave(t *testing.T) {
 	}
 }
 
+func TestListInboundShowsPendingOffers(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-acme": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStatePending,
+			}},
+		}},
+	}}
+	result, err := ListInbound(context.Background(), tenantStore(), store, ListRequest{Tenant: "skorfman", Offers: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Shares) != 1 || result.Shares[0].Recipients[0].State != RecipientStatePending {
+		t.Fatalf("shares = %#v", result.Shares)
+	}
+}
+
+func TestSetRecipientStateAcceptsOffer(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-acme": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStatePending,
+			}},
+		}},
+	}}
+	result, err := SetRecipientState(context.Background(), tenantStore(), store, RecipientRequest{
+		Tenant:        "skorfman",
+		SourceTenant:  "acme",
+		SourceProject: "default",
+		Name:          "docs",
+		State:         RecipientStateAccepted,
+		Actor:         "skorfman",
+		Now:           "2026-05-27T12:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Share.Recipients[0].State != RecipientStateAccepted {
+		t.Fatalf("share = %#v", result.Share)
+	}
+	saved := store.sharesByProject["sc-skorfman"]
+	if len(saved) != 1 || saved[0].Recipients[0].AcceptedBy != "skorfman" {
+		t.Fatalf("saved = %#v", saved)
+	}
+}
+
 type fakeStore struct {
-	shares []meta.TenantStorageShare
-	saved  []meta.TenantStorageShare
-	exists bool
+	shares          []meta.TenantStorageShare
+	sharesByProject map[string][]meta.TenantStorageShare
+	saved           []meta.TenantStorageShare
+	exists          bool
 }
 
 func (s *fakeStore) GetTenantShares(ctx context.Context, incusProjectName string) ([]meta.TenantStorageShare, error) {
+	if s.sharesByProject != nil {
+		return append([]meta.TenantStorageShare{}, s.sharesByProject[incusProjectName]...), nil
+	}
 	return append([]meta.TenantStorageShare{}, s.shares...), nil
 }
 
 func (s *fakeStore) SetTenantShares(ctx context.Context, incusProjectName string, shares []meta.TenantStorageShare) error {
+	if s.sharesByProject != nil {
+		s.sharesByProject[incusProjectName] = append([]meta.TenantStorageShare{}, shares...)
+	}
 	s.saved = append([]meta.TenantStorageShare{}, shares...)
 	return nil
 }

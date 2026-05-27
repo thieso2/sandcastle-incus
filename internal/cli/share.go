@@ -18,6 +18,9 @@ func newShareCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.AddCommand(newShareCreateCommand(config, opts))
 	command.AddCommand(newShareListCommand(config, opts))
 	command.AddCommand(newShareStatusCommand(config, opts))
+	command.AddCommand(newShareOffersCommand(config, opts))
+	command.AddCommand(newShareAcceptCommand(config, opts))
+	command.AddCommand(newShareDeclineCommand(config, opts))
 	return command
 }
 
@@ -55,18 +58,32 @@ func newShareCreateCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 
 func newShareListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var outbound bool
+	var inbound bool
+	var offers bool
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List Tenant Storage Shares for the current tenant",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !outbound {
-				outbound = true
-			}
 			client, err := shareClient(config)
 			if err != nil {
 				return err
 			}
-			shares, err := client.ListShares(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant))
+			var shares []meta.TenantStorageShare
+			switch {
+			case offers:
+				shares, err = client.ListShareOffers(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant))
+			case inbound:
+				shares, err = client.ListInboundShares(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant))
+			case outbound:
+				shares, err = client.ListShares(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant))
+			default:
+				shares, err = client.ListShares(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant))
+				if err == nil {
+					var inboundShares []meta.TenantStorageShare
+					inboundShares, err = client.ListInboundShares(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant))
+					shares = append(shares, inboundShares...)
+				}
+			}
 			if err != nil {
 				return err
 			}
@@ -74,6 +91,8 @@ func newShareListCommand(config commandConfig, opts *rootOptions) *cobra.Command
 		},
 	}
 	command.Flags().BoolVar(&outbound, "outbound", false, "show shares offered by the current tenant")
+	command.Flags().BoolVar(&inbound, "inbound", false, "show accepted or declined shares offered to the current tenant")
+	command.Flags().BoolVar(&offers, "offers", false, "show pending shares offered to the current tenant")
 	return command
 }
 
@@ -98,6 +117,71 @@ func newShareStatusCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			return writeOutput(config.stdout, opts.output, formatShare(found), found)
 		},
 	}
+	return command
+}
+
+func newShareOffersCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "offers",
+		Short: "List pending Tenant Storage Share offers",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := shareClient(config)
+			if err != nil {
+				return err
+			}
+			shares, err := client.ListShareOffers(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant))
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatShares(shares), map[string]any{"shares": shares})
+		},
+	}
+	return command
+}
+
+func newShareAcceptCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	return newShareRecipientCommand(config, opts, "accept", "Accept a Tenant Storage Share offer")
+}
+
+func newShareDeclineCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	return newShareRecipientCommand(config, opts, "decline", "Decline a Tenant Storage Share offer")
+}
+
+func newShareRecipientCommand(config commandConfig, opts *rootOptions, action string, short string) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   action + " source-tenant/source-project/share-name",
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sourceTenant, sourceProject, shareName, err := parseInboundShareRef(args[0])
+			if err != nil {
+				return err
+			}
+			client, err := shareClient(config)
+			if err != nil {
+				return err
+			}
+			request := authapp.ShareRecipientRequest{
+				Tenant:        strings.TrimSpace(config.adminConfig.Tenant),
+				SourceTenant:  sourceTenant,
+				SourceProject: sourceProject,
+				Name:          shareName,
+				DryRun:        dryRun,
+			}
+			var result meta.TenantStorageShare
+			if action == "accept" {
+				result, err = client.AcceptShare(cmd.Context(), request)
+			} else {
+				result, err = client.DeclineShare(cmd.Context(), request)
+			}
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatShare(result), result)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the share plan without mutating metadata")
 	return command
 }
 
@@ -144,6 +228,17 @@ func formatShare(value meta.TenantStorageShare) string {
 		strings.Join(recipients, ", "),
 		value.Availability,
 	)
+}
+
+func parseInboundShareRef(value string) (string, string, string, error) {
+	parts := strings.Split(strings.TrimSpace(value), "/")
+	if len(parts) != 3 {
+		return "", "", "", fmt.Errorf("share reference must be source-tenant/source-project/share-name")
+	}
+	if _, _, err := share.ParseStatusRef(parts[1] + "/" + parts[2]); err != nil {
+		return "", "", "", err
+	}
+	return parts[0], parts[1], parts[2], nil
 }
 
 var _ authShareClient = authapp.DeviceClient{}
