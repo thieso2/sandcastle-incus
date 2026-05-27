@@ -51,6 +51,21 @@ type StatusRequest struct {
 	Name    string `json:"name"`
 }
 
+type RevokeRequest struct {
+	SourceTenant    string `json:"source_tenant"`
+	SourceProject   string `json:"source_project"`
+	Name            string `json:"name"`
+	RecipientTenant string `json:"recipient_tenant"`
+	DryRun          bool   `json:"dry_run,omitempty"`
+}
+
+type DeleteRequest struct {
+	SourceTenant  string `json:"source_tenant"`
+	SourceProject string `json:"source_project"`
+	Name          string `json:"name"`
+	DryRun        bool   `json:"dry_run,omitempty"`
+}
+
 type RecipientRequest struct {
 	Tenant        string `json:"tenant"`
 	SourceTenant  string `json:"source_tenant"`
@@ -63,10 +78,12 @@ type RecipientRequest struct {
 }
 
 type Result struct {
-	Share     meta.TenantStorageShare   `json:"share,omitempty"`
-	Shares    []meta.TenantStorageShare `json:"shares,omitempty"`
-	DryRun    bool                      `json:"dry_run,omitempty"`
-	Reconcile *ReconcileResult          `json:"reconcile,omitempty"`
+	Share              meta.TenantStorageShare   `json:"share,omitempty"`
+	Shares             []meta.TenantStorageShare `json:"shares,omitempty"`
+	DryRun             bool                      `json:"dry_run,omitempty"`
+	Reconcile          *ReconcileResult          `json:"reconcile,omitempty"`
+	Reconciles         []ReconcileResult         `json:"reconciles,omitempty"`
+	AffectedRecipients []string                  `json:"affected_recipients,omitempty"`
 }
 
 type ReconcileResult struct {
@@ -297,6 +314,112 @@ func SetRecipientState(ctx context.Context, tenants tenantpkg.IncusTenantStore, 
 	return Result{Share: resultShare, DryRun: request.DryRun}, nil
 }
 
+func RevokeRecipient(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request RevokeRequest) (Result, error) {
+	source, err := resolveTenant(ctx, tenants, request.SourceTenant)
+	if err != nil {
+		return Result{}, err
+	}
+	recipient, err := resolveTenant(ctx, tenants, request.RecipientTenant)
+	if err != nil {
+		return Result{}, err
+	}
+	project := strings.TrimSpace(request.SourceProject)
+	if err := naming.ValidateProjectName(project); err != nil {
+		return Result{}, err
+	}
+	name := strings.TrimSpace(request.Name)
+	if err := ValidateShareName(name); err != nil {
+		return Result{}, err
+	}
+	sourceShares, err := store.GetTenantShares(ctx, source.IncusName)
+	if err != nil {
+		return Result{}, err
+	}
+	found, index := findShareIndex(sourceShares, source.Tenant, project, name)
+	if index < 0 {
+		return Result{}, fmt.Errorf("Tenant Storage Share %s/%s not found in tenant %s", project, name, source.Tenant)
+	}
+	if !shareOfferedTo(found, recipient.Tenant) {
+		return Result{}, fmt.Errorf("Tenant Storage Share %s/%s is not offered to tenant %s", project, name, recipient.Tenant)
+	}
+	if len(found.Recipients) <= 1 {
+		return Result{}, fmt.Errorf("cannot revoke the last recipient from Tenant Storage Share %s/%s; delete the share instead", project, name)
+	}
+	updatedShare := found
+	updatedShare.Recipients = removeRecipient(updatedShare.Recipients, recipient.Tenant)
+	updatedSourceShares := append([]meta.TenantStorageShare{}, sourceShares...)
+	updatedSourceShares[index] = updatedShare
+	sortShares(updatedSourceShares)
+	localShares, err := store.GetTenantShares(ctx, recipient.IncusName)
+	if err != nil {
+		return Result{}, err
+	}
+	updatedLocalShares := RemoveShare(localShares, source.Tenant, project, name)
+	if !request.DryRun {
+		if err := store.SetTenantShares(ctx, source.IncusName, updatedSourceShares); err != nil {
+			return Result{}, err
+		}
+		if err := store.SetTenantShares(ctx, recipient.IncusName, updatedLocalShares); err != nil {
+			return Result{}, err
+		}
+	}
+	return Result{
+		Share:              updatedShare,
+		DryRun:             request.DryRun,
+		AffectedRecipients: []string{recipient.Tenant},
+	}, nil
+}
+
+func DeleteOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request DeleteRequest) (Result, error) {
+	source, err := resolveTenant(ctx, tenants, request.SourceTenant)
+	if err != nil {
+		return Result{}, err
+	}
+	project := strings.TrimSpace(request.SourceProject)
+	if err := naming.ValidateProjectName(project); err != nil {
+		return Result{}, err
+	}
+	name := strings.TrimSpace(request.Name)
+	if err := ValidateShareName(name); err != nil {
+		return Result{}, err
+	}
+	sourceShares, err := store.GetTenantShares(ctx, source.IncusName)
+	if err != nil {
+		return Result{}, err
+	}
+	found, index := findShareIndex(sourceShares, source.Tenant, project, name)
+	if index < 0 {
+		return Result{}, fmt.Errorf("Tenant Storage Share %s/%s not found in tenant %s", project, name, source.Tenant)
+	}
+	updatedSourceShares := append([]meta.TenantStorageShare{}, sourceShares[:index]...)
+	updatedSourceShares = append(updatedSourceShares, sourceShares[index+1:]...)
+	sortShares(updatedSourceShares)
+	recipients := shareRecipients(found)
+	if !request.DryRun {
+		if err := store.SetTenantShares(ctx, source.IncusName, updatedSourceShares); err != nil {
+			return Result{}, err
+		}
+		for _, recipientName := range recipients {
+			recipient, err := resolveTenant(ctx, tenants, recipientName)
+			if err != nil {
+				return Result{}, err
+			}
+			localShares, err := store.GetTenantShares(ctx, recipient.IncusName)
+			if err != nil {
+				return Result{}, err
+			}
+			if err := store.SetTenantShares(ctx, recipient.IncusName, RemoveShare(localShares, source.Tenant, project, name)); err != nil {
+				return Result{}, err
+			}
+		}
+	}
+	return Result{
+		Share:              found,
+		DryRun:             request.DryRun,
+		AffectedRecipients: recipients,
+	}, nil
+}
+
 func GetOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request StatusRequest) (Result, error) {
 	summary, err := resolveTenant(ctx, tenants, request.Tenant)
 	if err != nil {
@@ -320,6 +443,19 @@ func GetOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store 
 		}
 	}
 	return Result{}, fmt.Errorf("Tenant Storage Share %s/%s not found in tenant %s", project, name, summary.Tenant)
+}
+
+func RemoveShare(shares []meta.TenantStorageShare, sourceTenant string, sourceProject string, name string) []meta.TenantStorageShare {
+	id := shareID(sourceTenant, sourceProject, name)
+	output := make([]meta.TenantStorageShare, 0, len(shares))
+	for _, candidate := range shares {
+		if shareID(candidate.SourceTenant, candidate.SourceProject, candidate.Name) == id {
+			continue
+		}
+		output = append(output, candidate)
+	}
+	sortShares(output)
+	return output
 }
 
 func ValidateShareName(name string) error {
@@ -476,6 +612,39 @@ func sortShares(shares []meta.TenantStorageShare) {
 		}
 		return shares[i].Name < shares[j].Name
 	})
+}
+
+func findShareIndex(shares []meta.TenantStorageShare, sourceTenant string, sourceProject string, name string) (meta.TenantStorageShare, int) {
+	id := shareID(sourceTenant, sourceProject, name)
+	for i, candidate := range shares {
+		if shareID(candidate.SourceTenant, candidate.SourceProject, candidate.Name) == id {
+			return candidate, i
+		}
+	}
+	return meta.TenantStorageShare{}, -1
+}
+
+func shareRecipients(storageShare meta.TenantStorageShare) []string {
+	recipients := make([]string, 0, len(storageShare.Recipients))
+	for _, recipient := range storageShare.Recipients {
+		if strings.TrimSpace(recipient.Tenant) == "" {
+			continue
+		}
+		recipients = append(recipients, recipient.Tenant)
+	}
+	sort.Strings(recipients)
+	return recipients
+}
+
+func removeRecipient(recipients []meta.TenantStorageShareRecipient, tenant string) []meta.TenantStorageShareRecipient {
+	output := make([]meta.TenantStorageShareRecipient, 0, len(recipients))
+	for _, recipient := range recipients {
+		if recipient.Tenant == tenant {
+			continue
+		}
+		output = append(output, recipient)
+	}
+	return output
 }
 
 func shareID(sourceTenant string, sourceProject string, name string) string {

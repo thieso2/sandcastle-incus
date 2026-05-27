@@ -32,6 +32,21 @@ type ShareReconcileRequest struct {
 	DryRun bool   `json:"dry_run,omitempty"`
 }
 
+type ShareRevokeRequest struct {
+	Tenant          string `json:"tenant,omitempty"`
+	Project         string `json:"project"`
+	Name            string `json:"name"`
+	RecipientTenant string `json:"recipient_tenant"`
+	DryRun          bool   `json:"dry_run,omitempty"`
+}
+
+type ShareDeleteRequest struct {
+	Tenant  string `json:"tenant,omitempty"`
+	Project string `json:"project"`
+	Name    string `json:"name"`
+	DryRun  bool   `json:"dry_run,omitempty"`
+}
+
 type ShareListResult struct {
 	Shares []meta.TenantStorageShare `json:"shares"`
 }
@@ -150,6 +165,87 @@ func (h handler) shareDeclineAPI(w http.ResponseWriter, r *http.Request) {
 	h.shareRecipientMutationAPI(w, r, share.RecipientStateDeclined)
 }
 
+func (h handler) shareRevokeAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, err := h.requireBearerUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if h.shareStore == nil {
+		http.Error(w, "share store is not configured", http.StatusInternalServerError)
+		return
+	}
+	var request ShareRevokeRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sourceTenant := strings.TrimSpace(request.Tenant)
+	if sourceTenant == "" {
+		sourceTenant = strings.TrimSpace(h.admin.Tenant)
+	}
+	if err := h.requireTenantAccess(r, user.UserKey, sourceTenant); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	result, err := share.RevokeRecipient(r.Context(), h.tenants, h.shareStore, share.RevokeRequest{
+		SourceTenant:    sourceTenant,
+		SourceProject:   request.Project,
+		Name:            request.Name,
+		RecipientTenant: request.RecipientTenant,
+		DryRun:          request.DryRun,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	h.reconcileShareRecipients(w, r, &result, request.DryRun)
+}
+
+func (h handler) shareDeleteAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, err := h.requireBearerUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if h.shareStore == nil {
+		http.Error(w, "share store is not configured", http.StatusInternalServerError)
+		return
+	}
+	var request ShareDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sourceTenant := strings.TrimSpace(request.Tenant)
+	if sourceTenant == "" {
+		sourceTenant = strings.TrimSpace(h.admin.Tenant)
+	}
+	if err := h.requireTenantAccess(r, user.UserKey, sourceTenant); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	result, err := share.DeleteOutbound(r.Context(), h.tenants, h.shareStore, share.DeleteRequest{
+		SourceTenant:  sourceTenant,
+		SourceProject: request.Project,
+		Name:          request.Name,
+		DryRun:        request.DryRun,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	h.reconcileShareRecipients(w, r, &result, request.DryRun)
+}
+
 func (h handler) shareRecipientMutationAPI(w http.ResponseWriter, r *http.Request, state string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -205,6 +301,28 @@ func (h handler) shareRecipientMutationAPI(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		result.Reconcile = &reconcile
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h handler) reconcileShareRecipients(w http.ResponseWriter, r *http.Request, result *share.Result, dryRun bool) {
+	if h.shareReconciler != nil {
+		for _, recipient := range result.AffectedRecipients {
+			summary, err := h.findTenantSummary(r, recipient)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if dryRun {
+				summary.StorageShares = share.RemoveShare(summary.StorageShares, result.Share.SourceTenant, result.Share.SourceProject, result.Share.Name)
+			}
+			reconcile, err := h.shareReconciler.ReconcileTenantShares(r.Context(), summary, dryRun)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			result.Reconciles = append(result.Reconciles, reconcile)
+		}
 	}
 	writeJSON(w, http.StatusOK, result)
 }

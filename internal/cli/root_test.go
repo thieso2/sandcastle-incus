@@ -137,6 +137,8 @@ type fakeAuthShareClient struct {
 	offers            []meta.TenantStorageShare
 	acceptRequests    []authapp.ShareRecipientRequest
 	declineRequests   []authapp.ShareRecipientRequest
+	revokeRequests    []authapp.ShareRevokeRequest
+	deleteRequests    []authapp.ShareDeleteRequest
 	reconcileRequests []authapp.ShareReconcileRequest
 	reconcileResult   share.ReconcileResult
 }
@@ -389,6 +391,32 @@ func (c *fakeAuthShareClient) DeclineShare(ctx context.Context, request authapp.
 			State:  "declined",
 		}},
 	}}, nil
+}
+
+func (c *fakeAuthShareClient) RevokeShare(ctx context.Context, request authapp.ShareRevokeRequest) (share.Result, error) {
+	c.revokeRequests = append(c.revokeRequests, request)
+	return share.Result{Share: meta.TenantStorageShare{
+		SourceTenant:  request.Tenant,
+		SourceProject: request.Project,
+		SourceDir:     "docs",
+		Name:          request.Name,
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: "other",
+			State:  "pending",
+		}},
+	}, Reconciles: []share.ReconcileResult{c.reconcileResult}}, nil
+}
+
+func (c *fakeAuthShareClient) DeleteShare(ctx context.Context, request authapp.ShareDeleteRequest) (share.Result, error) {
+	c.deleteRequests = append(c.deleteRequests, request)
+	return share.Result{Share: meta.TenantStorageShare{
+		SourceTenant:  request.Tenant,
+		SourceProject: request.Project,
+		SourceDir:     "docs",
+		Name:          request.Name,
+		Availability:  "available",
+	}, Reconciles: []share.ReconcileResult{c.reconcileResult}}, nil
 }
 
 func (c *fakeAuthShareClient) ReconcileShares(ctx context.Context, request authapp.ShareReconcileRequest) (share.ReconcileResult, error) {
@@ -1123,6 +1151,79 @@ func TestShareAcceptUsesRecipientAuthAppClient(t *testing.T) {
 	}
 	request := client.acceptRequests[0]
 	if request.Tenant != "skorfman" || request.SourceTenant != "thieso2" || request.SourceProject != "default" || request.Name != "docs" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestShareRevokeUsesAuthAppClient(t *testing.T) {
+	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
+		Tenant: "skorfman",
+		Machines: []share.MachineReconcileResult{{
+			Project: "default",
+			Machine: "codex",
+			Status:  "updated",
+			Changed: true,
+		}},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "revoke", "default/docs", "--tenant", "skorfman", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.revokeRequests) != 1 {
+		t.Fatalf("revokeRequests = %#v", client.revokeRequests)
+	}
+	request := client.revokeRequests[0]
+	if request.Tenant != "thieso2" || request.Project != "default" || request.Name != "docs" || request.RecipientTenant != "skorfman" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
+	}
+	if !strings.Contains(stdout, "Reconcile skorfman:") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareDeleteRequiresConfirmation(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "delete", "default/docs")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(client.deleteRequests) != 0 {
+		t.Fatalf("deleteRequests = %#v", client.deleteRequests)
+	}
+}
+
+func TestShareDeleteUsesAuthAppClientWithYes(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "delete", "default/docs", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.deleteRequests) != 1 {
+		t.Fatalf("deleteRequests = %#v", client.deleteRequests)
+	}
+	request := client.deleteRequests[0]
+	if request.Tenant != "thieso2" || request.Project != "default" || request.Name != "docs" {
 		t.Fatalf("request = %#v", request)
 	}
 }

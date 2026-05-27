@@ -394,6 +394,8 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/api/shares/status", app.shareStatusAPI)
 	mux.HandleFunc("/api/shares/accept", app.shareAcceptAPI)
 	mux.HandleFunc("/api/shares/decline", app.shareDeclineAPI)
+	mux.HandleFunc("/api/shares/revoke", app.shareRevokeAPI)
+	mux.HandleFunc("/api/shares/delete", app.shareDeleteAPI)
 	mux.HandleFunc("/api/shares/reconcile", app.shareReconcileAPI)
 	mux.HandleFunc("/api/device/start", app.deviceStart)
 	mux.HandleFunc("/api/device/poll", app.devicePoll)

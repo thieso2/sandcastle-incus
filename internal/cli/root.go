@@ -117,6 +117,8 @@ type authShareClient interface {
 	GetShare(context.Context, string, string, string) (meta.TenantStorageShare, error)
 	AcceptShare(context.Context, authapp.ShareRecipientRequest) (share.Result, error)
 	DeclineShare(context.Context, authapp.ShareRecipientRequest) (share.Result, error)
+	RevokeShare(context.Context, authapp.ShareRevokeRequest) (share.Result, error)
+	DeleteShare(context.Context, authapp.ShareDeleteRequest) (share.Result, error)
 	ReconcileShares(context.Context, authapp.ShareReconcileRequest) (share.ReconcileResult, error)
 }
 

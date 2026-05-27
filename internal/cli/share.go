@@ -21,6 +21,8 @@ func newShareCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.AddCommand(newShareOffersCommand(config, opts))
 	command.AddCommand(newShareAcceptCommand(config, opts))
 	command.AddCommand(newShareDeclineCommand(config, opts))
+	command.AddCommand(newShareRevokeCommand(config, opts))
+	command.AddCommand(newShareDeleteCommand(config, opts))
 	command.AddCommand(newShareReconcileCommand(config, opts))
 	return command
 }
@@ -148,6 +150,85 @@ func newShareDeclineCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	return newShareRecipientCommand(config, opts, "decline", "Decline a Tenant Storage Share offer")
 }
 
+func newShareRevokeCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var recipientTenant string
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "revoke project/share-name --tenant tenant",
+		Short: "Revoke one recipient from an outbound Tenant Storage Share",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, name, err := share.ParseStatusRef(args[0])
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(recipientTenant) == "" {
+				return fmt.Errorf("--tenant is required")
+			}
+			client, err := shareClient(config)
+			if err != nil {
+				return err
+			}
+			result, err := client.RevokeShare(cmd.Context(), authapp.ShareRevokeRequest{
+				Tenant:          strings.TrimSpace(config.adminConfig.Tenant),
+				Project:         project,
+				Name:            name,
+				RecipientTenant: recipientTenant,
+				DryRun:          dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatShareResult(result), result)
+		},
+	}
+	command.Flags().StringVar(&recipientTenant, "tenant", "", "recipient tenant to revoke")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the share revocation without mutating metadata or machines")
+	return command
+}
+
+func newShareDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var yes bool
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "delete project/share-name",
+		Short: "Delete an outbound Tenant Storage Share",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, name, err := share.ParseStatusRef(args[0])
+			if err != nil {
+				return err
+			}
+			if !yes && !dryRun {
+				confirmed, err := confirmMissingYes(config, "Delete Tenant Storage Share "+args[0]+"?", "refusing to delete share without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return fmt.Errorf("delete canceled")
+				}
+			}
+			client, err := shareClient(config)
+			if err != nil {
+				return err
+			}
+			result, err := client.DeleteShare(cmd.Context(), authapp.ShareDeleteRequest{
+				Tenant:  strings.TrimSpace(config.adminConfig.Tenant),
+				Project: project,
+				Name:    name,
+				DryRun:  dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatShareResult(result), result)
+		},
+	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm share deletion")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the share deletion without mutating metadata or machines")
+	return command
+}
+
 func newShareRecipientCommand(config commandConfig, opts *rootOptions, action string, short string) *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
@@ -271,6 +352,9 @@ func formatShareResult(result share.Result) string {
 	if result.Reconcile != nil {
 		text += formatReconcileResult(*result.Reconcile)
 	}
+	for _, reconcile := range result.Reconciles {
+		text += formatReconcileResult(reconcile)
+	}
 	return text
 }
 
@@ -279,7 +363,11 @@ func formatReconcileResult(result share.ReconcileResult) string {
 		return "No machines to reconcile\n"
 	}
 	var builder strings.Builder
-	builder.WriteString("Reconcile:\n")
+	if result.Tenant != "" {
+		builder.WriteString("Reconcile " + result.Tenant + ":\n")
+	} else {
+		builder.WriteString("Reconcile:\n")
+	}
 	for _, machine := range result.Machines {
 		status := machine.Status
 		if status == "" {

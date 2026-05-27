@@ -128,6 +128,132 @@ func TestSetRecipientStateAcceptsOffer(t *testing.T) {
 	}
 }
 
+func TestRevokeRecipientRemovesSourceAndRecipientState(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-acme": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{
+				{Tenant: "skorfman", State: RecipientStateAccepted},
+				{Tenant: "other", State: RecipientStatePending},
+			},
+		}},
+		"sc-skorfman": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStateAccepted,
+			}},
+		}},
+	}}
+	result, err := RevokeRecipient(context.Background(), tenantStore(), store, RevokeRequest{
+		SourceTenant:    "acme",
+		SourceProject:   "default",
+		Name:            "docs",
+		RecipientTenant: "skorfman",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Share.Recipients) != 1 || result.Share.Recipients[0].Tenant != "other" {
+		t.Fatalf("share = %#v", result.Share)
+	}
+	if len(store.sharesByProject["sc-skorfman"]) != 0 {
+		t.Fatalf("recipient shares = %#v", store.sharesByProject["sc-skorfman"])
+	}
+}
+
+func TestRevokeRecipientRejectsLastRecipient(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-acme": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStateAccepted,
+			}},
+		}},
+	}}
+	_, err := RevokeRecipient(context.Background(), tenantStore(), store, RevokeRequest{
+		SourceTenant:    "acme",
+		SourceProject:   "default",
+		Name:            "docs",
+		RecipientTenant: "skorfman",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestDeleteOutboundRemovesSourceAndRecipientCopies(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-acme": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStateAccepted,
+			}},
+		}},
+		"sc-skorfman": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStateAccepted,
+			}},
+		}},
+	}}
+	result, err := DeleteOutbound(context.Background(), tenantStore(), store, DeleteRequest{
+		SourceTenant:  "acme",
+		SourceProject: "default",
+		Name:          "docs",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.AffectedRecipients) != 1 || result.AffectedRecipients[0] != "skorfman" {
+		t.Fatalf("affected = %#v", result.AffectedRecipients)
+	}
+	if len(store.sharesByProject["sc-acme"]) != 0 || len(store.sharesByProject["sc-skorfman"]) != 0 {
+		t.Fatalf("shares = %#v", store.sharesByProject)
+	}
+}
+
+func TestDeleteOutboundRejectsInboundCopy(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-skorfman": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStateAccepted,
+			}},
+		}},
+	}}
+	_, err := DeleteOutbound(context.Background(), tenantStore(), store, DeleteRequest{
+		SourceTenant:  "skorfman",
+		SourceProject: "default",
+		Name:          "docs",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 type fakeStore struct {
 	shares          []meta.TenantStorageShare
 	sharesByProject map[string][]meta.TenantStorageShare
@@ -165,8 +291,14 @@ func tenantStore() tenantpkg.MemoryStore {
 		Projects:    []meta.Project{{Name: "default"}},
 		PrivateCIDR: "10.248.1.0/24",
 	})
+	otherConfig, _ := meta.TenantConfig(meta.Tenant{
+		Tenant:      "other",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.2.0/24",
+	})
 	return tenantpkg.MemoryStore{Projects: []tenantpkg.IncusProject{
 		{Name: "sc-acme", Config: acmeConfig},
 		{Name: "sc-skorfman", Config: skorfmanConfig},
+		{Name: "sc-other", Config: otherConfig},
 	}}
 }

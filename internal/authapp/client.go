@@ -346,8 +346,22 @@ func (c DeviceClient) DeclineShare(ctx context.Context, request ShareRecipientRe
 	return c.shareRecipientMutation(ctx, "/api/shares/decline", request, "decline")
 }
 
+func (c DeviceClient) RevokeShare(ctx context.Context, request ShareRevokeRequest) (share.Result, error) {
+	body, _ := json.Marshal(request)
+	return c.postShareResult(ctx, "/api/shares/revoke", body, "revoke")
+}
+
+func (c DeviceClient) DeleteShare(ctx context.Context, request ShareDeleteRequest) (share.Result, error) {
+	body, _ := json.Marshal(request)
+	return c.postShareResult(ctx, "/api/shares/delete", body, "delete")
+}
+
 func (c DeviceClient) shareRecipientMutation(ctx context.Context, path string, request ShareRecipientRequest, label string) (share.Result, error) {
 	body, _ := json.Marshal(request)
+	return c.postShareResult(ctx, path, body, label)
+}
+
+func (c DeviceClient) postShareResult(ctx context.Context, path string, body []byte, label string) (share.Result, error) {
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewReader(body))
 	if err != nil {
 		return share.Result{}, err
