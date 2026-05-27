@@ -1,6 +1,7 @@
 package incusx
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
@@ -241,11 +242,14 @@ func ensureShareMountPathAvailable(server ShareReconcileResourceServer, instance
 
 func instancePathExists(server ShareReconcileResourceServer, instanceName string, path string) (bool, error) {
 	dataDone := make(chan bool)
+	var stdout bytes.Buffer
 	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
-		Command:   []string{"/bin/sh", "-lc", "test -e " + shareShellQuote(path)},
-		WaitForWS: true,
+		Command:     []string{"/bin/sh", "-lc", "if [ -e \"$SANDCASTLE_SHARE_PATH\" ]; then printf 'exists\\n'; else printf 'missing\\n'; fi"},
+		Environment: map[string]string{"SANDCASTLE_SHARE_PATH": path},
+		WaitForWS:   true,
 	}, &incus.InstanceExecArgs{
 		Stdin:    strings.NewReader(""),
+		Stdout:   &stdout,
 		DataDone: dataDone,
 	})
 	if err != nil {
@@ -253,11 +257,17 @@ func instancePathExists(server ShareReconcileResourceServer, instanceName string
 	}
 	waitErr := op.Wait()
 	<-dataDone
-	return waitErr == nil, nil
-}
-
-func shareShellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+	if waitErr != nil {
+		return false, waitErr
+	}
+	switch strings.TrimSpace(stdout.String()) {
+	case "exists":
+		return true, nil
+	case "missing":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected path probe output %q", stdout.String())
+	}
 }
 
 type sdkShareReconcileServer struct {

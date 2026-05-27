@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -52,13 +53,17 @@ func (r *fakeShareReconcileResource) UpdateInstance(name string, instance api.In
 }
 
 func (r *fakeShareReconcileResource) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
+	if args.Stdout != nil {
+		status := "missing"
+		if r.pathExists {
+			status = "exists"
+		}
+		_, _ = fmt.Fprintln(args.Stdout, status)
+	}
 	if args.DataDone != nil {
 		close(args.DataDone)
 	}
-	if r.pathExists {
-		return failingOperation{}, nil
-	}
-	return failingOperation{err: errors.New("missing")}, nil
+	return failingOperation{}, nil
 }
 
 type failingOperation struct {
