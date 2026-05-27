@@ -84,7 +84,7 @@ func newShareListCommand(config commandConfig, opts *rootOptions) *cobra.Command
 				if err == nil {
 					var inboundShares []meta.TenantStorageShare
 					inboundShares, err = client.ListInboundShares(cmd.Context(), strings.TrimSpace(config.adminConfig.Tenant))
-					shares = append(shares, inboundShares...)
+					shares = append(shares, acceptedSharesForTenant(inboundShares, strings.TrimSpace(config.adminConfig.Tenant))...)
 				}
 			}
 			if err != nil {
@@ -97,6 +97,19 @@ func newShareListCommand(config commandConfig, opts *rootOptions) *cobra.Command
 	command.Flags().BoolVar(&inbound, "inbound", false, "show accepted or declined shares offered to the current tenant")
 	command.Flags().BoolVar(&offers, "offers", false, "show pending shares offered to the current tenant")
 	return command
+}
+
+func acceptedSharesForTenant(shares []meta.TenantStorageShare, tenantName string) []meta.TenantStorageShare {
+	var output []meta.TenantStorageShare
+	for _, storageShare := range shares {
+		for _, recipient := range storageShare.Recipients {
+			if recipient.Tenant == tenantName && recipient.State == share.RecipientStateAccepted {
+				output = append(output, storageShare)
+				break
+			}
+		}
+	}
+	return output
 }
 
 func newShareStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {

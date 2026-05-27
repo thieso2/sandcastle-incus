@@ -108,6 +108,28 @@ func TestListInboundShowsPendingOffers(t *testing.T) {
 	}
 }
 
+func TestListInboundExcludesPendingOffersWithoutOffersFilter(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-acme": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStatePending,
+			}},
+		}},
+	}}
+	result, err := ListInbound(context.Background(), tenantStore(), store, ListRequest{Tenant: "skorfman", Inbound: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Shares) != 0 {
+		t.Fatalf("shares = %#v", result.Shares)
+	}
+}
+
 func TestListOutboundMarksMissingSourceUnavailable(t *testing.T) {
 	store := &fakeStatusStore{
 		fakeStore: fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{

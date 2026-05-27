@@ -1105,6 +1105,43 @@ func TestShareListOutputsOutboundShares(t *testing.T) {
 	}
 }
 
+func TestShareListDefaultExcludesPendingInboundOffers(t *testing.T) {
+	client := &fakeAuthShareClient{
+		shares: []meta.TenantStorageShare{{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Availability:  "available",
+		}},
+		inboundShares: []meta.TenantStorageShare{{
+			SourceTenant:  "thieso2",
+			SourceProject: "default",
+			SourceDir:     "pending",
+			Name:          "pending",
+			Availability:  "available",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "acme",
+				State:  "pending",
+			}},
+		}},
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout, "pending") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
 func TestShareOffersListsPendingInboundShares(t *testing.T) {
 	client := &fakeAuthShareClient{offers: []meta.TenantStorageShare{{
 		SourceTenant:  "thieso2",

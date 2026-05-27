@@ -290,6 +290,9 @@ func ListInbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store 
 			if request.Offers && state != RecipientStatePending {
 				continue
 			}
+			if !request.Offers && state == RecipientStatePending {
+				continue
+			}
 			copy := offered
 			copy.Recipients = []meta.TenantStorageShareRecipient{{Tenant: recipient.Tenant, State: state}}
 			output = append(output, copy)
