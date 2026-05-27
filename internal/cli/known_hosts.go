@@ -59,9 +59,6 @@ func (m localKnownHostsManager) RefreshMachine(ctx context.Context, plan machine
 	}
 	keys, err := m.scanKnownHost(ctx, privateIP)
 	if err != nil {
-		if m.stderr != nil {
-			fmt.Fprintf(m.stderr, "Warning: SSH keyscan for %s failed (%v); known_hosts not updated.\n", privateIP, err)
-		}
 		return nil
 	}
 	if err := m.removeKnownHost(ctx, path, hostname); err != nil {
