@@ -141,11 +141,16 @@ func lookupCachedPlan(cache incusx.ConnectCache, tenant, project, reference stri
 		return machine.ConnectPlan{}, false // FQDN or invalid ref — skip cache
 	}
 	if tenantName, rest, ok := strings.Cut(reference, "/"); ok {
-		projectName, machineName, ok := strings.Cut(rest, ":")
-		if !ok || strings.Contains(projectName, "/") || strings.Contains(machineName, "/:") {
+		if projectName, machineName, ok := strings.Cut(rest, ":"); ok {
+			if strings.Contains(projectName, "/") || strings.Contains(machineName, "/:") {
+				return machine.ConnectPlan{}, false
+			}
+			return cache.LookupPlan(connectPlanCacheKey(tenantName, projectName, machineName))
+		}
+		if strings.Contains(rest, "/:") {
 			return machine.ConnectPlan{}, false
 		}
-		return cache.LookupPlan(connectPlanCacheKey(tenantName, projectName, machineName))
+		return cache.LookupPlanByName(tenantName, rest)
 	}
 	if strings.Contains(reference, ":") {
 		projectRef, machineName, err := naming.ParseUserMachineRef(reference, project)
@@ -170,6 +175,9 @@ func lookupCachedPlan(cache incusx.ConnectCache, tenant, project, reference stri
 func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.ConnectCache, reference string, command []string, oldPlan machine.ConnectPlan, workloadOptions workloadEnableOptions) error {
 	if key := connectPlanCacheKey(cfg.adminConfig.Tenant, cfg.adminConfig.Project, reference); key != "" {
 		cache.InvalidatePlan(key)
+	}
+	if tenantName, machineName, ok := tenantMachineReference(reference); ok {
+		cache.InvalidatePlansByNameExcept(tenantName, machineName, "__none__")
 	}
 	if canonKey := connectPlanCacheKey(oldPlan.Tenant.Tenant, oldPlan.Project, oldPlan.Name); canonKey != "" {
 		cache.InvalidatePlan(canonKey)
@@ -236,6 +244,20 @@ func pruneBareNameConnectCache(cache incusx.ConnectCache, cfg commandConfig, ref
 		return
 	}
 	cache.InvalidatePlansByNameExcept(plan.Tenant.Tenant, plan.Name, plan.Project)
+}
+
+func tenantMachineReference(reference string) (string, string, bool) {
+	tenantName, rest, ok := strings.Cut(strings.TrimSpace(reference), "/")
+	if !ok || strings.TrimSpace(tenantName) == "" || strings.TrimSpace(rest) == "" {
+		return "", "", false
+	}
+	if strings.Contains(rest, "/:") {
+		return "", "", false
+	}
+	if strings.Contains(rest, ":") {
+		return "", "", false
+	}
+	return strings.TrimSpace(tenantName), strings.TrimSpace(rest), true
 }
 
 // applyConnectCommand sets the command and interactive flag on a cached plan.
