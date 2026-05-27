@@ -1,6 +1,10 @@
 FROM debian:13-slim
 
 ARG COREDNS_VERSION=1.14.3
+ARG SANDCASTLE_IMAGE_TEMPLATE=base
+ARG SANDCASTLE_IMAGE_TAG=sandcastle/base:latest
+ARG SANDCASTLE_IMAGE_VERSION=unknown
+ARG SANDCASTLE_IMAGE_COMMIT_DATE=unknown
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -13,6 +17,8 @@ RUN apt-get update \
         curl \
         dbus \
         dialog \
+        docker-cli \
+        docker.io \
         ethtool \
         gnupg \
         iproute2 \
@@ -33,10 +39,24 @@ RUN apt-get update \
         vim \
     && rm -rf /var/lib/apt/lists/*
 
+RUN systemctl disable docker.service docker.socket containerd.service >/dev/null 2>&1 || true \
+    && rm -f \
+        /etc/systemd/system/multi-user.target.wants/docker.service \
+        /etc/systemd/system/multi-user.target.wants/containerd.service \
+        /etc/systemd/system/sockets.target.wants/docker.socket
+
 RUN sed -i 's/^# *\(de_DE.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
     && sed -i 's/^# *\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
     && locale-gen \
     && update-locale LANG=C.UTF-8
+
+RUN printf 'Sandcastle %s image\nVersion: %s\nImage: %s\nLast commit: %s\n\n' \
+        "$SANDCASTLE_IMAGE_TEMPLATE" \
+        "$SANDCASTLE_IMAGE_VERSION" \
+        "$SANDCASTLE_IMAGE_TAG" \
+        "$SANDCASTLE_IMAGE_COMMIT_DATE" \
+        >/etc/issue \
+    && cp /etc/issue /etc/issue.net
 
 RUN set -eux; \
     arch="${TARGETARCH:-amd64}"; \

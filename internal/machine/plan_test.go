@@ -82,6 +82,40 @@ func TestPlanCreateUsesConfiguredProject(t *testing.T) {
 	}
 }
 
+func TestPlanCreateUsesProjectDockerAutostart(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	store := tenantStoreForTest(t)
+	tenantConfig, err := meta.ParseTenantConfig(store.Projects[0].Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range tenantConfig.Projects {
+		if tenantConfig.Projects[i].Name == "website" {
+			tenantConfig.Projects[i].DockerAutostart = true
+		}
+	}
+	store.Projects[0].Config, err = meta.TenantConfig(tenantConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanCreate(context.Background(), admin, store, nil, CreateRequest{Reference: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.DockerAutostart || !plan.ContainerTools {
+		t.Fatalf("DockerAutostart=%t ContainerTools=%t, want both true", plan.DockerAutostart, plan.ContainerTools)
+	}
+	metadata, err := meta.ParseMachineConfig(plan.MetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metadata.DockerAutostart {
+		t.Fatalf("metadata DockerAutostart = false, want true")
+	}
+}
+
 func TestPlanCreatePreservesExplicitProject(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"

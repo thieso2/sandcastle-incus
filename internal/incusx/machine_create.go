@@ -17,6 +17,7 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -111,14 +112,18 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 		return err
 	}
 	var instance *api.Instance
+	var instanceETag string
 	err := c.runCommandWithExpectedError("get instance "+plan.InstanceName, func(err error) bool {
 		return api.StatusErrorCheck(err, http.StatusNotFound)
 	}, func() error {
 		var err error
-		instance, _, err = projectServer.GetInstance(plan.InstanceName)
+		instance, instanceETag, err = projectServer.GetInstance(plan.InstanceName)
 		return err
 	})
 	if err == nil {
+		if err := c.updateMachineConfigStep(projectServer, instance, instanceETag, plan); err != nil {
+			return err
+		}
 		if plan.StartsByDefault && !instance.IsActive() {
 			if err := c.runCommand("start instance "+plan.InstanceName, func() error {
 				op, err := projectServer.UpdateInstanceState(plan.InstanceName, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
@@ -168,6 +173,37 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 		return err
 	}
 	return nil
+}
+
+func (c MachineCreator) updateMachineConfigStep(server MachineResourceServer, instance *api.Instance, etag string, plan machine.CreatePlan) error {
+	current := map[string]string(instance.Config)
+	if current[meta.KeyKind] != meta.KindMachine {
+		return nil
+	}
+	desired := machineConfigUpdates(plan)
+	updated := make(map[string]string, len(current)+len(desired))
+	for key, value := range current {
+		updated[key] = value
+	}
+	changed := false
+	for key, value := range desired {
+		if updated[key] != value {
+			changed = true
+		}
+		updated[key] = value
+	}
+	if !changed {
+		return nil
+	}
+	return c.runCommand("update machine metadata "+plan.InstanceName, func() error {
+		put := instance.Writable()
+		put.Config = api.ConfigMap(updated)
+		op, err := server.UpdateInstance(plan.InstanceName, put, etag)
+		if err != nil {
+			return err
+		}
+		return op.Wait()
+	})
 }
 
 type machineCertificateIssueResult struct {
@@ -395,6 +431,13 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
+func boolEnv(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
+}
+
 type machineConfigStepRunner func(label string, fn func() error) error
 
 func runMachineConfigStep(run machineConfigStepRunner, label string, fn func() error) error {
@@ -476,6 +519,15 @@ if command -v setcap >/dev/null 2>&1 && [ -x /usr/bin/ping ]; then
   setcap cap_net_raw+p /usr/bin/ping
 fi
 
+step docker
+if [ -e /lib/systemd/system/docker.service ] || command -v docker >/dev/null 2>&1; then
+  if [ "${SANDCASTLE_DOCKER_AUTOSTART:-0}" = "1" ]; then
+    systemctl enable --now containerd.service docker.service >/dev/null 2>&1 || true
+  else
+    systemctl disable docker.service docker.socket containerd.service >/dev/null 2>&1 || true
+  fi
+fi
+
 step resolv-conf
 if [ -n "${SANDCASTLE_DNS_ADDRESS:-}" ]; then
   rm -f /etc/resolv.conf
@@ -489,12 +541,13 @@ fi
 	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
 		Command: []string{"/bin/sh", "-se"},
 		Environment: map[string]string{
-			"SANDCASTLE_USER":           plan.LinuxUser,
-			"SANDCASTLE_UID":            fmt.Sprintf("%d", machine.DefaultLinuxUID),
-			"SANDCASTLE_GID":            fmt.Sprintf("%d", machine.DefaultLinuxGID),
-			"SANDCASTLE_SSH_PUBLIC_KEY": plan.SSHPublicKey,
-			"SANDCASTLE_HOSTNAME":       plan.Hostname,
-			"SANDCASTLE_DNS_ADDRESS":    plan.Tenant.DNSAddress,
+			"SANDCASTLE_USER":             plan.LinuxUser,
+			"SANDCASTLE_UID":              fmt.Sprintf("%d", machine.DefaultLinuxUID),
+			"SANDCASTLE_GID":              fmt.Sprintf("%d", machine.DefaultLinuxGID),
+			"SANDCASTLE_SSH_PUBLIC_KEY":   plan.SSHPublicKey,
+			"SANDCASTLE_HOSTNAME":         plan.Hostname,
+			"SANDCASTLE_DNS_ADDRESS":      plan.Tenant.DNSAddress,
+			"SANDCASTLE_DOCKER_AUTOSTART": boolEnv(plan.DockerAutostart),
 		},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{
@@ -629,16 +682,7 @@ func readProjectCAFile(server MachineResourceServer, plan machine.CreatePlan, pa
 }
 
 func machineRequest(plan machine.CreatePlan) api.InstancesPost {
-	config := map[string]string{}
-	for key, value := range plan.MetadataConfig {
-		config[key] = value
-	}
-	config["environment.SANDCASTLE_USER"] = plan.LinuxUser
-	config["environment.USER"] = plan.LinuxUser
-	config["environment.HOME"] = "/home/" + plan.LinuxUser
-	if plan.ContainerTools {
-		config["security.nesting"] = "true"
-	}
+	config := machineConfigUpdates(plan)
 	return api.InstancesPost{
 		Name:  plan.InstanceName,
 		Type:  "container",
@@ -654,6 +698,20 @@ func machineRequest(plan machine.CreatePlan) api.InstancesPost {
 			Profiles:    []string{},
 		},
 	}
+}
+
+func machineConfigUpdates(plan machine.CreatePlan) map[string]string {
+	config := map[string]string{}
+	for key, value := range plan.MetadataConfig {
+		config[key] = value
+	}
+	config["environment.SANDCASTLE_USER"] = plan.LinuxUser
+	config["environment.USER"] = plan.LinuxUser
+	config["environment.HOME"] = "/home/" + plan.LinuxUser
+	if plan.ContainerTools {
+		config["security.nesting"] = "true"
+	}
+	return config
 }
 
 func machineDevicesMap(devices map[string]machine.Device) api.DevicesMap {

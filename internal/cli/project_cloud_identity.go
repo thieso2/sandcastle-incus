@@ -29,3 +29,12 @@ func projectHasCloudIdentity(projects []meta.Project, name string, cloudIdentity
 	}
 	return false
 }
+
+func projectHasDockerAutostart(projects []meta.Project, name string) bool {
+	for _, project := range projects {
+		if project.Name == name && project.DockerAutostart {
+			return true
+		}
+	}
+	return false
+}

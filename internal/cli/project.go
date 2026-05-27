@@ -21,6 +21,7 @@ func newProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.AddCommand(newProjectStatusCommand(config, opts))
 	command.AddCommand(newProjectSetCloudIdentityCommand(config, opts))
 	command.AddCommand(newProjectUnsetCloudIdentityCommand(config, opts))
+	command.AddCommand(newProjectSetDockerAutostartCommand(config, opts))
 	command.AddCommand(newProjectDeleteCommand(config, opts))
 	return command
 }
@@ -199,6 +200,50 @@ func newProjectUnsetCloudIdentityCommand(config commandConfig, opts *rootOptions
 	return command
 }
 
+func newProjectSetDockerAutostartCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "set-docker-autostart name on|off",
+		Short: "Set whether Docker starts automatically for new machines in a project",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			enabled, err := parseOnOff(args[1])
+			if err != nil {
+				return err
+			}
+			plan, err := tenant.PlanSetProjectDockerAutostart(cmd.Context(), config.adminConfig, config.tenantStore, tenant.ProjectMutationRequest{
+				Name:            args[0],
+				DockerAutostart: enabled,
+			})
+			if err != nil {
+				return err
+			}
+			if !dryRun {
+				if config.tenantUpdater == nil {
+					return fmt.Errorf("project metadata updater is not configured")
+				}
+				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
+					return err
+				}
+			}
+			return writeOutput(config.stdout, opts.output, formatProjectMutationPlan(plan), plan)
+		},
+	}
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the project metadata update without mutating resources")
+	return command
+}
+
+func parseOnOff(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "on", "true", "yes", "1", "enabled", "enable":
+		return true, nil
+	case "off", "false", "no", "0", "disabled", "disable":
+		return false, nil
+	default:
+		return false, fmt.Errorf("value must be on or off")
+	}
+}
+
 func currentTenantMachines(cmd *cobra.Command, config commandConfig) (tenant.Summary, []meta.Machine, error) {
 	result, err := listMachines(cmd.Context(), config, listMachinesRequest{AllProjects: true})
 	if err != nil {
@@ -241,6 +286,9 @@ func formatProjectNamespaceStatus(status projectStatusPayload) string {
 	fmt.Fprintf(&builder, "Tenant: %s\n", status.Tenant.Tenant)
 	if status.Project.CloudIdentity != "" {
 		fmt.Fprintf(&builder, "Cloud identity: %s\n", status.Project.CloudIdentity)
+	}
+	if status.Project.DockerAutostart {
+		fmt.Fprintln(&builder, "Docker autostart: on")
 	}
 	fmt.Fprintf(&builder, "Machines: %d", status.MachineCount)
 	return builder.String()

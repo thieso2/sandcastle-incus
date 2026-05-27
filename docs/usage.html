@@ -168,6 +168,14 @@
   </div>
 
   <div class="step">
+    <h3>Install the user CLI</h3>
+    <p>Install only the user-facing <code>sandcastle</code> binary and <code>sc</code> alias. The task installs into <code>~/.local/bin</code> when that directory is already on <code>PATH</code>; otherwise it installs into <code>/usr/local/bin</code>.</p>
+    <pre><code><span class="cmd">mise run install</span>
+<span class="cmd">sc version</span></code></pre>
+    <p>Normal tenant users do not need <code>sandcastle-admin</code> or <code>sc-adm</code>; those are operator tools for tenant, infrastructure, image, and sidecar administration.</p>
+  </div>
+
+  <div class="step">
     <h3>Config file (recommended)</h3>
     <p>Store your defaults in <code>~/.config/sandcastle/config.yml</code> so you don't need to set env vars on every call.</p>
     <pre><code><span class="comment"># ~/.config/sandcastle/config.yml</span>
@@ -397,8 +405,9 @@ Bootstrap:
 <span class="cmd">sandcastle project status</span> <span class="arg">website</span>
 <span class="cmd">sandcastle project set-cloud-identity</span> <span class="arg">default</span> <span class="arg">gcp</span>
 <span class="cmd">sandcastle project unset-cloud-identity</span> <span class="arg">default</span>
+<span class="cmd">sandcastle project set-docker-autostart</span> <span class="arg">website</span> <span class="arg">on</span>
 <span class="cmd">sandcastle project delete</span> <span class="arg">website</span> <span class="flag">--yes</span></code></pre>
-    <p>A project's default Cloud Identity Config is used by <code>sandcastle create</code> and by <code>sandcastle connect</code> when it auto-creates a missing machine. The default project can carry this setting too.</p>
+    <p>A project's default Cloud Identity Config is used by <code>sandcastle create</code> and by <code>sandcastle connect</code> when it auto-creates a missing machine. The Docker autostart setting controls whether Docker is enabled and started during new machine configuration; it also enables nested container tooling for those new machines. Docker is installed in the base image but the daemon is disabled by default. The default project can carry both settings too.</p>
   </div>
 
   <div class="step">
@@ -428,6 +437,7 @@ Bootstrap:
   <div class="step">
     <h3>Enable nested container tools (Docker/Incus inside machine) <span class="badge badge-user">user</span></h3>
     <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/builder</span> <span class="flag">--container-tools</span></code></pre>
+    <p>The base image includes Docker. The Sandcastle user is added to the <code>docker</code> group during machine configuration. Docker does not start by default; start it manually with <code>sudo systemctl start docker</code>, or enable project autostart for future machines with <code>sandcastle project set-docker-autostart website on</code>.</p>
   </div>
 
   <div class="step">
@@ -707,8 +717,15 @@ Bootstrap:
   </div>
 
   <div class="step">
+    <h3>Rebuild and upload every image</h3>
+    <p>Builds and uploads the base image first, rebuilds and uploads the AI image from that base image, then syncs both aliases into image-enabled Sandcastle tenant projects.</p>
+    <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
+<span class="cmd">mise run image:all:build-upload</span></code></pre>
+  </div>
+
+  <div class="step">
     <h3>Build and upload the base image</h3>
-    <p>The base image includes tmux, vim, mosh, gcloud CLI, generated locales, and refreshed forwarded SSH agent sockets across reconnects.</p>
+    <p>The base image includes tmux, vim, mosh, Docker, gcloud CLI, generated locales, and refreshed forwarded SSH agent sockets across reconnects. Docker service units are disabled in the image so the daemon does not start unless the machine or project configuration opts into it.</p>
     <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
 <span class="cmd">mise run image:base:build-upload</span></code></pre>
   </div>
@@ -718,11 +735,14 @@ Bootstrap:
     <table>
       <thead><tr><th>Task</th><th>Description</th></tr></thead>
       <tbody>
+        <tr><td>mise run image:all:build-upload</td><td>Rebuild base and AI images, upload both to Incus, then sync tenant-local aliases</td></tr>
+        <tr><td>mise run image:tenant:sync</td><td>Sync published image aliases into image-enabled Sandcastle tenant projects</td></tr>
         <tr><td>mise run image:ai:build-upload</td><td>Build AI image with latest tool versions and upload to Incus</td></tr>
         <tr><td>mise run image:base:build-upload</td><td>Build base image and upload to Incus</td></tr>
         <tr><td>mise run image:base:build</td><td>Build base image locally only</td></tr>
         <tr><td>mise run image:base:upload</td><td>Upload a previously built base image</td></tr>
         <tr><td>mise run image:deps</td><td>Check that docker, incus, tar, zstd are installed</td></tr>
+        <tr><td>mise run install</td><td>Install the user CLI and <code>sc</code> alias</td></tr>
       </tbody>
     </table>
   </div>
@@ -950,6 +970,7 @@ Bootstrap:
         <tr><td>sandcastle incus-native ...</td><td>Run the Incus CLI scoped to the tenant's native (freeform) project</td></tr>
         <tr><td>sandcastle incus-infra ...</td><td>Run the Incus CLI scoped to the tenant's infra (sidecars) project</td></tr>
         <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
+        <tr><td>sandcastle project set-docker-autostart &lt;project&gt; on|off</td><td>Control Docker daemon autostart for new machines in a project</td></tr>
         <tr><td>sandcastle ssh-key set [--file &lt;path&gt;]</td><td>Publish the developer SSH key for tenant machines</td></tr>
         <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change machine app port</td></tr>
         <tr><td>sandcastle trust install [tenant]</td><td>Trust tenant CA locally</td></tr>
@@ -982,6 +1003,7 @@ Bootstrap:
         <tr><td>sandcastle-admin image sync</td><td>Sync imported image to alias</td></tr>
         <tr><td>mise run build</td><td>Build native CLI binaries</td></tr>
         <tr><td>mise run build:linux-amd64</td><td>Cross-compile Linux amd64 CLI binaries</td></tr>
+        <tr><td>mise run install</td><td>Install <code>sandcastle</code> and the <code>sc</code> alias for normal users</td></tr>
       </tbody>
     </table>
   </div>

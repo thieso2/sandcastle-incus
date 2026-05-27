@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
 func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -51,16 +52,23 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					DebugApprove:  debugApprove,
 				})
 			}
-			if strings.TrimSpace(cloudIdentity) != "" {
+			effectiveCloudIdentity := effectiveProjectCloudIdentity(config, plan.Tenant, plan.Project, cloudIdentity)
+			if shouldEnableCloudIdentityForConnect(config, plan, effectiveCloudIdentity) {
 				if err := enableWorkloadIdentityForConnect(cmd, config, reference, workloadEnableOptions{
 					AuthHostname:  authHostname,
-					CloudIdentity: cloudIdentity,
+					CloudIdentity: effectiveCloudIdentity,
 					MaxPolls:      maxPolls,
 					DebugApprove:  debugApprove,
 				}); err != nil {
 					return err
 				}
-			} else {
+				plan.CloudIdentity = strings.TrimSpace(effectiveCloudIdentity)
+				if plan.Managed {
+					if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
+						cache.StorePlan(key, plan)
+					}
+				}
+			} else if strings.TrimSpace(effectiveCloudIdentity) == "" {
 				verboseCLI(config, "workload identity: not requested before connect %s; gcloud works only if this machine already has workload files", reference)
 			}
 			if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), config, plan); err != nil {
@@ -126,8 +134,16 @@ func planConnectCached(ctx context.Context, cfg commandConfig, cache incusx.Conn
 // lookupCachedPlan tries the exact project key first, then falls back to a name-only
 // search across all projects when no default project is configured.
 func lookupCachedPlan(cache incusx.ConnectCache, tenant, project, reference string) (machine.ConnectPlan, bool) {
-	if strings.ContainsAny(reference, "./: ") {
-		return machine.ConnectPlan{}, false // FQDN or explicit project ref — skip cache
+	reference = strings.TrimSpace(reference)
+	if strings.ContainsAny(reference, ". ") {
+		return machine.ConnectPlan{}, false // FQDN or invalid ref — skip cache
+	}
+	if strings.ContainsAny(reference, ":/") {
+		projectRef, machineName, err := naming.ParseUserMachineRef(reference, project)
+		if err != nil {
+			return machine.ConnectPlan{}, false
+		}
+		return cache.LookupPlan(connectPlanCacheKey(tenant, projectRef.Project, machineName))
 	}
 	if key := connectPlanCacheKey(tenant, project, reference); key != "" {
 		return cache.LookupPlan(key)
@@ -166,9 +182,18 @@ func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.Conne
 			cache.StorePlan(key, plan)
 		}
 	}
-	if strings.TrimSpace(workloadOptions.CloudIdentity) != "" {
+	if strings.TrimSpace(workloadOptions.CloudIdentity) == "" {
+		workloadOptions.CloudIdentity = effectiveProjectCloudIdentity(cfg, plan.Tenant, plan.Project, "")
+	}
+	if shouldEnableCloudIdentityForConnect(cfg, plan, workloadOptions.CloudIdentity) {
 		if err := enableWorkloadIdentityForConnect(cmd, cfg, reference, workloadOptions); err != nil {
 			return err
+		}
+		plan.CloudIdentity = strings.TrimSpace(workloadOptions.CloudIdentity)
+		if plan.Managed {
+			if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
+				cache.StorePlan(key, plan)
+			}
 		}
 	}
 	if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), cfg, plan); err != nil {
@@ -211,6 +236,18 @@ func applyConnectCommand(plan machine.ConnectPlan, command []string) machine.Con
 func shouldCreateOnConnectFailure(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "not found") && !strings.Contains(message, "project")
+}
+
+func shouldEnableCloudIdentityForConnect(config commandConfig, plan machine.ConnectPlan, cloudIdentity string) bool {
+	cloudIdentity = strings.TrimSpace(cloudIdentity)
+	if cloudIdentity == "" {
+		return false
+	}
+	if strings.TrimSpace(plan.CloudIdentity) == cloudIdentity {
+		verboseCLI(config, "workload identity: cloud identity %q already applied to %s/%s; using direct connect", cloudIdentity, plan.Project, plan.Name)
+		return false
+	}
+	return true
 }
 
 func refreshKnownHostsForPrivateIPConnect(ctx context.Context, config commandConfig, plan machine.ConnectPlan) error {
@@ -274,6 +311,7 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 	if err != nil {
 		return err
 	}
+	connectPlan.CloudIdentity = strings.TrimSpace(workloadOptions.CloudIdentity)
 	cache := incusx.NewConnectCache(config.adminConfig.Remote)
 	if connectPlan.Managed {
 		if key := connectPlanCacheKey(connectPlan.Tenant.Tenant, connectPlan.Project, connectPlan.Name); key != "" {

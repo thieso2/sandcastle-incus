@@ -8,7 +8,7 @@ func TestTenantConfigRoundTrip(t *testing.T) {
 		PrivateCIDR: "10.88.17.0/24",
 		Projects: []Project{
 			{Name: "default"},
-			{Name: "website", CreatedBy: "alice"},
+			{Name: "website", CreatedBy: "alice", DockerAutostart: true},
 		},
 		Tailscale: Tailscale{
 			State:            "connected",
@@ -38,7 +38,7 @@ func TestTenantConfigRoundTrip(t *testing.T) {
 	if output.Tenant != input.Tenant || output.PrivateCIDR != input.PrivateCIDR {
 		t.Fatalf("round trip = %#v, want %#v", output, input)
 	}
-	if len(output.Projects) != 2 || output.Projects[1].Name != "website" {
+	if len(output.Projects) != 2 || output.Projects[1].Name != "website" || !output.Projects[1].DockerAutostart {
 		t.Fatalf("projects = %#v", output.Projects)
 	}
 	if len(output.Tailscale.AdvertisedRoutes) != 1 {
@@ -51,19 +51,21 @@ func TestTenantConfigRoundTrip(t *testing.T) {
 
 func TestMachineConfigRoundTrip(t *testing.T) {
 	input := Machine{
-		Tenant:         "acme",
-		Project:        "website",
-		Name:           "codex",
-		Type:           MachineTypeContainer,
-		Template:       "ai",
-		AppPort:        3000,
-		PrivateIP:      "10.88.17.21",
-		LinuxUser:      "alice",
-		HomeDir:        "website/codex",
-		WorkspaceDir:   "website/codex",
-		ContainerTools: true,
-		ExtraSANs:      []string{"app.example.test"},
-		CreatedBy:      "alice",
+		Tenant:          "acme",
+		Project:         "website",
+		Name:            "codex",
+		Type:            MachineTypeContainer,
+		Template:        "ai",
+		AppPort:         3000,
+		PrivateIP:       "10.88.17.21",
+		LinuxUser:       "alice",
+		CloudIdentity:   "gcp",
+		DockerAutostart: true,
+		HomeDir:         "website/codex",
+		WorkspaceDir:    "website/codex",
+		ContainerTools:  true,
+		ExtraSANs:       []string{"app.example.test"},
+		CreatedBy:       "alice",
 	}
 	config, err := MachineConfig(input)
 	if err != nil {
@@ -79,7 +81,7 @@ func TestMachineConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Name != input.Name || output.PrivateIP != input.PrivateIP || output.LinuxUser != input.LinuxUser {
+	if output.Name != input.Name || output.PrivateIP != input.PrivateIP || output.LinuxUser != input.LinuxUser || output.CloudIdentity != input.CloudIdentity || output.DockerAutostart != input.DockerAutostart {
 		t.Fatalf("round trip = %#v, want %#v", output, input)
 	}
 	if len(output.ExtraSANs) != 1 {

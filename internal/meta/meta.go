@@ -48,9 +48,10 @@ type Tenant struct {
 }
 
 type Project struct {
-	Name          string `json:"name"`
-	CreatedBy     string `json:"createdBy,omitempty"`
-	CloudIdentity string `json:"cloudIdentity,omitempty"`
+	Name            string `json:"name"`
+	CreatedBy       string `json:"createdBy,omitempty"`
+	CloudIdentity   string `json:"cloudIdentity,omitempty"`
+	DockerAutostart bool   `json:"dockerAutostart,omitempty"`
 }
 
 type Tailscale struct {
@@ -76,22 +77,24 @@ type PublicRoute struct {
 }
 
 type Machine struct {
-	Tenant         string   `json:"tenant"`
-	Project        string   `json:"project"`
-	Name           string   `json:"name"`
-	Type           string   `json:"type"`
-	Template       string   `json:"template,omitempty"`
-	AppPort        int      `json:"appPort"`
-	PrivateIP      string   `json:"privateIP"`
-	TailscaleIP    string   `json:"tailscaleIP,omitempty"`
-	LinuxUser      string   `json:"linuxUser,omitempty"`
-	HomeDir        string   `json:"homeDir,omitempty"`
-	WorkspaceDir   string   `json:"workspaceDir,omitempty"`
-	ContainerTools bool     `json:"containerTools,omitempty"`
-	ExtraSANs      []string `json:"extraSANs,omitempty"`
-	CreatedBy      string   `json:"createdBy,omitempty"`
-	CreatedAt      string   `json:"createdAt,omitempty"`
-	Running        bool     `json:"running,omitempty"`
+	Tenant          string   `json:"tenant"`
+	Project         string   `json:"project"`
+	Name            string   `json:"name"`
+	Type            string   `json:"type"`
+	Template        string   `json:"template,omitempty"`
+	AppPort         int      `json:"appPort"`
+	PrivateIP       string   `json:"privateIP"`
+	TailscaleIP     string   `json:"tailscaleIP,omitempty"`
+	LinuxUser       string   `json:"linuxUser,omitempty"`
+	CloudIdentity   string   `json:"cloudIdentity,omitempty"`
+	DockerAutostart bool     `json:"dockerAutostart,omitempty"`
+	HomeDir         string   `json:"homeDir,omitempty"`
+	WorkspaceDir    string   `json:"workspaceDir,omitempty"`
+	ContainerTools  bool     `json:"containerTools,omitempty"`
+	ExtraSANs       []string `json:"extraSANs,omitempty"`
+	CreatedBy       string   `json:"createdBy,omitempty"`
+	CreatedAt       string   `json:"createdAt,omitempty"`
+	Running         bool     `json:"running,omitempty"`
 }
 
 type Route struct {

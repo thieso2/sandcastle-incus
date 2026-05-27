@@ -5,6 +5,37 @@ go = "1.25.6"
 description = "Build the sandcastle CLI and sc alias"
 run = "make build"
 
+[tasks.install]
+description = "Install the user CLI and sc alias into ~/.local/bin when it is on PATH, otherwise /usr/local/bin"
+run = """
+set -euo pipefail
+
+user_bin="${HOME}/.local/bin"
+system_bin="/usr/local/bin"
+
+case ":${PATH}:" in
+  *":${user_bin}:"*) bindir="${user_bin}" ;;
+  *) bindir="${system_bin}" ;;
+esac
+
+mkdir_cmd="mkdir -p"
+install_cmd="install"
+ln_cmd="ln"
+if [ "${bindir}" = "${system_bin}" ] && { [ ! -d "${bindir}" ] || [ ! -w "${bindir}" ]; }; then
+  mkdir_cmd="sudo mkdir -p"
+  install_cmd="sudo install"
+  ln_cmd="sudo ln"
+fi
+
+echo "Installing sandcastle user CLI to ${bindir}"
+mkdir -p bin
+go build -o bin/sandcastle ./cmd/sandcastle
+${mkdir_cmd} "${bindir}"
+${install_cmd} -m 0755 bin/sandcastle "${bindir}/sandcastle"
+${ln_cmd} -sf sandcastle "${bindir}/sc"
+echo "Installed ${bindir}/sandcastle and ${bindir}/sc"
+"""
+
 [tasks."build:linux-amd64"]
 description = "Cross-compile sandcastle and sandcastle-admin for Linux amd64"
 env = { GOOS = "linux", GOARCH = "amd64", CGO_ENABLED = "0", BIN_DIR = "bin/linux-amd64" }
@@ -48,6 +79,20 @@ run = [
   "make build",
   "./bin/sandcastle-admin image build base --tag ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest}",
   "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} \"$SANDCASTLE_REMOTE\"",
+]
+
+[tasks."image:tenant:sync"]
+description = "Sync published Sandcastle image aliases into image-enabled tenant projects"
+env = { SANDCASTLE_REMOTE = "big" }
+run = "bash scripts/sync-sandcastle-images-to-projects.sh \"$SANDCASTLE_REMOTE\""
+
+[tasks."image:all:build-upload"]
+description = "Rebuild and upload all Sandcastle OCI images into Incus"
+env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
+run = [
+  "mise run image:base:build-upload",
+  "mise run image:ai:build-upload",
+  "mise run image:tenant:sync",
 ]
 
 [tasks."infra:redeploy"]

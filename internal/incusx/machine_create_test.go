@@ -182,6 +182,8 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 		"ssh-keygen -A",
 		"/usr/local/bin/sandcastle-bootstrap",
 		"cap_net_raw+p /usr/bin/ping",
+		"step docker",
+		"systemctl disable docker.service docker.socket containerd.service",
 		"resolv-conf",
 	} {
 		if !strings.Contains(configureScript, want) {
@@ -220,6 +222,22 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 		if strings.Contains(strings.Join(command, " "), "tailscale") {
 			t.Fatalf("unexpected machine-level Tailscale command: %#v", command)
 		}
+	}
+}
+
+func TestMachineCreatorCanEnableDockerAutostart(t *testing.T) {
+	plan := machinePlanForTest(t)
+	plan.DockerAutostart = true
+	resource := fakeMachineResourceWithCA(t)
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(resource.execStdin) != 1 || !strings.Contains(resource.execStdin[0], "systemctl enable --now containerd.service docker.service") {
+		t.Fatalf("configure script = %q", resource.execStdin)
+	}
+	if got := resource.execEnvs[0]["SANDCASTLE_DOCKER_AUTOSTART"]; got != "1" {
+		t.Fatalf("SANDCASTLE_DOCKER_AUTOSTART = %q", got)
 	}
 }
 
@@ -349,6 +367,56 @@ func TestMachineCreatorStartsExistingStoppedInstance(t *testing.T) {
 	}
 	if len(resource.execStdin) < 1 || !strings.Contains(resource.execStdin[0], machine.CaddyfilePath) {
 		t.Fatal("expected Caddyfile in config script")
+	}
+}
+
+func TestMachineCreatorUpdatesExistingMachineMetadata(t *testing.T) {
+	plan := machinePlanForTest(t)
+	originalConfig := api.ConfigMap(plan.MetadataConfig)
+	state, err := meta.ParseMachineConfig(plan.MetadataConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.CloudIdentity = "gcp"
+	plan.MetadataConfig, err = meta.MachineConfig(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource := fakeMachineResourceWithCA(t)
+	resource.instance = &api.Instance{Name: plan.InstanceName, StatusCode: api.Running, InstancePut: api.InstancePut{Config: originalConfig}}
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if resource.updated == nil {
+		t.Fatal("expected machine metadata update")
+	}
+	updated, err := meta.ParseMachineConfig(map[string]string(resource.updated.Config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.CloudIdentity != "gcp" {
+		t.Fatalf("CloudIdentity = %q", updated.CloudIdentity)
+	}
+}
+
+func TestMachineCreatorUpdatesExistingMachineNestingForContainerTools(t *testing.T) {
+	plan := machinePlanForTest(t)
+	plan.ContainerTools = true
+	resource := fakeMachineResourceWithCA(t)
+	resource.instance = &api.Instance{Name: plan.InstanceName, StatusCode: api.Running, InstancePut: api.InstancePut{Config: api.ConfigMap(plan.MetadataConfig)}}
+	creator := MachineCreator{Server: fakeMachineServer{resource: resource}}
+	if err := creator.CreateMachine(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if resource.updated == nil {
+		t.Fatal("expected machine config update")
+	}
+	if resource.updated.Config["security.nesting"] != "true" {
+		t.Fatalf("security.nesting = %q", resource.updated.Config["security.nesting"])
+	}
+	if _, ok := resource.updated.Config["security.privileged"]; ok {
+		t.Fatalf("security.privileged is set: %#v", resource.updated.Config)
 	}
 }
 

@@ -12,13 +12,14 @@ import (
 )
 
 type resolvedMachine struct {
-	Summary      tenant.Summary
-	Project      string
-	Name         string
-	InstanceName string
-	PrivateIP    string
-	LinuxUser    string
-	Managed      bool
+	Summary       tenant.Summary
+	Project       string
+	Name          string
+	InstanceName  string
+	PrivateIP     string
+	LinuxUser     string
+	CloudIdentity string
+	Managed       bool
 }
 
 type AmbiguousMachineError struct {
@@ -64,7 +65,7 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	if isExplicitProjectMachineRef(reference) || strings.TrimSpace(admin.Project) != "" {
 		for _, machine := range machines {
 			if machine.Project == projectRef.Project && machine.Name == machineName {
-				return resolveKnownProjectMachineWithMetadata(summary, projectRef.Project, machineName, machine.PrivateIP, machine.LinuxUser)
+				return resolveKnownProjectMachineWithMetadata(summary, projectRef.Project, machineName, machine.PrivateIP, machine.LinuxUser, machine.CloudIdentity)
 			}
 		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
@@ -72,11 +73,13 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	matches := []string{}
 	matchIPs := map[string]string{}
 	matchUsers := map[string]string{}
+	matchCloudIdentities := map[string]string{}
 	for _, machine := range machines {
 		if machine.Name == machineName {
 			matches = append(matches, machine.Project)
 			matchIPs[machine.Project] = machine.PrivateIP
 			matchUsers[machine.Project] = machine.LinuxUser
+			matchCloudIdentities[machine.Project] = machine.CloudIdentity
 		}
 	}
 	switch len(matches) {
@@ -86,7 +89,7 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
 	case 1:
-		return resolveKnownProjectMachineWithMetadata(summary, matches[0], machineName, matchIPs[matches[0]], matchUsers[matches[0]])
+		return resolveKnownProjectMachineWithMetadata(summary, matches[0], machineName, matchIPs[matches[0]], matchUsers[matches[0]], matchCloudIdentities[matches[0]])
 	default:
 		return resolvedMachine{}, AmbiguousMachineError{Name: machineName, Projects: matches}
 	}
@@ -112,7 +115,7 @@ func resolveMachineFQDN(ctx context.Context, machineStore Store, summary tenant.
 		if strings.ToLower(machine.Name+"."+machine.Project+"."+summary.DNSSuffix) != hostname {
 			continue
 		}
-		resolved, err := resolveKnownProjectMachineWithMetadata(summary, machine.Project, machine.Name, machine.PrivateIP, machine.LinuxUser)
+		resolved, err := resolveKnownProjectMachineWithMetadata(summary, machine.Project, machine.Name, machine.PrivateIP, machine.LinuxUser, machine.CloudIdentity)
 		return resolved, true, err
 	}
 	return resolvedMachine{}, false, nil
@@ -123,10 +126,10 @@ func resolveKnownProjectMachine(summary tenant.Summary, projectName string, mach
 }
 
 func resolveKnownProjectMachineWithIP(summary tenant.Summary, projectName string, machineName string, privateIP string) (resolvedMachine, error) {
-	return resolveKnownProjectMachineWithMetadata(summary, projectName, machineName, privateIP, "")
+	return resolveKnownProjectMachineWithMetadata(summary, projectName, machineName, privateIP, "", "")
 }
 
-func resolveKnownProjectMachineWithMetadata(summary tenant.Summary, projectName string, machineName string, privateIP string, linuxUser string) (resolvedMachine, error) {
+func resolveKnownProjectMachineWithMetadata(summary tenant.Summary, projectName string, machineName string, privateIP string, linuxUser string, cloudIdentity string) (resolvedMachine, error) {
 	if !tenantHasProject(summary, projectName) {
 		return resolvedMachine{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectName, summary.Tenant)
 	}
@@ -135,13 +138,14 @@ func resolveKnownProjectMachineWithMetadata(summary tenant.Summary, projectName 
 		return resolvedMachine{}, err
 	}
 	return resolvedMachine{
-		Summary:      summary,
-		Project:      projectName,
-		Name:         machineName,
-		InstanceName: instanceName,
-		PrivateIP:    privateIP,
-		LinuxUser:    strings.TrimSpace(linuxUser),
-		Managed:      true,
+		Summary:       summary,
+		Project:       projectName,
+		Name:          machineName,
+		InstanceName:  instanceName,
+		PrivateIP:     privateIP,
+		LinuxUser:     strings.TrimSpace(linuxUser),
+		CloudIdentity: strings.TrimSpace(cloudIdentity),
+		Managed:       true,
 	}, nil
 }
 

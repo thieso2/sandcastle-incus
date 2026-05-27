@@ -65,6 +65,7 @@ type CreatePlan struct {
 	Template         string            `json:"template"`
 	ImageAlias       string            `json:"imageAlias"`
 	ContainerTools   bool              `json:"containerTools"`
+	DockerAutostart  bool              `json:"dockerAutostart,omitempty"`
 	MetadataConfig   map[string]string `json:"metadataConfig"`
 	Devices          map[string]Device `json:"devices"`
 	StartsByDefault  bool              `json:"startsByDefault"`
@@ -152,6 +153,11 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if err := naming.ValidateUnixUsername(linuxUser); err != nil {
 		return CreatePlan{}, err
 	}
+	projectConfig, ok := findProjectConfig(summary, projectRef.Project)
+	if !ok {
+		return CreatePlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectRef.Project, summary.Tenant)
+	}
+	containerTools := request.ContainerTools || projectConfig.DockerAutostart
 	existingMachines, err := listExistingMachines(ctx, machineStore, summary)
 	if err != nil {
 		return CreatePlan{}, err
@@ -169,17 +175,18 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 		return CreatePlan{}, err
 	}
 	state := meta.Machine{
-		Tenant:         summary.Tenant,
-		Project:        projectRef.Project,
-		Name:           machineName,
-		Type:           meta.MachineTypeContainer,
-		Template:       template,
-		AppPort:        appPort,
-		PrivateIP:      privateIP,
-		LinuxUser:      linuxUser,
-		HomeDir:        homeDir,
-		WorkspaceDir:   workspaceDir,
-		ContainerTools: request.ContainerTools,
+		Tenant:          summary.Tenant,
+		Project:         projectRef.Project,
+		Name:            machineName,
+		Type:            meta.MachineTypeContainer,
+		Template:        template,
+		AppPort:         appPort,
+		PrivateIP:       privateIP,
+		LinuxUser:       linuxUser,
+		HomeDir:         homeDir,
+		WorkspaceDir:    workspaceDir,
+		ContainerTools:  containerTools,
+		DockerAutostart: projectConfig.DockerAutostart,
 	}
 	metadataConfig, err := meta.MachineConfig(state)
 	if err != nil {
@@ -201,23 +208,24 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 		return CreatePlan{}, err
 	}
 	return CreatePlan{
-		Reference:      request.Reference,
-		Tenant:         summary,
-		Project:        projectRef.Project,
-		Name:           machineName,
-		InstanceName:   instanceName,
-		Hostname:       hostname,
-		PrivateIP:      privateIP,
-		AppPort:        appPort,
-		LinuxUser:      linuxUser,
-		HomeDir:        homeDir,
-		WorkspaceDir:   workspaceDir,
-		StoragePool:    summary.IncusName,
-		CAVolume:       tenant.CAVolumeName,
-		Template:       template,
-		ImageAlias:     imageAlias,
-		ContainerTools: request.ContainerTools,
-		MetadataConfig: metadataConfig,
+		Reference:       request.Reference,
+		Tenant:          summary,
+		Project:         projectRef.Project,
+		Name:            machineName,
+		InstanceName:    instanceName,
+		Hostname:        hostname,
+		PrivateIP:       privateIP,
+		AppPort:         appPort,
+		LinuxUser:       linuxUser,
+		HomeDir:         homeDir,
+		WorkspaceDir:    workspaceDir,
+		StoragePool:     summary.IncusName,
+		CAVolume:        tenant.CAVolumeName,
+		Template:        template,
+		ImageAlias:      imageAlias,
+		ContainerTools:  containerTools,
+		DockerAutostart: projectConfig.DockerAutostart,
+		MetadataConfig:  metadataConfig,
 		Devices: map[string]Device{
 			"root": {
 				"type": "disk",
@@ -260,6 +268,15 @@ func imageAliasForTemplate(admin config.Admin, template string) (string, error) 
 	default:
 		return "", fmt.Errorf("unsupported machine template %q", template)
 	}
+}
+
+func findProjectConfig(summary tenant.Summary, projectName string) (meta.Project, bool) {
+	for _, project := range summary.Projects {
+		if project.Name == projectName {
+			return project, true
+		}
+	}
+	return meta.Project{}, false
 }
 
 func DefaultAppPortForTemplate(template string) (int, error) {

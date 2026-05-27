@@ -296,10 +296,10 @@ export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
 
       <h3>3. Prepare images</h3>
       <p>Tenants use the base image for sidecars and the AI image as the default machine template.</p>
-      <pre><code># Build base image and upload (zstd-compressed, fast)
-mise run image:base:build-upload
-
-# Build AI image with latest Codex / Claude Code / Gemini CLI versions and upload
+      <pre><code># Rebuild base and AI images, upload both, then sync tenant-local aliases
+mise run image:all:build-upload</code></pre>
+      <p>To rebuild one image at a time:</p>
+      <pre><code>mise run image:base:build-upload
 mise run image:ai:build-upload</code></pre>
       <p>The AI task resolves the latest npm versions automatically. To pin versions:</p>
       <pre><code>SANDCASTLE_CODEX_VERSION=0.132.0 \
@@ -392,10 +392,9 @@ incus info REMOTE:
       <p>Run these commands on the developer's own workstation.</p>
 
       <h3>1. Install the CLI locally</h3>
-      <pre><code>make build
-make install
+      <pre><code>mise run install
 sc version</code></pre>
-      <p>If the admin provides prebuilt Linux amd64 binaries instead of a source checkout, install the user CLI and alias directly from the <code>mise run build:linux-amd64</code> output.</p>
+      <p>This installs the user-facing <code>sandcastle</code> binary and <code>sc</code> alias into <code>~/.local/bin</code> when that directory is already on <code>PATH</code>, otherwise into <code>/usr/local/bin</code>. Developers do not need <code>sandcastle-admin</code> or <code>sc-adm</code>; those are operator tools. If the admin provides prebuilt Linux amd64 binaries instead of a source checkout, install the user CLI and alias directly from the <code>mise run build:linux-amd64</code> output.</p>
 
       <h3>2. Add the restricted remote</h3>
       <pre><code>sc remote add sandcastle-alice JOIN_TOKEN_FROM_ADMIN --tenant acme</code></pre>
@@ -414,6 +413,7 @@ sc status</code></pre>
       <pre><code>sc project create website
 sc config set project website
 sc project status website</code></pre>
+      <p>Docker is installed in the base machine image, but the daemon is disabled by default. Use <code>sc project set-docker-autostart website on</code> only for projects where new machines should start Docker automatically; this also enables nested container tooling for those machines. Otherwise developers can run <code>sudo systemctl start docker</code> inside an individual machine created with <code>--container-tools</code>.</p>
 
       <h3>6. Attach the tenant to the developer's Tailscale network</h3>
       <pre><code>sc tailscale up</code></pre>

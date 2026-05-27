@@ -24,11 +24,15 @@ make build
 ```
 
 This writes `bin/sandcastle` and installs `bin/sc` as a symlink alias to the
-same binary. Install both commands into `/usr/local/bin` by default:
+same binary. Install the user CLI and alias into `~/.local/bin` when it is on
+`PATH`, otherwise `/usr/local/bin`:
 
 ```bash
-make install
+mise run install
 ```
+
+Normal tenant users only need `sandcastle` and `sc`. `sandcastle-admin` and
+`sc-adm` are operator tools.
 
 ## Testing
 

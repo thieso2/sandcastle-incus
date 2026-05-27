@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
 
 func newWorkloadCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -122,6 +123,18 @@ func applyWorkloadIdentityToMachine(ctx context.Context, config commandConfig, p
 	verboseCLI(config, "workload identity: built %d workload files for tenant=%s project=%s machine=%s gcp=%t paths=%s", len(files), result.Tenant, result.Project, result.Machine, workloadRequest.GCP != nil, strings.Join(machineFilePaths(files), ","))
 	plan.WorkloadFiles = files
 	plan.CertificateFiles = []machine.File{}
+	if strings.TrimSpace(result.CloudIdentityConfig) != "" {
+		state, err := meta.ParseMachineConfig(plan.MetadataConfig)
+		if err != nil {
+			return fmt.Errorf("parse machine metadata: %w", err)
+		}
+		state.CloudIdentity = strings.TrimSpace(result.CloudIdentityConfig)
+		metadataConfig, err := meta.MachineConfig(state)
+		if err != nil {
+			return fmt.Errorf("build machine metadata: %w", err)
+		}
+		plan.MetadataConfig = metadataConfig
+	}
 	if config.machineCreator == nil {
 		return fmt.Errorf("machine creation executor is not configured")
 	}

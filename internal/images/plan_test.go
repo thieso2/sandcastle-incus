@@ -55,8 +55,20 @@ func TestPlanBuildBaseImage(t *testing.T) {
 	if plan.Template != "base" || plan.Tag != "sandcastle/base:debian-13" {
 		t.Fatalf("plan = %#v", plan)
 	}
-	if strings.Join(plan.Command, " ") != "docker build -t sandcastle/base:debian-13 -f images/base/Dockerfile images/base" {
-		t.Fatalf("Command = %#v", plan.Command)
+	command := strings.Join(plan.Command, " ")
+	for _, want := range []string{
+		"docker build",
+		"-t sandcastle/base:debian-13",
+		"-f images/base/Dockerfile",
+		"--build-arg SANDCASTLE_IMAGE_TEMPLATE=base",
+		"--build-arg SANDCASTLE_IMAGE_TAG=sandcastle/base:debian-13",
+		"--build-arg SANDCASTLE_IMAGE_VERSION=",
+		"--build-arg SANDCASTLE_IMAGE_COMMIT_DATE=",
+		"images/base",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("Command = %q, want %q", command, want)
+		}
 	}
 }
 
@@ -87,8 +99,18 @@ func TestPlanBuildAddsPlatformWhenRequested(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(plan.Command, " ") != "docker build -t sandcastle/base:test -f images/base/Dockerfile --platform linux/amd64 images/base" {
-		t.Fatalf("Command = %#v", plan.Command)
+	command := strings.Join(plan.Command, " ")
+	for _, want := range []string{
+		"docker build",
+		"-t sandcastle/base:test",
+		"-f images/base/Dockerfile",
+		"--platform linux/amd64",
+		"--build-arg SANDCASTLE_IMAGE_TAG=sandcastle/base:test",
+		"images/base",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("Command = %q, want %q", command, want)
+		}
 	}
 }
 
@@ -134,6 +156,8 @@ func TestPlanBuildAIImage(t *testing.T) {
 		"-t sandcastle/ai:debian-13",
 		"--build-arg SANDCASTLE_BASE_IMAGE=sandcastle/base:latest",
 		"--build-arg CODEX_CLI_VERSION=1.2.3",
+		"--build-arg SANDCASTLE_IMAGE_TEMPLATE=ai",
+		"--build-arg SANDCASTLE_IMAGE_TAG=sandcastle/ai:debian-13",
 		"images/ai",
 	} {
 		if !strings.Contains(command, want) {

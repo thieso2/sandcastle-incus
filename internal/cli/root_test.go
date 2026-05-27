@@ -1458,6 +1458,35 @@ func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
 	}
 }
 
+func TestProjectSetDockerAutostartUpdatesDefaultProject(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updater := &fakeProjectUpdater{}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		tenantUpdater: updater,
+	}, "project", "set-docker-autostart", "default", "on")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "enable Docker autostart for project default") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if !updater.called || updater.incusProject != "sc-acme" || !projectHasDockerAutostart(updater.projects, "default") {
+		t.Fatalf("updater = %#v", updater)
+	}
+}
+
 func TestProjectDeleteRejectsNonEmptyProject(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -4792,6 +4821,109 @@ func TestConnectAliasUsesProjectDefaultCloudIdentityWhenAutoCreating(t *testing.
 	}
 	if len(creator.plans) != 2 || len(creator.plans[1].WorkloadFiles) == 0 {
 		t.Fatalf("create plans = %#v", creator.plans)
+	}
+}
+
+func TestConnectAliasUsesProjectDefaultCloudIdentityForExistingMachine(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "io", CloudIdentity: "gcp"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
+	authClient := &fakeAuthWorkloadClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.Project = "io"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, _, err = executeForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
+			Tenant:    "acme",
+			Project:   "io",
+			Name:      "dev",
+			PrivateIP: "10.248.0.42",
+			LinuxUser: "loginuser",
+			Running:   true,
+		}}},
+		machineCreator:   creator,
+		machineConnector: connector,
+		knownHosts:       &fakeKnownHostsManager{},
+		authWorkload:     authClient,
+	}, "c", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authClient.enableRequests) != 1 || authClient.enableRequests[0].CloudIdentityConfig != "gcp" || authClient.enableRequests[0].Project != "io" || authClient.enableRequests[0].Machine != "dev" {
+		t.Fatalf("enable requests = %#v", authClient.enableRequests)
+	}
+	if len(creator.plans) != 1 || len(creator.plans[0].WorkloadFiles) == 0 {
+		t.Fatalf("create plans = %#v", creator.plans)
+	}
+	if !connector.called || connector.plan.Project != "io" || connector.plan.Name != "dev" {
+		t.Fatalf("connector plan = %#v", connector.plan)
+	}
+}
+
+func TestConnectAliasSkipsProjectDefaultCloudIdentityWhenAlreadyApplied(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "io", CloudIdentity: "gcp"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
+	authClient := &fakeAuthWorkloadClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.Project = "io"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, _, err = executeForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
+			Tenant:        "acme",
+			Project:       "io",
+			Name:          "dev",
+			PrivateIP:     "10.248.0.42",
+			LinuxUser:     "loginuser",
+			CloudIdentity: "gcp",
+			Running:       true,
+		}}},
+		machineCreator:   creator,
+		machineConnector: connector,
+		knownHosts:       &fakeKnownHostsManager{},
+		authWorkload:     authClient,
+	}, "c", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authClient.enableRequests) != 0 {
+		t.Fatalf("enable requests = %#v", authClient.enableRequests)
+	}
+	if len(creator.plans) != 0 {
+		t.Fatalf("create plans = %#v", creator.plans)
+	}
+	if !connector.called || connector.plan.Project != "io" || connector.plan.Name != "dev" || connector.plan.CloudIdentity != "gcp" {
+		t.Fatalf("connector plan = %#v", connector.plan)
 	}
 }
 

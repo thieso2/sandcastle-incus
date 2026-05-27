@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sandcastle OIDC User Guide</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17211f;
+      --muted: #60706c;
+      --line: #cbd8d4;
+      --paper: #f6f8f7;
+      --panel: #ffffff;
+      --accent: #0f766e;
+      --accent2: #1d4ed8;
+      --code: #10201d;
+      --code-bg: #e8efec;
+      --warn-bg: #fff7df;
+      --warn-line: #d6a635;
+      --ok-bg: #e8f5ef;
+      --ok-line: #36a269;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .hero { padding: 42px 0 26px; }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 5vw, 3.6rem);
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 850px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.06rem;
+    }
+
+    nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0 0 22px;
+    }
+
+    nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: var(--panel);
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 0.93rem;
+    }
+
+    main { padding: 30px 0 56px; }
+
+    section {
+      margin: 0 0 34px;
+      padding: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 1.35rem;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 1rem;
+    }
+
+    p { margin: 0 0 12px; color: var(--muted); }
+    ol, ul { margin: 0 0 14px 22px; padding: 0; color: var(--muted); }
+    li { margin: 6px 0; }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      color: var(--code);
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+
+    pre {
+      margin: 12px 0 16px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      background: var(--code-bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      white-space: pre;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 16px;
+      font-size: 0.94rem;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th { background: #eef4f2; }
+
+    .note, .ok {
+      margin: 14px 0;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid;
+    }
+
+    .note {
+      background: var(--warn-bg);
+      border-color: var(--warn-line);
+    }
+
+    .ok {
+      background: var(--ok-bg);
+      border-color: var(--ok-line);
+    }
+
+    .note p, .ok p { margin: 0; color: var(--ink); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 14px;
+    }
+
+    .mini {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfc;
+    }
+
+    .mini h3 { margin-top: 0; }
+
+    footer {
+      padding: 0 0 34px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <h1>Sandcastle OIDC User Guide</h1>
+      <p class="lede">Configure tenant-scoped workload identity so Sandcastle machines can use GCP without long-lived cloud credentials.</p>
+    </div>
+    <nav class="wrap" aria-label="Guide sections">
+      <a href="#model">Model</a>
+      <a href="#setup">Setup</a>
+      <a href="#defaults">Project Defaults</a>
+      <a href="#machines">Machines</a>
+      <a href="#verify">Verify</a>
+      <a href="#troubleshoot">Troubleshoot</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="model">
+      <h2>What OIDC Does</h2>
+      <p>Sandcastle machines do not store GCP keys. Instead, a machine uses a Sandcastle Machine Runtime Secret to request a short-lived OIDC token from the Auth App. GCP Workload Identity Federation exchanges that token for short-lived GCP credentials.</p>
+      <pre><code>machine -> Sandcastle Auth App -> OIDC JWT -> GCP STS -> GCP access token</code></pre>
+      <div class="grid">
+        <div class="mini">
+          <h3>Tenant Scoped</h3>
+          <p>Each tenant has its own issuer URL, such as <code>https://auth.example.com/t/thieso2</code>.</p>
+        </div>
+        <div class="mini">
+          <h3>Machine Scoped</h3>
+          <p>Tokens include tenant, project, and machine claims so cloud-side bindings can be narrowed.</p>
+        </div>
+        <div class="mini">
+          <h3>User Owned</h3>
+          <p>The saved Cloud Identity Config named <code>gcp</code> belongs to the logged-in Sandcastle user.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="setup">
+      <h2>One-Time GCP Setup</h2>
+      <p>Run this after <code>sc login</code>. It creates or updates the GCP Workload Identity Pool, OIDC provider, service account binding, and saves a Sandcastle Cloud Identity Config named <code>gcp</code>.</p>
+      <pre><code>sc cloud-identity gcp setup --tenant thieso2</code></pre>
+      <p>If the Auth Hostname cannot be inferred from your current remote, pass it explicitly:</p>
+      <pre><code>sc cloud-identity gcp setup \
+  --tenant thieso2 \
+  --auth-hostname big.thieso2.dev</code></pre>
+      <div class="ok">
+        <p>After setup, the Auth App has a user-owned Cloud Identity Config named <code>gcp</code>. Machines still need that config selected, either explicitly or through a project default.</p>
+      </div>
+    </section>
+
+    <section id="defaults">
+      <h2>Set a Project Default</h2>
+      <p>Set the default Cloud Identity Config for a Sandcastle project. This works for project <code>default</code> too.</p>
+      <pre><code>sc project set-cloud-identity default gcp</code></pre>
+      <p>With this in place, new machines in that project automatically get workload identity during <code>sc create</code> and during <code>sc c</code> auto-creation.</p>
+      <pre><code>sc c dev
+sc create website/codex</code></pre>
+      <p>Clear the default when a project should stop injecting workload identity into new machines:</p>
+      <pre><code>sc project unset-cloud-identity default</code></pre>
+    </section>
+
+    <section id="machines">
+      <h2>Enable Machines</h2>
+      <h3>New Machines</h3>
+      <p>If the project default is set, no flag is needed:</p>
+      <pre><code>sc c test
+sc create test</code></pre>
+      <p>Without a project default, pass the config explicitly:</p>
+      <pre><code>sc c test --cloud-identity gcp
+sc create test --cloud-identity gcp</code></pre>
+
+      <h3>Existing Machines</h3>
+      <p>For a machine that already exists, run workload enable once. This rotates the Machine Runtime Secret and injects the helper files.</p>
+      <pre><code>sc workload enable test --cloud-identity gcp</code></pre>
+
+      <h3>Files Written</h3>
+      <table>
+        <thead>
+          <tr><th>Path</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>/usr/local/bin/sandcastle-workload-token</code></td><td>Helper that mints Sandcastle OIDC tokens.</td></tr>
+          <tr><td><code>/etc/profile.d/sandcastle-workload-identity.sh</code></td><td>Exports Sandcastle and GCP credential environment variables.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/runtime-secret</code></td><td>Machine Runtime Secret, owned by the machine Unix user.</td></tr>
+          <tr><td><code>/var/lib/sandcastle/workload/gcp-credential.json</code></td><td>GCP external-account credential file.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="verify">
+      <h2>Verify in a Machine</h2>
+      <p>Use <code>sc c</code> to run checks inside the machine. Explicit commands run through a login shell, so profile exports are loaded.</p>
+      <pre><code>sc c test -- 'id -un; env | sort | grep -E "^(GOOGLE|CLOUDSDK)"; gcloud projects list --limit=5'</code></pre>
+      <p>Expected signals:</p>
+      <ul>
+        <li><code>GOOGLE_APPLICATION_CREDENTIALS=/var/lib/sandcastle/workload/gcp-credential.json</code></li>
+        <li><code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/var/lib/sandcastle/workload/gcp-credential.json</code></li>
+        <li><code>GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1</code></li>
+        <li><code>gcloud projects list</code> prints the GCP project.</li>
+      </ul>
+      <p>You can also mint the raw OIDC token:</p>
+      <pre><code>sc c test -- sandcastle-workload-token</code></pre>
+    </section>
+
+    <section id="troubleshoot">
+      <h2>Troubleshooting</h2>
+      <h3>No active gcloud account</h3>
+      <p>This usually means no workload files or no GCP profile exports were loaded.</p>
+      <pre><code>sc c test -- 'ls -la /var/lib/sandcastle/workload; env | grep GOOGLE'</code></pre>
+      <p>If the directory is missing, enable workload identity or set a project default and recreate the machine.</p>
+
+      <h3>Machine was created before the project default</h3>
+      <p>Project defaults apply to new machine creation. Existing machines need:</p>
+      <pre><code>sc workload enable test --cloud-identity gcp</code></pre>
+
+      <h3>Wrong machine Unix user</h3>
+      <p>New machines use the tenant's stored Unix user. Current CLI versions repair missing tenant Unix-user metadata from the local OS user during <code>sc create</code> and <code>sc c</code> auto-creation. Existing machines keep the user they were created with.</p>
+
+      <h3>Debug with verbose logs</h3>
+      <pre><code>VERBOSE=1 sc c test -- gcloud projects list --limit=5</code></pre>
+      <p>Useful log lines include <code>using project default ... cloud identity "gcp"</code>, <code>built 9 workload files</code>, and <code>workload identity files: 9</code>.</p>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <p>See also <code>OIDC.md</code> for implementation notes and <code>docs/oidc-configuration.html</code> for a fuller configuration reference.</p>
+  </footer>
+</body>
+</html>

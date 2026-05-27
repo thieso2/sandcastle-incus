@@ -26,9 +26,10 @@ type ResolvedRef struct {
 }
 
 type ProjectMutationRequest struct {
-	Name          string
-	Machines      []meta.Machine
-	CloudIdentity string
+	Name            string
+	Machines        []meta.Machine
+	CloudIdentity   string
+	DockerAutostart bool
 }
 
 type ProjectMutationPlan struct {
@@ -144,6 +145,44 @@ func PlanSetProjectCloudIdentity(ctx context.Context, admin config.Admin, store 
 	}
 	return ProjectMutationPlan{
 		Action:       "set cloud identity on",
+		Tenant:       summary,
+		Project:      updated,
+		Projects:     projects,
+		IncusProject: summary.IncusName,
+	}, nil
+}
+
+func PlanSetProjectDockerAutostart(ctx context.Context, admin config.Admin, store IncusTenantStore, request ProjectMutationRequest) (ProjectMutationPlan, error) {
+	if err := admin.Validate(); err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	if err := naming.ValidateProjectName(request.Name); err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	summary, err := findCurrentTenant(ctx, admin, store)
+	if err != nil {
+		return ProjectMutationPlan{}, err
+	}
+	projects := append([]meta.Project{}, summary.Projects...)
+	var updated meta.Project
+	found := false
+	for i := range projects {
+		if projects[i].Name == request.Name {
+			projects[i].DockerAutostart = request.DockerAutostart
+			updated = projects[i]
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ProjectMutationPlan{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", request.Name, summary.Tenant)
+	}
+	action := "disable Docker autostart for"
+	if request.DockerAutostart {
+		action = "enable Docker autostart for"
+	}
+	return ProjectMutationPlan{
+		Action:       action,
 		Tenant:       summary,
 		Project:      updated,
 		Projects:     projects,

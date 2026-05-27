@@ -160,6 +160,14 @@ func PlanBuild(admin config.Admin, request BuildRequest) (BuildPlan, error) {
 		ContextDir: filepath.Join("images", template),
 		Dockerfile: filepath.Join("images", template, "Dockerfile"),
 	}
+	imageVersion := gitOutput("describe", "--always", "--dirty")
+	if imageVersion == "" {
+		imageVersion = "unknown"
+	}
+	imageCommitDate := gitOutput("log", "-1", "--format=%cI")
+	if imageCommitDate == "" {
+		imageCommitDate = "unknown"
+	}
 	switch template {
 	case "base":
 		plan.Tag = firstNonEmpty(request.Tag, admin.Images.Base)
@@ -171,18 +179,26 @@ func PlanBuild(admin config.Admin, request BuildRequest) (BuildPlan, error) {
 		if plan.CodexVersion == "" || plan.ClaudeVersion == "" || plan.GeminiVersion == "" {
 			return BuildPlan{}, fmt.Errorf("AI image build requires --codex-version, --claude-version, and --gemini-version")
 		}
-		plan.BuildArgs = []string{
-			"SANDCASTLE_BASE_IMAGE=" + admin.Images.Base,
-			"CODEX_CLI_VERSION=" + plan.CodexVersion,
-			"CLAUDE_CODE_VERSION=" + plan.ClaudeVersion,
-			"GEMINI_CLI_VERSION=" + plan.GeminiVersion,
-		}
+		plan.BuildArgs = append(plan.BuildArgs,
+			"SANDCASTLE_BASE_IMAGE="+admin.Images.Base,
+		)
+		plan.BuildArgs = append(plan.BuildArgs,
+			"CODEX_CLI_VERSION="+plan.CodexVersion,
+			"CLAUDE_CODE_VERSION="+plan.ClaudeVersion,
+			"GEMINI_CLI_VERSION="+plan.GeminiVersion,
+		)
 	default:
 		return BuildPlan{}, fmt.Errorf("unknown image template %q", request.Template)
 	}
 	if strings.TrimSpace(plan.Tag) == "" {
 		return BuildPlan{}, fmt.Errorf("image tag is required")
 	}
+	plan.BuildArgs = append(plan.BuildArgs,
+		"SANDCASTLE_IMAGE_TEMPLATE="+template,
+		"SANDCASTLE_IMAGE_TAG="+plan.Tag,
+		"SANDCASTLE_IMAGE_VERSION="+imageVersion,
+		"SANDCASTLE_IMAGE_COMMIT_DATE="+imageCommitDate,
+	)
 	plan.Command = buildCommand(plan)
 	return plan, nil
 }
@@ -351,6 +367,16 @@ func repoRoot() string {
 		return ""
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+}
+
+func gitOutput(args ...string) string {
+	command := exec.Command("git", args...)
+	command.Dir = repoRoot()
+	output, err := command.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func buildCommand(plan BuildPlan) []string {
