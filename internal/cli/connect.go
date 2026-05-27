@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -90,7 +91,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				// If the plan came from the cache, stale metadata (changed IP or host key)
 				// may have caused the failure. Invalidate both caches and retry once with
 				// a fresh Incus lookup and keyscan.
-				if fromCache {
+				if fromCache && shouldRetryCachedConnectFailure(err) {
 					return retryConnectFresh(cmd, config, cache, reference, command, plan, workloadEnableOptions{
 						AuthHostname:  authHostname,
 						CloudIdentity: cloudIdentity,
@@ -236,6 +237,17 @@ func applyConnectCommand(plan machine.ConnectPlan, command []string) machine.Con
 func shouldCreateOnConnectFailure(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "not found") && !strings.Contains(message, "project")
+}
+
+func shouldRetryCachedConnectFailure(err error) bool {
+	type exitCoder interface {
+		ExitCode() int
+	}
+	var exitErr exitCoder
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode() == 255
+	}
+	return false
 }
 
 func shouldEnableCloudIdentityForConnect(config commandConfig, plan machine.ConnectPlan, cloudIdentity string) bool {
