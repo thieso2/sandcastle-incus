@@ -97,8 +97,9 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		DeviceCode   string `json:"device_code"`
-		SSHPublicKey string `json:"ssh_public_key"`
+		DeviceCode    string `json:"device_code"`
+		SSHPublicKey  string `json:"ssh_public_key"`
+		LocalUnixUser string `json:"local_unix_user"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -110,7 +111,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if login.Status == DeviceStatusApproved && login.ProvisionedAt == "" && h.provisioner != nil {
-		login, err = h.provisionPersonalTenant(r.Context(), login)
+		login, err = h.provisionPersonalTenant(r.Context(), login, request.LocalUnixUser)
 		if err != nil {
 			login.Status = DeviceStatusPending
 		}
@@ -309,11 +310,12 @@ func nextCommandForDeviceLogin(login DeviceLogin) string {
 	return ""
 }
 
-func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin) (DeviceLogin, error) {
+func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string) (DeviceLogin, error) {
 	user, err := FindUser(ctx, h.db, login.UserKey)
 	if err != nil {
 		return DeviceLogin{}, err
 	}
+	user.LocalUnixUser = strings.TrimSpace(localUnixUser)
 	if _, err := h.db.ExecContext(ctx, "UPDATE device_logins SET message = ? WHERE device_code = ? AND provisioned_at = ''", "Provisioning Personal Tenant for "+user.UserKey+".", login.DeviceCode); err != nil {
 		return DeviceLogin{}, err
 	}

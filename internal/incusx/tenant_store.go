@@ -123,6 +123,7 @@ const (
 	tenantMetadataDir      = "/.sandcastle"
 	tenantSSHPublicKeyFile = tenantMetadataDir + "/ssh_public_key"
 	tenantProjectsFile     = tenantMetadataDir + "/projects"
+	tenantUnixUserFile     = tenantMetadataDir + "/unix_user"
 )
 
 func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusProjectName string, config map[string]string, loadSSHKey bool) (map[string]string, error) {
@@ -145,6 +146,11 @@ func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusPro
 	} else if ok {
 		managed.Projects = projects
 	}
+	if unixUser, ok, err := readTenantUnixUser(server, incusProjectName); err != nil {
+		return nil, err
+	} else if ok {
+		managed.UnixUser = unixUser
+	}
 	updated, err := meta.TenantConfig(managed)
 	if err != nil {
 		return nil, err
@@ -164,6 +170,22 @@ func readTenantSSHKey(server TenantMetadataResourceServer, incusProjectName stri
 	data, err := io.ReadAll(content)
 	if err != nil {
 		return "", false, fmt.Errorf("read tenant SSH key metadata for %s: %w", incusProjectName, err)
+	}
+	return strings.TrimSpace(string(data)), true, nil
+}
+
+func readTenantUnixUser(server TenantMetadataResourceServer, incusProjectName string) (string, bool, error) {
+	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantUnixUserFile)
+	if isMissingTenantMetadata(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read tenant Unix user metadata for %s: %w", incusProjectName, err)
+	}
+	defer content.Close()
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return "", false, fmt.Errorf("read tenant Unix user metadata for %s: %w", incusProjectName, err)
 	}
 	return strings.TrimSpace(string(data)), true, nil
 }

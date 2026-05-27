@@ -49,7 +49,8 @@ type DevicePollResult struct {
 }
 
 type DevicePollRequest struct {
-	SSHPublicKey string
+	SSHPublicKey  string
+	LocalUnixUser string
 }
 
 func (c DeviceClient) Start(ctx context.Context) (DeviceStartResult, error) {
@@ -82,8 +83,9 @@ func (c DeviceClient) Start(ctx context.Context) (DeviceStartResult, error) {
 
 func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePollRequest) (DevicePollResult, error) {
 	body, _ := json.Marshal(map[string]string{
-		"device_code":    deviceCode,
-		"ssh_public_key": poll.SSHPublicKey,
+		"device_code":     deviceCode,
+		"ssh_public_key":  poll.SSHPublicKey,
+		"local_unix_user": poll.LocalUnixUser,
 	})
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/device/poll"), bytes.NewReader(body))
 	if err != nil {

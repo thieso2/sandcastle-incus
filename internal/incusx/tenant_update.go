@@ -47,6 +47,10 @@ func (m TenantSSHKeyManager) SetTenantProjects(_ context.Context, incusProjectNa
 	return m.writeTenantMetadataFile(incusProjectName, tenantProjectsFile, string(data), "write tenant projects metadata")
 }
 
+func (m TenantSSHKeyManager) SetTenantUnixUser(_ context.Context, incusProjectName string, unixUser string) error {
+	return m.writeTenantMetadataFile(incusProjectName, tenantUnixUserFile, strings.TrimSpace(unixUser)+"\n", "write tenant Unix user metadata")
+}
+
 func (m TenantSSHKeyManager) writeTenantMetadataFile(incusProjectName string, filePath string, content string, action string) error {
 	server, err := m.server()
 	if err != nil {

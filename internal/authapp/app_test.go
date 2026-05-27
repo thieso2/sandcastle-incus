@@ -557,9 +557,12 @@ func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
 	approveRequest.AddCookie(cookie)
 	handler.ServeHTTP(httptest.NewRecorder(), approveRequest)
 
-	approved := pollDeviceForTest(t, handler, login.DeviceCode)
+	approved := pollDeviceBodyForTest(t, handler, `{"device_code":"`+login.DeviceCode+`","local_unix_user":"loginuser"}`)
 	if approved.Status != DeviceStatusApproved || approved.UserKey != "admin" || approved.Token != "token-admin" || !strings.Contains(approved.Message, "Personal tenant admin is ready") {
 		t.Fatalf("approved = %#v", approved)
+	}
+	if len(provisioner.users) != 1 || provisioner.users[0].LocalUnixUser != "loginuser" {
+		t.Fatalf("provisioner users = %#v", provisioner.users)
 	}
 	if strings.Contains(strings.ToLower(approved.raw), "private_key") || strings.Contains(strings.ToLower(approved.raw), "client_key") {
 		t.Fatalf("poll response leaked private key material: %s", approved.raw)
@@ -1001,10 +1004,12 @@ func testAuthAdminConfig() config.Admin {
 type fakePersonalTenantProvisioner struct {
 	calls    int
 	failures int
+	users    []User
 }
 
 func (p *fakePersonalTenantProvisioner) EnsurePersonalTenant(ctx context.Context, user User) (PersonalTenantResult, error) {
 	p.calls++
+	p.users = append(p.users, user)
 	if p.calls <= p.failures {
 		return PersonalTenantResult{}, errors.New("boom")
 	}

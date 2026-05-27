@@ -49,6 +49,29 @@ func TestProvisionerCreatesPersonalTenantAndReturnsRestrictedToken(t *testing.T)
 	}
 }
 
+func TestProvisionerPrefersLoginLocalUnixUser(t *testing.T) {
+	creator := &fakeTenantCreator{}
+	provisioner := Provisioner{
+		Admin: config.LoadAdminFromEnv(),
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-existing",
+			Config: tenantConfigForProvisionTest(t, meta.Tenant{Tenant: "existing", PrivateCIDR: "10.248.0.0/24"}),
+		}}},
+		TenantCreator:   creator,
+		Trust:           &fakeTokenCreator{},
+		DefaultUnixUser: "infrauser",
+	}
+
+	_, err := provisioner.EnsurePersonalTenant(context.Background(), User{UserKey: "1octocat", LocalUnixUser: "loginuser"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := tenantMetadataForProvisionTest(t, creator.plans[0])
+	if metadata.UnixUser != "loginuser" {
+		t.Fatalf("UnixUser = %q", metadata.UnixUser)
+	}
+}
+
 func TestProvisionerSkipsTenantCreateWhenPersonalTenantExists(t *testing.T) {
 	creator := &fakeTenantCreator{}
 	trust := &fakeTokenCreator{}
@@ -70,6 +93,28 @@ func TestProvisionerSkipsTenantCreateWhenPersonalTenantExists(t *testing.T) {
 	}
 	if len(trust.plans) != 1 {
 		t.Fatalf("trust plans = %#v", trust.plans)
+	}
+}
+
+func TestProvisionerRepairsExistingPersonalTenantUnixUser(t *testing.T) {
+	trust := &fakeTokenCreator{}
+	unixUsers := &fakeUnixUserUpdater{}
+	provisioner := Provisioner{
+		Admin: config.LoadAdminFromEnv(),
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-1octocat",
+			Config: tenantConfigForProvisionTest(t, meta.Tenant{Tenant: "1octocat", Personal: true, UnixUser: "1octocat", PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}}},
+		TenantCreator:   &fakeTenantCreator{},
+		UnixUserUpdater: unixUsers,
+		Trust:           trust,
+	}
+
+	if _, err := provisioner.EnsurePersonalTenant(context.Background(), User{UserKey: "1octocat", LocalUnixUser: "loginuser"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(unixUsers.calls) != 1 || unixUsers.calls[0].incusProject != "sc-1octocat" || unixUsers.calls[0].unixUser != "loginuser" {
+		t.Fatalf("unix user updater calls = %#v", unixUsers.calls)
 	}
 }
 
@@ -117,6 +162,21 @@ type fakeProjectUpdater struct {
 		incusProject string
 		projects     []meta.Project
 	}
+}
+
+type fakeUnixUserUpdater struct {
+	calls []struct {
+		incusProject string
+		unixUser     string
+	}
+}
+
+func (u *fakeUnixUserUpdater) SetTenantUnixUser(ctx context.Context, incusProjectName string, unixUser string) error {
+	u.calls = append(u.calls, struct {
+		incusProject string
+		unixUser     string
+	}{incusProject: incusProjectName, unixUser: unixUser})
+	return nil
 }
 
 func (u *fakeProjectUpdater) SetTenantProjects(ctx context.Context, incusProjectName string, projects []meta.Project) error {

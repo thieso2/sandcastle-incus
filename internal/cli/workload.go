@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -74,17 +75,21 @@ func enableWorkloadIdentityForPlan(ctx context.Context, config commandConfig, pl
 	if host == "" {
 		return authapp.WorkloadEnableResult{}, fmt.Errorf("--auth-hostname is required (or run sc login again to remember the Auth Hostname)")
 	}
+	verboseCLI(config, "workload identity: enabling config=%q tenant=%s project=%s machine=%s auth_host=%s", strings.TrimSpace(options.CloudIdentity), plan.Tenant.Tenant, plan.Project, plan.Name, host)
 	client := config.authWorkload
 	if client == nil {
 		client = authapp.DeviceClient{BaseURL: host, AuthToken: strings.TrimSpace(config.adminConfig.AuthToken)}
 	}
 	deviceCode := ""
 	if strings.TrimSpace(config.adminConfig.AuthToken) == "" {
+		verboseCLI(config, "workload identity: no stored CLI auth token; starting device login")
 		device, err := approveWorkloadDevice(ctx, config, client, options.MaxPolls, options.DebugApprove)
 		if err != nil {
 			return authapp.WorkloadEnableResult{}, err
 		}
 		deviceCode = device.DeviceCode
+	} else {
+		verboseCLI(config, "workload identity: using stored CLI auth token")
 	}
 	return client.EnableWorkload(ctx, authapp.WorkloadEnableRequest{
 		DeviceCode:          deviceCode,
@@ -114,12 +119,28 @@ func applyWorkloadIdentityToMachine(ctx context.Context, config commandConfig, p
 	if err != nil {
 		return fmt.Errorf("build workload identity files: %w", err)
 	}
+	verboseCLI(config, "workload identity: built %d workload files for tenant=%s project=%s machine=%s gcp=%t paths=%s", len(files), result.Tenant, result.Project, result.Machine, workloadRequest.GCP != nil, strings.Join(machineFilePaths(files), ","))
 	plan.WorkloadFiles = files
 	plan.CertificateFiles = []machine.File{}
 	if config.machineCreator == nil {
 		return fmt.Errorf("machine creation executor is not configured")
 	}
 	return config.machineCreator.CreateMachine(ctx, plan)
+}
+
+func verboseCLI(config commandConfig, format string, values ...any) {
+	if os.Getenv("VERBOSE") != "1" || config.stderr == nil {
+		return
+	}
+	fmt.Fprintf(config.stderr, "[verbose] "+format+"\n", values...)
+}
+
+func machineFilePaths(files []machine.File) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	return paths
 }
 
 type workloadApprovedDevice struct {

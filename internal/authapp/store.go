@@ -19,6 +19,7 @@ type User struct {
 	GitHubEmail              string
 	Allowlisted              bool
 	SandcastleAdmin          bool
+	LocalUnixUser            string
 }
 
 func NormalizeGitHubUsername(username string) string {

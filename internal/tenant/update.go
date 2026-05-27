@@ -17,6 +17,10 @@ type ProjectUpdater interface {
 	SetTenantProjects(ctx context.Context, incusProjectName string, projects []meta.Project) error
 }
 
+type UnixUserUpdater interface {
+	SetTenantUnixUser(ctx context.Context, incusProjectName string, unixUser string) error
+}
+
 type ResolvedRef struct {
 	IncusProject string
 }

@@ -192,6 +192,11 @@ func (c MachineCreator) issueMachineCertificateFilesAsync(server MachineResource
 }
 
 func (c MachineCreator) configureMachine(server MachineResourceServer, plan machine.CreatePlan) error {
+	if len(plan.WorkloadFiles) == 0 {
+		c.log("workload identity files: none")
+	} else {
+		c.log(fmt.Sprintf("workload identity files: %d (%s)", len(plan.WorkloadFiles), strings.Join(machineFilePaths(plan.WorkloadFiles), ",")))
+	}
 	return ensureMachineFiles(server, plan, func(label string, fn func() error) error {
 		return c.runCommand("configure instance "+plan.InstanceName+": "+label, fn)
 	})
@@ -413,6 +418,14 @@ func ensureMachineFiles(server MachineResourceServer, plan machine.CreatePlan, r
 	return runMachineConfigStep(run, fmt.Sprintf("run machine configure script (%d cert files, %d workload files)", len(certificateFiles), len(plan.WorkloadFiles)), func() error {
 		return runMachineConfigureScript(server, plan, certificateFiles)
 	})
+}
+
+func machineFilePaths(files []machine.File) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	return paths
 }
 
 func runMachineConfigureScript(server MachineResourceServer, plan machine.CreatePlan, certificateFiles []machine.File) error {

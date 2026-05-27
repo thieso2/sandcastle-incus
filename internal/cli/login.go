@@ -244,7 +244,8 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				var result authapp.DevicePollResult
 				var pollErr error
 				result, pollErr = client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
-					SSHPublicKey: sshKey.PublicKey,
+					SSHPublicKey:  sshKey.PublicKey,
+					LocalUnixUser: defaultLocalUnixUsername(),
 				})
 				if pollErr != nil {
 					return pollErr

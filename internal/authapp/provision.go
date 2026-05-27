@@ -20,6 +20,10 @@ type AuxProjectEnsurer interface {
 	EnsureAuxProjects(ctx context.Context, mainProjectName string, reference string, privateCIDR string, admin config.Admin) error
 }
 
+type TenantUnixUserUpdater interface {
+	SetTenantUnixUser(ctx context.Context, incusProjectName string, unixUser string) error
+}
+
 type PersonalTenantResult struct {
 	UserKey             string
 	Tenant              string
@@ -43,6 +47,7 @@ type Provisioner struct {
 	Tenants         tenant.IncusTenantStore
 	TenantCreator   tenant.Creator
 	ProjectUpdater  tenant.ProjectUpdater
+	UnixUserUpdater TenantUnixUserUpdater
 	AuxProjects     AuxProjectEnsurer
 	Trust           TrustTokenCreator
 	DefaultUnixUser string
@@ -78,13 +83,17 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 	}
 	incusProject := existing.IncusName
 	projects := existing.Projects
+	unixUser, err := p.unixUserForUser(user)
+	if err != nil {
+		return PersonalTenantResult{}, err
+	}
 	if incusProject == "" {
 		plan, err := tenant.PlanCreate(p.Admin, tenant.CreateRequest{
 			Reference:     userKey,
 			OccupiedCIDRs: tenant.OccupiedCIDRs(summaries),
 			Personal:      true,
 			CreatedBy:     userKey,
-			UnixUser:      strings.TrimSpace(p.DefaultUnixUser),
+			UnixUser:      unixUser,
 		})
 		if err != nil {
 			return PersonalTenantResult{}, err
@@ -110,6 +119,9 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 			return PersonalTenantResult{}, err
 		}
 		projects = updatedProjects
+		if err := p.ensureExistingUnixUser(ctx, existing, unixUser); err != nil {
+			return PersonalTenantResult{}, err
+		}
 	}
 	tokenPlan, err := usertrust.PlanGrant(p.Admin, usertrust.GrantRequest{
 		User:     userKey,
@@ -142,6 +154,39 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 		TenantTailnetReady:  true,
 		Message:             "Personal tenant " + userKey + " is ready.",
 	}, nil
+}
+
+func (p Provisioner) unixUserForUser(user User) (string, error) {
+	if value := strings.TrimSpace(user.LocalUnixUser); value != "" {
+		if err := naming.ValidateUnixUsername(value); err != nil {
+			return "", err
+		}
+		return value, nil
+	}
+	value := strings.TrimSpace(p.DefaultUnixUser)
+	if value != "" {
+		if err := naming.ValidateUnixUsername(value); err != nil {
+			return "", err
+		}
+	}
+	return value, nil
+}
+
+func (p Provisioner) ensureExistingUnixUser(ctx context.Context, summary tenant.Summary, unixUser string) error {
+	unixUser = strings.TrimSpace(unixUser)
+	if unixUser == "" {
+		return nil
+	}
+	if summary.UnixUser != "" && summary.UnixUser != summary.Tenant {
+		return nil
+	}
+	if summary.UnixUser == unixUser {
+		return nil
+	}
+	if p.UnixUserUpdater == nil {
+		return fmt.Errorf("Personal Tenant %s needs Unix user %s and tenant Unix user updater is not configured", summary.Tenant, unixUser)
+	}
+	return p.UnixUserUpdater.SetTenantUnixUser(ctx, summary.IncusName, unixUser)
 }
 
 func (p Provisioner) ensureDefaultProject(ctx context.Context, summary tenant.Summary) ([]meta.Project, error) {

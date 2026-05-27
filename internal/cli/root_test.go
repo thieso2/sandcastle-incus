@@ -372,6 +372,7 @@ func TestJSONFlagRejectsExplicitTextOutput(t *testing.T) {
 
 func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 	useLoginHomeForTest(t)
+	t.Setenv("USER", "loginuser")
 	installer := &fakeLoginRemoteInstaller{}
 	client := &fakeAuthDeviceClient{
 		start: authapp.DeviceStartResult{
@@ -414,7 +415,7 @@ func TestLoginStartsDeviceFlowAndReportsApproval(t *testing.T) {
 	if client.polledDeviceCode != "device" {
 		t.Fatalf("polled device code = %q", client.polledDeviceCode)
 	}
-	if len(client.pollRequests) != 1 || !strings.HasPrefix(client.pollRequests[0].SSHPublicKey, "ssh-ed25519 ") {
+	if len(client.pollRequests) != 1 || !strings.HasPrefix(client.pollRequests[0].SSHPublicKey, "ssh-ed25519 ") || client.pollRequests[0].LocalUnixUser != "loginuser" {
 		t.Fatalf("poll requests = %#v", client.pollRequests)
 	}
 	if len(installer.requests) != 1 || installer.requests[0].Token != "token" || installer.requests[0].Tenant != "octocat" {
