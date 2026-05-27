@@ -92,6 +92,35 @@ func TestMachineConnectorSSHsToManagedMachine(t *testing.T) {
 	}
 }
 
+func TestMachineConnectorAddsSSHVerboseWhenVerboseEnabled(t *testing.T) {
+	runner := &fakeSSHRunner{}
+	connector := MachineConnector{Runner: runner}.WithVerbose(true, io.Discard)
+	err := connector.ConnectMachine(context.Background(), machine.ConnectPlan{
+		Tenant:       tenant.Summary{IncusName: "sc-acme"},
+		Project:      "default",
+		InstanceName: "default-codex",
+		SSHHost:      "10.248.0.20",
+		HostKeyAlias: "codex.default.acme",
+		Command:      []string{"/bin/bash", "-l"},
+		LinuxUser:    "alice",
+		Interactive:  true,
+		Managed:      true,
+	}, machine.ConnectSession{
+		Stdin:  io.Reader(nil),
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, arg := range runner.args {
+		if arg == "-v" {
+			return
+		}
+	}
+	t.Fatalf("ssh args missing -v: %#v", runner.args)
+}
+
 func TestMachineConnectorExecsUnmanagedMachineAsRoot(t *testing.T) {
 	resource := &fakeMachineConnectResource{}
 	connector := MachineConnector{Server: fakeMachineConnectServer{resource: resource}}

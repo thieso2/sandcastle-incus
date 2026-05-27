@@ -29,6 +29,7 @@ type MachineConnector struct {
 	Server     MachineConnectServer
 	Runner     SSHRunner
 	Log        func(string)
+	SSHVerbose bool
 }
 
 func NewMachineConnector(remote string) MachineConnector {
@@ -37,6 +38,7 @@ func NewMachineConnector(remote string) MachineConnector {
 
 func (e MachineConnector) WithVerbose(enabled bool, w io.Writer) MachineConnector {
 	if enabled {
+		e.SSHVerbose = true
 		e.Log = func(msg string) { fmt.Fprintln(w, "[machine-connect] "+msg) }
 	}
 	return e
@@ -69,7 +71,7 @@ func (e MachineConnector) connectManagedMachine(ctx context.Context, plan machin
 	if runner == nil {
 		runner = LocalSSHRunner{}
 	}
-	args := sshArgs(plan)
+	args := sshArgs(plan, e.SSHVerbose)
 	e.log("run " + shellCommandLine("ssh", args))
 	if err := runner.Run(ctx, session, args...); err != nil {
 		return fmt.Errorf("ssh to machine %s: %w", plan.InstanceName, err)
@@ -77,11 +79,14 @@ func (e MachineConnector) connectManagedMachine(ctx context.Context, plan machin
 	return nil
 }
 
-func sshArgs(plan machine.ConnectPlan) []string {
+func sshArgs(plan machine.ConnectPlan, verbose bool) []string {
 	args := []string{
 		"-A",
 		"-o", "CheckHostIP=no",
 		"-o", "StrictHostKeyChecking=accept-new",
+	}
+	if verbose {
+		args = append(args, "-v")
 	}
 	if plan.HostKeyAlias != "" {
 		args = append(args, "-o", "HostKeyAlias="+plan.HostKeyAlias)
