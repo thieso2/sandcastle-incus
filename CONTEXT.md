@@ -197,6 +197,14 @@ _Avoid_: Project CA
 Persistent tenant volumes whose default paths are partitioned by project and machine names.
 _Avoid_: Project storage volume
 
+**Tenant Storage Share**:
+An explicit grant that exposes a source Tenant's workspace directory to one or more recipient Tenants.
+_Avoid_: Global share, public tenant storage
+
+**Share Name**:
+The stable path-safe user-facing name of a Tenant Storage Share, defaulting to the source path basename.
+_Avoid_: Directory name, mount name
+
 **Machine**:
 A tenant project runtime environment that a user can list, create, connect to, or delete.
 _Avoid_: Sandbox, add, enter, rm
@@ -249,6 +257,50 @@ _Avoid_: Projectless mode
 - A **Tenant** has one **Tenant Infrastructure** set shared by all its **Projects**.
 - A **Tenant** has exactly one **Tenant Tailnet**.
 - A **Tenant** has **Tenant Storage** shared by all its **Projects**.
+- A **Tenant Storage Share** has exactly one source **Tenant** and one or more explicit recipient **Tenants**.
+- A **Tenant Storage Share** is between **Tenants** in the same Sandcastle deployment.
+- A **Tenant Storage Share** has exactly one **Share Name**.
+- A **Tenant Storage Share** can default its **Share Name** only when the source directory basename is path-safe.
+- The combination of source **Tenant**, source **Project**, and **Share Name** identifies one **Tenant Storage Share**.
+- A **Tenant Storage Share** keeps the same **Share Name** after creation.
+- A **Tenant Storage Share** source directory is rooted in the source **Tenant Storage** workspace for an explicit **Project**.
+- A **Tenant Storage Share** source directory must be below the project workspace root, not the project workspace root itself.
+- A **Tenant Storage Share** source directory must exist when the share is created.
+- A **Tenant Storage Share** source directory does not change after the share is created.
+- A **Tenant Storage Share** exposes its source directory tree as-is.
+- A **Tenant Storage Share** must not expose paths outside its source directory through symlink traversal.
+- A **Tenant Storage Share** remains defined if its source directory later disappears or becomes boundary-unsafe, but is unavailable to recipient **Machines** until the source directory is available and safe again.
+- A source **Tenant** may define multiple **Tenant Storage Shares** with overlapping source directories.
+- Recipient **Machines** see **Tenant Storage Shares** under `/shared/<source-tenant>/<source-project>/<share-name>`.
+- Unavailable **Tenant Storage Shares** do not appear as placeholder paths in recipient **Machines**.
+- Recipient **Tenants** may not rename accepted **Tenant Storage Shares** locally.
+- Source **Machines** access a **Tenant Storage Share** through their normal `/workspace` path, not through `/shared`.
+- Source **Tenant** users write shared content through the normal source `/workspace` path.
+- **Tenant Storage Share** data belongs to the source **Tenant's** storage.
+- The source **Tenant** owns the offer and revocation state for a **Tenant Storage Share**.
+- A recipient **Tenant** owns whether an offered **Tenant Storage Share** is accepted and visible.
+- Adding a recipient **Tenant** to a **Tenant Storage Share** creates a pending offer for that recipient.
+- A pending **Tenant Storage Share** offer remains pending until accepted, declined, or revoked.
+- Removing a recipient **Tenant** from a **Tenant Storage Share** revokes the share for that recipient.
+- A recipient **Tenant** exposes an accepted **Tenant Storage Share** read-only to all of its **Machines**.
+- **Tenant Infrastructure** does not expose accepted **Tenant Storage Shares**.
+- **Tenant Storage Share** acceptance is recorded for the recipient **Tenant**, not for an individual **User**.
+- Accepting a **Tenant Storage Share** makes it visible to running and future recipient **Machines**.
+- **Tenant Storage Share** visibility is reconciled from accepted share state to recipient **Machines**.
+- All **Tenant Storage Shares** mounted under `/shared` are read-only.
+- A **Tenant Storage Share** is visible in a recipient **Tenant** only after that recipient accepts the share.
+- A recipient **Tenant** must not accept a **Tenant Storage Share** when its `/shared/<source-tenant>/<source-project>/<share-name>` path is already occupied.
+- A recipient **Tenant** may decline an accepted **Tenant Storage Share** to remove it from that **Tenant's** **Machines**.
+- A recipient **Tenant** may later accept a declined **Tenant Storage Share** while the source offer remains active.
+- Revoking a **Tenant Storage Share** removes it from running recipient **Machines**.
+- Deleting a **Tenant Storage Share** removes all of its recipient offers and acceptances.
+- A **User** with **Tenant Access** to the source **Tenant** may grant or revoke its **Tenant Storage Shares**.
+- A **User** with **Tenant Access** to a recipient **Tenant** may accept or decline **Tenant Storage Shares** offered to that **Tenant**.
+- **Tenant Storage Share** lifecycle actions record the acting **User** for audit.
+- A recipient **Tenant** may not re-share an inbound **Tenant Storage Share** to another **Tenant**.
+- A source **Project** cannot be deleted while it has active **Tenant Storage Shares**.
+- Deleting a source **Tenant** deletes its **Tenant Storage Shares**.
+- Deleting a recipient **Tenant** removes that **Tenant's** inbound **Tenant Storage Share** acceptances.
 - A **Deployment Name** maps to one default **Infrastructure Seed File** at `~/.config/sandcastle/<deployment-name>.seed.yml`.
 - Shared infrastructure creation may create the default **Infrastructure Seed File** when it does not already exist.
 - Shared infrastructure creation may update the **Infrastructure Seed File** only with captured reusable working TLS material, not with transient CLI or environment overrides.
