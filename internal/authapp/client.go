@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
 
 const defaultDeviceClientTimeout = 2 * time.Minute
@@ -229,6 +232,93 @@ func (c DeviceClient) UpsertCloudIdentity(ctx context.Context, request CloudIden
 		GCPSubjectTokenType:               payload.GCPSubjectTokenType,
 		GCPServiceAccountImpersonationURL: payload.GCPServiceAccountImpersonationURL,
 	}, nil
+}
+
+func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateRequest) (meta.TenantStorageShare, error) {
+	body, _ := json.Marshal(request)
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/shares"), bytes.NewReader(body))
+	if err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return meta.TenantStorageShare{}, fmt.Errorf("auth app share create: %s", msg)
+	}
+	var payload meta.TenantStorageShare
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	return payload, nil
+}
+
+func (c DeviceClient) ListShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/shares")+"?tenant="+url.QueryEscape(strings.TrimSpace(tenant)), nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return nil, fmt.Errorf("auth app share list: %s", msg)
+	}
+	var payload ShareListResult
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Shares, nil
+}
+
+func (c DeviceClient) GetShare(ctx context.Context, tenant string, project string, name string) (meta.TenantStorageShare, error) {
+	query := "?tenant=" + url.QueryEscape(strings.TrimSpace(tenant)) + "&project=" + url.QueryEscape(strings.TrimSpace(project)) + "&name=" + url.QueryEscape(strings.TrimSpace(name))
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/shares/status")+query, nil)
+	if err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return meta.TenantStorageShare{}, fmt.Errorf("auth app share status: %s", msg)
+	}
+	var payload meta.TenantStorageShare
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return meta.TenantStorageShare{}, err
+	}
+	return payload, nil
 }
 
 func (c DeviceClient) url(path string) string {

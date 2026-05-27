@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
 	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -74,6 +75,10 @@ type fakeTenantMetadataUpdateResource struct {
 	createdDir bool
 	filePath   string
 	content    string
+}
+
+func (r *fakeTenantMetadataUpdateResource) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	return nil, nil, os.ErrNotExist
 }
 
 func (r *fakeTenantMetadataUpdateResource) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {

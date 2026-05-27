@@ -128,6 +128,12 @@ type fakeAuthCloudIdentityClient struct {
 	upsertResult   authapp.CloudIdentityConfig
 }
 
+type fakeAuthShareClient struct {
+	createRequests []authapp.ShareCreateRequest
+	createResult   meta.TenantStorageShare
+	shares         []meta.TenantStorageShare
+}
+
 type fakeLoginRemoteInstaller struct {
 	requests []loginRemoteInstallRequest
 }
@@ -317,6 +323,27 @@ func (c *fakeAuthCloudIdentityClient) UpsertCloudIdentity(ctx context.Context, r
 		}
 	}
 	return c.upsertResult, nil
+}
+
+func (c *fakeAuthShareClient) CreateShare(ctx context.Context, request authapp.ShareCreateRequest) (meta.TenantStorageShare, error) {
+	c.createRequests = append(c.createRequests, request)
+	if c.createResult.Name == "" {
+		c.createResult = meta.TenantStorageShare{SourceTenant: request.SourceTenant, SourceProject: "default", SourceDir: "docs", Name: "docs", Availability: "available"}
+	}
+	return c.createResult, nil
+}
+
+func (c *fakeAuthShareClient) ListShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return append([]meta.TenantStorageShare{}, c.shares...), nil
+}
+
+func (c *fakeAuthShareClient) GetShare(ctx context.Context, tenant string, project string, name string) (meta.TenantStorageShare, error) {
+	for _, share := range c.shares {
+		if share.SourceProject == project && share.Name == name {
+			return share, nil
+		}
+	}
+	return meta.TenantStorageShare{}, fmt.Errorf("not found")
 }
 
 func TestVersionText(t *testing.T) {
@@ -944,6 +971,59 @@ func TestCloudIdentityGCPSetupConfiguresTenantFederation(t *testing.T) {
 	}
 	if !runner.hasCallContaining("--attribute-condition=assertion.tenant=='thieso2'") {
 		t.Fatalf("missing tenant attribute condition: %#v", runner.calls)
+	}
+}
+
+func TestShareCreateUsesAuthAppClient(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "create", "default:/workspace/docs", "--to", "skorfman", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.createRequests) != 1 {
+		t.Fatalf("requests = %#v", client.createRequests)
+	}
+	request := client.createRequests[0]
+	if request.SourceTenant != "acme" || request.Source != "default:/workspace/docs" || len(request.Recipients) != 1 || request.Recipients[0] != "skorfman" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
+	}
+	if !strings.Contains(stdout, "Share: default/docs") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareListOutputsOutboundShares(t *testing.T) {
+	client := &fakeAuthShareClient{shares: []meta.TenantStorageShare{{
+		SourceTenant:  "acme",
+		SourceProject: "default",
+		SourceDir:     "docs",
+		Name:          "docs",
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: "skorfman",
+			State:  "pending",
+		}},
+	}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "list", "--outbound")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Recipients: skorfman (pending)") {
+		t.Fatalf("stdout = %q", stdout)
 	}
 }
 

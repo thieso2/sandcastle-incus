@@ -145,6 +145,7 @@ func ExecuteAdmin(name string, args []string) int {
 			MachineSSHKeys:   authAppSSHKeys,
 			TenantSSHKeys:    authAppMetadataUpdater,
 			MachineSSHAccess: authAppSSHKeys,
+			ShareStore:       authAppMetadataUpdater,
 			Provisioner: authapp.Provisioner{
 				Admin:           adminConfig,
 				Tenants:         authAppTenants,

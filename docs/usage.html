@@ -448,6 +448,14 @@ Bootstrap:
   </div>
 
   <div class="step">
+    <h3>Offer a Tenant Storage Share <span class="badge badge-user">user</span></h3>
+    <p>Creates a pending outbound offer for a workspace subdirectory. Source users keep read/write access through <code>/workspace</code>; recipient mounts are added in later share workflow stages.</p>
+    <pre><code><span class="cmd">sandcastle share create</span> <span class="arg">default:/workspace/docs</span> <span class="flag">--to</span> <span class="arg">skorfman</span>
+<span class="cmd">sandcastle share list</span> <span class="flag">--outbound</span>
+<span class="cmd">sandcastle share status</span> <span class="arg">default/docs</span></code></pre>
+  </div>
+
+  <div class="step">
     <h3>Expose an app port <span class="badge badge-user">user</span></h3>
     <p>Configures Caddy inside the machine to reverse-proxy port <code>3000</code> at the machine's private URL.</p>
     <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website/webapp</span> <span class="flag">--app-port</span> <span class="arg">3000</span></code></pre>
@@ -971,6 +979,7 @@ Bootstrap:
         <tr><td>sandcastle incus-infra ...</td><td>Run the Incus CLI scoped to the tenant's infra (sidecars) project</td></tr>
         <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
         <tr><td>sandcastle project set-docker-autostart &lt;project&gt; on|off</td><td>Control Docker daemon autostart for new machines in a project</td></tr>
+        <tr><td>sandcastle share create/list/status</td><td>Create and inspect outbound Tenant Storage Share offers</td></tr>
         <tr><td>sandcastle ssh-key set [--file &lt;path&gt;]</td><td>Publish the developer SSH key for tenant machines</td></tr>
         <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change machine app port</td></tr>
         <tr><td>sandcastle trust install [tenant]</td><td>Trust tenant CA locally</td></tr>

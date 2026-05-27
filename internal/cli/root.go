@@ -23,6 +23,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
@@ -81,6 +82,7 @@ type commandConfig struct {
 	authDevice          authDeviceClient
 	authWorkload        authWorkloadClient
 	authCloudIdentity   authCloudIdentityClient
+	authShares          authShareClient
 	openBrowser         func(string)
 	loginRemote         loginRemoteInstaller
 	loginTailnet        loginTailnetVerifier
@@ -104,6 +106,12 @@ type authWorkloadClient interface {
 
 type authCloudIdentityClient interface {
 	UpsertCloudIdentity(context.Context, authapp.CloudIdentityUpsertRequest) (authapp.CloudIdentityConfig, error)
+}
+
+type authShareClient interface {
+	CreateShare(context.Context, authapp.ShareCreateRequest) (meta.TenantStorageShare, error)
+	ListShares(context.Context, string) ([]meta.TenantStorageShare, error)
+	GetShare(context.Context, string, string, string) (meta.TenantStorageShare, error)
 }
 
 type rootOptions struct {
@@ -278,6 +286,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newCacheCommand(config, opts))
 	root.AddCommand(newCloudIdentityCommand(config, opts))
 	root.AddCommand(newWorkloadCommand(config, opts))
+	root.AddCommand(newShareCommand(config, opts))
 
 	return root
 }

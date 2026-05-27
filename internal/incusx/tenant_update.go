@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -32,6 +33,7 @@ type TenantMetadataUpdateServer interface {
 }
 
 type TenantMetadataUpdateResourceServer interface {
+	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 }
 
@@ -49,6 +51,47 @@ func (m TenantSSHKeyManager) SetTenantProjects(_ context.Context, incusProjectNa
 
 func (m TenantSSHKeyManager) SetTenantUnixUser(_ context.Context, incusProjectName string, unixUser string) error {
 	return m.writeTenantMetadataFile(incusProjectName, tenantUnixUserFile, strings.TrimSpace(unixUser)+"\n", "write tenant Unix user metadata")
+}
+
+func (m TenantSSHKeyManager) GetTenantShares(_ context.Context, incusProjectName string) ([]meta.TenantStorageShare, error) {
+	server, err := m.server()
+	if err != nil {
+		return nil, err
+	}
+	shares, ok, err := readTenantStorageShares(server.UseProject(incusProjectName), incusProjectName)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return shares, nil
+}
+
+func (m TenantSSHKeyManager) SetTenantShares(_ context.Context, incusProjectName string, shares []meta.TenantStorageShare) error {
+	data, err := json.Marshal(shares)
+	if err != nil {
+		return fmt.Errorf("encode storage shares for %s: %w", incusProjectName, err)
+	}
+	return m.writeTenantMetadataFile(incusProjectName, tenantStorageSharesFile, string(data), "write tenant storage shares metadata")
+}
+
+func (m TenantSSHKeyManager) SourceDirectoryExists(_ context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error) {
+	server, err := m.server()
+	if err != nil {
+		return false, err
+	}
+	content, _, err := server.UseProject(incusProjectName).GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, project+"/"+workspaceRelativeDir)
+	if isMissingTenantMetadata(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check source directory %s/%s for %s: %w", project, workspaceRelativeDir, incusProjectName, err)
+	}
+	if content != nil {
+		_ = content.Close()
+	}
+	return true, nil
 }
 
 func (m TenantSSHKeyManager) writeTenantMetadataFile(incusProjectName string, filePath string, content string, action string) error {
@@ -105,6 +148,10 @@ func (s sdkTenantMetadataUpdateServer) UseProject(name string) TenantMetadataUpd
 type sdkTenantMetadataUpdateResourceServer struct {
 	inner       incus.InstanceServer
 	projectName string
+}
+
+func (s sdkTenantMetadataUpdateResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
 }
 
 func (s sdkTenantMetadataUpdateResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
