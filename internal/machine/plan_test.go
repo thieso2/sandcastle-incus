@@ -69,6 +69,49 @@ func TestPlanCreateUsesTenantUnixUser(t *testing.T) {
 	}
 }
 
+func TestPlanCreateMountsAcceptedTenantStorageSharesReadOnly(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	admin.IncusProjectPrefix = "sc"
+	store := tenantStoreForTest(t)
+	tenantConfig, err := meta.ParseTenantConfig(store.Projects[0].Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantConfig.StorageShares = []meta.TenantStorageShare{{
+		SourceTenant:  "thieso2",
+		SourceProject: "default",
+		SourceDir:     "docs",
+		Name:          "docs",
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: "acme",
+			State:  "accepted",
+		}},
+	}}
+	store.Projects[0].Config, err = meta.TenantConfig(tenantConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanCreate(context.Background(), admin, store, nil, CreateRequest{Reference: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shareDevice Device
+	for name, device := range plan.Devices {
+		if strings.HasPrefix(name, "share-") {
+			shareDevice = device
+			break
+		}
+	}
+	if shareDevice == nil {
+		t.Fatalf("share device missing from %#v", plan.Devices)
+	}
+	if shareDevice["pool"] != "sc-thieso2" || shareDevice["source"] != tenant.WorkspaceVolumeName+"/default/docs" || shareDevice["path"] != "/shared/thieso2/default/docs" || shareDevice["readonly"] != "true" {
+		t.Fatalf("share device = %#v", shareDevice)
+	}
+}
+
 func TestPlanCreateUsesConfiguredProject(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"

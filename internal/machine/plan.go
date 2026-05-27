@@ -2,6 +2,8 @@ package machine
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"net/netip"
 	"path"
@@ -14,6 +16,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -207,50 +210,30 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	devices, err := createDevices(admin, summary, privateIP, linuxUser, homeDir, workspaceDir)
+	if err != nil {
+		return CreatePlan{}, err
+	}
 	return CreatePlan{
-		Reference:       request.Reference,
-		Tenant:          summary,
-		Project:         projectRef.Project,
-		Name:            machineName,
-		InstanceName:    instanceName,
-		Hostname:        hostname,
-		PrivateIP:       privateIP,
-		AppPort:         appPort,
-		LinuxUser:       linuxUser,
-		HomeDir:         homeDir,
-		WorkspaceDir:    workspaceDir,
-		StoragePool:     summary.IncusName,
-		CAVolume:        tenant.CAVolumeName,
-		Template:        template,
-		ImageAlias:      imageAlias,
-		ContainerTools:  containerTools,
-		DockerAutostart: projectConfig.DockerAutostart,
-		MetadataConfig:  metadataConfig,
-		Devices: map[string]Device{
-			"root": {
-				"type": "disk",
-				"pool": summary.IncusName,
-				"path": "/",
-			},
-			"eth0": {
-				"type":         "nic",
-				"nictype":      "bridged",
-				"parent":       tenant.PrivateNetworkName(summary.IncusName),
-				"ipv4.address": privateIP,
-			},
-			"home": {
-				"type":   "disk",
-				"pool":   summary.IncusName,
-				"source": tenant.HomeVolumeName + "/" + homeDir,
-				"path":   "/home/" + linuxUser,
-			},
-			"workspace": {
-				"type":   "disk",
-				"pool":   summary.IncusName,
-				"source": tenant.WorkspaceVolumeName + "/" + workspaceDir,
-				"path":   "/workspace",
-			},
-		},
+		Reference:        request.Reference,
+		Tenant:           summary,
+		Project:          projectRef.Project,
+		Name:             machineName,
+		InstanceName:     instanceName,
+		Hostname:         hostname,
+		PrivateIP:        privateIP,
+		AppPort:          appPort,
+		LinuxUser:        linuxUser,
+		HomeDir:          homeDir,
+		WorkspaceDir:     workspaceDir,
+		StoragePool:      summary.IncusName,
+		CAVolume:         tenant.CAVolumeName,
+		Template:         template,
+		ImageAlias:       imageAlias,
+		ContainerTools:   containerTools,
+		DockerAutostart:  projectConfig.DockerAutostart,
+		MetadataConfig:   metadataConfig,
+		Devices:          devices,
 		StartsByDefault:  true,
 		CaddyFile:        caddyFile,
 		CertificateFiles: certificateFiles,
@@ -286,6 +269,69 @@ func DefaultAppPortForTemplate(template string) (int, error) {
 	default:
 		return 0, fmt.Errorf("unsupported machine template %q", template)
 	}
+}
+
+func createDevices(admin config.Admin, summary tenant.Summary, privateIP string, linuxUser string, homeDir string, workspaceDir string) (map[string]Device, error) {
+	devices := map[string]Device{
+		"root": {
+			"type": "disk",
+			"pool": summary.IncusName,
+			"path": "/",
+		},
+		"eth0": {
+			"type":         "nic",
+			"nictype":      "bridged",
+			"parent":       tenant.PrivateNetworkName(summary.IncusName),
+			"ipv4.address": privateIP,
+		},
+		"home": {
+			"type":   "disk",
+			"pool":   summary.IncusName,
+			"source": tenant.HomeVolumeName + "/" + homeDir,
+			"path":   "/home/" + linuxUser,
+		},
+		"workspace": {
+			"type":   "disk",
+			"pool":   summary.IncusName,
+			"source": tenant.WorkspaceVolumeName + "/" + workspaceDir,
+			"path":   "/workspace",
+		},
+	}
+	for _, storageShare := range summary.StorageShares {
+		if !shareIsAcceptedAvailable(storageShare, summary.Tenant) {
+			continue
+		}
+		sourceIncusProject, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, naming.TenantRef{Tenant: storageShare.SourceTenant})
+		if err != nil {
+			return nil, err
+		}
+		deviceName := shareDeviceName(storageShare)
+		devices[deviceName] = Device{
+			"type":     "disk",
+			"pool":     sourceIncusProject,
+			"source":   tenant.WorkspaceVolumeName + "/" + storageShare.SourceProject + "/" + storageShare.SourceDir,
+			"path":     "/shared/" + storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name,
+			"readonly": "true",
+		}
+	}
+	return devices, nil
+}
+
+func shareIsAcceptedAvailable(storageShare meta.TenantStorageShare, recipientTenant string) bool {
+	if storageShare.Availability != "" && storageShare.Availability != share.AvailabilityAvailable {
+		return false
+	}
+	for _, recipient := range storageShare.Recipients {
+		if recipient.Tenant == recipientTenant && recipient.State == share.RecipientStateAccepted {
+			return true
+		}
+	}
+	return false
+}
+
+func shareDeviceName(storageShare meta.TenantStorageShare) string {
+	sum := sha1.Sum([]byte(storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name))
+	return "share-" + hex.EncodeToString(sum[:])[:12]
 }
 
 func normalizeStorageSubdir(kind string, value string, projectName string, _ string) (string, error) {
