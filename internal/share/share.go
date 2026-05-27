@@ -2,6 +2,8 @@ package share
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"path"
 	"sort"
@@ -61,9 +63,35 @@ type RecipientRequest struct {
 }
 
 type Result struct {
-	Share  meta.TenantStorageShare   `json:"share,omitempty"`
-	Shares []meta.TenantStorageShare `json:"shares,omitempty"`
-	DryRun bool                      `json:"dry_run,omitempty"`
+	Share     meta.TenantStorageShare   `json:"share,omitempty"`
+	Shares    []meta.TenantStorageShare `json:"shares,omitempty"`
+	DryRun    bool                      `json:"dry_run,omitempty"`
+	Reconcile *ReconcileResult          `json:"reconcile,omitempty"`
+}
+
+type ReconcileResult struct {
+	Tenant   string                   `json:"tenant"`
+	DryRun   bool                     `json:"dry_run,omitempty"`
+	Machines []MachineReconcileResult `json:"machines,omitempty"`
+}
+
+type MachineReconcileResult struct {
+	Project      string `json:"project"`
+	Machine      string `json:"machine"`
+	InstanceName string `json:"instance_name"`
+	Status       string `json:"status,omitempty"`
+	Changed      bool   `json:"changed,omitempty"`
+	Skipped      bool   `json:"skipped,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+func (r ReconcileResult) HasFailures() bool {
+	for _, machine := range r.Machines {
+		if strings.TrimSpace(machine.Error) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func PlanCreate(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request CreateRequest) (Result, error) {
@@ -302,6 +330,41 @@ func ValidateShareName(name string) error {
 		return fmt.Errorf("invalid share name %q", name)
 	}
 	return nil
+}
+
+func DeviceName(storageShare meta.TenantStorageShare) string {
+	sum := sha1.Sum([]byte(storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name))
+	return "share-" + hex.EncodeToString(sum[:])[:12]
+}
+
+func MountPath(storageShare meta.TenantStorageShare) string {
+	return "/shared/" + storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name
+}
+
+func SourcePath(storageShare meta.TenantStorageShare, workspaceVolumeName string) string {
+	return workspaceVolumeName + "/" + storageShare.SourceProject + "/" + storageShare.SourceDir
+}
+
+func DesiredDevice(storageShare meta.TenantStorageShare, sourceIncusProject string, workspaceVolumeName string) map[string]string {
+	return map[string]string{
+		"type":     "disk",
+		"pool":     sourceIncusProject,
+		"source":   SourcePath(storageShare, workspaceVolumeName),
+		"path":     MountPath(storageShare),
+		"readonly": "true",
+	}
+}
+
+func IsAcceptedAvailable(storageShare meta.TenantStorageShare, recipientTenant string) bool {
+	if storageShare.Availability != "" && storageShare.Availability != AvailabilityAvailable {
+		return false
+	}
+	for _, recipient := range storageShare.Recipients {
+		if recipient.Tenant == recipientTenant && recipient.State == RecipientStateAccepted {
+			return true
+		}
+	}
+	return false
 }
 
 func ParseStatusRef(value string) (string, string, error) {

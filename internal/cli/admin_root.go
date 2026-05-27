@@ -72,6 +72,8 @@ func ExecuteAdmin(name string, args []string) int {
 	authAppTrust := incusx.NewTrustManager(adminConfig.Remote)
 	authAppSSHKeys := incusx.NewMachineSSHKeyReconciler(adminConfig.Remote, authAppMachines)
 	authAppMetadataUpdater := incusx.TenantSSHKeyManager{Remote: adminConfig.Remote}
+	authAppShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, authAppMachines)
+	authAppShareReconciler.Admin = adminConfig
 	var authAppProjectUpdater tenant.ProjectUpdater = authAppMetadataUpdater
 	if routeBrokerServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
@@ -94,6 +96,7 @@ func ExecuteAdmin(name string, args []string) int {
 			authAppTrust = incusx.NewTrustManagerForServer(socketServer)
 			authAppSSHKeys = incusx.NewMachineSSHKeyReconcilerForServer(socketServer, authAppMachines)
 			authAppMetadataUpdater = incusx.NewTenantSSHKeyManagerForServer(socketServer)
+			authAppShareReconciler = incusx.NewShareReconcilerForServer(socketServer, authAppMachines, adminConfig)
 			authAppProjectUpdater = authAppMetadataUpdater
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)
@@ -146,6 +149,7 @@ func ExecuteAdmin(name string, args []string) int {
 			TenantSSHKeys:    authAppMetadataUpdater,
 			MachineSSHAccess: authAppSSHKeys,
 			ShareStore:       authAppMetadataUpdater,
+			ShareReconciler:  authAppShareReconciler,
 			Provisioner: authapp.Provisioner{
 				Admin:           adminConfig,
 				Tenants:         authAppTenants,

@@ -26,6 +26,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -129,13 +130,15 @@ type fakeAuthCloudIdentityClient struct {
 }
 
 type fakeAuthShareClient struct {
-	createRequests  []authapp.ShareCreateRequest
-	createResult    meta.TenantStorageShare
-	shares          []meta.TenantStorageShare
-	inboundShares   []meta.TenantStorageShare
-	offers          []meta.TenantStorageShare
-	acceptRequests  []authapp.ShareRecipientRequest
-	declineRequests []authapp.ShareRecipientRequest
+	createRequests    []authapp.ShareCreateRequest
+	createResult      meta.TenantStorageShare
+	shares            []meta.TenantStorageShare
+	inboundShares     []meta.TenantStorageShare
+	offers            []meta.TenantStorageShare
+	acceptRequests    []authapp.ShareRecipientRequest
+	declineRequests   []authapp.ShareRecipientRequest
+	reconcileRequests []authapp.ShareReconcileRequest
+	reconcileResult   share.ReconcileResult
 }
 
 type fakeLoginRemoteInstaller struct {
@@ -358,9 +361,9 @@ func (c *fakeAuthShareClient) GetShare(ctx context.Context, tenant string, proje
 	return meta.TenantStorageShare{}, fmt.Errorf("not found")
 }
 
-func (c *fakeAuthShareClient) AcceptShare(ctx context.Context, request authapp.ShareRecipientRequest) (meta.TenantStorageShare, error) {
+func (c *fakeAuthShareClient) AcceptShare(ctx context.Context, request authapp.ShareRecipientRequest) (share.Result, error) {
 	c.acceptRequests = append(c.acceptRequests, request)
-	return meta.TenantStorageShare{
+	return share.Result{Share: meta.TenantStorageShare{
 		SourceTenant:  request.SourceTenant,
 		SourceProject: request.SourceProject,
 		SourceDir:     "docs",
@@ -370,12 +373,12 @@ func (c *fakeAuthShareClient) AcceptShare(ctx context.Context, request authapp.S
 			Tenant: request.Tenant,
 			State:  "accepted",
 		}},
-	}, nil
+	}}, nil
 }
 
-func (c *fakeAuthShareClient) DeclineShare(ctx context.Context, request authapp.ShareRecipientRequest) (meta.TenantStorageShare, error) {
+func (c *fakeAuthShareClient) DeclineShare(ctx context.Context, request authapp.ShareRecipientRequest) (share.Result, error) {
 	c.declineRequests = append(c.declineRequests, request)
-	return meta.TenantStorageShare{
+	return share.Result{Share: meta.TenantStorageShare{
 		SourceTenant:  request.SourceTenant,
 		SourceProject: request.SourceProject,
 		SourceDir:     "docs",
@@ -385,7 +388,12 @@ func (c *fakeAuthShareClient) DeclineShare(ctx context.Context, request authapp.
 			Tenant: request.Tenant,
 			State:  "declined",
 		}},
-	}, nil
+	}}, nil
+}
+
+func (c *fakeAuthShareClient) ReconcileShares(ctx context.Context, request authapp.ShareReconcileRequest) (share.ReconcileResult, error) {
+	c.reconcileRequests = append(c.reconcileRequests, request)
+	return c.reconcileResult, nil
 }
 
 func TestVersionText(t *testing.T) {
@@ -1116,6 +1124,65 @@ func TestShareAcceptUsesRecipientAuthAppClient(t *testing.T) {
 	request := client.acceptRequests[0]
 	if request.Tenant != "skorfman" || request.SourceTenant != "thieso2" || request.SourceProject != "default" || request.Name != "docs" || !request.DryRun {
 		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestShareReconcileUsesAuthAppClient(t *testing.T) {
+	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
+		Tenant: "skorfman",
+		Machines: []share.MachineReconcileResult{{
+			Project: "default",
+			Machine: "codex",
+			Status:  "would-update",
+			Changed: true,
+		}},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "skorfman"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "reconcile", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.reconcileRequests) != 1 {
+		t.Fatalf("reconcileRequests = %#v", client.reconcileRequests)
+	}
+	request := client.reconcileRequests[0]
+	if request.Tenant != "skorfman" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
+	}
+	if !strings.Contains(stdout, "default/codex: would-update changed") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareReconcileReturnsErrorWhenMachineFails(t *testing.T) {
+	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
+		Tenant: "skorfman",
+		Machines: []share.MachineReconcileResult{{
+			Project: "default",
+			Machine: "codex",
+			Status:  "failed",
+			Error:   "hotplug refused",
+		}},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "skorfman"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "reconcile")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(stdout, "hotplug refused") {
+		t.Fatalf("stdout = %q", stdout)
 	}
 }
 

@@ -27,6 +27,11 @@ type ShareRecipientRequest struct {
 	DryRun        bool   `json:"dry_run,omitempty"`
 }
 
+type ShareReconcileRequest struct {
+	Tenant string `json:"tenant,omitempty"`
+	DryRun bool   `json:"dry_run,omitempty"`
+}
+
 type ShareListResult struct {
 	Shares []meta.TenantStorageShare `json:"shares"`
 }
@@ -185,7 +190,63 @@ func (h handler) shareRecipientMutationAPI(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, result.Share)
+	if state == share.RecipientStateAccepted && h.shareReconciler != nil {
+		summary, err := h.findTenantSummary(r, tenantName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if request.DryRun {
+			summary.StorageShares = append(append([]meta.TenantStorageShare{}, summary.StorageShares...), result.Share)
+		}
+		reconcile, err := h.shareReconciler.ReconcileTenantShares(r.Context(), summary, request.DryRun)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		result.Reconcile = &reconcile
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h handler) shareReconcileAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, err := h.requireBearerUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if h.shareReconciler == nil {
+		http.Error(w, "share reconciler is not configured", http.StatusInternalServerError)
+		return
+	}
+	var request ShareReconcileRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	tenantName := strings.TrimSpace(request.Tenant)
+	if tenantName == "" {
+		tenantName = strings.TrimSpace(h.admin.Tenant)
+	}
+	if err := h.requireTenantAccess(r, user.UserKey, tenantName); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	summary, err := h.findTenantSummary(r, tenantName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	result, err := h.shareReconciler.ReconcileTenantShares(r.Context(), summary, request.DryRun)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h handler) requireTenantAccess(r *http.Request, userKey string, tenantName string) error {

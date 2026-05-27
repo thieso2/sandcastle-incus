@@ -21,6 +21,7 @@ func newShareCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.AddCommand(newShareOffersCommand(config, opts))
 	command.AddCommand(newShareAcceptCommand(config, opts))
 	command.AddCommand(newShareDeclineCommand(config, opts))
+	command.AddCommand(newShareReconcileCommand(config, opts))
 	return command
 }
 
@@ -169,7 +170,7 @@ func newShareRecipientCommand(config commandConfig, opts *rootOptions, action st
 				Name:          shareName,
 				DryRun:        dryRun,
 			}
-			var result meta.TenantStorageShare
+			var result share.Result
 			if action == "accept" {
 				result, err = client.AcceptShare(cmd.Context(), request)
 			} else {
@@ -178,10 +179,45 @@ func newShareRecipientCommand(config commandConfig, opts *rootOptions, action st
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatShare(result), result)
+			return writeOutput(config.stdout, opts.output, formatShareResult(result), result)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the share plan without mutating metadata")
+	return command
+}
+
+func newShareReconcileCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var tenantName string
+	var dryRun bool
+	command := &cobra.Command{
+		Use:   "reconcile",
+		Short: "Reconcile accepted Tenant Storage Shares onto running machines",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := shareClient(config)
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(tenantName) == "" {
+				tenantName = strings.TrimSpace(config.adminConfig.Tenant)
+			}
+			result, err := client.ReconcileShares(cmd.Context(), authapp.ShareReconcileRequest{
+				Tenant: tenantName,
+				DryRun: dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			if err := writeOutput(config.stdout, opts.output, formatReconcileResult(result), result); err != nil {
+				return err
+			}
+			if result.HasFailures() {
+				return fmt.Errorf("share reconciliation left one or more machines unreconciled")
+			}
+			return nil
+		},
+	}
+	command.Flags().StringVar(&tenantName, "tenant", "", "tenant to reconcile; defaults to the current tenant")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "show planned machine device changes without mutating Incus")
 	return command
 }
 
@@ -228,6 +264,37 @@ func formatShare(value meta.TenantStorageShare) string {
 		strings.Join(recipients, ", "),
 		value.Availability,
 	)
+}
+
+func formatShareResult(result share.Result) string {
+	text := formatShare(result.Share)
+	if result.Reconcile != nil {
+		text += formatReconcileResult(*result.Reconcile)
+	}
+	return text
+}
+
+func formatReconcileResult(result share.ReconcileResult) string {
+	if len(result.Machines) == 0 {
+		return "No machines to reconcile\n"
+	}
+	var builder strings.Builder
+	builder.WriteString("Reconcile:\n")
+	for _, machine := range result.Machines {
+		status := machine.Status
+		if status == "" {
+			status = "ok"
+		}
+		line := fmt.Sprintf("- %s/%s: %s", machine.Project, machine.Machine, status)
+		if machine.Changed {
+			line += " changed"
+		}
+		if machine.Error != "" {
+			line += ": " + machine.Error
+		}
+		builder.WriteString(line + "\n")
+	}
+	return builder.String()
 }
 
 func parseInboundShareRef(value string) (string, string, string, error) {

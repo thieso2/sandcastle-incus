@@ -26,6 +26,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -114,8 +115,9 @@ type authShareClient interface {
 	ListInboundShares(context.Context, string) ([]meta.TenantStorageShare, error)
 	ListShareOffers(context.Context, string) ([]meta.TenantStorageShare, error)
 	GetShare(context.Context, string, string, string) (meta.TenantStorageShare, error)
-	AcceptShare(context.Context, authapp.ShareRecipientRequest) (meta.TenantStorageShare, error)
-	DeclineShare(context.Context, authapp.ShareRecipientRequest) (meta.TenantStorageShare, error)
+	AcceptShare(context.Context, authapp.ShareRecipientRequest) (share.Result, error)
+	DeclineShare(context.Context, authapp.ShareRecipientRequest) (share.Result, error)
+	ReconcileShares(context.Context, authapp.ShareReconcileRequest) (share.ReconcileResult, error)
 }
 
 type rootOptions struct {

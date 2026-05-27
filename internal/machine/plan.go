@@ -2,8 +2,6 @@ package machine
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
 	"net/netip"
 	"path"
@@ -298,40 +296,17 @@ func createDevices(admin config.Admin, summary tenant.Summary, privateIP string,
 		},
 	}
 	for _, storageShare := range summary.StorageShares {
-		if !shareIsAcceptedAvailable(storageShare, summary.Tenant) {
+		if !share.IsAcceptedAvailable(storageShare, summary.Tenant) {
 			continue
 		}
 		sourceIncusProject, err := naming.TenantIncusProjectNameWithPrefix(admin.IncusProjectPrefix, naming.TenantRef{Tenant: storageShare.SourceTenant})
 		if err != nil {
 			return nil, err
 		}
-		deviceName := shareDeviceName(storageShare)
-		devices[deviceName] = Device{
-			"type":     "disk",
-			"pool":     sourceIncusProject,
-			"source":   tenant.WorkspaceVolumeName + "/" + storageShare.SourceProject + "/" + storageShare.SourceDir,
-			"path":     "/shared/" + storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name,
-			"readonly": "true",
-		}
+		deviceName := share.DeviceName(storageShare)
+		devices[deviceName] = Device(share.DesiredDevice(storageShare, sourceIncusProject, tenant.WorkspaceVolumeName))
 	}
 	return devices, nil
-}
-
-func shareIsAcceptedAvailable(storageShare meta.TenantStorageShare, recipientTenant string) bool {
-	if storageShare.Availability != "" && storageShare.Availability != share.AvailabilityAvailable {
-		return false
-	}
-	for _, recipient := range storageShare.Recipients {
-		if recipient.Tenant == recipientTenant && recipient.State == share.RecipientStateAccepted {
-			return true
-		}
-	}
-	return false
-}
-
-func shareDeviceName(storageShare meta.TenantStorageShare) string {
-	sum := sha1.Sum([]byte(storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name))
-	return "share-" + hex.EncodeToString(sum[:])[:12]
 }
 
 func normalizeStorageSubdir(kind string, value string, projectName string, _ string) (string, error) {
