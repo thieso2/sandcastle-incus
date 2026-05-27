@@ -160,6 +160,7 @@ func Execute(name string, args []string) int {
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
 	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
+	connectCache := incusx.NewConnectCache(adminConfig.Remote)
 	userRouteManager := routeManagerFromEnv()
 	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	cmd := NewRootCommand(commandConfig{
@@ -185,10 +186,10 @@ func Execute(name string, args []string) int {
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr).WithConnectCache(connectCache),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
-		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr).WithConnectCache(incusx.NewConnectCache(adminConfig.Remote)),
+		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr).WithConnectCache(connectCache),
 		dnsApplier:          incusx.NewDNSManager(adminConfig.Remote),
 		localDNS:            localdns.FileManager{},
 		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),

@@ -63,6 +63,7 @@ func ExecuteAdmin(name string, args []string) int {
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
 	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
+	connectCache := incusx.NewConnectCache(adminConfig.Remote)
 	routeBrokerTenants := incusx.NewTenantStoreForSharedRemote(sharedRemote)
 	routeBrokerMachines := incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)
 	routeBrokerTrust := incusx.NewRouteBrokerTrustMapper(adminConfig.Remote)
@@ -131,7 +132,7 @@ func ExecuteAdmin(name string, args []string) int {
 		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr).WithConnectCache(connectCache),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
 		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr),

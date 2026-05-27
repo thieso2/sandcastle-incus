@@ -21,9 +21,15 @@ type connectCacheEntry struct {
 	Stored time.Time           `json:"stored"`
 }
 
+type connectSSHIdentityEntry struct {
+	Path   string    `json:"path"`
+	Stored time.Time `json:"stored"`
+}
+
 type connectCacheData struct {
-	Plans    map[string]connectCacheEntry `json:"plans,omitempty"`
-	Keyscans map[string]time.Time         `json:"keyscans,omitempty"`
+	Plans         map[string]connectCacheEntry       `json:"plans,omitempty"`
+	Keyscans      map[string]time.Time               `json:"keyscans,omitempty"`
+	SSHIdentities map[string]connectSSHIdentityEntry `json:"sshIdentities,omitempty"`
 }
 
 // ConnectCache is a local disk cache for SSH connect metadata.
@@ -97,6 +103,44 @@ func (c ConnectCache) StorePlan(key string, plan machine.ConnectPlan) {
 	_ = c.writeData(data)
 }
 
+func (c ConnectCache) LookupSSHIdentity(key string) (string, bool) {
+	data := c.readData()
+	if data == nil || data.SSHIdentities == nil {
+		return "", false
+	}
+	entry, ok := data.SSHIdentities[key]
+	if !ok || time.Since(entry.Stored) > connectPlanCacheTTL || strings.TrimSpace(entry.Path) == "" {
+		return "", false
+	}
+	return entry.Path, true
+}
+
+func (c ConnectCache) StoreSSHIdentity(key string, identityPath string) {
+	key = strings.TrimSpace(key)
+	identityPath = strings.TrimSpace(identityPath)
+	if key == "" || identityPath == "" {
+		return
+	}
+	data := c.readData()
+	if data == nil {
+		data = &connectCacheData{}
+	}
+	if data.SSHIdentities == nil {
+		data.SSHIdentities = map[string]connectSSHIdentityEntry{}
+	}
+	data.SSHIdentities[key] = connectSSHIdentityEntry{Path: identityPath, Stored: time.Now()}
+	_ = c.writeData(data)
+}
+
+func (c ConnectCache) InvalidateSSHIdentity(key string) {
+	data := c.readData()
+	if data == nil || data.SSHIdentities == nil {
+		return
+	}
+	delete(data.SSHIdentities, strings.TrimSpace(key))
+	_ = c.writeData(data)
+}
+
 // InvalidatePlansByNameExcept removes cached plans for tenant/name except the
 // selected project. Use this after a live lookup proves a bare machine name is
 // currently unambiguous.
@@ -123,6 +167,9 @@ func (c ConnectCache) InvalidatePlansByNameExcept(tenant, name, keepProject stri
 			hostsToInvalidate = append(hostsToInvalidate, h)
 		}
 		delete(data.Plans, key)
+		if data.SSHIdentities != nil {
+			delete(data.SSHIdentities, key)
+		}
 	}
 	for _, host := range hostsToInvalidate {
 		delete(data.Keyscans, host)
@@ -163,6 +210,11 @@ func (c ConnectCache) InvalidateTenant(tenant string) {
 			delete(data.Plans, key)
 		}
 	}
+	for key := range data.SSHIdentities {
+		if strings.HasPrefix(key, prefix) {
+			delete(data.SSHIdentities, key)
+		}
+	}
 	for _, host := range hostsToInvalidate {
 		delete(data.Keyscans, host)
 	}
@@ -177,10 +229,15 @@ func (c ConnectCache) InvalidateAll() {
 // InvalidatePlan removes the cached plan for key, forcing a fresh Incus lookup next connect.
 func (c ConnectCache) InvalidatePlan(key string) {
 	data := c.readData()
-	if data == nil || data.Plans == nil {
+	if data == nil {
 		return
 	}
-	delete(data.Plans, key)
+	if data.Plans != nil {
+		delete(data.Plans, key)
+	}
+	if data.SSHIdentities != nil {
+		delete(data.SSHIdentities, key)
+	}
 	_ = c.writeData(data)
 }
 

@@ -3,6 +3,8 @@ package incusx
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -119,6 +121,47 @@ func TestMachineConnectorAddsSSHVerboseWhenVerboseEnabled(t *testing.T) {
 		}
 	}
 	t.Fatalf("ssh args missing -v: %#v", runner.args)
+}
+
+func TestMachineConnectorPinsCachedSSHIdentity(t *testing.T) {
+	runner := &fakeSSHRunner{}
+	cache := ConnectCache{path: filepath.Join(t.TempDir(), "connect-cache.json")}
+	plan := machine.ConnectPlan{
+		Tenant:       tenant.Summary{Tenant: "acme", IncusName: "sc-acme"},
+		Project:      "default",
+		Name:         "codex",
+		InstanceName: "default-codex",
+		SSHHost:      "10.248.0.20",
+		HostKeyAlias: "codex.default.acme",
+		Command:      []string{"/bin/bash", "-l"},
+		LinuxUser:    "alice",
+		Interactive:  true,
+		Managed:      true,
+	}
+	identityPath := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(identityPath, []byte("key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cache.StoreSSHIdentity(sshIdentityCacheKey(plan), identityPath)
+	connector := MachineConnector{Runner: runner}.WithConnectCache(cache)
+	if err := connector.ConnectMachine(context.Background(), plan, machine.ConnectSession{Stdin: io.Reader(nil), Stdout: io.Discard, Stderr: io.Discard}); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(runner.args, " ")
+	if !strings.Contains(joined, "IdentitiesOnly=yes") || !strings.Contains(joined, "-i "+identityPath) {
+		t.Fatalf("ssh args = %q", joined)
+	}
+}
+
+func TestSSHIdentityCandidatesPreferEd25519(t *testing.T) {
+	candidates := prioritizeSSHIdentityCandidates([]string{
+		"/Users/alice/.ssh/id_rsa",
+		"/Users/alice/.ssh/id_ecdsa",
+		"/Users/alice/.ssh/id_ed25519",
+	})
+	if candidates[0] != "/Users/alice/.ssh/id_ed25519" {
+		t.Fatalf("candidates = %#v", candidates)
+	}
 }
 
 func TestMachineConnectorExecsUnmanagedMachineAsRoot(t *testing.T) {

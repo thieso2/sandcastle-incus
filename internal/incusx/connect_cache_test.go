@@ -50,6 +50,38 @@ func TestConnectCacheInvalidatePlansByNameExceptPrunesStaleNameMatches(t *testin
 	}
 }
 
+func TestConnectCacheStoresSSHIdentity(t *testing.T) {
+	cache := ConnectCache{path: filepath.Join(t.TempDir(), "connect-cache.json")}
+	cache.StoreSSHIdentity("thieso2:default/test", "/Users/thies/.ssh/id_ed25519")
+
+	identityPath, ok := cache.LookupSSHIdentity("thieso2:default/test")
+	if !ok {
+		t.Fatal("expected SSH identity cache hit")
+	}
+	if identityPath != "/Users/thies/.ssh/id_ed25519" {
+		t.Fatalf("identityPath = %q", identityPath)
+	}
+
+	cache.InvalidatePlan("thieso2:default/test")
+	if _, ok := cache.LookupSSHIdentity("thieso2:default/test"); ok {
+		t.Fatal("expected plan invalidation to remove SSH identity")
+	}
+}
+
+func TestConnectCacheInvalidateTenantRemovesSSHIdentities(t *testing.T) {
+	cache := ConnectCache{path: filepath.Join(t.TempDir(), "connect-cache.json")}
+	cache.StoreSSHIdentity("thieso2:default/test", "/Users/thies/.ssh/id_ed25519")
+	cache.StoreSSHIdentity("some:default/test", "/Users/thies/.ssh/id_ed25519")
+
+	cache.InvalidateTenant("thieso2")
+	if _, ok := cache.LookupSSHIdentity("thieso2:default/test"); ok {
+		t.Fatal("expected tenant invalidation to remove SSH identity")
+	}
+	if _, ok := cache.LookupSSHIdentity("some:default/test"); !ok {
+		t.Fatal("expected other tenant SSH identity to remain")
+	}
+}
+
 func testConnectCacheTenant(name string) tenant.Summary {
 	return tenant.Summary{Tenant: name}
 }
