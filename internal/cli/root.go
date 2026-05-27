@@ -51,6 +51,7 @@ type commandConfig struct {
 	tenantDeleter       tenant.Deleter
 	tenantSSHKeyUpdater tenant.SSHKeyUpdater
 	tenantUpdater       tenant.ProjectUpdater
+	tenantUnixUser      tenant.UnixUserUpdater
 	infraCreator        infra.Creator
 	infraDeleter        infra.Deleter
 	infraCaddyData      infra.CaddyDataExporter
@@ -145,6 +146,7 @@ func Execute(name string, args []string) int {
 		tenantDeleter:       incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManager(adminConfig.Remote),
 		tenantUpdater:       incusx.NewTenantSSHKeyManager(adminConfig.Remote),
+		tenantUnixUser:      incusx.NewTenantSSHKeyManager(adminConfig.Remote),
 		infraCreator:        incusx.NewInfrastructureCreator(adminConfig.Remote),
 		infraDeleter:        incusx.NewInfrastructureDeleter(adminConfig.Remote),
 		infraCaddyData:      incusx.NewInfrastructureCaddyDataExporter(adminConfig.Remote),

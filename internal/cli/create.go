@@ -40,6 +40,21 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			if !dryRun {
+				if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config); err != nil {
+					return err
+				}
+				plan, err = machine.PlanCreate(cmd.Context(), config.adminConfig, createTenantStore, config.machineStore, machine.CreateRequest{
+					Reference:      args[0],
+					Template:       template,
+					AppPort:        appPort,
+					HomeDir:        homeDir,
+					WorkspaceDir:   workspaceDir,
+					ShareHome:      shareHome,
+					ContainerTools: containerTools,
+				})
+				if err != nil {
+					return err
+				}
 				if config.machineCreator == nil {
 					return fmt.Errorf("machine creation executor is not configured")
 				}

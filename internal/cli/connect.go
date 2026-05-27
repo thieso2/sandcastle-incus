@@ -231,6 +231,9 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 	if config.stderr != nil {
 		fmt.Fprintf(config.stderr, "Machine %s not found; creating it before connecting.\n", reference)
 	}
+	if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config); err != nil {
+		return err
+	}
 	createPlan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
 		Reference: reference,
 	})

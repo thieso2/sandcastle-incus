@@ -4725,6 +4725,46 @@ func TestConnectAliasCanEnableCloudIdentityWhenAutoCreating(t *testing.T) {
 	}
 }
 
+func TestConnectAliasRepairsTenantUnixUserBeforeAutoCreating(t *testing.T) {
+	t.Setenv("USER", "loginuser")
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updater := &fakeUnixUserUpdater{config: configMap}
+	creator := &fakeMachineCreator{}
+	connector := &fakeMachineConnector{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	_, _, err = executeForTestWithConfigAndStderr(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		tenantUnixUser:   updater,
+		machineStore:     fakeMachineStatusStore{},
+		machineCreator:   creator,
+		machineConnector: connector,
+		knownHosts:       &fakeKnownHostsManager{},
+		dnsApplier:       &fakeDNSApplier{},
+	}, "c", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updater.calls) != 1 || updater.calls[0].incusProject != "sc-acme" || updater.calls[0].unixUser != "loginuser" {
+		t.Fatalf("unix user calls = %#v", updater.calls)
+	}
+	if creator.plan.LinuxUser != "loginuser" || connector.plan.LinuxUser != "loginuser" {
+		t.Fatalf("linux users: create=%q connect=%q", creator.plan.LinuxUser, connector.plan.LinuxUser)
+	}
+}
+
 func TestRejectsUnknownOutputFormat(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "--output", "yaml", "version")
 	if err == nil {
@@ -4792,6 +4832,39 @@ type fakeProjectUpdater struct {
 	called       bool
 	incusProject string
 	projects     []meta.Project
+}
+
+type fakeUnixUserUpdater struct {
+	config map[string]string
+	calls  []struct {
+		incusProject string
+		unixUser     string
+	}
+}
+
+func (f *fakeUnixUserUpdater) SetTenantUnixUser(ctx context.Context, incusProjectName string, unixUser string) error {
+	f.calls = append(f.calls, struct {
+		incusProject string
+		unixUser     string
+	}{incusProject: incusProjectName, unixUser: unixUser})
+	if f.config != nil {
+		metadata, err := meta.ParseTenantConfig(f.config)
+		if err != nil {
+			return err
+		}
+		metadata.UnixUser = unixUser
+		updated, err := meta.TenantConfig(metadata)
+		if err != nil {
+			return err
+		}
+		for key := range f.config {
+			delete(f.config, key)
+		}
+		for key, value := range updated {
+			f.config[key] = value
+		}
+	}
+	return nil
 }
 
 func (f *fakeProjectUpdater) SetTenantProjects(ctx context.Context, incusProjectName string, projects []meta.Project) error {
