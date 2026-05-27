@@ -390,6 +390,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/cloud-identities", app.cloudIdentities)
 	mux.HandleFunc("/cloud-identities/delete", app.cloudIdentityDelete)
 	mux.HandleFunc("/api/cloud-identities", app.cloudIdentitiesAPI)
+	mux.HandleFunc("/api/tenants", app.tenantsAPI)
 	mux.HandleFunc("/api/shares", app.sharesAPI)
 	mux.HandleFunc("/api/shares/status", app.shareStatusAPI)
 	mux.HandleFunc("/api/shares/accept", app.shareAcceptAPI)

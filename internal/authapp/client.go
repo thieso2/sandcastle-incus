@@ -235,6 +235,34 @@ func (c DeviceClient) UpsertCloudIdentity(ctx context.Context, request CloudIden
 	}, nil
 }
 
+func (c DeviceClient) ListTenants(ctx context.Context) ([]TenantAccessSummary, error) {
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/tenants"), nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return nil, fmt.Errorf("auth app tenant list: %s", msg)
+	}
+	var payload TenantAccessListResult
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Tenants, nil
+}
+
 func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateRequest) (share.Result, error) {
 	body, _ := json.Marshal(request)
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/shares"), bytes.NewReader(body))

@@ -7,7 +7,7 @@ project, with simple CLI management for containers and later VMs.
 
 **Tenant**:
 An admin-created top-level namespace that owns projects, DNS naming, and access boundaries.
-_Avoid_: Owner, account
+_Avoid_: Owner, account, named tenant
 
 **Personal Tenant**:
 An automatically created Tenant scoped to one allowlisted User.
@@ -243,7 +243,7 @@ _Avoid_: Implicit project, projectless container bucket
 
 **Current Tenant**:
 The tenant selected by local CLI configuration for unqualified user commands.
-_Avoid_: Owner, SANDCASTLE_OWNER
+_Avoid_: Owner, SANDCASTLE_OWNER, active account, logged-in tenant
 
 **Current Project**:
 The project selected by CLI input or local CLI configuration, defaulting to the Default Project.
@@ -398,12 +398,16 @@ _Avoid_: Projectless mode
 - If no project is supplied by CLI input, environment, or local configuration, the **Current Project** is the **Default Project**.
 - The user CLI reads the **Current Tenant** from `SANDCASTLE_TENANT` or local configuration.
 - Local configuration may store default tenant and project selections.
+- Local **Current Tenant** selection does not mutate persisted Incus CLI project selection.
 - Environment variables override local configuration.
 - Shared infrastructure creation resolves input from CLI flags, environment variables, the **Infrastructure Seed File**, and built-in defaults, in that order.
 - Machine creation resolves the **Current Project** from an explicit reference, `SANDCASTLE_PROJECT`, local project configuration, or the **Default Project**, in that order.
 - Machine lookup commands may search across projects when no project is supplied and no `SANDCASTLE_PROJECT` is set, but only act when the machine name is unique.
 - Destructive machine lookup commands require confirmation when the **Project** was inferred, unless the user supplies an explicit confirmation flag.
 - A **User** may have **Tenant Access** to one or more **Tenants**.
+- The Auth App may report the **Tenants** accessible to a **User** without changing the **Current Tenant**.
+- User-facing tenant lists show only **Tenants** accessible to the requesting **User**.
+- User-facing tenant lists show tenant identity and selection state, not diagnostic health.
 - A **User** has one **Sandcastle User Key**.
 - A **Sandcastle User Key** is the allowlisted **Normalized GitHub Username** in v1.
 - A **GitHub Username** rename requires explicit future migration code.
@@ -484,6 +488,10 @@ _Avoid_: Projectless mode
 - **Tenant Access** grants management rights over **Projects**, **Machines**, and **Public Routes** in that **Tenant**.
 - Revoking **Tenant Access** revokes **Machine SSH Access** by removing that User's **User SSH Public Key** from Machines in that **Tenant**.
 - User CLI commands operate in exactly one **Current Tenant**.
+- Switching the **Current Tenant** should validate **Tenant Access** when online validation is available.
+- A local-only **Current Tenant** switch is an explicit escape hatch from online **Tenant Access** validation.
+- Switching the **Current Tenant** does not change the **Current Project**.
+- Switching the **Current Tenant** does not perform **Local DNS Installation**, trust installation, or **Tenant Tailnet** setup.
 - When a user has multiple tenants and no **Current Tenant** is selected, user CLI commands fail until the tenant is selected.
 - Bare user `status` reports **Current Tenant** status.
 - Admins grant and revoke **Tenant Access**, not project access.

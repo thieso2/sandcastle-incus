@@ -83,6 +83,7 @@ type commandConfig struct {
 	authDevice          authDeviceClient
 	authWorkload        authWorkloadClient
 	authCloudIdentity   authCloudIdentityClient
+	authTenants         authTenantClient
 	authShares          authShareClient
 	shareStore          share.Store
 	shareReconciler     tenantShareReconciler
@@ -113,6 +114,10 @@ type authWorkloadClient interface {
 
 type authCloudIdentityClient interface {
 	UpsertCloudIdentity(context.Context, authapp.CloudIdentityUpsertRequest) (authapp.CloudIdentityConfig, error)
+}
+
+type authTenantClient interface {
+	ListTenants(context.Context) ([]authapp.TenantAccessSummary, error)
 }
 
 type authShareClient interface {
@@ -297,6 +302,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newIncusInfraCommand(config, opts))
 	root.AddCommand(newLoginCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))
+	root.AddCommand(newTenantCommand(config, opts))
 	root.AddCommand(newCacheCommand(config, opts))
 	root.AddCommand(newCloudIdentityCommand(config, opts))
 	root.AddCommand(newWorkloadCommand(config, opts))

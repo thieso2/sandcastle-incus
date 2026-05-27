@@ -129,6 +129,12 @@ type fakeAuthCloudIdentityClient struct {
 	upsertResult   authapp.CloudIdentityConfig
 }
 
+type fakeAuthTenantClient struct {
+	listRequests int
+	tenants      []authapp.TenantAccessSummary
+	err          error
+}
+
 type fakeAuthShareClient struct {
 	createRequests    []authapp.ShareCreateRequest
 	createResult      share.Result
@@ -333,6 +339,14 @@ func (c *fakeAuthCloudIdentityClient) UpsertCloudIdentity(ctx context.Context, r
 		}
 	}
 	return c.upsertResult, nil
+}
+
+func (c *fakeAuthTenantClient) ListTenants(ctx context.Context) ([]authapp.TenantAccessSummary, error) {
+	c.listRequests++
+	if c.err != nil {
+		return nil, c.err
+	}
+	return append([]authapp.TenantAccessSummary{}, c.tenants...), nil
 }
 
 func (c *fakeAuthShareClient) CreateShare(ctx context.Context, request authapp.ShareCreateRequest) (share.Result, error) {
@@ -960,6 +974,140 @@ func TestConfigSetAuthHostname(t *testing.T) {
 	}
 	if cfg.AuthHostname != "big.example.dev" {
 		t.Fatalf("AuthHostname = %q", cfg.AuthHostname)
+	}
+}
+
+func TestTenantListShowsAccessibleTenantsAndCurrent(t *testing.T) {
+	client := &fakeAuthTenantClient{tenants: []authapp.TenantAccessSummary{
+		{Tenant: "acme", Personal: true},
+		{Tenant: "skorfman"},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authTenants: client,
+	}, "tenant", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Tenant\tPersonal\tCurrent",
+		"acme\tyes\tyes",
+		"skorfman\tno\tno",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "Users") || strings.Contains(stdout, "Projects") || strings.Contains(stdout, "Shares") {
+		t.Fatalf("stdout includes non-list diagnostics:\n%s", stdout)
+	}
+	if client.listRequests != 1 {
+		t.Fatalf("listRequests = %d", client.listRequests)
+	}
+}
+
+func TestTenantSwitchValidatesAccessAndPreservesProject(t *testing.T) {
+	useLoginHomeForTest(t)
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant:       "acme",
+		Project:      "website",
+		Remote:       "sandcastle-acme",
+		AuthHostname: "auth.example.com",
+		AuthToken:    "stored-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthTenantClient{tenants: []authapp.TenantAccessSummary{{Tenant: "acme"}, {Tenant: "skorfman"}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authTenants: client,
+	}, "tenant", "switch", "skorfman")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Current Tenant set to \"skorfman\"") || !strings.Contains(stdout, "Local setup is unchanged") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant != "skorfman" || cfg.Project != "website" {
+		t.Fatalf("config = %#v", cfg)
+	}
+	if client.listRequests != 1 {
+		t.Fatalf("listRequests = %d", client.listRequests)
+	}
+}
+
+func TestTenantSwitchRejectsInaccessibleTenant(t *testing.T) {
+	useLoginHomeForTest(t)
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{Tenant: "acme", Project: "website"}); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthTenantClient{tenants: []authapp.TenantAccessSummary{{Tenant: "acme"}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authTenants: client,
+	}, "tenant", "switch", "skorfamn")
+	if err == nil || !strings.Contains(err.Error(), "--local-only") {
+		t.Fatalf("err = %v", err)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant != "acme" || cfg.Project != "website" {
+		t.Fatalf("config = %#v", cfg)
+	}
+}
+
+func TestTenantSwitchLocalOnlySkipsValidation(t *testing.T) {
+	useLoginHomeForTest(t)
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant:       "acme",
+		Project:      "website",
+		AuthHostname: "auth.example.com",
+		AuthToken:    "stored-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthTenantClient{err: fmt.Errorf("should not be called")}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: testAdminConfig(),
+		authTenants: client,
+	}, "tenant", "switch", "offline", "--local-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Skipped Auth App Tenant Access validation") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant != "offline" || cfg.Project != "website" {
+		t.Fatalf("config = %#v", cfg)
+	}
+	if client.listRequests != 0 {
+		t.Fatalf("listRequests = %d", client.listRequests)
 	}
 }
 
