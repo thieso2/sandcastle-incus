@@ -62,6 +62,7 @@ Planned user commands:
 sc share create <project>:/workspace/<dir> --to <tenant> [--to <tenant> ...] [--name <share-name>]
 sc share list [--outbound] [--inbound] [--offers]
 sc share status <project>/<share-name> [--verbose]
+sc share status <source-tenant>/<source-project>/<share-name> [--verbose]
 sc share offers
 sc share accept <source-tenant>/<source-project>/<share-name> [--dry-run]
 sc share decline <source-tenant>/<source-project>/<share-name> [--dry-run]
@@ -72,9 +73,9 @@ sc share reconcile [--tenant <tenant>] [--dry-run]
 
 The create command may accept `/workspace/docs` or `docs` as input and normalizes both to a workspace-relative source path. If the source directory basename is not a valid path-safe share name, `--name` is required.
 
-Tenant status should include share summary counts: outbound shares, inbound accepted shares, pending inbound offers, and unreconciled machines. Detailed share rows belong in `sc share list` and `sc share status`.
+Tenant status should include share summary counts: outbound shares, inbound accepted shares, pending inbound offers, and unreconciled machines. Detailed share rows belong in `sc share list` and `sc share status`. Share status shows compact reconciliation health by default; `--verbose` includes recipient machine-level reconciliation details.
 
-Mutating commands should support `--dry-run --output json` plans. Reconciliation is convergent: desired share state is recorded first, machine-level changes are applied as far as possible, and per-machine failures are reported for retry. Reconciliation should not automatically stop or restart machines.
+Mutating commands should support `--dry-run --output json` plans with the resulting share state and dry-run marker in the JSON wrapper. Reconciliation is convergent: desired share state is recorded first, machine-level changes are applied as far as possible, and per-machine failures are reported for retry. Reconciliation should not automatically stop or restart machines.
 
 Reconciliation runs synchronously in v1 and returns per-machine results to the caller. Background jobs can be added later if share operations become too slow.
 

@@ -452,9 +452,10 @@ Bootstrap:
     <p>Creates a pending outbound offer for a workspace subdirectory. Source users keep read/write access through <code>/workspace</code>; accepted recipient shares are reconciled read-only into recipient machines under <code>/shared/&lt;source-tenant&gt;/&lt;source-project&gt;/&lt;share-name&gt;</code>.</p>
     <pre><code><span class="cmd">sandcastle share create</span> <span class="arg">default:/workspace/docs</span> <span class="flag">--to</span> <span class="arg">skorfman</span>
 <span class="cmd">sandcastle share list</span> <span class="flag">--outbound</span>
-<span class="cmd">sandcastle share status</span> <span class="arg">default/docs</span>
+<span class="cmd">sandcastle share status</span> <span class="arg">default/docs</span> <span class="flag">--verbose</span>
 <span class="cmd">sandcastle share offers</span>
 <span class="cmd">sandcastle share accept</span> <span class="arg">thieso2/default/docs</span>
+<span class="cmd">sandcastle share status</span> <span class="arg">thieso2/default/docs</span>
 <span class="cmd">sandcastle share reconcile</span> <span class="flag">--dry-run</span>
 <span class="cmd">sandcastle share revoke</span> <span class="arg">default/docs</span> <span class="flag">--tenant</span> <span class="arg">skorfman</span>
 <span class="cmd">sandcastle share delete</span> <span class="arg">default/docs</span> <span class="flag">--yes</span>
