@@ -92,6 +92,55 @@ func TestGetStatusReportsUnauthenticatedTailscaleRouteAsUnknown(t *testing.T) {
 	}
 }
 
+func TestGetStatusIncludesShareHealthCounts(t *testing.T) {
+	acmeConfig, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		PrivateCIDR: "10.248.0.0/24",
+		Projects:    []meta.Project{{Name: "default"}},
+		StorageShares: []meta.TenantStorageShare{{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  "pending",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skorfmanConfig, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "skorfman",
+		PrivateCIDR: "10.248.1.0/24",
+		Projects:    []meta.Project{{Name: "default"}},
+		StorageShares: []meta.TenantStorageShare{{
+			SourceTenant:  "other",
+			SourceProject: "default",
+			SourceDir:     "data",
+			Name:          "data",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  "accepted",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{
+		{Name: "sc-acme", Config: acmeConfig},
+		{Name: "sc-skorfman", Config: skorfmanConfig},
+	}}, "skorfman")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Shares.InboundAcceptedCount != 1 || status.Shares.PendingInboundOfferCount != 1 || status.Shares.OutboundShareCount != 0 {
+		t.Fatalf("share health = %#v", status.Shares)
+	}
+}
+
 func TestGetStatusWithTopology(t *testing.T) {
 	config, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",

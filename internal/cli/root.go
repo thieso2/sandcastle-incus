@@ -84,12 +84,18 @@ type commandConfig struct {
 	authWorkload        authWorkloadClient
 	authCloudIdentity   authCloudIdentityClient
 	authShares          authShareClient
+	shareStore          share.Store
+	shareReconciler     tenantShareReconciler
 	openBrowser         func(string)
 	loginRemote         loginRemoteInstaller
 	loginTailnet        loginTailnetVerifier
 	loginSetup          loginSetupRunner
 	incusRunner         incusRunner
 	gcloudRunner        gcloudRunner
+}
+
+type tenantShareReconciler interface {
+	ReconcileTenantShares(context.Context, tenant.Summary, bool) (share.ReconcileResult, error)
 }
 
 type authDeviceClient interface {

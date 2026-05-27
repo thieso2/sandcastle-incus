@@ -72,6 +72,32 @@ func TestPlanDeleteProjectRemovesNamespace(t *testing.T) {
 	}
 }
 
+func TestPlanDeleteProjectRejectsActiveOutboundShare(t *testing.T) {
+	admin := config.LoadAdminFromEnv()
+	admin.Tenant = "acme"
+	tenantConfig, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		PrivateCIDR: "10.248.0.0/24",
+		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
+		StorageShares: []meta.TenantStorageShare{{
+			SourceTenant:  "acme",
+			SourceProject: "website",
+			SourceDir:     "docs",
+			Name:          "docs",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = PlanDeleteProject(context.Background(), admin, MemoryStore{Projects: []IncusProject{{Name: "sc-acme", Config: tenantConfig}}}, ProjectMutationRequest{Name: "website"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Tenant Storage Share") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestPlanSetProjectCloudIdentityUpdatesDefaultProject(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"

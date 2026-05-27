@@ -55,6 +55,10 @@ func formatTenantStatus(status tenant.Status) string {
 	fmt.Fprintf(&builder, "Incus project: %s\n", status.Summary.IncusName)
 	fmt.Fprintf(&builder, "DNS suffix: %s\n", status.Summary.DNSSuffix)
 	fmt.Fprintf(&builder, "Private CIDR: %s\n", status.Summary.PrivateCIDR)
+	fmt.Fprintf(&builder, "Outbound shares: %d\n", status.Shares.OutboundShareCount)
+	fmt.Fprintf(&builder, "Inbound accepted shares: %d\n", status.Shares.InboundAcceptedCount)
+	fmt.Fprintf(&builder, "Pending inbound share offers: %d\n", status.Shares.PendingInboundOfferCount)
+	fmt.Fprintf(&builder, "Unreconciled share machines: %d\n", status.Shares.UnreconciledMachineCount)
 	for _, publicRoute := range status.Summary.PublicRoutes {
 		fmt.Fprintf(&builder, "Route: %s -> %s/%s:%d\n", publicRoute.Hostname, publicRoute.Project, publicRoute.Machine, publicRoute.RoutePort)
 	}

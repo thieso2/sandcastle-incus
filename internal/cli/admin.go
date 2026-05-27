@@ -21,6 +21,7 @@ import (
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -241,6 +242,31 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 			if err != nil {
 				return err
 			}
+			if config.shareStore != nil {
+				cleanup, err := share.CleanupTenantDeletion(cmd.Context(), config.tenantStore, config.shareStore, share.TenantCleanupRequest{Tenant: args[0]})
+				if err != nil {
+					return err
+				}
+				if config.shareReconciler != nil {
+					summaries, err := listTenants(cmd.Context(), config.tenantStore)
+					if err != nil {
+						return err
+					}
+					for _, recipient := range cleanup.AffectedRecipients {
+						summary, ok := findTenantSummaryForCleanup(summaries, recipient)
+						if !ok {
+							continue
+						}
+						result, err := config.shareReconciler.ReconcileTenantShares(cmd.Context(), summary, false)
+						if err != nil {
+							return err
+						}
+						if result.HasFailures() {
+							return fmt.Errorf("share cleanup reconciliation failed for tenant %s", recipient)
+						}
+					}
+				}
+			}
 			if config.tenantDeleter == nil {
 				return fmt.Errorf("tenant deletion executor is not configured")
 			}
@@ -255,6 +281,15 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 	command.Flags().BoolVar(&yes, "yes", false, "confirm tenant deletion")
 	command.Flags().BoolVar(&purge, "purge", false, "delete durable tenant volumes and the Incus project")
 	return command
+}
+
+func findTenantSummaryForCleanup(summaries []tenant.Summary, tenantName string) (tenant.Summary, bool) {
+	for _, summary := range summaries {
+		if summary.Tenant == tenantName {
+			return summary, true
+		}
+	}
+	return tenant.Summary{}, false
 }
 
 func newAdminTenantSetSSHKeyCommand(config commandConfig) *cobra.Command {

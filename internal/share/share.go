@@ -77,6 +77,11 @@ type DeleteRequest struct {
 	DryRun        bool   `json:"dry_run,omitempty"`
 }
 
+type TenantCleanupRequest struct {
+	Tenant string `json:"tenant"`
+	DryRun bool   `json:"dry_run,omitempty"`
+}
+
 type RecipientRequest struct {
 	Tenant        string `json:"tenant"`
 	SourceTenant  string `json:"source_tenant"`
@@ -95,6 +100,15 @@ type Result struct {
 	Reconcile          *ReconcileResult          `json:"reconcile,omitempty"`
 	Reconciles         []ReconcileResult         `json:"reconciles,omitempty"`
 	AffectedRecipients []string                  `json:"affected_recipients,omitempty"`
+}
+
+type TenantCleanupResult struct {
+	Tenant             string            `json:"tenant"`
+	DryRun             bool              `json:"dry_run,omitempty"`
+	AffectedRecipients []string          `json:"affected_recipients,omitempty"`
+	AffectedSources    []string          `json:"affected_sources,omitempty"`
+	RecipientSummaries map[string]string `json:"recipient_summaries,omitempty"`
+	SourceSummaries    map[string]string `json:"source_summaries,omitempty"`
 }
 
 type ReconcileResult struct {
@@ -440,6 +454,96 @@ func DeleteOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, sto
 		DryRun:             request.DryRun,
 		AffectedRecipients: recipients,
 	}, nil
+}
+
+func CleanupTenantDeletion(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request TenantCleanupRequest) (TenantCleanupResult, error) {
+	deleting, err := resolveTenant(ctx, tenants, request.Tenant)
+	if err != nil {
+		return TenantCleanupResult{}, err
+	}
+	summaries, err := tenantpkg.List(ctx, tenants)
+	if err != nil {
+		return TenantCleanupResult{}, err
+	}
+	result := TenantCleanupResult{
+		Tenant:             deleting.Tenant,
+		DryRun:             request.DryRun,
+		RecipientSummaries: map[string]string{},
+		SourceSummaries:    map[string]string{},
+	}
+	deletingShares, err := store.GetTenantShares(ctx, deleting.IncusName)
+	if err != nil {
+		return TenantCleanupResult{}, err
+	}
+	for _, storageShare := range deletingShares {
+		if storageShare.SourceTenant != deleting.Tenant {
+			continue
+		}
+		for _, recipient := range storageShare.Recipients {
+			recipientSummary, ok := findTenant(summaries, recipient.Tenant)
+			if !ok || recipientSummary.Tenant == deleting.Tenant {
+				continue
+			}
+			localShares, err := store.GetTenantShares(ctx, recipientSummary.IncusName)
+			if err != nil {
+				return TenantCleanupResult{}, err
+			}
+			updatedLocal := RemoveShare(localShares, deleting.Tenant, storageShare.SourceProject, storageShare.Name)
+			if !request.DryRun {
+				if err := store.SetTenantShares(ctx, recipientSummary.IncusName, updatedLocal); err != nil {
+					return TenantCleanupResult{}, err
+				}
+			}
+			result.AffectedRecipients = appendUnique(result.AffectedRecipients, recipientSummary.Tenant)
+			result.RecipientSummaries[recipientSummary.Tenant] = "removed inbound copy of " + storageShare.SourceProject + "/" + storageShare.Name
+		}
+	}
+	for _, source := range summaries {
+		if source.Tenant == deleting.Tenant {
+			continue
+		}
+		sourceShares, err := store.GetTenantShares(ctx, source.IncusName)
+		if err != nil {
+			return TenantCleanupResult{}, err
+		}
+		changed := false
+		updatedSourceShares := make([]meta.TenantStorageShare, 0, len(sourceShares))
+		for _, storageShare := range sourceShares {
+			updatedShare := storageShare
+			updatedShare.Recipients = removeRecipient(updatedShare.Recipients, deleting.Tenant)
+			removed := len(updatedShare.Recipients) != len(storageShare.Recipients)
+			if removed {
+				changed = true
+			}
+			if len(updatedShare.Recipients) == 0 && removed {
+				continue
+			}
+			updatedSourceShares = append(updatedSourceShares, updatedShare)
+		}
+		if !changed {
+			continue
+		}
+		sortShares(updatedSourceShares)
+		if !request.DryRun {
+			if err := store.SetTenantShares(ctx, source.IncusName, updatedSourceShares); err != nil {
+				return TenantCleanupResult{}, err
+			}
+		}
+		result.AffectedSources = appendUnique(result.AffectedSources, source.Tenant)
+		result.SourceSummaries[source.Tenant] = "removed recipient " + deleting.Tenant
+	}
+	sort.Strings(result.AffectedRecipients)
+	sort.Strings(result.AffectedSources)
+	return result, nil
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func GetOutbound(ctx context.Context, tenants tenantpkg.IncusTenantStore, store Store, request StatusRequest) (Result, error) {

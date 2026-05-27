@@ -320,6 +320,67 @@ func TestDeleteOutboundRejectsInboundCopy(t *testing.T) {
 	}
 }
 
+func TestCleanupTenantDeletionAsSourceRemovesRecipientCopies(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-acme": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStateAccepted,
+			}},
+		}},
+		"sc-skorfman": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  RecipientStateAccepted,
+			}},
+		}},
+	}}
+	result, err := CleanupTenantDeletion(context.Background(), tenantStore(), store, TenantCleanupRequest{Tenant: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.AffectedRecipients) != 1 || result.AffectedRecipients[0] != "skorfman" {
+		t.Fatalf("affected = %#v", result.AffectedRecipients)
+	}
+	if len(store.sharesByProject["sc-skorfman"]) != 0 {
+		t.Fatalf("recipient shares = %#v", store.sharesByProject["sc-skorfman"])
+	}
+}
+
+func TestCleanupTenantDeletionAsRecipientRemovesSourceRecipientOnly(t *testing.T) {
+	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		"sc-acme": {{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Recipients: []meta.TenantStorageShareRecipient{
+				{Tenant: "skorfman", State: RecipientStateAccepted},
+				{Tenant: "other", State: RecipientStatePending},
+			},
+		}},
+	}}
+	result, err := CleanupTenantDeletion(context.Background(), tenantStore(), store, TenantCleanupRequest{Tenant: "skorfman"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.AffectedSources) != 1 || result.AffectedSources[0] != "acme" {
+		t.Fatalf("affected = %#v", result.AffectedSources)
+	}
+	sourceShares := store.sharesByProject["sc-acme"]
+	if len(sourceShares) != 1 || len(sourceShares[0].Recipients) != 1 || sourceShares[0].Recipients[0].Tenant != "other" {
+		t.Fatalf("source shares = %#v", sourceShares)
+	}
+}
+
 type fakeStore struct {
 	shares          []meta.TenantStorageShare
 	sharesByProject map[string][]meta.TenantStorageShare
