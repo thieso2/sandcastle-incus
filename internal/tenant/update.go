@@ -100,6 +100,11 @@ func PlanDeleteProject(ctx context.Context, admin config.Admin, store IncusTenan
 			return ProjectMutationPlan{}, fmt.Errorf("Sandcastle project %s still contains machine %s", request.Name, machine.Name)
 		}
 	}
+	for _, storageShare := range summary.StorageShares {
+		if storageShare.SourceTenant == summary.Tenant && storageShare.SourceProject == request.Name {
+			return ProjectMutationPlan{}, fmt.Errorf("Sandcastle project %s still has active Tenant Storage Share %s", request.Name, storageShare.Name)
+		}
+	}
 	projects := make([]meta.Project, 0, len(summary.Projects)-1)
 	var deleted meta.Project
 	for _, candidate := range summary.Projects {

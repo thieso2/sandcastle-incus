@@ -14,6 +14,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 	_ "modernc.org/sqlite"
@@ -69,6 +70,10 @@ type MachineSSHAccessRevoker interface {
 	RevokeUserSSHKey(context.Context, tenant.Summary, string) error
 }
 
+type ShareReconciler interface {
+	ReconcileTenantShares(context.Context, tenant.Summary, bool) (share.ReconcileResult, error)
+}
+
 type HTTPRunner struct {
 	RestrictedUsers  RestrictedUserRevoker
 	Provisioner      PersonalTenantProvisioner
@@ -79,6 +84,8 @@ type HTTPRunner struct {
 	MachineSSHKeys   MachineSSHKeyReconciler
 	TenantSSHKeys    TenantSSHKeyUpdater
 	MachineSSHAccess MachineSSHAccessRevoker
+	ShareStore       share.Store
+	ShareReconciler  ShareReconciler
 }
 
 func PlanServe(request ServeRequest) (ServePlan, error) {
@@ -141,6 +148,8 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			MachineSSHKeys:     r.MachineSSHKeys,
 			TenantSSHKeys:      r.TenantSSHKeys,
 			MachineSSHAccess:   r.MachineSSHAccess,
+			ShareStore:         r.ShareStore,
+			ShareReconciler:    r.ShareReconciler,
 			DebugDeviceUser:    plan.DebugDeviceUser,
 			TailscaleAuthKey:   plan.TailscaleAuthKey,
 		}),
@@ -337,6 +346,8 @@ type HandlerOptions struct {
 	MachineSSHKeys     MachineSSHKeyReconciler
 	TenantSSHKeys      TenantSSHKeyUpdater
 	MachineSSHAccess   MachineSSHAccessRevoker
+	ShareStore         share.Store
+	ShareReconciler    ShareReconciler
 	DebugDeviceUser    string
 	TailscaleAuthKey   string
 }
@@ -358,6 +369,8 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		machineSSHKeys:   handlerOptions.MachineSSHKeys,
 		tenantSSHKeys:    handlerOptions.TenantSSHKeys,
 		machineSSHAccess: handlerOptions.MachineSSHAccess,
+		shareStore:       handlerOptions.ShareStore,
+		shareReconciler:  handlerOptions.ShareReconciler,
 		debugDeviceUser:  NormalizeGitHubUsername(handlerOptions.DebugDeviceUser),
 		tailscaleAuthKey: strings.TrimSpace(handlerOptions.TailscaleAuthKey),
 		sessionCookie:    "sandcastle_session",
@@ -377,6 +390,14 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/cloud-identities", app.cloudIdentities)
 	mux.HandleFunc("/cloud-identities/delete", app.cloudIdentityDelete)
 	mux.HandleFunc("/api/cloud-identities", app.cloudIdentitiesAPI)
+	mux.HandleFunc("/api/tenants", app.tenantsAPI)
+	mux.HandleFunc("/api/shares", app.sharesAPI)
+	mux.HandleFunc("/api/shares/status", app.shareStatusAPI)
+	mux.HandleFunc("/api/shares/accept", app.shareAcceptAPI)
+	mux.HandleFunc("/api/shares/decline", app.shareDeclineAPI)
+	mux.HandleFunc("/api/shares/revoke", app.shareRevokeAPI)
+	mux.HandleFunc("/api/shares/delete", app.shareDeleteAPI)
+	mux.HandleFunc("/api/shares/reconcile", app.shareReconcileAPI)
 	mux.HandleFunc("/api/device/start", app.deviceStart)
 	mux.HandleFunc("/api/device/poll", app.devicePoll)
 	mux.HandleFunc("/api/workload/enable", app.workloadEnable)
@@ -416,6 +437,8 @@ type handler struct {
 	machineSSHKeys   MachineSSHKeyReconciler
 	tenantSSHKeys    TenantSSHKeyUpdater
 	machineSSHAccess MachineSSHAccessRevoker
+	shareStore       share.Store
+	shareReconciler  ShareReconciler
 	debugDeviceUser  string
 	tailscaleAuthKey string
 	sessionCookie    string

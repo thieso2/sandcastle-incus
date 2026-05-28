@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -44,9 +47,54 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			addTenantShareReconciliationHealth(cmd.Context(), config, &status)
 			return writeOutput(config.stdout, opts.output, formatTenantStatus(status), status)
 		},
 	}
+}
+
+func addTenantShareReconciliationHealth(ctx context.Context, config commandConfig, status *tenant.Status) {
+	result, ok, err := tenantShareReconciliationDryRun(ctx, config, status.Summary)
+	if !ok {
+		return
+	}
+	if err != nil {
+		status.Checks = append(status.Checks, tenant.Check{Name: "shares:reconcile", Status: "error", Detail: err.Error()})
+		return
+	}
+	status.Shares.UnreconciledMachineCount = unreconciledShareMachineCount(result)
+	detail := fmt.Sprintf("%d machine(s) checked", len(result.Machines))
+	status.Checks = append(status.Checks, tenant.Check{Name: "shares:reconcile", Status: "ok", Detail: detail})
+}
+
+func tenantShareReconciliationDryRun(ctx context.Context, config commandConfig, summary tenant.Summary) (share.ReconcileResult, bool, error) {
+	if config.shareReconciler != nil {
+		result, err := config.shareReconciler.ReconcileTenantShares(ctx, summary, true)
+		return result, true, err
+	}
+	if config.authShares != nil {
+		result, err := config.authShares.ReconcileShares(ctx, authapp.ShareReconcileRequest{Tenant: summary.Tenant, DryRun: true})
+		return result, true, err
+	}
+	if strings.TrimSpace(config.adminConfig.AuthToken) == "" || strings.TrimSpace(config.adminConfig.AuthHostname) == "" {
+		return share.ReconcileResult{}, false, nil
+	}
+	client, err := shareClient(config)
+	if err != nil {
+		return share.ReconcileResult{}, false, nil
+	}
+	result, err := client.ReconcileShares(ctx, authapp.ShareReconcileRequest{Tenant: summary.Tenant, DryRun: true})
+	return result, true, err
+}
+
+func unreconciledShareMachineCount(result share.ReconcileResult) int {
+	count := 0
+	for _, machine := range result.Machines {
+		if machine.Changed || strings.TrimSpace(machine.Error) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func formatTenantStatus(status tenant.Status) string {
@@ -55,6 +103,10 @@ func formatTenantStatus(status tenant.Status) string {
 	fmt.Fprintf(&builder, "Incus project: %s\n", status.Summary.IncusName)
 	fmt.Fprintf(&builder, "DNS suffix: %s\n", status.Summary.DNSSuffix)
 	fmt.Fprintf(&builder, "Private CIDR: %s\n", status.Summary.PrivateCIDR)
+	fmt.Fprintf(&builder, "Outbound shares: %d\n", status.Shares.OutboundShareCount)
+	fmt.Fprintf(&builder, "Inbound accepted shares: %d\n", status.Shares.InboundAcceptedCount)
+	fmt.Fprintf(&builder, "Pending inbound share offers: %d\n", status.Shares.PendingInboundOfferCount)
+	fmt.Fprintf(&builder, "Unreconciled share machines: %d\n", status.Shares.UnreconciledMachineCount)
 	for _, publicRoute := range status.Summary.PublicRoutes {
 		fmt.Fprintf(&builder, "Route: %s -> %s/%s:%d\n", publicRoute.Hostname, publicRoute.Project, publicRoute.Machine, publicRoute.RoutePort)
 	}

@@ -9,8 +9,16 @@ import (
 )
 
 type Status struct {
-	Summary Summary `json:"summary"`
-	Checks  []Check `json:"checks"`
+	Summary Summary     `json:"summary"`
+	Checks  []Check     `json:"checks"`
+	Shares  ShareHealth `json:"shares"`
+}
+
+type ShareHealth struct {
+	OutboundShareCount       int `json:"outboundShareCount"`
+	InboundAcceptedCount     int `json:"inboundAcceptedCount"`
+	PendingInboundOfferCount int `json:"pendingInboundOfferCount"`
+	UnreconciledMachineCount int `json:"unreconciledMachineCount"`
 }
 
 type Check struct {
@@ -67,6 +75,7 @@ func GetStatusWithTopology(ctx context.Context, store IncusTenantStore, topology
 		if summary.Tenant == ref.Tenant {
 			status := Status{
 				Summary: summary,
+				Shares:  shareHealth(summary, tenants),
 				Checks: []Check{
 					{Name: "metadata", Status: "ok", Detail: "Sandcastle tenant metadata is present"},
 					{Name: "cidr", Status: checkPresent(summary.PrivateCIDR), Detail: summary.PrivateCIDR},
@@ -89,6 +98,56 @@ func GetStatusWithTopology(ctx context.Context, store IncusTenantStore, topology
 		}
 	}
 	return Status{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
+}
+
+func shareHealth(summary Summary, tenants []Summary) ShareHealth {
+	health := ShareHealth{}
+	localByID := map[string]string{}
+	for _, storageShare := range summary.StorageShares {
+		id := storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name
+		if storageShare.SourceTenant == summary.Tenant {
+			health.OutboundShareCount++
+			continue
+		}
+		state := recipientStateForTenant(storageShare, summary.Tenant)
+		localByID[id] = state
+		if state == "accepted" {
+			health.InboundAcceptedCount++
+		}
+	}
+	for _, source := range tenants {
+		if source.Tenant == summary.Tenant {
+			continue
+		}
+		for _, storageShare := range source.StorageShares {
+			if !shareOfferedToTenant(storageShare, summary.Tenant) {
+				continue
+			}
+			id := storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name
+			if localByID[id] == "" {
+				health.PendingInboundOfferCount++
+			}
+		}
+	}
+	return health
+}
+
+func shareOfferedToTenant(storageShare meta.TenantStorageShare, tenant string) bool {
+	for _, recipient := range storageShare.Recipients {
+		if recipient.Tenant == tenant {
+			return true
+		}
+	}
+	return false
+}
+
+func recipientStateForTenant(storageShare meta.TenantStorageShare, tenant string) string {
+	for _, recipient := range storageShare.Recipients {
+		if recipient.Tenant == tenant {
+			return recipient.State
+		}
+	}
+	return ""
 }
 
 func tailscaleRouteCheck(summary Summary) Check {

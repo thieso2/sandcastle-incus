@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -126,6 +128,27 @@ type fakeAuthWorkloadClient struct {
 type fakeAuthCloudIdentityClient struct {
 	upsertRequests []authapp.CloudIdentityUpsertRequest
 	upsertResult   authapp.CloudIdentityConfig
+}
+
+type fakeAuthTenantClient struct {
+	listRequests int
+	tenants      []authapp.TenantAccessSummary
+	err          error
+}
+
+type fakeAuthShareClient struct {
+	createRequests    []authapp.ShareCreateRequest
+	createResult      share.Result
+	shares            []meta.TenantStorageShare
+	inboundShares     []meta.TenantStorageShare
+	offers            []meta.TenantStorageShare
+	statusRequests    []authapp.ShareStatusRequest
+	acceptRequests    []authapp.ShareRecipientRequest
+	declineRequests   []authapp.ShareRecipientRequest
+	revokeRequests    []authapp.ShareRevokeRequest
+	deleteRequests    []authapp.ShareDeleteRequest
+	reconcileRequests []authapp.ShareReconcileRequest
+	reconcileResult   share.ReconcileResult
 }
 
 type fakeLoginRemoteInstaller struct {
@@ -317,6 +340,121 @@ func (c *fakeAuthCloudIdentityClient) UpsertCloudIdentity(ctx context.Context, r
 		}
 	}
 	return c.upsertResult, nil
+}
+
+func (c *fakeAuthTenantClient) ListTenants(ctx context.Context) ([]authapp.TenantAccessSummary, error) {
+	c.listRequests++
+	if c.err != nil {
+		return nil, c.err
+	}
+	return append([]authapp.TenantAccessSummary{}, c.tenants...), nil
+}
+
+func (c *fakeAuthShareClient) CreateShare(ctx context.Context, request authapp.ShareCreateRequest) (share.Result, error) {
+	c.createRequests = append(c.createRequests, request)
+	if c.createResult.Share.Name == "" {
+		c.createResult = share.Result{
+			Share:  meta.TenantStorageShare{SourceTenant: request.SourceTenant, SourceProject: "default", SourceDir: "docs", Name: "docs", Availability: "available"},
+			DryRun: request.DryRun,
+		}
+	}
+	return c.createResult, nil
+}
+
+func (c *fakeAuthShareClient) ListShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return append([]meta.TenantStorageShare{}, c.shares...), nil
+}
+
+func (c *fakeAuthShareClient) ListInboundShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return append([]meta.TenantStorageShare{}, c.inboundShares...), nil
+}
+
+func (c *fakeAuthShareClient) ListShareOffers(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return append([]meta.TenantStorageShare{}, c.offers...), nil
+}
+
+func (c *fakeAuthShareClient) GetShare(ctx context.Context, request authapp.ShareStatusRequest) (share.Result, error) {
+	c.statusRequests = append(c.statusRequests, request)
+	for _, storageShare := range c.shares {
+		if !request.Inbound && storageShare.SourceProject == request.Project && storageShare.Name == request.Name {
+			return c.shareStatusResult(request, storageShare), nil
+		}
+	}
+	for _, storageShare := range c.inboundShares {
+		if request.Inbound && storageShare.SourceTenant == request.SourceTenant && storageShare.SourceProject == request.Project && storageShare.Name == request.Name {
+			return c.shareStatusResult(request, storageShare), nil
+		}
+	}
+	return share.Result{}, fmt.Errorf("not found")
+}
+
+func (c *fakeAuthShareClient) shareStatusResult(request authapp.ShareStatusRequest, storageShare meta.TenantStorageShare) share.Result {
+	result := share.Result{Share: storageShare}
+	if len(c.reconcileResult.Machines) > 0 {
+		result.Reconcile = &c.reconcileResult
+	}
+	return result
+}
+
+func (c *fakeAuthShareClient) AcceptShare(ctx context.Context, request authapp.ShareRecipientRequest) (share.Result, error) {
+	c.acceptRequests = append(c.acceptRequests, request)
+	return share.Result{Share: meta.TenantStorageShare{
+		SourceTenant:  request.SourceTenant,
+		SourceProject: request.SourceProject,
+		SourceDir:     "docs",
+		Name:          request.Name,
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: request.Tenant,
+			State:  "accepted",
+		}},
+	}}, nil
+}
+
+func (c *fakeAuthShareClient) DeclineShare(ctx context.Context, request authapp.ShareRecipientRequest) (share.Result, error) {
+	c.declineRequests = append(c.declineRequests, request)
+	return share.Result{Share: meta.TenantStorageShare{
+		SourceTenant:  request.SourceTenant,
+		SourceProject: request.SourceProject,
+		SourceDir:     "docs",
+		Name:          request.Name,
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: request.Tenant,
+			State:  "declined",
+		}},
+	}}, nil
+}
+
+func (c *fakeAuthShareClient) RevokeShare(ctx context.Context, request authapp.ShareRevokeRequest) (share.Result, error) {
+	c.revokeRequests = append(c.revokeRequests, request)
+	return share.Result{Share: meta.TenantStorageShare{
+		SourceTenant:  request.Tenant,
+		SourceProject: request.Project,
+		SourceDir:     "docs",
+		Name:          request.Name,
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: "other",
+			State:  "pending",
+		}},
+	}, Reconciles: []share.ReconcileResult{c.reconcileResult}}, nil
+}
+
+func (c *fakeAuthShareClient) DeleteShare(ctx context.Context, request authapp.ShareDeleteRequest) (share.Result, error) {
+	c.deleteRequests = append(c.deleteRequests, request)
+	return share.Result{Share: meta.TenantStorageShare{
+		SourceTenant:  request.Tenant,
+		SourceProject: request.Project,
+		SourceDir:     "docs",
+		Name:          request.Name,
+		Availability:  "available",
+	}, Reconciles: []share.ReconcileResult{c.reconcileResult}}, nil
+}
+
+func (c *fakeAuthShareClient) ReconcileShares(ctx context.Context, request authapp.ShareReconcileRequest) (share.ReconcileResult, error) {
+	c.reconcileRequests = append(c.reconcileRequests, request)
+	return c.reconcileResult, nil
 }
 
 func TestVersionText(t *testing.T) {
@@ -840,6 +978,213 @@ func TestConfigSetAuthHostname(t *testing.T) {
 	}
 }
 
+func TestTenantListShowsAccessibleTenantsAndCurrent(t *testing.T) {
+	client := &fakeAuthTenantClient{tenants: []authapp.TenantAccessSummary{
+		{Tenant: "acme", Personal: true},
+		{Tenant: "skorfman"},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authTenants: client,
+	}, "tenant", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Tenant\tPersonal\tCurrent",
+		"acme\tyes\tyes",
+		"skorfman\tno\tno",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "Users") || strings.Contains(stdout, "Projects") || strings.Contains(stdout, "Shares") {
+		t.Fatalf("stdout includes non-list diagnostics:\n%s", stdout)
+	}
+	if client.listRequests != 1 {
+		t.Fatalf("listRequests = %d", client.listRequests)
+	}
+}
+
+func TestTenantSwitchValidatesAccessAndPreservesProject(t *testing.T) {
+	useLoginHomeForTest(t)
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant:       "acme",
+		Project:      "website",
+		Remote:       "sandcastle-acme",
+		AuthHostname: "auth.example.com",
+		AuthToken:    "stored-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthTenantClient{tenants: []authapp.TenantAccessSummary{{Tenant: "acme"}, {Tenant: "skorfman"}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.Project = "website"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authTenants: client,
+	}, "tenant", "switch", "skorfman")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Current Tenant set to \"skorfman\"") || !strings.Contains(stdout, "sc dns setup skorfman") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant != "skorfman" || cfg.Project != "website" {
+		t.Fatalf("config = %#v", cfg)
+	}
+	if client.listRequests != 1 {
+		t.Fatalf("listRequests = %d", client.listRequests)
+	}
+}
+
+func TestTenantSwitchListsOnlyMissingLocalSetupActions(t *testing.T) {
+	useLoginHomeForTest(t)
+	resolverDir := t.TempDir()
+	trustDir := t.TempDir()
+	t.Setenv("SANDCASTLE_RESOLVER_DIR", resolverDir)
+	t.Setenv("SANDCASTLE_TRUST_DIR", trustDir)
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant:       "acme",
+		Remote:       "sandcastle-acme",
+		AuthHostname: "auth.example.com",
+		AuthToken:    "stored-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := tenantSwitchStoreForTest(t, "acme", "skorfman")
+	if err := os.WriteFile(filepath.Join(resolverDir, "skorfman"), []byte("nameserver 10.248.7.3\nport 53\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trustPlan, err := localtrust.PlanInstall(context.Background(), testAdminConfig(), store, localtrust.Request{Reference: "skorfman"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(trustDir, localtrust.CertFilename(trustPlan)), []byte("cert"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthTenantClient{tenants: []authapp.TenantAccessSummary{{Tenant: "acme"}, {Tenant: "skorfman"}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authTenants: client,
+		tenantStore: store,
+		tailscale: &fakeTailscaleRunner{status: tailscale.StatusResult{
+			Tailscale: meta.Tailscale{State: "running-logged-out"},
+		}},
+	}, "tenant", "switch", "skorfman")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "sc tailscale up skorfman") {
+		t.Fatalf("stdout = %q, want tailscale action", stdout)
+	}
+	for _, unexpected := range []string{"sc dns setup skorfman", "sc trust install skorfman"} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("stdout = %q, did not want %q", stdout, unexpected)
+		}
+	}
+}
+
+func TestTenantSwitchRejectsInaccessibleTenant(t *testing.T) {
+	useLoginHomeForTest(t)
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{Tenant: "acme", Project: "website"}); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthTenantClient{tenants: []authapp.TenantAccessSummary{{Tenant: "acme"}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authTenants: client,
+	}, "tenant", "switch", "skorfamn")
+	if err == nil || !strings.Contains(err.Error(), "--local-only") {
+		t.Fatalf("err = %v", err)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant != "acme" || cfg.Project != "website" {
+		t.Fatalf("config = %#v", cfg)
+	}
+}
+
+func TestTenantSwitchLocalOnlySkipsValidation(t *testing.T) {
+	useLoginHomeForTest(t)
+	configPath := scconfig.DefaultConfigPath()
+	if err := scconfig.SaveSandcastleConfig(configPath, scconfig.SandcastleConfig{
+		Tenant:       "acme",
+		Project:      "website",
+		AuthHostname: "auth.example.com",
+		AuthToken:    "stored-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthTenantClient{err: fmt.Errorf("should not be called")}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: testAdminConfig(),
+		authTenants: client,
+	}, "tenant", "switch", "offline", "--local-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Skipped Auth App Tenant Access validation") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant != "offline" || cfg.Project != "website" {
+		t.Fatalf("config = %#v", cfg)
+	}
+	if client.listRequests != 0 {
+		t.Fatalf("listRequests = %d", client.listRequests)
+	}
+}
+
+func tenantSwitchStoreForTest(t *testing.T, tenants ...string) tenant.MemoryStore {
+	t.Helper()
+	projects := make([]tenant.IncusProject, 0, len(tenants))
+	for _, name := range tenants {
+		privateCIDR := "10.248.0.0/24"
+		if name == "skorfman" {
+			privateCIDR = "10.248.7.0/24"
+		}
+		configMap, err := meta.TenantConfig(meta.Tenant{
+			Tenant:      name,
+			PrivateCIDR: privateCIDR,
+			Projects:    []meta.Project{{Name: "default"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		projects = append(projects, tenant.IncusProject{Name: "sc-" + name, Config: configMap})
+	}
+	return tenant.MemoryStore{Projects: projects}
+}
+
 func TestConfigUnsetRejectsUnknownKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	_, err := executeForTest(t, "sandcastle", "config", "unset", "bad")
@@ -944,6 +1289,383 @@ func TestCloudIdentityGCPSetupConfiguresTenantFederation(t *testing.T) {
 	}
 	if !runner.hasCallContaining("--attribute-condition=assertion.tenant=='thieso2'") {
 		t.Fatalf("missing tenant attribute condition: %#v", runner.calls)
+	}
+}
+
+func TestShareCreateUsesAuthAppClient(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "create", "default:/workspace/docs", "--to", "skorfman", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.createRequests) != 1 {
+		t.Fatalf("requests = %#v", client.createRequests)
+	}
+	request := client.createRequests[0]
+	if request.SourceTenant != "acme" || request.Source != "default:/workspace/docs" || len(request.Recipients) != 1 || request.Recipients[0] != "skorfman" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
+	}
+	if !strings.Contains(stdout, "Share: default/docs") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareCreateDryRunJSONReturnsPlan(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "--output", "json", "share", "create", "default:/workspace/docs", "--to", "skorfman", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload share.Result
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.DryRun || payload.Share.Name != "docs" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestShareStatusShowsReconciliationHealth(t *testing.T) {
+	client := &fakeAuthShareClient{
+		shares: []meta.TenantStorageShare{{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Availability:  "available",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "skorfman",
+				State:  "accepted",
+			}},
+		}},
+		reconcileResult: share.ReconcileResult{
+			Tenant: "skorfman",
+			Machines: []share.MachineReconcileResult{{
+				Project: "default",
+				Machine: "codex",
+				Status:  "would-update",
+				Changed: true,
+			}},
+		},
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "status", "default/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Reconciliation: 1 machine(s), 1 unreconciled") || strings.Contains(stdout, "- default/codex") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if len(client.statusRequests) != 1 || client.statusRequests[0].Inbound || client.statusRequests[0].Project != "default" || client.statusRequests[0].Name != "docs" {
+		t.Fatalf("statusRequests = %#v", client.statusRequests)
+	}
+}
+
+func TestShareStatusVerboseShowsMachineReconciliation(t *testing.T) {
+	client := &fakeAuthShareClient{
+		inboundShares: []meta.TenantStorageShare{{
+			SourceTenant:  "thieso2",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Availability:  "available",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "acme",
+				State:  "accepted",
+			}},
+		}},
+		reconcileResult: share.ReconcileResult{
+			Tenant: "acme",
+			Machines: []share.MachineReconcileResult{{
+				Project: "default",
+				Machine: "codex",
+				Status:  "current",
+			}},
+		},
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "status", "thieso2/default/docs", "--verbose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Reconcile acme:") || !strings.Contains(stdout, "- default/codex: current") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if len(client.statusRequests) != 1 || !client.statusRequests[0].Inbound || client.statusRequests[0].SourceTenant != "thieso2" || !client.statusRequests[0].Verbose {
+		t.Fatalf("statusRequests = %#v", client.statusRequests)
+	}
+}
+
+func TestShareListOutputsOutboundShares(t *testing.T) {
+	client := &fakeAuthShareClient{shares: []meta.TenantStorageShare{{
+		SourceTenant:  "acme",
+		SourceProject: "default",
+		SourceDir:     "docs",
+		Name:          "docs",
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: "skorfman",
+			State:  "pending",
+		}},
+	}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "list", "--outbound")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Recipients: skorfman (pending)") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareListDefaultExcludesPendingInboundOffers(t *testing.T) {
+	client := &fakeAuthShareClient{
+		shares: []meta.TenantStorageShare{{
+			SourceTenant:  "acme",
+			SourceProject: "default",
+			SourceDir:     "docs",
+			Name:          "docs",
+			Availability:  "available",
+		}},
+		inboundShares: []meta.TenantStorageShare{{
+			SourceTenant:  "thieso2",
+			SourceProject: "default",
+			SourceDir:     "pending",
+			Name:          "pending",
+			Availability:  "available",
+			Recipients: []meta.TenantStorageShareRecipient{{
+				Tenant: "acme",
+				State:  "pending",
+			}},
+		}},
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout, "pending") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareOffersListsPendingInboundShares(t *testing.T) {
+	client := &fakeAuthShareClient{offers: []meta.TenantStorageShare{{
+		SourceTenant:  "thieso2",
+		SourceProject: "default",
+		SourceDir:     "docs",
+		Name:          "docs",
+		Availability:  "available",
+		Recipients: []meta.TenantStorageShareRecipient{{
+			Tenant: "acme",
+			State:  "pending",
+		}},
+	}}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "offers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Share: default/docs") || !strings.Contains(stdout, "Recipients: acme (pending)") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareAcceptUsesRecipientAuthAppClient(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "skorfman"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "accept", "thieso2/default/docs", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.acceptRequests) != 1 {
+		t.Fatalf("acceptRequests = %#v", client.acceptRequests)
+	}
+	request := client.acceptRequests[0]
+	if request.Tenant != "skorfman" || request.SourceTenant != "thieso2" || request.SourceProject != "default" || request.Name != "docs" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestShareRevokeUsesAuthAppClient(t *testing.T) {
+	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
+		Tenant: "skorfman",
+		Machines: []share.MachineReconcileResult{{
+			Project: "default",
+			Machine: "codex",
+			Status:  "updated",
+			Changed: true,
+		}},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "revoke", "default/docs", "--tenant", "skorfman", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.revokeRequests) != 1 {
+		t.Fatalf("revokeRequests = %#v", client.revokeRequests)
+	}
+	request := client.revokeRequests[0]
+	if request.Tenant != "thieso2" || request.Project != "default" || request.Name != "docs" || request.RecipientTenant != "skorfman" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
+	}
+	if !strings.Contains(stdout, "Reconcile skorfman:") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareDeleteRequiresConfirmation(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "delete", "default/docs")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(client.deleteRequests) != 0 {
+		t.Fatalf("deleteRequests = %#v", client.deleteRequests)
+	}
+}
+
+func TestShareDeleteUsesAuthAppClientWithYes(t *testing.T) {
+	client := &fakeAuthShareClient{}
+	admin := testAdminConfig()
+	admin.Tenant = "thieso2"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "delete", "default/docs", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.deleteRequests) != 1 {
+		t.Fatalf("deleteRequests = %#v", client.deleteRequests)
+	}
+	request := client.deleteRequests[0]
+	if request.Tenant != "thieso2" || request.Project != "default" || request.Name != "docs" {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestShareReconcileUsesAuthAppClient(t *testing.T) {
+	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
+		Tenant: "skorfman",
+		Machines: []share.MachineReconcileResult{{
+			Project: "default",
+			Machine: "codex",
+			Status:  "would-update",
+			Changed: true,
+		}},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "skorfman"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "reconcile", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.reconcileRequests) != 1 {
+		t.Fatalf("reconcileRequests = %#v", client.reconcileRequests)
+	}
+	request := client.reconcileRequests[0]
+	if request.Tenant != "skorfman" || !request.DryRun {
+		t.Fatalf("request = %#v", request)
+	}
+	if !strings.Contains(stdout, "default/codex: would-update changed") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestShareReconcileReturnsErrorWhenMachineFails(t *testing.T) {
+	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
+		Tenant: "skorfman",
+		Machines: []share.MachineReconcileResult{{
+			Project: "default",
+			Machine: "codex",
+			Status:  "failed",
+			Error:   "hotplug refused",
+		}},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "skorfman"
+	admin.AuthHostname = "auth.example.com"
+	admin.AuthToken = "stored-token"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: admin,
+		authShares:  client,
+	}, "share", "reconcile")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(stdout, "hotplug refused") {
+		t.Fatalf("stdout = %q", stdout)
 	}
 }
 
@@ -1625,6 +2347,54 @@ func TestStatusJSON(t *testing.T) {
 	}
 }
 
+func TestStatusJSONIncludesShareReconciliationHealth(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
+		Tenant: "acme",
+		Machines: []share.MachineReconcileResult{{
+			Project: "default",
+			Machine: "codex",
+			Status:  "would-update",
+			Changed: true,
+		}, {
+			Project: "default",
+			Machine: "current",
+			Status:  "current",
+		}},
+	}}
+	admin := testAdminConfig()
+	admin.Tenant = "acme"
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		authShares: client,
+	}, "--output", "json", "status", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload tenant.Status
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Shares.UnreconciledMachineCount != 1 {
+		t.Fatalf("share health = %#v", payload.Shares)
+	}
+	if len(client.reconcileRequests) != 1 || client.reconcileRequests[0].Tenant != "acme" || !client.reconcileRequests[0].DryRun {
+		t.Fatalf("reconcileRequests = %#v", client.reconcileRequests)
+	}
+}
+
 func TestStatusJSONUsesTenantRef(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -2062,7 +2832,7 @@ func TestCreateConnectsAfterCreateByDefault(t *testing.T) {
 			Config: configMap,
 		}}},
 		machineCreator:   creator,
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
 	}, "create", "codex")
 	if err != nil {
@@ -2095,8 +2865,9 @@ func TestConnectCommandUsesConnector(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
+		machineControl:   &fakeMachineController{},
 	}, "connect", "codex")
 	if err != nil {
 		t.Fatal(err)
@@ -2129,7 +2900,7 @@ func TestConnectCommandRefreshesKnownHostsWhenUsingPrivateIPFallback(t *testing.
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", Running: true}}},
 		machineConnector: connector,
 		knownHosts:       knownHosts,
 	}, "connect", "codex")
@@ -2141,6 +2912,47 @@ func TestConnectCommandRefreshesKnownHostsWhenUsingPrivateIPFallback(t *testing.
 	}
 	if !knownHosts.called || knownHosts.plan.Hostname != "codex.default.acme" || knownHosts.plan.PrivateIP != "10.248.0.20" {
 		t.Fatalf("expected known_hosts refresh, got %#v", knownHosts.plan)
+	}
+}
+
+func TestConnectCommandStartsStoppedMachineBeforeKnownHostsRefresh(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := []string{}
+	connector := &fakeMachineConnector{order: &order}
+	controller := &fakeMachineController{order: &order}
+	knownHosts := &fakeKnownHostsManager{order: &order}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", Running: false}}},
+		machineConnector: connector,
+		machineControl:   controller,
+		knownHosts:       knownHosts,
+	}, "connect", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !controller.called || controller.plan.Action != machine.ActionStart || controller.plan.InstanceName != "default-codex" {
+		t.Fatalf("controller = %#v", controller)
+	}
+	if !knownHosts.called || !connector.called {
+		t.Fatalf("knownHosts.called=%t connector.called=%t", knownHosts.called, connector.called)
+	}
+	if strings.Join(order, ",") != "start,known-hosts,connect" {
+		t.Fatalf("order = %#v", order)
+	}
+	if connector.plan.StartBeforeConnect {
+		t.Fatalf("connector plan should be marked started: %#v", connector.plan)
 	}
 }
 
@@ -2160,7 +2972,7 @@ func TestConnectCommandAcceptsExplicitCommand(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
 	}, "connect", "codex", "pwd")
 	if err != nil {
@@ -2190,7 +3002,7 @@ func TestConnectCommandSearchesBareMachineWhenUnique(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
 	}, "connect", "codex")
 	if err != nil {
@@ -3622,8 +4434,9 @@ func TestAdminMachineConnectUsesTenantRef(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
+		machineControl:   &fakeMachineController{},
 	}, "connect", "acme/codex", "pwd")
 	if err != nil {
 		t.Fatal(err)
@@ -4497,7 +5310,7 @@ func TestAdminTenantGrantDryRunJSON(t *testing.T) {
 	if payload.CertificateName != "sandcastle-alice" {
 		t.Fatalf("CertificateName = %q", payload.CertificateName)
 	}
-	if len(payload.Projects) != 1 || payload.Projects[0] != "sc-acme" {
+	if !slices.Equal(payload.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
 		t.Fatalf("Projects = %#v", payload.Projects)
 	}
 }
@@ -4512,7 +5325,7 @@ func TestAdminTenantGrantCallsTrustManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !manager.grantCalled || manager.plan.User != "alice" || len(manager.plan.Projects) != 1 || manager.plan.Projects[0] != "sc-acme" {
+	if !manager.grantCalled || manager.plan.User != "alice" || !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
 		t.Fatalf("manager = %#v", manager)
 	}
 }
@@ -4527,7 +5340,7 @@ func TestAdminTenantRevokeCallsTrustManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !manager.revokeCalled || manager.plan.User != "alice" || len(manager.plan.Projects) != 1 || manager.plan.Projects[0] != "sc-acme" {
+	if !manager.revokeCalled || manager.plan.User != "alice" || !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
 		t.Fatalf("manager = %#v", manager)
 	}
 }
@@ -4612,7 +5425,7 @@ func TestAdminUserTokenSupportsPreGrantedTenant(t *testing.T) {
 	if !manager.tokenCalled {
 		t.Fatal("expected token manager to be called")
 	}
-	if len(manager.plan.Projects) != 1 || manager.plan.Projects[0] != "sc-acme" {
+	if !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
 		t.Fatalf("Projects = %#v", manager.plan.Projects)
 	}
 	if !strings.Contains(stdout, "sc remote add sandcastle-alice certificate-add-token --tenant acme") {
@@ -4988,11 +5801,15 @@ func (f *fakeMachineCreator) CreateMachine(ctx context.Context, plan machine.Cre
 type fakeKnownHostsManager struct {
 	called bool
 	plan   machine.CreatePlan
+	order  *[]string
 }
 
 func (f *fakeKnownHostsManager) RefreshMachine(ctx context.Context, plan machine.CreatePlan) error {
 	f.called = true
 	f.plan = plan
+	if f.order != nil {
+		*f.order = append(*f.order, "known-hosts")
+	}
 	return nil
 }
 
@@ -5000,22 +5817,30 @@ type fakeMachineConnector struct {
 	called bool
 	plan   machine.ConnectPlan
 	err    error
+	order  *[]string
 }
 
 func (f *fakeMachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	f.called = true
 	f.plan = plan
+	if f.order != nil {
+		*f.order = append(*f.order, "connect")
+	}
 	return f.err
 }
 
 type fakeMachineController struct {
 	called bool
 	plan   machine.LifecyclePlan
+	order  *[]string
 }
 
 func (f *fakeMachineController) ApplyLifecycle(ctx context.Context, plan machine.LifecyclePlan) error {
 	f.called = true
 	f.plan = plan
+	if f.order != nil {
+		*f.order = append(*f.order, "start")
+	}
 	return nil
 }
 

@@ -2,10 +2,12 @@ package incusx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -29,6 +31,8 @@ type MachineConnector struct {
 	Server     MachineConnectServer
 	Runner     SSHRunner
 	Log        func(string)
+	SSHVerbose bool
+	Cache      *ConnectCache
 }
 
 func NewMachineConnector(remote string) MachineConnector {
@@ -37,8 +41,14 @@ func NewMachineConnector(remote string) MachineConnector {
 
 func (e MachineConnector) WithVerbose(enabled bool, w io.Writer) MachineConnector {
 	if enabled {
+		e.SSHVerbose = true
 		e.Log = func(msg string) { fmt.Fprintln(w, "[machine-connect] "+msg) }
 	}
+	return e
+}
+
+func (e MachineConnector) WithConnectCache(cache ConnectCache) MachineConnector {
+	e.Cache = &cache
 	return e
 }
 
@@ -69,22 +79,33 @@ func (e MachineConnector) connectManagedMachine(ctx context.Context, plan machin
 	if runner == nil {
 		runner = LocalSSHRunner{}
 	}
-	args := sshArgs(plan)
+	identityKey := sshIdentityCacheKey(plan)
+	identityPath := e.sshIdentity(ctx, plan, identityKey)
+	args := sshArgs(plan, e.SSHVerbose, identityPath)
 	e.log("run " + shellCommandLine("ssh", args))
 	if err := runner.Run(ctx, session, args...); err != nil {
+		if identityPath != "" && e.Cache != nil && isSSHExit255(err) {
+			e.Cache.InvalidateSSHIdentity(identityKey)
+		}
 		return fmt.Errorf("ssh to machine %s: %w", plan.InstanceName, err)
 	}
 	return nil
 }
 
-func sshArgs(plan machine.ConnectPlan) []string {
+func sshArgs(plan machine.ConnectPlan, verbose bool, identityPath string) []string {
 	args := []string{
 		"-A",
 		"-o", "CheckHostIP=no",
 		"-o", "StrictHostKeyChecking=accept-new",
 	}
+	if verbose {
+		args = append(args, "-v")
+	}
 	if plan.HostKeyAlias != "" {
 		args = append(args, "-o", "HostKeyAlias="+plan.HostKeyAlias)
+	}
+	if strings.TrimSpace(identityPath) != "" {
+		args = append(args, "-o", "IdentitiesOnly=yes", "-i", identityPath)
 	}
 	if plan.Interactive {
 		args = append(args, "-t")
@@ -94,6 +115,170 @@ func sshArgs(plan machine.ConnectPlan) []string {
 		args = append(args, remoteCommand(plan))
 	}
 	return args
+}
+
+func (e MachineConnector) sshIdentity(ctx context.Context, plan machine.ConnectPlan, key string) string {
+	if e.Cache == nil || strings.TrimSpace(key) == "" {
+		return ""
+	}
+	if identityPath, ok := e.Cache.LookupSSHIdentity(key); ok {
+		if sshIdentityFileExists(identityPath) {
+			e.log("ssh identity cache hit " + identityPath)
+			return identityPath
+		}
+		e.Cache.InvalidateSSHIdentity(key)
+	}
+	for _, candidate := range sshIdentityCandidates(ctx, plan) {
+		if err := probeSSHIdentity(ctx, plan, candidate); err == nil {
+			e.Cache.StoreSSHIdentity(key, candidate)
+			e.log("ssh identity cache store " + candidate)
+			return candidate
+		}
+	}
+	return ""
+}
+
+func sshIdentityCacheKey(plan machine.ConnectPlan) string {
+	tenantName := strings.TrimSpace(plan.Tenant.Tenant)
+	projectName := strings.TrimSpace(plan.Project)
+	machineName := strings.TrimSpace(plan.Name)
+	if tenantName == "" || projectName == "" || machineName == "" {
+		return ""
+	}
+	return tenantName + ":" + projectName + "/" + machineName
+}
+
+func sshIdentityCandidates(ctx context.Context, plan machine.ConnectPlan) []string {
+	args := []string{
+		"-G",
+		"-o", "CheckHostIP=no",
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
+	if plan.HostKeyAlias != "" {
+		args = append(args, "-o", "HostKeyAlias="+plan.HostKeyAlias)
+	}
+	args = append(args, plan.LinuxUser+"@"+plan.SSHHost)
+	output, err := exec.CommandContext(ctx, "ssh", args...).Output()
+	if err != nil {
+		return defaultSSHIdentityCandidates()
+	}
+	var candidates []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(output), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok || key != "identityfile" {
+			continue
+		}
+		identityPath := expandSSHIdentityPath(value)
+		if identityPath == "" || seen[identityPath] || !sshIdentityFileExists(identityPath) {
+			continue
+		}
+		seen[identityPath] = true
+		candidates = append(candidates, identityPath)
+	}
+	if len(candidates) == 0 {
+		return defaultSSHIdentityCandidates()
+	}
+	return prioritizeSSHIdentityCandidates(candidates)
+}
+
+func defaultSSHIdentityCandidates() []string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	names := []string{"id_ed25519", "id_ecdsa", "id_rsa"}
+	candidates := make([]string, 0, len(names))
+	for _, name := range names {
+		identityPath := filepath.Join(home, ".ssh", name)
+		if sshIdentityFileExists(identityPath) {
+			candidates = append(candidates, identityPath)
+		}
+	}
+	return candidates
+}
+
+func prioritizeSSHIdentityCandidates(candidates []string) []string {
+	output := append([]string{}, candidates...)
+	for i := 1; i < len(output); i++ {
+		for j := i; j > 0 && sshIdentityPriority(output[j]) < sshIdentityPriority(output[j-1]); j-- {
+			output[j], output[j-1] = output[j-1], output[j]
+		}
+	}
+	return output
+}
+
+func sshIdentityPriority(identityPath string) int {
+	name := filepath.Base(identityPath)
+	switch {
+	case strings.Contains(name, "ed25519"):
+		return 0
+	case strings.Contains(name, "ecdsa"):
+		return 1
+	case strings.Contains(name, "rsa"):
+		return 2
+	default:
+		return 3
+	}
+}
+
+func expandSSHIdentityPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "none" {
+		return ""
+	}
+	if strings.HasPrefix(value, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return ""
+		}
+		value = filepath.Join(home, strings.TrimPrefix(value, "~/"))
+	}
+	if !filepath.IsAbs(value) {
+		home, err := os.UserHomeDir()
+		if err == nil && home != "" {
+			value = filepath.Join(home, value)
+		}
+	}
+	return filepath.Clean(value)
+}
+
+func sshIdentityFileExists(identityPath string) bool {
+	info, err := os.Stat(identityPath)
+	return err == nil && !info.IsDir()
+}
+
+func probeSSHIdentity(ctx context.Context, plan machine.ConnectPlan, identityPath string) error {
+	args := []string{
+		"-A",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=3",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
+		"-o", "PreferredAuthentications=publickey",
+		"-o", "PasswordAuthentication=no",
+		"-o", "KbdInteractiveAuthentication=no",
+		"-o", "NumberOfPasswordPrompts=0",
+		"-o", "CheckHostIP=no",
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
+	if plan.HostKeyAlias != "" {
+		args = append(args, "-o", "HostKeyAlias="+plan.HostKeyAlias)
+	}
+	args = append(args, "-o", "IdentitiesOnly=yes", "-i", identityPath, plan.LinuxUser+"@"+plan.SSHHost, "true")
+	command := exec.CommandContext(ctx, "ssh", args...)
+	command.Stdin = strings.NewReader("")
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	return command.Run()
+}
+
+func isSSHExit255(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	return exitErr.ExitCode() == 255
 }
 
 func remoteCommand(plan machine.ConnectPlan) string {

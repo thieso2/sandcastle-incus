@@ -20,7 +20,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var maxPolls int
 	var debugApprove bool
 	command := &cobra.Command{
-		Use:     "connect [project:]machine [-- command...]",
+		Use:     "connect [tenant/][project:]machine [-- command...]",
 		Aliases: []string{"c"},
 		Short:   "Connect to a Sandcastle machine",
 		Args:    cobra.MinimumNArgs(1),
@@ -71,6 +71,15 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				}
 			} else if strings.TrimSpace(effectiveCloudIdentity) == "" {
 				verboseCLI(config, "workload identity: not requested before connect %s; gcloud works only if this machine already has workload files", reference)
+			}
+			plan, err = ensureMachineStartedForConnect(cmd.Context(), config, plan)
+			if err != nil {
+				return err
+			}
+			if plan.Managed {
+				if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
+					cache.StorePlan(key, plan)
+				}
 			}
 			if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), config, plan); err != nil {
 				return err
@@ -140,7 +149,19 @@ func lookupCachedPlan(cache incusx.ConnectCache, tenant, project, reference stri
 	if strings.ContainsAny(reference, ". ") {
 		return machine.ConnectPlan{}, false // FQDN or invalid ref — skip cache
 	}
-	if strings.ContainsAny(reference, ":/") {
+	if tenantName, rest, ok := strings.Cut(reference, "/"); ok {
+		if projectName, machineName, ok := strings.Cut(rest, ":"); ok {
+			if strings.Contains(projectName, "/") || strings.Contains(machineName, "/:") {
+				return machine.ConnectPlan{}, false
+			}
+			return cache.LookupPlan(connectPlanCacheKey(tenantName, projectName, machineName))
+		}
+		if strings.Contains(rest, "/:") {
+			return machine.ConnectPlan{}, false
+		}
+		return cache.LookupPlanByName(tenantName, rest)
+	}
+	if strings.Contains(reference, ":") {
 		projectRef, machineName, err := naming.ParseUserMachineRef(reference, project)
 		if err != nil {
 			return machine.ConnectPlan{}, false
@@ -163,6 +184,9 @@ func lookupCachedPlan(cache incusx.ConnectCache, tenant, project, reference stri
 func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.ConnectCache, reference string, command []string, oldPlan machine.ConnectPlan, workloadOptions workloadEnableOptions) error {
 	if key := connectPlanCacheKey(cfg.adminConfig.Tenant, cfg.adminConfig.Project, reference); key != "" {
 		cache.InvalidatePlan(key)
+	}
+	if tenantName, machineName, ok := tenantMachineReference(reference); ok {
+		cache.InvalidatePlansByNameExcept(tenantName, machineName, "__none__")
 	}
 	if canonKey := connectPlanCacheKey(oldPlan.Tenant.Tenant, oldPlan.Project, oldPlan.Name); canonKey != "" {
 		cache.InvalidatePlan(canonKey)
@@ -198,6 +222,15 @@ func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.Conne
 			}
 		}
 	}
+	plan, err = ensureMachineStartedForConnect(cmd.Context(), cfg, plan)
+	if err != nil {
+		return err
+	}
+	if plan.Managed {
+		if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
+			cache.StorePlan(key, plan)
+		}
+	}
 	if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), cfg, plan); err != nil {
 		return err
 	}
@@ -229,6 +262,20 @@ func pruneBareNameConnectCache(cache incusx.ConnectCache, cfg commandConfig, ref
 		return
 	}
 	cache.InvalidatePlansByNameExcept(plan.Tenant.Tenant, plan.Name, plan.Project)
+}
+
+func tenantMachineReference(reference string) (string, string, bool) {
+	tenantName, rest, ok := strings.Cut(strings.TrimSpace(reference), "/")
+	if !ok || strings.TrimSpace(tenantName) == "" || strings.TrimSpace(rest) == "" {
+		return "", "", false
+	}
+	if strings.Contains(rest, "/:") {
+		return "", "", false
+	}
+	if strings.Contains(rest, ":") {
+		return "", "", false
+	}
+	return strings.TrimSpace(tenantName), strings.TrimSpace(rest), true
 }
 
 // applyConnectCommand sets the command and interactive flag on a cached plan.
@@ -285,14 +332,41 @@ func refreshKnownHostsForPrivateIPConnect(ctx context.Context, config commandCon
 	})
 }
 
+func ensureMachineStartedForConnect(ctx context.Context, config commandConfig, plan machine.ConnectPlan) (machine.ConnectPlan, error) {
+	if !plan.StartBeforeConnect {
+		return plan, nil
+	}
+	if config.machineControl == nil {
+		return machine.ConnectPlan{}, fmt.Errorf("machine lifecycle controller is not configured")
+	}
+	if err := config.machineControl.ApplyLifecycle(ctx, machine.LifecyclePlan{
+		Reference:    plan.Reference,
+		Tenant:       plan.Tenant,
+		Project:      plan.Project,
+		Name:         plan.Name,
+		InstanceName: plan.InstanceName,
+		Action:       machine.ActionStart,
+	}); err != nil {
+		return machine.ConnectPlan{}, err
+	}
+	plan.StartBeforeConnect = false
+	return plan, nil
+}
+
 func createAndConnect(cmd *cobra.Command, config commandConfig, reference string, command []string, workloadOptions workloadEnableOptions) error {
 	if config.stderr != nil {
 		fmt.Fprintf(config.stderr, "Machine %s not found; creating it before connecting.\n", reference)
 	}
-	if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config); err != nil {
+	createPlan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
+		Reference: reference,
+	})
+	if err != nil {
 		return err
 	}
-	createPlan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
+	if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config, createPlan.Tenant); err != nil {
+		return err
+	}
+	createPlan, err = machine.PlanCreate(cmd.Context(), config.adminConfig, tenantStoreWithSSHKeyMetadata(config.tenantStore), config.machineStore, machine.CreateRequest{
 		Reference: reference,
 	})
 	if err != nil {

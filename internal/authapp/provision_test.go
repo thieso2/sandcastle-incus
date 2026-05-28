@@ -2,6 +2,7 @@ package authapp
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
@@ -44,7 +45,7 @@ func TestProvisionerCreatesPersonalTenantAndReturnsRestrictedToken(t *testing.T)
 	if result.CurrentProject != "default" || !result.DefaultProjectReady || !result.TenantTailnetReady {
 		t.Fatalf("result readiness fields = %#v", result)
 	}
-	if len(trust.plans) != 1 || trust.plans[0].User != "1octocat" || trust.plans[0].Projects[0] != "sc-1octocat" {
+	if len(trust.plans) != 1 || trust.plans[0].User != "1octocat" || !slices.Equal(trust.plans[0].Projects, []string{"sc-1octocat", "sc-1octocat-infra", "sc-1octocat-native"}) {
 		t.Fatalf("trust plans = %#v", trust.plans)
 	}
 }

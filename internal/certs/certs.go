@@ -101,6 +101,9 @@ func MachineDNSNames(name string, domain string, extra []string) []string {
 		machine + "." + base,
 		"*." + machine + "." + base,
 	}
+	if strings.Contains(machine, ".") {
+		names = append(names, machine, "*."+machine)
+	}
 	return append(names, normalizeNames(extra)...)
 }
 

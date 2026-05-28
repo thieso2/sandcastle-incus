@@ -28,7 +28,7 @@ func newWorkloadEnableCommand(config commandConfig, opts *rootOptions) *cobra.Co
 	var maxPolls int
 	var debugApprove bool
 	command := &cobra.Command{
-		Use:   "enable [project:]machine",
+		Use:   "enable [tenant/][project:]machine",
 		Short: "Enable workload identity for a tenant machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

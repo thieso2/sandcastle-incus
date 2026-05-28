@@ -400,7 +400,7 @@ func writeHostOverrideMachineFiles(server HostOverrideResourceServer, plan hosto
 			return fmt.Errorf("create machine config directory %s: %w", directory, err)
 		}
 	}
-	hosts := append([]string{state.Name + "." + state.Project + "." + plan.Tenant.DNSSuffix}, state.ExtraSANs...)
+	hosts := append(machine.MachineCaddyHostnames(state.Name, state.Project, plan.Tenant.DNSSuffix), state.ExtraSANs...)
 	caddyFile := caddy.RenderMachineHosts(hosts, state.AppPort, machine.MachineCertPath, machine.MachineCertKeyPath)
 	if err := server.CreateInstanceFile(plan.InstanceName, caddyFile.Path, incus.InstanceFileArgs{
 		Content:   strings.NewReader(caddyFile.Content),

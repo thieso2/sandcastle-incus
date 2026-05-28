@@ -31,12 +31,13 @@ type TenantMetadataResourceServer interface {
 }
 
 type TenantStore struct {
-	Remote     string
-	ConfigPath string
-	Server     TenantListServer
-	Metadata   TenantMetadataServer
-	Log        func(string)
-	LoadSSHKey bool
+	Remote       string
+	ConfigPath   string
+	Server       TenantListServer
+	Metadata     TenantMetadataServer
+	Log          func(string)
+	LoadSSHKey   bool
+	TenantFilter []string
 }
 
 func NewTenantStore(remote string) TenantStore {
@@ -53,6 +54,11 @@ func NewTenantStoreForSharedRemote(remote *SharedRemote) TenantStore {
 
 func (s TenantStore) WithSSHKeyMetadata() tenant.IncusTenantStore {
 	s.LoadSSHKey = true
+	return s
+}
+
+func (s TenantStore) WithTenantFilter(names ...string) tenant.IncusTenantStore {
+	s.TenantFilter = append([]string{}, names...)
 	return s
 }
 
@@ -95,6 +101,7 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 		return nil, fmt.Errorf("list Incus projects: %w", err)
 	}
 	output := FromAPIProjects(projects)
+	output = filterTenantProjects(output, s.TenantFilter)
 	if metadata == nil {
 		return output, nil
 	}
@@ -106,6 +113,34 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 		output[i].Config = config
 	}
 	return output, nil
+}
+
+func filterTenantProjects(projects []tenant.IncusProject, tenantNames []string) []tenant.IncusProject {
+	filter := map[string]struct{}{}
+	for _, name := range tenantNames {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			filter[name] = struct{}{}
+		}
+	}
+	if len(filter) == 0 {
+		return projects
+	}
+	output := make([]tenant.IncusProject, 0, len(projects))
+	for _, project := range projects {
+		if !meta.IsManaged(project.Config) || project.Config[meta.KeyKind] != meta.KindTenant {
+			continue
+		}
+		tenantConfig, err := meta.ParseTenantConfig(project.Config)
+		if err != nil {
+			output = append(output, project)
+			continue
+		}
+		if _, ok := filter[tenantConfig.Tenant]; ok {
+			output = append(output, project)
+		}
+	}
+	return output
 }
 
 func FromAPIProjects(projects []api.Project) []tenant.IncusProject {
@@ -120,10 +155,11 @@ func FromAPIProjects(projects []api.Project) []tenant.IncusProject {
 }
 
 const (
-	tenantMetadataDir      = "/.sandcastle"
-	tenantSSHPublicKeyFile = tenantMetadataDir + "/ssh_public_key"
-	tenantProjectsFile     = tenantMetadataDir + "/projects"
-	tenantUnixUserFile     = tenantMetadataDir + "/unix_user"
+	tenantMetadataDir       = "/.sandcastle"
+	tenantSSHPublicKeyFile  = tenantMetadataDir + "/ssh_public_key"
+	tenantProjectsFile      = tenantMetadataDir + "/projects"
+	tenantUnixUserFile      = tenantMetadataDir + "/unix_user"
+	tenantStorageSharesFile = tenantMetadataDir + "/storage_shares"
 )
 
 func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusProjectName string, config map[string]string, loadSSHKey bool) (map[string]string, error) {
@@ -150,6 +186,11 @@ func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusPro
 		return nil, err
 	} else if ok {
 		managed.UnixUser = unixUser
+	}
+	if shares, ok, err := readTenantStorageShares(server, incusProjectName); err != nil {
+		return nil, err
+	} else if ok {
+		managed.StorageShares = shares
 	}
 	updated, err := meta.TenantConfig(managed)
 	if err != nil {
@@ -208,6 +249,26 @@ func readTenantProjects(server TenantMetadataResourceServer, incusProjectName st
 		return nil, false, fmt.Errorf("parse tenant projects metadata for %s: %w", incusProjectName, err)
 	}
 	return projects, true, nil
+}
+
+func readTenantStorageShares(server TenantMetadataResourceServer, incusProjectName string) ([]meta.TenantStorageShare, bool, error) {
+	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantStorageSharesFile)
+	if isMissingTenantMetadata(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read tenant storage shares metadata for %s: %w", incusProjectName, err)
+	}
+	defer content.Close()
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return nil, false, fmt.Errorf("read tenant storage shares metadata for %s: %w", incusProjectName, err)
+	}
+	var shares []meta.TenantStorageShare
+	if err := json.Unmarshal(data, &shares); err != nil {
+		return nil, false, fmt.Errorf("parse tenant storage shares metadata for %s: %w", incusProjectName, err)
+	}
+	return shares, true, nil
 }
 
 func isMissingTenantMetadata(err error) bool {

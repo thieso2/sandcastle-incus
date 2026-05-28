@@ -23,8 +23,10 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -81,12 +83,20 @@ type commandConfig struct {
 	authDevice          authDeviceClient
 	authWorkload        authWorkloadClient
 	authCloudIdentity   authCloudIdentityClient
+	authTenants         authTenantClient
+	authShares          authShareClient
+	shareStore          share.Store
+	shareReconciler     tenantShareReconciler
 	openBrowser         func(string)
 	loginRemote         loginRemoteInstaller
 	loginTailnet        loginTailnetVerifier
 	loginSetup          loginSetupRunner
 	incusRunner         incusRunner
 	gcloudRunner        gcloudRunner
+}
+
+type tenantShareReconciler interface {
+	ReconcileTenantShares(context.Context, tenant.Summary, bool) (share.ReconcileResult, error)
 }
 
 type authDeviceClient interface {
@@ -104,6 +114,23 @@ type authWorkloadClient interface {
 
 type authCloudIdentityClient interface {
 	UpsertCloudIdentity(context.Context, authapp.CloudIdentityUpsertRequest) (authapp.CloudIdentityConfig, error)
+}
+
+type authTenantClient interface {
+	ListTenants(context.Context) ([]authapp.TenantAccessSummary, error)
+}
+
+type authShareClient interface {
+	CreateShare(context.Context, authapp.ShareCreateRequest) (share.Result, error)
+	ListShares(context.Context, string) ([]meta.TenantStorageShare, error)
+	ListInboundShares(context.Context, string) ([]meta.TenantStorageShare, error)
+	ListShareOffers(context.Context, string) ([]meta.TenantStorageShare, error)
+	GetShare(context.Context, authapp.ShareStatusRequest) (share.Result, error)
+	AcceptShare(context.Context, authapp.ShareRecipientRequest) (share.Result, error)
+	DeclineShare(context.Context, authapp.ShareRecipientRequest) (share.Result, error)
+	RevokeShare(context.Context, authapp.ShareRevokeRequest) (share.Result, error)
+	DeleteShare(context.Context, authapp.ShareDeleteRequest) (share.Result, error)
+	ReconcileShares(context.Context, authapp.ShareReconcileRequest) (share.ReconcileResult, error)
 }
 
 type rootOptions struct {
@@ -133,6 +160,7 @@ func Execute(name string, args []string) int {
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
 	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
+	connectCache := incusx.NewConnectCache(adminConfig.Remote)
 	userRouteManager := routeManagerFromEnv()
 	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	cmd := NewRootCommand(commandConfig{
@@ -158,10 +186,10 @@ func Execute(name string, args []string) int {
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr).WithConnectCache(connectCache),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
-		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr).WithConnectCache(incusx.NewConnectCache(adminConfig.Remote)),
+		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr).WithConnectCache(connectCache),
 		dnsApplier:          incusx.NewDNSManager(adminConfig.Remote),
 		localDNS:            localdns.FileManager{},
 		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),
@@ -275,9 +303,11 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newIncusInfraCommand(config, opts))
 	root.AddCommand(newLoginCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))
+	root.AddCommand(newTenantCommand(config, opts))
 	root.AddCommand(newCacheCommand(config, opts))
 	root.AddCommand(newCloudIdentityCommand(config, opts))
 	root.AddCommand(newWorkloadCommand(config, opts))
+	root.AddCommand(newShareCommand(config, opts))
 
 	return root
 }

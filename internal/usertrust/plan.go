@@ -88,17 +88,27 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 		if err != nil {
 			return UserPlan{}, err
 		}
-		if seenProjects[name] {
-			continue
+		for _, project := range tenantAccessProjects(name) {
+			if seenProjects[project] {
+				continue
+			}
+			seenProjects[project] = true
+			projects = append(projects, project)
 		}
-		seenProjects[name] = true
-		projects = append(projects, name)
 	}
 	if len(projects) == 0 {
 		return UserPlan{}, fmt.Errorf("at least one tenant is required")
 	}
 	base.Projects = projects
 	return base, nil
+}
+
+func tenantAccessProjects(mainProject string) []string {
+	return []string{
+		mainProject,
+		naming.TenantInfraIncusProjectName(mainProject),
+		naming.TenantNativeIncusProjectName(mainProject),
+	}
 }
 
 func PlanTenantGrant(admin config.Admin, request TenantAccessRequest) (UserPlan, error) {

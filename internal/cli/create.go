@@ -22,7 +22,7 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var maxPolls int
 	var debugApprove bool
 	command := &cobra.Command{
-		Use:   "create [project:]machine",
+		Use:   "create [tenant/][project:]machine",
 		Short: "Create a Sandcastle container machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -40,7 +40,7 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			if !dryRun {
-				if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config); err != nil {
+				if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config, plan.Tenant); err != nil {
 					return err
 				}
 				plan, err = machine.PlanCreate(cmd.Context(), config.adminConfig, createTenantStore, config.machineStore, machine.CreateRequest{

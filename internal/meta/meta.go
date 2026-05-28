@@ -35,16 +35,17 @@ const (
 )
 
 type Tenant struct {
-	Tenant       string        `json:"tenant"`
-	Personal     bool          `json:"personal,omitempty"`
-	CreatedBy    string        `json:"createdBy,omitempty"`
-	UnixUser     string        `json:"unixUser,omitempty"`
-	Projects     []Project     `json:"projects"`
-	PrivateCIDR  string        `json:"privateCIDR"`
-	SSHPublicKey string        `json:"sshPublicKey,omitempty"`
-	Tailscale    Tailscale     `json:"tailscale,omitempty"`
-	Machines     []MachineRef  `json:"machines,omitempty"`
-	PublicRoutes []PublicRoute `json:"publicRoutes,omitempty"`
+	Tenant        string               `json:"tenant"`
+	Personal      bool                 `json:"personal,omitempty"`
+	CreatedBy     string               `json:"createdBy,omitempty"`
+	UnixUser      string               `json:"unixUser,omitempty"`
+	Projects      []Project            `json:"projects"`
+	StorageShares []TenantStorageShare `json:"storageShares,omitempty"`
+	PrivateCIDR   string               `json:"privateCIDR"`
+	SSHPublicKey  string               `json:"sshPublicKey,omitempty"`
+	Tailscale     Tailscale            `json:"tailscale,omitempty"`
+	Machines      []MachineRef         `json:"machines,omitempty"`
+	PublicRoutes  []PublicRoute        `json:"publicRoutes,omitempty"`
 }
 
 type Project struct {
@@ -74,6 +75,28 @@ type PublicRoute struct {
 	Project   string `json:"project"`
 	Machine   string `json:"machine"`
 	RoutePort int    `json:"routePort"`
+}
+
+type TenantStorageShare struct {
+	SourceTenant  string                        `json:"sourceTenant"`
+	SourceProject string                        `json:"sourceProject"`
+	SourceDir     string                        `json:"sourceDir"`
+	Name          string                        `json:"name"`
+	Availability  string                        `json:"availability,omitempty"`
+	CreatedBy     string                        `json:"createdBy,omitempty"`
+	CreatedAt     string                        `json:"createdAt,omitempty"`
+	Recipients    []TenantStorageShareRecipient `json:"recipients,omitempty"`
+}
+
+type TenantStorageShareRecipient struct {
+	Tenant     string `json:"tenant"`
+	State      string `json:"state"`
+	OfferedBy  string `json:"offeredBy,omitempty"`
+	OfferedAt  string `json:"offeredAt,omitempty"`
+	AcceptedBy string `json:"acceptedBy,omitempty"`
+	AcceptedAt string `json:"acceptedAt,omitempty"`
+	DeclinedBy string `json:"declinedBy,omitempty"`
+	DeclinedAt string `json:"declinedAt,omitempty"`
 }
 
 type Machine struct {

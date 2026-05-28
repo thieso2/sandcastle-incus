@@ -127,6 +127,10 @@ func newAdminMachineConnectCommand(config commandConfig, opts *rootOptions) *cob
 				return err
 			}
 			plan.Reference = adminRef
+			plan, err = ensureMachineStartedForConnect(cmd.Context(), cfg, plan)
+			if err != nil {
+				return err
+			}
 			if cfg.machineConnector == nil {
 				return fmt.Errorf("machine connect executor is not configured")
 			}

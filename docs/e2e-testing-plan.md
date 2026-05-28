@@ -210,7 +210,28 @@ Primary assertions:
 - Home/workspace subdirectories persist.
 - Machine Caddy uses tenant CA leaf certificates.
 
-## Phase 4: Tenant DNS
+## Phase 4: Tenant Storage Shares
+
+Test:
+
+1. Create two disposable tenants.
+2. Create a source machine and a recipient machine.
+3. Create a source workspace subdirectory with a marker file.
+4. Offer, accept, and reconcile a Tenant Storage Share.
+5. Verify the recipient sees the marker at `/shared/<source-tenant>/<source-project>/<share-name>`.
+6. Verify a new source write becomes visible to the recipient.
+7. Verify recipient writes under `/shared/...` fail.
+8. Revoke/delete the share, reconcile, and verify the recipient mount is removed.
+
+Primary assertions:
+
+- Cross-tenant sharing is broker-controlled and read-only for recipients.
+- Share paths use Tenant Storage Share vocabulary and `/shared/...` target paths.
+- Revocation/delete cleanup removes recipient mounts and metadata state.
+- The gated command is:
+  `SANDCASTLE_E2E=1 SANDCASTLE_E2E_LOCAL_VM=1 go test ./internal/e2e -run TestTenantStorageShareReadOnlyE2E -count=1 -v`.
+
+## Phase 5: Tenant DNS
 
 Test:
 
@@ -231,7 +252,7 @@ Primary assertions:
 - CoreDNS does not need Incus API access.
 - Tenant-wide wildcards are not generated.
 
-## Phase 5: Tailscale Routed Access
+## Phase 6: Tailscale Routed Access
 
 Requires `SANDCASTLE_E2E_TAILSCALE_AUTHKEY`.
 
@@ -255,7 +276,7 @@ Primary assertions:
 Core e2e must still pass without this phase when no Tailscale auth key is
 provided.
 
-## Phase 6: Local DNS Resolver
+## Phase 7: Local DNS Resolver
 
 Run only inside a disposable VM. Linux is the first target, using Debian 13 or
 Ubuntu 24.04 with systemd-resolved. macOS resolver tests come later.
@@ -272,7 +293,7 @@ Primary assertions:
 - The local resolver targets the tenant DNS sidecar directly.
 - Resolver installation is reversible.
 
-## Phase 7: Trust And Host Override
+## Phase 8: Trust And Host Override
 
 Run only inside a disposable VM.
 
@@ -293,7 +314,7 @@ Primary assertions:
 - Wildcards are not supported in v1.
 - Trust install/uninstall is explicit and reversible.
 
-## Phase 8: Public HTTP Route Broker
+## Phase 9: Public HTTP Route Broker
 
 Requires a public test domain and infrastructure IP/name. Configure
 `SANDCASTLE_E2E_PUBLIC_DOMAIN` for delegated disposable hostnames,

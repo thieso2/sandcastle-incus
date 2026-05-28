@@ -346,6 +346,7 @@ export SANDCASTLE_ADMIN_BIN=$PWD/bin/linux-amd64/sc-adm
 incus info REMOTE:
 ./bin/sc-adm user create alice --tenant acme</code></pre>
       <p>The <code>--tenant acme</code> flag embeds the tenant grant in the certificate token. When the developer accepts the token, their restricted certificate is created with access to <code>acme</code> immediately. If the token expires or is lost before use, issue a replacement with <code>./bin/sc-adm user token alice --tenant acme</code>.</p>
+      <p>For a multi-tenant developer or local Tenant Storage Share test, keep tenant creation and access grant explicit: create the second tenant with <code>./bin/sc-adm tenant create skorfman</code>, then grant the same User with <code>./bin/sc-adm tenant grant skorfman alice</code>. The developer can then use <code>sc tenant list</code> and <code>sc tenant switch skorfman</code> to select the local Current Tenant.</p>
       <p class="callout warn">Stop here for handoff. The developer can do the rest asynchronously after receiving the install instructions and pre-granted join token.</p>
     </section>
 
@@ -370,7 +371,7 @@ incus info REMOTE:
           </tr>
           <tr>
             <td>Tenant and project names</td>
-            <td>Tenant <code>acme</code>; Alice can create lightweight projects such as <code>website</code> herself, then use machine refs such as <code>website/codex</code>.</td>
+            <td>Tenant <code>acme</code>; Alice can create lightweight projects such as <code>website</code> herself, then use machine refs such as <code>website:codex</code>.</td>
           </tr>
           <tr>
             <td>Private DNS names</td>
@@ -433,7 +434,7 @@ sc project status website</code></pre>
 # Automation-friendly:
 sc create codex --detach</code></pre>
       <p>By default, Sandcastle uses the AI machine template. Use <code>--template base</code> for a smaller machine.</p>
-      <p>Machine creation refreshes the global <code>~/.ssh/known_hosts</code> entries for the machine FQDN and private IP before connecting, so reused names and addresses get the current SSH host key. Connect uses the machine private IP; the tenant Tailscale sidecar advertises the tenant CIDR instead of giving each container its own Tailscale IP.</p>
+      <p>Machine creation refreshes the global <code>~/.ssh/known_hosts</code> entries for the machine FQDN and private IP before connecting, so reused names and addresses get the current SSH host key. Connect starts a stopped managed machine before keyscan and SSH, then uses the machine private IP; the tenant Tailscale sidecar advertises the tenant CIDR instead of giving each container its own Tailscale IP.</p>
     </section>
 
     <section id="verify">

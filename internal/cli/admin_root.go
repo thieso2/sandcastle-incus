@@ -63,6 +63,7 @@ func ExecuteAdmin(name string, args []string) int {
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
 	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
 	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
+	connectCache := incusx.NewConnectCache(adminConfig.Remote)
 	routeBrokerTenants := incusx.NewTenantStoreForSharedRemote(sharedRemote)
 	routeBrokerMachines := incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)
 	routeBrokerTrust := incusx.NewRouteBrokerTrustMapper(adminConfig.Remote)
@@ -72,6 +73,11 @@ func ExecuteAdmin(name string, args []string) int {
 	authAppTrust := incusx.NewTrustManager(adminConfig.Remote)
 	authAppSSHKeys := incusx.NewMachineSSHKeyReconciler(adminConfig.Remote, authAppMachines)
 	authAppMetadataUpdater := incusx.TenantSSHKeyManager{Remote: adminConfig.Remote}
+	authAppShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, authAppMachines)
+	authAppShareReconciler.Admin = adminConfig
+	adminShareStore := incusx.NewTenantSSHKeyManager(adminConfig.Remote)
+	adminShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, incusx.NewHostOverrideManagerForSharedRemote(sharedRemote))
+	adminShareReconciler.Admin = adminConfig
 	var authAppProjectUpdater tenant.ProjectUpdater = authAppMetadataUpdater
 	if routeBrokerServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
@@ -94,6 +100,9 @@ func ExecuteAdmin(name string, args []string) int {
 			authAppTrust = incusx.NewTrustManagerForServer(socketServer)
 			authAppSSHKeys = incusx.NewMachineSSHKeyReconcilerForServer(socketServer, authAppMachines)
 			authAppMetadataUpdater = incusx.NewTenantSSHKeyManagerForServer(socketServer)
+			authAppShareReconciler = incusx.NewShareReconcilerForServer(socketServer, authAppMachines, authAppMetadataUpdater, adminConfig)
+			adminShareStore = authAppMetadataUpdater
+			adminShareReconciler = incusx.NewShareReconcilerForServer(socketServer, incusx.NewHostOverrideManagerForServer(socketServer), adminShareStore, adminConfig)
 			authAppProjectUpdater = authAppMetadataUpdater
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)
@@ -123,7 +132,7 @@ func ExecuteAdmin(name string, args []string) int {
 		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
+		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr).WithConnectCache(connectCache),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
 		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr),
@@ -145,6 +154,8 @@ func ExecuteAdmin(name string, args []string) int {
 			MachineSSHKeys:   authAppSSHKeys,
 			TenantSSHKeys:    authAppMetadataUpdater,
 			MachineSSHAccess: authAppSSHKeys,
+			ShareStore:       authAppMetadataUpdater,
+			ShareReconciler:  authAppShareReconciler,
 			Provisioner: authapp.Provisioner{
 				Admin:           adminConfig,
 				Tenants:         authAppTenants,
@@ -155,6 +166,8 @@ func ExecuteAdmin(name string, args []string) int {
 				Trust:           authAppTrust,
 			},
 		},
+		shareStore:      adminShareStore,
+		shareReconciler: adminShareReconciler,
 	})
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)

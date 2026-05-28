@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"path"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -32,6 +35,7 @@ type TenantMetadataUpdateServer interface {
 }
 
 type TenantMetadataUpdateResourceServer interface {
+	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 }
 
@@ -49,6 +53,117 @@ func (m TenantSSHKeyManager) SetTenantProjects(_ context.Context, incusProjectNa
 
 func (m TenantSSHKeyManager) SetTenantUnixUser(_ context.Context, incusProjectName string, unixUser string) error {
 	return m.writeTenantMetadataFile(incusProjectName, tenantUnixUserFile, strings.TrimSpace(unixUser)+"\n", "write tenant Unix user metadata")
+}
+
+func (m TenantSSHKeyManager) GetTenantShares(_ context.Context, incusProjectName string) ([]meta.TenantStorageShare, error) {
+	server, err := m.server()
+	if err != nil {
+		return nil, err
+	}
+	shares, ok, err := readTenantStorageShares(server.UseProject(incusProjectName), incusProjectName)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return shares, nil
+}
+
+func (m TenantSSHKeyManager) SetTenantShares(_ context.Context, incusProjectName string, shares []meta.TenantStorageShare) error {
+	data, err := json.Marshal(shares)
+	if err != nil {
+		return fmt.Errorf("encode storage shares for %s: %w", incusProjectName, err)
+	}
+	return m.writeTenantMetadataFile(incusProjectName, tenantStorageSharesFile, string(data), "write tenant storage shares metadata")
+}
+
+func (m TenantSSHKeyManager) SourceDirectoryExists(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error) {
+	status, err := m.SourceDirectoryStatus(ctx, incusProjectName, project, workspaceRelativeDir)
+	if err != nil {
+		return false, err
+	}
+	return status.Exists && status.Safe, nil
+}
+
+func (m TenantSSHKeyManager) SourceDirectoryStatus(_ context.Context, incusProjectName string, project string, workspaceRelativeDir string) (share.SourceStatus, error) {
+	server, err := m.server()
+	if err != nil {
+		return share.SourceStatus{}, err
+	}
+	resource := server.UseProject(incusProjectName)
+	sourcePath := path.Clean(project + "/" + workspaceRelativeDir)
+	status, err := validateStorageTree(resource, incusProjectName, tenant.WorkspaceVolumeName, sourcePath, sourcePath)
+	if isMissingTenantMetadata(err) {
+		return share.SourceStatus{Exists: false, Safe: false, Reason: "source directory is missing"}, nil
+	}
+	if err != nil {
+		return share.SourceStatus{}, fmt.Errorf("check source directory %s for %s: %w", sourcePath, incusProjectName, err)
+	}
+	return status, nil
+}
+
+func validateStorageTree(resource TenantMetadataUpdateResourceServer, pool string, volumeName string, rootPath string, filePath string) (share.SourceStatus, error) {
+	content, response, err := resource.GetStorageVolumeFile(pool, "custom", volumeName, filePath)
+	if isMissingTenantMetadata(err) {
+		return share.SourceStatus{Exists: false, Safe: false, Reason: "source directory is missing"}, nil
+	}
+	if err != nil {
+		return share.SourceStatus{}, err
+	}
+	defer closeReader(content)
+	if response == nil {
+		return share.SourceStatus{Exists: true, Safe: false, Reason: "missing file metadata"}, nil
+	}
+	switch response.Type {
+	case "directory":
+		for _, entry := range response.Entries {
+			if strings.Contains(entry, "/") || entry == "." || entry == ".." {
+				return share.SourceStatus{Exists: true, Safe: false, Reason: "directory entry escapes source path"}, nil
+			}
+			childStatus, err := validateStorageTree(resource, pool, volumeName, rootPath, path.Join(filePath, entry))
+			if err != nil {
+				return share.SourceStatus{}, err
+			}
+			if !childStatus.Exists || !childStatus.Safe {
+				return childStatus, nil
+			}
+		}
+		return share.SourceStatus{Exists: true, Safe: true}, nil
+	case "symlink":
+		if content == nil {
+			return share.SourceStatus{Exists: true, Safe: false, Reason: "symlink target is unavailable"}, nil
+		}
+		targetBytes, _ := io.ReadAll(content)
+		if !symlinkTargetStaysWithin(rootPath, filePath, strings.TrimSpace(string(targetBytes))) {
+			return share.SourceStatus{Exists: true, Safe: false, Reason: "symlink escapes source directory"}, nil
+		}
+		return share.SourceStatus{Exists: true, Safe: true}, nil
+	case "file":
+		if filePath == rootPath {
+			return share.SourceStatus{Exists: true, Safe: false, Reason: "source path is not a directory"}, nil
+		}
+		return share.SourceStatus{Exists: true, Safe: true}, nil
+	default:
+		return share.SourceStatus{Exists: true, Safe: false, Reason: "unsupported source entry type " + response.Type}, nil
+	}
+}
+
+func symlinkTargetStaysWithin(rootPath string, linkPath string, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" || path.IsAbs(target) {
+		return false
+	}
+	linkDir := path.Dir(linkPath)
+	resolved := path.Clean(path.Join(linkDir, target))
+	root := path.Clean(rootPath)
+	return resolved == root || strings.HasPrefix(resolved, root+"/")
+}
+
+func closeReader(reader io.ReadCloser) {
+	if reader != nil {
+		_ = reader.Close()
+	}
 }
 
 func (m TenantSSHKeyManager) writeTenantMetadataFile(incusProjectName string, filePath string, content string, action string) error {
@@ -105,6 +220,10 @@ func (s sdkTenantMetadataUpdateServer) UseProject(name string) TenantMetadataUpd
 type sdkTenantMetadataUpdateResourceServer struct {
 	inner       incus.InstanceServer
 	projectName string
+}
+
+func (s sdkTenantMetadataUpdateResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	return getStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath)
 }
 
 func (s sdkTenantMetadataUpdateResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {

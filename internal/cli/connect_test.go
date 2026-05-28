@@ -87,6 +87,62 @@ func TestPruneBareNameConnectCachePreservesExplicitDefaultProject(t *testing.T) 
 	}
 }
 
+func TestLookupCachedPlanFindsTenantScopedBareMachine(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cache := incusx.NewConnectCache("sandcastle-test")
+	plan := machine.ConnectPlan{
+		Tenant:  tenant.Summary{Tenant: "some"},
+		Project: "default",
+		Name:    "test",
+		Managed: true,
+	}
+	cache.StorePlan("some:default/test", plan)
+
+	cached, ok := lookupCachedPlan(cache, "thieso2", "", "some/test")
+	if !ok {
+		t.Fatal("expected tenant-scoped cache hit")
+	}
+	if cached.Tenant.Tenant != "some" || cached.Project != "default" || cached.Name != "test" {
+		t.Fatalf("cached = %#v", cached)
+	}
+}
+
+func TestLookupCachedPlanFindsTenantScopedProjectMachine(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cache := incusx.NewConnectCache("sandcastle-test")
+	plan := machine.ConnectPlan{
+		Tenant:  tenant.Summary{Tenant: "some"},
+		Project: "website",
+		Name:    "test",
+		Managed: true,
+	}
+	cache.StorePlan("some:website/test", plan)
+
+	cached, ok := lookupCachedPlan(cache, "thieso2", "", "some/website:test")
+	if !ok {
+		t.Fatal("expected tenant/project cache hit")
+	}
+	if cached.Tenant.Tenant != "some" || cached.Project != "website" || cached.Name != "test" {
+		t.Fatalf("cached = %#v", cached)
+	}
+}
+
+func TestLookupCachedPlanKeepsLegacyProjectSlashMachineUncached(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cache := incusx.NewConnectCache("sandcastle-test")
+	plan := machine.ConnectPlan{
+		Tenant:  tenant.Summary{Tenant: "thieso2"},
+		Project: "website",
+		Name:    "test",
+		Managed: true,
+	}
+	cache.StorePlan("thieso2:website/test", plan)
+
+	if _, ok := lookupCachedPlan(cache, "thieso2", "", "website/test"); ok {
+		t.Fatal("legacy project/machine must not be guessed from cache without tenant resolution")
+	}
+}
+
 func wrappedExitError(t *testing.T, code int) error {
 	t.Helper()
 	err := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()

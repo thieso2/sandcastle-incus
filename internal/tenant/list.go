@@ -21,20 +21,21 @@ type IncusTenantStore interface {
 }
 
 type Summary struct {
-	IncusName       string             `json:"incusName"`
-	InfraProject    string             `json:"infraProject"`
-	Tenant          string             `json:"tenant"`
-	Personal        bool               `json:"personal,omitempty"`
-	UnixUser        string             `json:"unixUser,omitempty"`
-	DNSSuffix       string             `json:"dnsSuffix,omitempty"`
-	PrivateCIDR     string             `json:"privateCIDR,omitempty"`
-	DNSAddress      string             `json:"dnsAddress,omitempty"`
-	DefaultTemplate string             `json:"defaultTemplate,omitempty"`
-	SSHPublicKey    string             `json:"sshPublicKey,omitempty"`
-	Projects        []meta.Project     `json:"projects,omitempty"`
-	Status          string             `json:"status"`
-	Tailscale       meta.Tailscale     `json:"tailscale,omitempty"`
-	PublicRoutes    []meta.PublicRoute `json:"publicRoutes,omitempty"`
+	IncusName       string                    `json:"incusName"`
+	InfraProject    string                    `json:"infraProject"`
+	Tenant          string                    `json:"tenant"`
+	Personal        bool                      `json:"personal,omitempty"`
+	UnixUser        string                    `json:"unixUser,omitempty"`
+	DNSSuffix       string                    `json:"dnsSuffix,omitempty"`
+	PrivateCIDR     string                    `json:"privateCIDR,omitempty"`
+	DNSAddress      string                    `json:"dnsAddress,omitempty"`
+	DefaultTemplate string                    `json:"defaultTemplate,omitempty"`
+	SSHPublicKey    string                    `json:"sshPublicKey,omitempty"`
+	Projects        []meta.Project            `json:"projects,omitempty"`
+	Status          string                    `json:"status"`
+	Tailscale       meta.Tailscale            `json:"tailscale,omitempty"`
+	PublicRoutes    []meta.PublicRoute        `json:"publicRoutes,omitempty"`
+	StorageShares   []meta.TenantStorageShare `json:"storageShares,omitempty"`
 }
 
 func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
@@ -69,6 +70,7 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 			Status:          "managed",
 			Tailscale:       tenant.Tailscale,
 			PublicRoutes:    append([]meta.PublicRoute{}, tenant.PublicRoutes...),
+			StorageShares:   append([]meta.TenantStorageShare{}, tenant.StorageShares...),
 		})
 	}
 	sort.Slice(summaries, func(i, j int) bool {

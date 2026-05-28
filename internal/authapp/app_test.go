@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -455,8 +456,60 @@ func TestTenantAccessAdminListsUsersTenantsAndGrants(t *testing.T) {
 	if grantResponse.Code != http.StatusSeeOther {
 		t.Fatalf("grant = %d %q", grantResponse.Code, grantResponse.Body.String())
 	}
-	if len(access.grants) != 1 || access.grants[0].User != "alice" || access.grants[0].Projects[0] != "sc-acme" {
+	if len(access.grants) != 1 || access.grants[0].User != "alice" || !slices.Equal(access.grants[0].Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
 		t.Fatalf("grants = %#v", access.grants)
+	}
+}
+
+func TestTenantAccessAPIReturnsOnlyAccessibleTenants(t *testing.T) {
+	db := authDBForTest(t)
+	if err := UpsertUser(context.Background(), db, User{UserKey: "octocat", GitHubUsername: "octocat", Allowlisted: true}); err != nil {
+		t.Fatal(err)
+	}
+	token, err := CreateCLIToken(context.Background(), db, "octocat", timeNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(db, HandlerOptions{
+		Admin: testAuthAdminConfig(),
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{
+			{Name: "sc-octocat", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "octocat", Personal: true, PrivateCIDR: "10.248.0.0/24"})},
+			{Name: "sc-skorfman", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "skorfman", PrivateCIDR: "10.248.1.0/24"})},
+			{Name: "sc-private", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "private", PrivateCIDR: "10.248.2.0/24"})},
+		}},
+		TenantAccess: &fakeTenantAccessManager{usersByTenant: map[string][]string{
+			"octocat":  {"octocat"},
+			"skorfman": {"alice", "octocat"},
+			"private":  {"alice"},
+		}},
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/tenants", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("tenant list = %d %q", response.Code, response.Body.String())
+	}
+	var payload TenantAccessListResult
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Tenants) != 2 {
+		t.Fatalf("tenants = %#v", payload.Tenants)
+	}
+	if payload.Tenants[0].Tenant != "octocat" || !payload.Tenants[0].Personal || payload.Tenants[1].Tenant != "skorfman" || payload.Tenants[1].Personal {
+		t.Fatalf("tenants = %#v", payload.Tenants)
+	}
+}
+
+func TestTenantAccessAPIRequiresCLIToken(t *testing.T) {
+	db := authDBForTest(t)
+	handler := NewHandler(db, HandlerOptions{})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/tenants", nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("tenant list = %d %q", response.Code, response.Body.String())
 	}
 }
 
@@ -482,7 +535,7 @@ func TestTenantAccessAdminRevokesPersonalTenantAccess(t *testing.T) {
 	if response.Code != http.StatusSeeOther {
 		t.Fatalf("revoke = %d %q", response.Code, response.Body.String())
 	}
-	if len(access.revokes) != 1 || access.revokes[0].User != "1octocat" || access.revokes[0].Projects[0] != "sc-1octocat" {
+	if len(access.revokes) != 1 || access.revokes[0].User != "1octocat" || !slices.Equal(access.revokes[0].Projects, []string{"sc-1octocat", "sc-1octocat-infra", "sc-1octocat-native"}) {
 		t.Fatalf("revokes = %#v", access.revokes)
 	}
 	if len(sshAccess.revokes) != 1 || sshAccess.revokes[0].tenant != "1octocat" || sshAccess.revokes[0].user != "1octocat" {

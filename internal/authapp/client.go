@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/share"
 )
 
 const defaultDeviceClientTimeout = 2 * time.Minute
@@ -229,6 +233,228 @@ func (c DeviceClient) UpsertCloudIdentity(ctx context.Context, request CloudIden
 		GCPSubjectTokenType:               payload.GCPSubjectTokenType,
 		GCPServiceAccountImpersonationURL: payload.GCPServiceAccountImpersonationURL,
 	}, nil
+}
+
+func (c DeviceClient) ListTenants(ctx context.Context) ([]TenantAccessSummary, error) {
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/tenants"), nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return nil, fmt.Errorf("auth app tenant list: %s", msg)
+	}
+	var payload TenantAccessListResult
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Tenants, nil
+}
+
+func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateRequest) (share.Result, error) {
+	body, _ := json.Marshal(request)
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/shares"), bytes.NewReader(body))
+	if err != nil {
+		return share.Result{}, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return share.Result{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return share.Result{}, fmt.Errorf("auth app share create: %s", msg)
+	}
+	var payload share.Result
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return share.Result{}, err
+	}
+	return payload, nil
+}
+
+func (c DeviceClient) ListShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return c.listShares(ctx, tenant, "")
+}
+
+func (c DeviceClient) ListInboundShares(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return c.listShares(ctx, tenant, "inbound")
+}
+
+func (c DeviceClient) ListShareOffers(ctx context.Context, tenant string) ([]meta.TenantStorageShare, error) {
+	return c.listShares(ctx, tenant, "offers")
+}
+
+func (c DeviceClient) listShares(ctx context.Context, tenant string, direction string) ([]meta.TenantStorageShare, error) {
+	query := "?tenant=" + url.QueryEscape(strings.TrimSpace(tenant))
+	if strings.TrimSpace(direction) != "" {
+		query += "&direction=" + url.QueryEscape(strings.TrimSpace(direction))
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/shares")+query, nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return nil, fmt.Errorf("auth app share list: %s", msg)
+	}
+	var payload ShareListResult
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Shares, nil
+}
+
+func (c DeviceClient) GetShare(ctx context.Context, request ShareStatusRequest) (share.Result, error) {
+	query := "?tenant=" + url.QueryEscape(strings.TrimSpace(request.Tenant)) + "&project=" + url.QueryEscape(strings.TrimSpace(request.Project)) + "&name=" + url.QueryEscape(strings.TrimSpace(request.Name))
+	if strings.TrimSpace(request.SourceTenant) != "" {
+		query += "&source_tenant=" + url.QueryEscape(strings.TrimSpace(request.SourceTenant))
+	}
+	if request.Inbound {
+		query += "&direction=inbound"
+	}
+	if request.Verbose {
+		query += "&verbose=1"
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/shares/status")+query, nil)
+	if err != nil {
+		return share.Result{}, err
+	}
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return share.Result{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return share.Result{}, fmt.Errorf("auth app share status: %s", msg)
+	}
+	var payload share.Result
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return share.Result{}, err
+	}
+	return payload, nil
+}
+
+func (c DeviceClient) AcceptShare(ctx context.Context, request ShareRecipientRequest) (share.Result, error) {
+	return c.shareRecipientMutation(ctx, "/api/shares/accept", request, "accept")
+}
+
+func (c DeviceClient) DeclineShare(ctx context.Context, request ShareRecipientRequest) (share.Result, error) {
+	return c.shareRecipientMutation(ctx, "/api/shares/decline", request, "decline")
+}
+
+func (c DeviceClient) RevokeShare(ctx context.Context, request ShareRevokeRequest) (share.Result, error) {
+	body, _ := json.Marshal(request)
+	return c.postShareResult(ctx, "/api/shares/revoke", body, "revoke")
+}
+
+func (c DeviceClient) DeleteShare(ctx context.Context, request ShareDeleteRequest) (share.Result, error) {
+	body, _ := json.Marshal(request)
+	return c.postShareResult(ctx, "/api/shares/delete", body, "delete")
+}
+
+func (c DeviceClient) shareRecipientMutation(ctx context.Context, path string, request ShareRecipientRequest, label string) (share.Result, error) {
+	body, _ := json.Marshal(request)
+	return c.postShareResult(ctx, path, body, label)
+}
+
+func (c DeviceClient) postShareResult(ctx context.Context, path string, body []byte, label string) (share.Result, error) {
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewReader(body))
+	if err != nil {
+		return share.Result{}, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return share.Result{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return share.Result{}, fmt.Errorf("auth app share %s: %s", label, msg)
+	}
+	var payload share.Result
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return share.Result{}, err
+	}
+	return payload, nil
+}
+
+func (c DeviceClient) ReconcileShares(ctx context.Context, request ShareReconcileRequest) (share.ReconcileResult, error) {
+	body, _ := json.Marshal(request)
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/shares/reconcile"), bytes.NewReader(body))
+	if err != nil {
+		return share.ReconcileResult{}, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return share.ReconcileResult{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return share.ReconcileResult{}, fmt.Errorf("auth app share reconcile: %s", msg)
+	}
+	var payload share.ReconcileResult
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return share.ReconcileResult{}, err
+	}
+	return payload, nil
 }
 
 func (c DeviceClient) url(path string) string {
