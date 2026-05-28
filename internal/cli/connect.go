@@ -19,6 +19,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var authHostname string
 	var maxPolls int
 	var debugApprove bool
+	var useMosh bool
 	command := &cobra.Command{
 		Use:     "connect [tenant/][project:]machine [-- command...]",
 		Aliases: []string{"c"},
@@ -28,10 +29,10 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			reference := args[0]
 			command := args[1:]
 			cache := incusx.NewConnectCache(config.adminConfig.Remote)
-			plan, fromCache, err := planConnectCached(cmd.Context(), config, cache, reference, command)
+			plan, fromCache, err := planConnectCached(cmd.Context(), config, cache, reference, command, useMosh)
 			if err != nil {
 				if shouldCreateOnConnectFailure(err) {
-					return createAndConnect(cmd, config, reference, command, workloadEnableOptions{
+					return createAndConnect(cmd, config, reference, command, useMosh, workloadEnableOptions{
 						AuthHostname:  authHostname,
 						CloudIdentity: cloudIdentity,
 						MaxPolls:      maxPolls,
@@ -46,7 +47,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			// If the plan came from cache and the SSH host is unreachable, don't let SSH
 			// hang — invalidate the cache immediately and retry with a fresh Incus lookup.
 			if fromCache && !probeSSHPort(plan.SSHHost, 2*time.Second) {
-				return retryConnectFresh(cmd, config, cache, reference, command, plan, workloadEnableOptions{
+				return retryConnectFresh(cmd, config, cache, reference, command, useMosh, plan, workloadEnableOptions{
 					AuthHostname:  authHostname,
 					CloudIdentity: cloudIdentity,
 					MaxPolls:      maxPolls,
@@ -90,7 +91,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				Stderr: config.stderr,
 			}); err != nil {
 				if shouldCreateOnConnectFailure(err) {
-					return createAndConnect(cmd, config, reference, command, workloadEnableOptions{
+					return createAndConnect(cmd, config, reference, command, useMosh, workloadEnableOptions{
 						AuthHostname:  authHostname,
 						CloudIdentity: cloudIdentity,
 						MaxPolls:      maxPolls,
@@ -101,7 +102,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				// may have caused the failure. Invalidate both caches and retry once with
 				// a fresh Incus lookup and keyscan.
 				if fromCache && shouldRetryCachedConnectFailure(err) {
-					return retryConnectFresh(cmd, config, cache, reference, command, plan, workloadEnableOptions{
+					return retryConnectFresh(cmd, config, cache, reference, command, useMosh, plan, workloadEnableOptions{
 						AuthHostname:  authHostname,
 						CloudIdentity: cloudIdentity,
 						MaxPolls:      maxPolls,
@@ -117,18 +118,20 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&authHostname, "auth-hostname", "", "public Auth Hostname (overrides config auth.hostname)")
 	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts when enabling workload identity")
 	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve workload identity device login (requires server --debug-device-user)")
+	command.Flags().BoolVar(&useMosh, "mosh", false, "connect with mosh instead of ssh")
 	return command
 }
 
 // planConnectCached resolves a ConnectPlan using the local cache when available.
 // fromCache is true when the plan was served from the cache without an Incus API call.
-func planConnectCached(ctx context.Context, cfg commandConfig, cache incusx.ConnectCache, reference string, command []string) (plan machine.ConnectPlan, fromCache bool, err error) {
+func planConnectCached(ctx context.Context, cfg commandConfig, cache incusx.ConnectCache, reference string, command []string, useMosh bool) (plan machine.ConnectPlan, fromCache bool, err error) {
 	if cached, ok := lookupCachedPlan(cache, cfg.adminConfig.Tenant, cfg.adminConfig.Project, reference); ok {
-		return applyConnectCommand(cached, command), true, nil
+		return applyConnectCommand(cached, command, useMosh), true, nil
 	}
 	plan, err = machine.PlanConnect(ctx, cfg.adminConfig, cfg.tenantStore, cfg.machineStore, machine.ConnectRequest{
 		Reference: reference,
 		Command:   command,
+		Mosh:      useMosh,
 	})
 	if err != nil {
 		return machine.ConnectPlan{}, false, err
@@ -181,7 +184,7 @@ func lookupCachedPlan(cache incusx.ConnectCache, tenant, project, reference stri
 // retryConnectFresh invalidates stale cache entries from oldPlan, re-resolves the plan
 // from Incus, re-scans the SSH host key, and retries the connection once.
 // This handles machine recreation (new IP or new host key) transparently.
-func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.ConnectCache, reference string, command []string, oldPlan machine.ConnectPlan, workloadOptions workloadEnableOptions) error {
+func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.ConnectCache, reference string, command []string, useMosh bool, oldPlan machine.ConnectPlan, workloadOptions workloadEnableOptions) error {
 	if key := connectPlanCacheKey(cfg.adminConfig.Tenant, cfg.adminConfig.Project, reference); key != "" {
 		cache.InvalidatePlan(key)
 	}
@@ -196,10 +199,11 @@ func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.Conne
 	plan, err := machine.PlanConnect(cmd.Context(), cfg.adminConfig, cfg.tenantStore, cfg.machineStore, machine.ConnectRequest{
 		Reference: reference,
 		Command:   command,
+		Mosh:      useMosh,
 	})
 	if err != nil {
 		if shouldCreateOnConnectFailure(err) {
-			return createAndConnect(cmd, cfg, reference, command, workloadOptions)
+			return createAndConnect(cmd, cfg, reference, command, useMosh, workloadOptions)
 		}
 		return err
 	}
@@ -278,8 +282,8 @@ func tenantMachineReference(reference string) (string, string, bool) {
 	return strings.TrimSpace(tenantName), strings.TrimSpace(rest), true
 }
 
-// applyConnectCommand sets the command and interactive flag on a cached plan.
-func applyConnectCommand(plan machine.ConnectPlan, command []string) machine.ConnectPlan {
+// applyConnectCommand sets the command, transport, and interactive flag on a cached plan.
+func applyConnectCommand(plan machine.ConnectPlan, command []string, useMosh bool) machine.ConnectPlan {
 	if len(command) == 0 {
 		plan.Command = []string{"/bin/bash", "-l"}
 		plan.Interactive = true
@@ -287,6 +291,7 @@ func applyConnectCommand(plan machine.ConnectPlan, command []string) machine.Con
 		plan.Command = command
 		plan.Interactive = false
 	}
+	plan.Mosh = useMosh
 	return plan
 }
 
@@ -353,7 +358,7 @@ func ensureMachineStartedForConnect(ctx context.Context, config commandConfig, p
 	return plan, nil
 }
 
-func createAndConnect(cmd *cobra.Command, config commandConfig, reference string, command []string, workloadOptions workloadEnableOptions) error {
+func createAndConnect(cmd *cobra.Command, config commandConfig, reference string, command []string, useMosh bool, workloadOptions workloadEnableOptions) error {
 	if config.stderr != nil {
 		fmt.Fprintf(config.stderr, "Machine %s not found; creating it before connecting.\n", reference)
 	}
@@ -402,7 +407,7 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 	if config.machineConnector == nil {
 		return fmt.Errorf("machine connect executor is not configured")
 	}
-	connectPlan, err := connectPlanFromCreatePlan(createPlan, command)
+	connectPlan, err := connectPlanFromCreatePlan(createPlan, command, useMosh)
 	if err != nil {
 		return err
 	}
@@ -448,7 +453,7 @@ func probeSSHPort(host string, timeout time.Duration) bool {
 	return true
 }
 
-func connectPlanFromCreatePlan(plan machine.CreatePlan, command []string) (machine.ConnectPlan, error) {
+func connectPlanFromCreatePlan(plan machine.CreatePlan, command []string, useMosh bool) (machine.ConnectPlan, error) {
 	interactive := false
 	if len(command) == 0 {
 		command = []string{"/bin/bash", "-l"}
@@ -474,5 +479,6 @@ func connectPlanFromCreatePlan(plan machine.CreatePlan, command []string) (machi
 		WorkingDir:   "/workspace",
 		Interactive:  interactive,
 		Managed:      true,
+		Mosh:         useMosh,
 	}, nil
 }

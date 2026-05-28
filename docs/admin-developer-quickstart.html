@@ -434,7 +434,7 @@ sc project status website</code></pre>
 # Automation-friendly:
 sc create codex --detach</code></pre>
       <p>By default, Sandcastle uses the AI machine template. Use <code>--template base</code> for a smaller machine.</p>
-      <p>Machine creation refreshes the global <code>~/.ssh/known_hosts</code> entries for the machine FQDN and private IP before connecting, so reused names and addresses get the current SSH host key. Connect starts a stopped managed machine before keyscan and SSH, then uses the machine private IP; the tenant Tailscale sidecar advertises the tenant CIDR instead of giving each container its own Tailscale IP.</p>
+      <p>Machine creation refreshes the global <code>~/.ssh/known_hosts</code> entries for the machine FQDN and private IP before connecting, so reused names and addresses get the current SSH host key. Connect starts a stopped managed machine before keyscan and SSH, then uses the machine private IP; pass <code>--mosh</code> to use Mosh for the terminal while keeping the same SSH authentication setup. The tenant Tailscale sidecar advertises the tenant CIDR instead of giving each container its own Tailscale IP.</p>
     </section>
 
     <section id="verify">

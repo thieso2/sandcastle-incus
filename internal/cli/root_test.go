@@ -2883,6 +2883,33 @@ func TestConnectCommandUsesConnector(t *testing.T) {
 	}
 }
 
+func TestConnectCommandCanUseMosh(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connector := &fakeMachineConnector{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", Running: true}}},
+		machineConnector: connector,
+	}, "connect", "--mosh", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !connector.called || !connector.plan.Mosh {
+		t.Fatalf("connector.plan = %#v", connector.plan)
+	}
+}
+
 func TestConnectCommandRefreshesKnownHostsWhenUsingPrivateIPFallback(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",

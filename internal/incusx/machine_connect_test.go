@@ -37,10 +37,12 @@ func (r *fakeMachineConnectResource) ExecInstance(instanceName string, exec api.
 }
 
 type fakeSSHRunner struct {
-	args []string
+	called bool
+	args   []string
 }
 
 func (r *fakeSSHRunner) Run(ctx context.Context, session machine.ConnectSession, args ...string) error {
+	r.called = true
 	r.args = append([]string{}, args...)
 	return nil
 }
@@ -121,6 +123,64 @@ func TestMachineConnectorAddsSSHVerboseWhenVerboseEnabled(t *testing.T) {
 		}
 	}
 	t.Fatalf("ssh args missing -v: %#v", runner.args)
+}
+
+func TestMachineConnectorMoshesToManagedMachine(t *testing.T) {
+	sshRunner := &fakeSSHRunner{}
+	moshRunner := &fakeSSHRunner{}
+	var logs []string
+	connector := MachineConnector{
+		Runner:     sshRunner,
+		MoshRunner: moshRunner,
+		Log: func(msg string) {
+			logs = append(logs, msg)
+		},
+	}
+	err := connector.ConnectMachine(context.Background(), machine.ConnectPlan{
+		Tenant:       tenant.Summary{IncusName: "sc-acme"},
+		Project:      "default",
+		InstanceName: "default-codex",
+		SSHHost:      "10.248.0.20",
+		HostKeyAlias: "codex.default.acme",
+		Command:      []string{"/bin/bash", "-l"},
+		LinuxUser:    "alice",
+		WorkingDir:   "/workspace",
+		Interactive:  true,
+		Managed:      true,
+		Mosh:         true,
+	}, machine.ConnectSession{
+		Stdin:  io.Reader(nil),
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sshRunner.called {
+		t.Fatal("expected mosh transport, got ssh runner call")
+	}
+	if !moshRunner.called {
+		t.Fatal("expected mosh runner call")
+	}
+	joined := strings.Join(moshRunner.args, " ")
+	for _, want := range []string{
+		"--ssh=ssh -A",
+		"CheckHostIP=no",
+		"StrictHostKeyChecking=accept-new",
+		"HostKeyAlias=codex.default.acme",
+		"alice@10.248.0.20",
+		"bash -lc cd /workspace && exec /bin/bash -l",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("mosh args %q missing %q", joined, want)
+		}
+	}
+	if strings.Contains(joined, " -t ") {
+		t.Fatalf("mosh setup ssh should not force tty: %q", joined)
+	}
+	if len(logs) != 1 || !strings.Contains(logs[0], "mosh ") || !strings.Contains(logs[0], "alice@10.248.0.20") {
+		t.Fatalf("logs = %#v", logs)
+	}
 }
 
 func TestMachineConnectorPinsCachedSSHIdentity(t *testing.T) {

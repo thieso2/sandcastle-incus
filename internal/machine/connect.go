@@ -13,6 +13,7 @@ import (
 type ConnectRequest struct {
 	Reference string
 	Command   []string
+	Mosh      bool
 }
 
 type ConnectPlan struct {
@@ -33,6 +34,7 @@ type ConnectPlan struct {
 	WorkingDir         string         `json:"workingDir"`
 	Interactive        bool           `json:"interactive"`
 	Managed            bool           `json:"managed"`
+	Mosh               bool           `json:"mosh,omitempty"`
 	StartBeforeConnect bool           `json:"startBeforeConnect,omitempty"`
 }
 
@@ -98,6 +100,7 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 		WorkingDir:         workingDir,
 		Interactive:        interactive,
 		Managed:            resolved.Managed,
+		Mosh:               request.Mosh,
 		StartBeforeConnect: resolved.Managed && !resolved.Running,
 	}, nil
 }

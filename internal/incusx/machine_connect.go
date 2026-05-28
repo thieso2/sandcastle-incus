@@ -30,6 +30,7 @@ type MachineConnector struct {
 	ConfigPath string
 	Server     MachineConnectServer
 	Runner     SSHRunner
+	MoshRunner SSHRunner
 	Log        func(string)
 	SSHVerbose bool
 	Cache      *ConnectCache
@@ -63,6 +64,7 @@ type SSHRunner interface {
 }
 
 type LocalSSHRunner struct{}
+type LocalMoshRunner struct{}
 
 func (e MachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	if plan.Managed {
@@ -75,12 +77,24 @@ func (e MachineConnector) connectManagedMachine(ctx context.Context, plan machin
 	if strings.TrimSpace(plan.SSHHost) == "" {
 		return fmt.Errorf("machine %s has no SSH host", plan.InstanceName)
 	}
+	identityKey := sshIdentityCacheKey(plan)
+	identityPath := e.sshIdentity(ctx, plan, identityKey)
+	if plan.Mosh {
+		runner := e.MoshRunner
+		if runner == nil {
+			runner = LocalMoshRunner{}
+		}
+		args := moshArgs(plan, e.SSHVerbose, identityPath)
+		e.log("run " + shellCommandLine("mosh", args))
+		if err := runner.Run(ctx, session, args...); err != nil {
+			return fmt.Errorf("mosh to machine %s: %w", plan.InstanceName, err)
+		}
+		return nil
+	}
 	runner := e.Runner
 	if runner == nil {
 		runner = LocalSSHRunner{}
 	}
-	identityKey := sshIdentityCacheKey(plan)
-	identityPath := e.sshIdentity(ctx, plan, identityKey)
 	args := sshArgs(plan, e.SSHVerbose, identityPath)
 	e.log("run " + shellCommandLine("ssh", args))
 	if err := runner.Run(ctx, session, args...); err != nil {
@@ -93,6 +107,18 @@ func (e MachineConnector) connectManagedMachine(ctx context.Context, plan machin
 }
 
 func sshArgs(plan machine.ConnectPlan, verbose bool, identityPath string) []string {
+	args := sshSetupArgs(plan, verbose, identityPath)
+	if plan.Interactive {
+		args = append(args, "-t")
+	}
+	args = append(args, plan.LinuxUser+"@"+plan.SSHHost)
+	if len(plan.Command) > 0 {
+		args = append(args, remoteCommand(plan))
+	}
+	return args
+}
+
+func sshSetupArgs(plan machine.ConnectPlan, verbose bool, identityPath string) []string {
 	args := []string{
 		"-A",
 		"-o", "CheckHostIP=no",
@@ -107,12 +133,17 @@ func sshArgs(plan machine.ConnectPlan, verbose bool, identityPath string) []stri
 	if strings.TrimSpace(identityPath) != "" {
 		args = append(args, "-o", "IdentitiesOnly=yes", "-i", identityPath)
 	}
-	if plan.Interactive {
-		args = append(args, "-t")
+	return args
+}
+
+func moshArgs(plan machine.ConnectPlan, verbose bool, identityPath string) []string {
+	sshCommand := shellCommandLine("ssh", sshSetupArgs(plan, verbose, identityPath))
+	args := []string{
+		"--ssh=" + sshCommand,
+		plan.LinuxUser + "@" + plan.SSHHost,
 	}
-	args = append(args, plan.LinuxUser+"@"+plan.SSHHost)
-	if len(plan.Command) > 0 {
-		args = append(args, remoteCommand(plan))
+	if command := remoteCommand(plan); command != "" {
+		args = append(args, "--", "bash", "-lc", command)
 	}
 	return args
 }
@@ -354,6 +385,14 @@ func shellDisplayQuote(value string) string {
 
 func (r LocalSSHRunner) Run(ctx context.Context, session machine.ConnectSession, args ...string) error {
 	command := exec.CommandContext(ctx, "ssh", args...)
+	command.Stdin = session.Stdin
+	command.Stdout = session.Stdout
+	command.Stderr = session.Stderr
+	return command.Run()
+}
+
+func (r LocalMoshRunner) Run(ctx context.Context, session machine.ConnectSession, args ...string) error {
+	command := exec.CommandContext(ctx, "mosh", args...)
 	command.Stdin = session.Stdin
 	command.Stdout = session.Stdout
 	command.Stderr = session.Stderr
