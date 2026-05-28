@@ -191,8 +191,8 @@ func PlanCreate(ctx context.Context, admin config.Admin, store tenant.IncusTenan
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	hostname := target.Name + "." + target.Project + "." + summary.DNSSuffix
-	caddyFile := caddy.RenderMachine(hostname, appPort, MachineCertPath, MachineCertKeyPath)
+	hostname := MachineHostname(target.Name, target.Project, summary.DNSSuffix)
+	caddyFile := caddy.RenderMachineHosts(MachineCaddyHostnames(target.Name, target.Project, summary.DNSSuffix), appPort, MachineCertPath, MachineCertKeyPath)
 	certificateFiles, err := certificateFilesFromRequest(request, target.Name, target.Project, summary.DNSSuffix)
 	if err != nil {
 		return CreatePlan{}, err
@@ -340,7 +340,7 @@ func IssueCertificateFiles(machineName string, projectName string, suffix string
 }
 
 func IssueCertificateFilesWithExtraSANs(machineName string, projectName string, suffix string, extraSANs []string, caCertPEM []byte, caKeyPEM []byte) ([]File, error) {
-	hostname := machineName + "." + projectName + "." + suffix
+	hostname := MachineHostname(machineName, projectName, suffix)
 	leaf, err := certs.IssueMachineLeaf(
 		caCertPEM,
 		caKeyPEM,
@@ -355,6 +355,25 @@ func IssueCertificateFilesWithExtraSANs(machineName string, projectName string, 
 		{Path: MachineCertPath, Content: leaf.CertificatePEM, Mode: machineCertFileMode},
 		{Path: MachineCertKeyPath, Content: leaf.PrivateKeyPEM, Mode: machineCertKeyMode},
 	}, nil
+}
+
+func MachineHostname(machineName string, projectName string, suffix string) string {
+	return machineName + "." + projectName + "." + suffix
+}
+
+func ShortMachineHostname(machineName string, projectName string) string {
+	return machineName + "." + projectName
+}
+
+func MachineCaddyHostnames(machineName string, projectName string, suffix string) []string {
+	fullHostname := MachineHostname(machineName, projectName, suffix)
+	shortHostname := ShortMachineHostname(machineName, projectName)
+	return []string{
+		fullHostname,
+		"*." + fullHostname,
+		shortHostname,
+		"*." + shortHostname,
+	}
 }
 
 func currentTenantRef(admin config.Admin) (naming.TenantRef, error) {

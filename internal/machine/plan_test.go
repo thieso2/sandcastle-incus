@@ -29,6 +29,18 @@ func TestPlanCreateDefaultsToDefaultProject(t *testing.T) {
 	if plan.CaddyFile.Content == "" || !strings.Contains(plan.CaddyFile.Content, "codex.default.acme") {
 		t.Fatalf("CaddyFile = %#v", plan.CaddyFile)
 	}
+	for _, want := range []string{
+		"http://*.codex.default.acme {",
+		"https://*.codex.default.acme {",
+		"http://codex.default {",
+		"https://codex.default {",
+		"http://*.codex.default {",
+		"https://*.codex.default {",
+	} {
+		if !strings.Contains(plan.CaddyFile.Content, want) {
+			t.Fatalf("CaddyFile missing %q:\n%s", want, plan.CaddyFile.Content)
+		}
+	}
 	if plan.HomeDir != "default" || plan.WorkspaceDir != "default" {
 		t.Fatalf("storage dirs = home %q workspace %q", plan.HomeDir, plan.WorkspaceDir)
 	}
@@ -501,6 +513,11 @@ func TestPlanSetPort(t *testing.T) {
 	}
 	if plan.Project != "website" || plan.InstanceName != "website-codex" || !strings.Contains(plan.CaddyFile.Content, "codex.website.acme") {
 		t.Fatalf("plan = %#v", plan)
+	}
+	for _, want := range []string{"http://*.codex.website.acme {", "https://codex.website {", "https://*.codex.website {"} {
+		if !strings.Contains(plan.CaddyFile.Content, want) {
+			t.Fatalf("CaddyFile missing %q:\n%s", want, plan.CaddyFile.Content)
+		}
 	}
 }
 

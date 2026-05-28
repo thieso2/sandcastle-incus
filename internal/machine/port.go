@@ -55,6 +55,6 @@ func PlanSetPort(ctx context.Context, admin config.Admin, store tenant.IncusTena
 		Name:         target.Name,
 		InstanceName: instanceName,
 		AppPort:      request.AppPort,
-		CaddyFile:    caddy.RenderMachine(target.Name+"."+target.Project+"."+summary.DNSSuffix, request.AppPort, MachineCertPath, MachineCertKeyPath),
+		CaddyFile:    caddy.RenderMachineHosts(MachineCaddyHostnames(target.Name, target.Project, summary.DNSSuffix), request.AppPort, MachineCertPath, MachineCertKeyPath),
 	}, nil
 }

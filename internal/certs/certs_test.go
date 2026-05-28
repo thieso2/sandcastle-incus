@@ -38,6 +38,25 @@ func TestGenerateCAAndIssueMachineLeaf(t *testing.T) {
 	}
 }
 
+func TestMachineDNSNamesIncludesShortProjectHostnames(t *testing.T) {
+	names := MachineDNSNames("codex.default", "acme", []string{"app.example.test"})
+	want := []string{
+		"codex.default.acme",
+		"*.codex.default.acme",
+		"codex.default",
+		"*.codex.default",
+		"app.example.test",
+	}
+	if len(names) != len(want) {
+		t.Fatalf("names = %#v", names)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("names[%d] = %q, want %q; all names = %#v", i, names[i], want[i], names)
+		}
+	}
+}
+
 func TestIssueMachineLeafRequiresSAN(t *testing.T) {
 	now := time.Now()
 	ca, err := GenerateCA("Sandcastle CA", now)
