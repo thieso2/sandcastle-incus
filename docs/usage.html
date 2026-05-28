@@ -500,13 +500,13 @@ Bootstrap:
   </div>
 
   <div class="step">
-    <h3>Connect to a running machine <span class="badge badge-user">user</span></h3>
+    <h3>Connect to a machine <span class="badge badge-user">user</span></h3>
     <pre><code><span class="cmd">sandcastle connect</span> <span class="arg">website:codex</span>
 <span class="cmd">sandcastle c</span> <span class="arg">skorfman/default:codex</span>
 
 <span class="comment"># Run a specific command</span>
 <span class="cmd">sandcastle connect</span> <span class="arg">website:codex</span> -- <span class="arg">bash -c "echo hello"</span></code></pre>
-    <p><code>connect</code> uses SSH to the machine's private IP and uses the private machine hostname as the host-key alias. Local DNS is useful for private URLs, but it is not required for Machine SSH Access.</p>
+    <p><code>connect</code> starts a stopped managed machine before refreshing known hosts or handing off to SSH. It uses SSH to the machine's private IP and uses the private machine hostname as the host-key alias. Local DNS is useful for private URLs, but it is not required for Machine SSH Access.</p>
     <p>If the machine is missing, <code>connect</code> logs that it is creating the machine, then connects after creation. Pass <code>--cloud-identity gcp</code> to inject workload identity before connecting, including when <code>connect</code> auto-creates the machine. If the target project has a default Cloud Identity Config, auto-creation uses that default when the flag is omitted.</p>
     <p>Before handing off to SSH, <code>connect</code> probes TCP port 22 with a 2-second timeout when the connection plan came from the local cache. If the host is unreachable (e.g. tenant was recreated with a new IP), the cache entry is invalidated and the plan is resolved fresh from Incus, so connect self-heals without manual intervention.</p>
   </div>
@@ -1000,7 +1000,7 @@ Bootstrap:
         <tr><td>sandcastle config show/set/unset</td><td>Manage local CLI defaults</td></tr>
         <tr><td>sandcastle status [machine]</td><td>Show tenant or machine status</td></tr>
         <tr><td>sandcastle create &lt;ref&gt;</td><td>Create and connect to a machine</td></tr>
-        <tr><td>sandcastle connect/c &lt;ref&gt;</td><td>Connect to a machine, creating it first when missing</td></tr>
+        <tr><td>sandcastle connect/c &lt;ref&gt;</td><td>Connect to a machine, starting it first when stopped and creating it when missing</td></tr>
         <tr><td>sandcastle start/stop/restart &lt;ref&gt;</td><td>Control machine power state</td></tr>
         <tr><td>sandcastle delete &lt;ref&gt; [--yes]</td><td>Delete a machine container, prompting interactively unless <code>--yes</code> is provided</td></tr>
         <tr><td>sandcastle incus ...</td><td>Run the Incus CLI scoped to the tenant's managed machines project</td></tr>

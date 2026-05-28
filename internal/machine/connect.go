@@ -16,23 +16,24 @@ type ConnectRequest struct {
 }
 
 type ConnectPlan struct {
-	Reference     string         `json:"reference"`
-	Tenant        tenant.Summary `json:"tenant"`
-	Project       string         `json:"project"`
-	Name          string         `json:"name"`
-	InstanceName  string         `json:"instanceName"`
-	Hostname      string         `json:"hostname,omitempty"`
-	PrivateIP     string         `json:"privateIP,omitempty"`
-	SSHHost       string         `json:"sshHost,omitempty"`
-	HostKeyAlias  string         `json:"hostKeyAlias,omitempty"`
-	CloudIdentity string         `json:"cloudIdentity,omitempty"`
-	Command       []string       `json:"command"`
-	LinuxUser     string         `json:"linuxUser"`
-	UserID        int            `json:"userId"`
-	GroupID       int            `json:"groupId"`
-	WorkingDir    string         `json:"workingDir"`
-	Interactive   bool           `json:"interactive"`
-	Managed       bool           `json:"managed"`
+	Reference          string         `json:"reference"`
+	Tenant             tenant.Summary `json:"tenant"`
+	Project            string         `json:"project"`
+	Name               string         `json:"name"`
+	InstanceName       string         `json:"instanceName"`
+	Hostname           string         `json:"hostname,omitempty"`
+	PrivateIP          string         `json:"privateIP,omitempty"`
+	SSHHost            string         `json:"sshHost,omitempty"`
+	HostKeyAlias       string         `json:"hostKeyAlias,omitempty"`
+	CloudIdentity      string         `json:"cloudIdentity,omitempty"`
+	Command            []string       `json:"command"`
+	LinuxUser          string         `json:"linuxUser"`
+	UserID             int            `json:"userId"`
+	GroupID            int            `json:"groupId"`
+	WorkingDir         string         `json:"workingDir"`
+	Interactive        bool           `json:"interactive"`
+	Managed            bool           `json:"managed"`
+	StartBeforeConnect bool           `json:"startBeforeConnect,omitempty"`
 }
 
 type ConnectSession struct {
@@ -80,23 +81,24 @@ func PlanConnect(ctx context.Context, admin config.Admin, store tenant.IncusTena
 		hostKeyAlias = hostname
 	}
 	return ConnectPlan{
-		Reference:     request.Reference,
-		Tenant:        resolved.Summary,
-		Project:       resolved.Project,
-		Name:          resolved.Name,
-		InstanceName:  resolved.InstanceName,
-		Hostname:      hostname,
-		PrivateIP:     resolved.PrivateIP,
-		SSHHost:       sshHost,
-		HostKeyAlias:  hostKeyAlias,
-		CloudIdentity: resolved.CloudIdentity,
-		Command:       command,
-		LinuxUser:     linuxUser,
-		UserID:        userID,
-		GroupID:       groupID,
-		WorkingDir:    workingDir,
-		Interactive:   interactive,
-		Managed:       resolved.Managed,
+		Reference:          request.Reference,
+		Tenant:             resolved.Summary,
+		Project:            resolved.Project,
+		Name:               resolved.Name,
+		InstanceName:       resolved.InstanceName,
+		Hostname:           hostname,
+		PrivateIP:          resolved.PrivateIP,
+		SSHHost:            sshHost,
+		HostKeyAlias:       hostKeyAlias,
+		CloudIdentity:      resolved.CloudIdentity,
+		Command:            command,
+		LinuxUser:          linuxUser,
+		UserID:             userID,
+		GroupID:            groupID,
+		WorkingDir:         workingDir,
+		Interactive:        interactive,
+		Managed:            resolved.Managed,
+		StartBeforeConnect: resolved.Managed && !resolved.Running,
 	}, nil
 }
 

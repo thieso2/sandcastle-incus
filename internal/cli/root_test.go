@@ -2832,7 +2832,7 @@ func TestCreateConnectsAfterCreateByDefault(t *testing.T) {
 			Config: configMap,
 		}}},
 		machineCreator:   creator,
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
 	}, "create", "codex")
 	if err != nil {
@@ -2865,8 +2865,9 @@ func TestConnectCommandUsesConnector(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
+		machineControl:   &fakeMachineController{},
 	}, "connect", "codex")
 	if err != nil {
 		t.Fatal(err)
@@ -2899,7 +2900,7 @@ func TestConnectCommandRefreshesKnownHostsWhenUsingPrivateIPFallback(t *testing.
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", Running: true}}},
 		machineConnector: connector,
 		knownHosts:       knownHosts,
 	}, "connect", "codex")
@@ -2911,6 +2912,47 @@ func TestConnectCommandRefreshesKnownHostsWhenUsingPrivateIPFallback(t *testing.
 	}
 	if !knownHosts.called || knownHosts.plan.Hostname != "codex.default.acme" || knownHosts.plan.PrivateIP != "10.248.0.20" {
 		t.Fatalf("expected known_hosts refresh, got %#v", knownHosts.plan)
+	}
+}
+
+func TestConnectCommandStartsStoppedMachineBeforeKnownHostsRefresh(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := []string{}
+	connector := &fakeMachineConnector{order: &order}
+	controller := &fakeMachineController{order: &order}
+	knownHosts := &fakeKnownHostsManager{order: &order}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", Running: false}}},
+		machineConnector: connector,
+		machineControl:   controller,
+		knownHosts:       knownHosts,
+	}, "connect", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !controller.called || controller.plan.Action != machine.ActionStart || controller.plan.InstanceName != "default-codex" {
+		t.Fatalf("controller = %#v", controller)
+	}
+	if !knownHosts.called || !connector.called {
+		t.Fatalf("knownHosts.called=%t connector.called=%t", knownHosts.called, connector.called)
+	}
+	if strings.Join(order, ",") != "start,known-hosts,connect" {
+		t.Fatalf("order = %#v", order)
+	}
+	if connector.plan.StartBeforeConnect {
+		t.Fatalf("connector plan should be marked started: %#v", connector.plan)
 	}
 }
 
@@ -2930,7 +2972,7 @@ func TestConnectCommandAcceptsExplicitCommand(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
 	}, "connect", "codex", "pwd")
 	if err != nil {
@@ -2960,7 +3002,7 @@ func TestConnectCommandSearchesBareMachineWhenUnique(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
 	}, "connect", "codex")
 	if err != nil {
@@ -4392,8 +4434,9 @@ func TestAdminMachineConnectUsesTenantRef(t *testing.T) {
 			Name:   "sc-acme",
 			Config: configMap,
 		}}},
-		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20"}}},
+		machineStore:     fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", TailscaleIP: "100.64.0.20", Running: true}}},
 		machineConnector: connector,
+		machineControl:   &fakeMachineController{},
 	}, "connect", "acme/codex", "pwd")
 	if err != nil {
 		t.Fatal(err)
@@ -5758,11 +5801,15 @@ func (f *fakeMachineCreator) CreateMachine(ctx context.Context, plan machine.Cre
 type fakeKnownHostsManager struct {
 	called bool
 	plan   machine.CreatePlan
+	order  *[]string
 }
 
 func (f *fakeKnownHostsManager) RefreshMachine(ctx context.Context, plan machine.CreatePlan) error {
 	f.called = true
 	f.plan = plan
+	if f.order != nil {
+		*f.order = append(*f.order, "known-hosts")
+	}
 	return nil
 }
 
@@ -5770,22 +5817,30 @@ type fakeMachineConnector struct {
 	called bool
 	plan   machine.ConnectPlan
 	err    error
+	order  *[]string
 }
 
 func (f *fakeMachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	f.called = true
 	f.plan = plan
+	if f.order != nil {
+		*f.order = append(*f.order, "connect")
+	}
 	return f.err
 }
 
 type fakeMachineController struct {
 	called bool
 	plan   machine.LifecyclePlan
+	order  *[]string
 }
 
 func (f *fakeMachineController) ApplyLifecycle(ctx context.Context, plan machine.LifecyclePlan) error {
 	f.called = true
 	f.plan = plan
+	if f.order != nil {
+		*f.order = append(*f.order, "start")
+	}
 	return nil
 }
 

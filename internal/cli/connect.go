@@ -72,6 +72,15 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			} else if strings.TrimSpace(effectiveCloudIdentity) == "" {
 				verboseCLI(config, "workload identity: not requested before connect %s; gcloud works only if this machine already has workload files", reference)
 			}
+			plan, err = ensureMachineStartedForConnect(cmd.Context(), config, plan)
+			if err != nil {
+				return err
+			}
+			if plan.Managed {
+				if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
+					cache.StorePlan(key, plan)
+				}
+			}
 			if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), config, plan); err != nil {
 				return err
 			}
@@ -213,6 +222,15 @@ func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.Conne
 			}
 		}
 	}
+	plan, err = ensureMachineStartedForConnect(cmd.Context(), cfg, plan)
+	if err != nil {
+		return err
+	}
+	if plan.Managed {
+		if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
+			cache.StorePlan(key, plan)
+		}
+	}
 	if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), cfg, plan); err != nil {
 		return err
 	}
@@ -312,6 +330,27 @@ func refreshKnownHostsForPrivateIPConnect(ctx context.Context, config commandCon
 		Hostname:     plan.Hostname,
 		PrivateIP:    plan.PrivateIP,
 	})
+}
+
+func ensureMachineStartedForConnect(ctx context.Context, config commandConfig, plan machine.ConnectPlan) (machine.ConnectPlan, error) {
+	if !plan.StartBeforeConnect {
+		return plan, nil
+	}
+	if config.machineControl == nil {
+		return machine.ConnectPlan{}, fmt.Errorf("machine lifecycle controller is not configured")
+	}
+	if err := config.machineControl.ApplyLifecycle(ctx, machine.LifecyclePlan{
+		Reference:    plan.Reference,
+		Tenant:       plan.Tenant,
+		Project:      plan.Project,
+		Name:         plan.Name,
+		InstanceName: plan.InstanceName,
+		Action:       machine.ActionStart,
+	}); err != nil {
+		return machine.ConnectPlan{}, err
+	}
+	plan.StartBeforeConnect = false
+	return plan, nil
 }
 
 func createAndConnect(cmd *cobra.Command, config commandConfig, reference string, command []string, workloadOptions workloadEnableOptions) error {

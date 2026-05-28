@@ -19,6 +19,7 @@ type resolvedMachine struct {
 	PrivateIP     string
 	LinuxUser     string
 	CloudIdentity string
+	Running       bool
 	Managed       bool
 }
 
@@ -66,7 +67,7 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	if target.ExplicitProject {
 		for _, machine := range machines {
 			if machine.Project == target.Project && machine.Name == target.Name {
-				return resolveKnownProjectMachineWithMetadata(summary, target.Project, target.Name, machine.PrivateIP, machine.LinuxUser, machine.CloudIdentity)
+				return resolveKnownProjectMachineWithMetadata(summary, target.Project, target.Name, machine.PrivateIP, machine.LinuxUser, machine.CloudIdentity, machine.Running)
 			}
 		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
@@ -75,12 +76,14 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 	matchIPs := map[string]string{}
 	matchUsers := map[string]string{}
 	matchCloudIdentities := map[string]string{}
+	matchRunning := map[string]bool{}
 	for _, machine := range machines {
 		if machine.Name == target.Name {
 			matches = append(matches, machine.Project)
 			matchIPs[machine.Project] = machine.PrivateIP
 			matchUsers[machine.Project] = machine.LinuxUser
 			matchCloudIdentities[machine.Project] = machine.CloudIdentity
+			matchRunning[machine.Project] = machine.Running
 		}
 	}
 	switch len(matches) {
@@ -90,7 +93,7 @@ func resolveExistingMachine(ctx context.Context, admin config.Admin, tenantStore
 		}
 		return resolvedMachine{}, fmt.Errorf("Sandcastle machine %s not found", reference)
 	case 1:
-		return resolveKnownProjectMachineWithMetadata(summary, matches[0], target.Name, matchIPs[matches[0]], matchUsers[matches[0]], matchCloudIdentities[matches[0]])
+		return resolveKnownProjectMachineWithMetadata(summary, matches[0], target.Name, matchIPs[matches[0]], matchUsers[matches[0]], matchCloudIdentities[matches[0]], matchRunning[matches[0]])
 	default:
 		return resolvedMachine{}, AmbiguousMachineError{Name: target.Name, Projects: matches}
 	}
@@ -112,7 +115,7 @@ func resolveMachineFQDN(ctx context.Context, machineStore Store, summary tenant.
 		if strings.ToLower(machine.Name+"."+machine.Project+"."+summary.DNSSuffix) != hostname {
 			continue
 		}
-		resolved, err := resolveKnownProjectMachineWithMetadata(summary, machine.Project, machine.Name, machine.PrivateIP, machine.LinuxUser, machine.CloudIdentity)
+		resolved, err := resolveKnownProjectMachineWithMetadata(summary, machine.Project, machine.Name, machine.PrivateIP, machine.LinuxUser, machine.CloudIdentity, machine.Running)
 		return resolved, true, err
 	}
 	return resolvedMachine{}, false, nil
@@ -123,10 +126,10 @@ func resolveKnownProjectMachine(summary tenant.Summary, projectName string, mach
 }
 
 func resolveKnownProjectMachineWithIP(summary tenant.Summary, projectName string, machineName string, privateIP string) (resolvedMachine, error) {
-	return resolveKnownProjectMachineWithMetadata(summary, projectName, machineName, privateIP, "", "")
+	return resolveKnownProjectMachineWithMetadata(summary, projectName, machineName, privateIP, "", "", false)
 }
 
-func resolveKnownProjectMachineWithMetadata(summary tenant.Summary, projectName string, machineName string, privateIP string, linuxUser string, cloudIdentity string) (resolvedMachine, error) {
+func resolveKnownProjectMachineWithMetadata(summary tenant.Summary, projectName string, machineName string, privateIP string, linuxUser string, cloudIdentity string, running bool) (resolvedMachine, error) {
 	if !tenantHasProject(summary, projectName) {
 		return resolvedMachine{}, fmt.Errorf("Sandcastle project %s not found in tenant %s", projectName, summary.Tenant)
 	}
@@ -142,6 +145,7 @@ func resolveKnownProjectMachineWithMetadata(summary tenant.Summary, projectName 
 		PrivateIP:     privateIP,
 		LinuxUser:     strings.TrimSpace(linuxUser),
 		CloudIdentity: strings.TrimSpace(cloudIdentity),
+		Running:       running,
 		Managed:       true,
 	}, nil
 }
