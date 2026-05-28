@@ -188,6 +188,13 @@ func TestMachineCreatorCreatesInstance(t *testing.T) {
 		"systemctl disable --now tailscaled.service",
 		"systemctl mask tailscaled.service",
 		"resolv-conf",
+		"step machine-network",
+		"/usr/local/sbin/sandcastle-machine-network",
+		"/usr/sbin/ip addr replace 10.248.0.20/24 dev eth0",
+		"/usr/sbin/ip route replace default via 10.248.0.1",
+		"/etc/systemd/system/sandcastle-machine-network.service",
+		"Description=Sandcastle machine static network",
+		"systemctl enable sandcastle-machine-network.service",
 	} {
 		if !strings.Contains(configureScript, want) {
 			t.Fatalf("machine configure script missing %q:\n%s", want, configureScript)

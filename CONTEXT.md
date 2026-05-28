@@ -129,6 +129,10 @@ _Avoid_: SSH private key, browser-uploaded SSH key, named SSH key set
 The user-facing shell connection path into a Machine using the User's SSH private key.
 _Avoid_: Incus exec as user shell, browser shell
 
+**Machine Private IPv4 Address**:
+The Tenant Network IPv4 address assigned to a managed Machine and configured inside the guest for Machine SSH Access and private machine services.
+_Avoid_: Incus list IP, Tailscale Machine IP
+
 **Tailscale Machine IP**:
 The Tailscale-assigned IP address used by the CLI for Machine SSH Access.
 _Avoid_: Local DNS SSH target, Incus internal IP
@@ -258,6 +262,8 @@ _Avoid_: Projectless mode
 - A **Tenant** has exactly one **Tenant Tailnet**.
 - A **Tenant** has **Tenant Storage** shared by all its **Projects**.
 - A **Tenant Storage Share** has exactly one source **Tenant** and one or more explicit recipient **Tenants**.
+- A managed **Machine** has one **Machine Private IPv4 Address** on its **Tenant Network**.
+- Managed **Machine** creation and mutation preserve the Machine's **Machine Private IPv4 Address** across Machine restarts.
 - A **Tenant Storage Share** is between **Tenants** in the same Sandcastle deployment.
 - A **Tenant Storage Share** has exactly one **Share Name**.
 - A **Tenant Storage Share** can default its **Share Name** only when the source directory basename is path-safe.

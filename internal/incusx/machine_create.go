@@ -609,18 +609,46 @@ func appendMachineCaddyConfigScript(script *strings.Builder, files []machine.Fil
 		script.WriteString("\nEOF_FILE\n")
 	}
 	if ipWithPrefix != "" && gateway != "" {
-		script.WriteString("/usr/sbin/ip link set eth0 up\n")
-		script.WriteString("/usr/sbin/ip addr add ")
-		script.WriteString(shellQuote(ipWithPrefix))
-		script.WriteString(" dev eth0 2>/dev/null || true\n")
-		script.WriteString("/usr/sbin/ip route add default via ")
-		script.WriteString(shellQuote(gateway))
-		script.WriteString(" 2>/dev/null || true\n")
+		appendMachineNetworkConfigScript(script, ipWithPrefix, gateway)
 	}
 	script.WriteString("systemctl daemon-reload\n")
 	script.WriteString("systemctl restart caddy\n")
 	script.WriteString("for i in $(seq 1 50); do systemctl is-active caddy >/dev/null 2>&1 && exit 0; sleep 0.1; done\n")
 	script.WriteString("systemctl is-active caddy\n")
+}
+
+func appendMachineNetworkConfigScript(script *strings.Builder, ipWithPrefix string, gateway string) {
+	script.WriteString("step machine-network\n")
+	script.WriteString("install -d -m 0755 /usr/local/sbin /etc/systemd/system\n")
+	script.WriteString("cat >/usr/local/sbin/sandcastle-machine-network <<'EOF_NETWORK'\n")
+	script.WriteString("#!/bin/sh\n")
+	script.WriteString("set -eu\n")
+	script.WriteString("/usr/sbin/ip link set eth0 up\n")
+	script.WriteString("/usr/sbin/ip addr replace ")
+	script.WriteString(ipWithPrefix)
+	script.WriteString(" dev eth0\n")
+	script.WriteString("/usr/sbin/ip route replace default via ")
+	script.WriteString(gateway)
+	script.WriteString("\n")
+	script.WriteString("EOF_NETWORK\n")
+	script.WriteString("chmod 0755 /usr/local/sbin/sandcastle-machine-network\n")
+	script.WriteString("cat >/etc/systemd/system/sandcastle-machine-network.service <<'EOF_UNIT'\n")
+	script.WriteString("[Unit]\n")
+	script.WriteString("Description=Sandcastle machine static network\n")
+	script.WriteString("After=network-pre.target\n")
+	script.WriteString("Before=network-online.target\n")
+	script.WriteString("\n")
+	script.WriteString("[Service]\n")
+	script.WriteString("Type=oneshot\n")
+	script.WriteString("ExecStart=/usr/local/sbin/sandcastle-machine-network\n")
+	script.WriteString("RemainAfterExit=yes\n")
+	script.WriteString("\n")
+	script.WriteString("[Install]\n")
+	script.WriteString("WantedBy=multi-user.target\n")
+	script.WriteString("EOF_UNIT\n")
+	script.WriteString("/usr/local/sbin/sandcastle-machine-network\n")
+	script.WriteString("systemctl daemon-reload\n")
+	script.WriteString("systemctl enable sandcastle-machine-network.service\n")
 }
 
 type machineCaddyRestarter interface {
