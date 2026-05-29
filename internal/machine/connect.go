@@ -26,6 +26,7 @@ type ConnectPlan struct {
 	PrivateIP          string         `json:"privateIP,omitempty"`
 	SSHHost            string         `json:"sshHost,omitempty"`
 	HostKeyAlias       string         `json:"hostKeyAlias,omitempty"`
+	KnownHostsFile     string         `json:"knownHostsFile,omitempty"`
 	CloudIdentity      string         `json:"cloudIdentity,omitempty"`
 	Command            []string       `json:"command"`
 	LinuxUser          string         `json:"linuxUser"`

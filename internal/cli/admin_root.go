@@ -135,7 +135,7 @@ func ExecuteAdmin(name string, args []string) int {
 		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr).WithConnectCache(connectCache),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
-		knownHosts:          newLocalKnownHostsManager(verbose, os.Stderr),
+		knownHosts:          newLocalKnownHostsManager(adminConfig.Remote, verbose, os.Stderr),
 		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),
 		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
 			Admin:         adminConfig,

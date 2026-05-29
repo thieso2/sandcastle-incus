@@ -85,6 +85,7 @@ func newAdminMachineCreateCommand(config commandConfig, opts *rootOptions) *cobr
 						return err
 					}
 					connectPlan.Reference = adminRef
+					connectPlan = withTenantKnownHostsFile(cfg, connectPlan)
 					if err := cfg.machineConnector.ConnectMachine(cmd.Context(), connectPlan, machine.ConnectSession{
 						Stdin:  cfg.stdin,
 						Stdout: cfg.stdout,
@@ -134,6 +135,7 @@ func newAdminMachineConnectCommand(config commandConfig, opts *rootOptions) *cob
 			if cfg.machineConnector == nil {
 				return fmt.Errorf("machine connect executor is not configured")
 			}
+			plan = withTenantKnownHostsFile(cfg, plan)
 			return cfg.machineConnector.ConnectMachine(cmd.Context(), plan, machine.ConnectSession{
 				Stdin:  cfg.stdin,
 				Stdout: cfg.stdout,

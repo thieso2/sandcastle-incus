@@ -85,6 +85,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), config, plan); err != nil {
 				return err
 			}
+			plan = withTenantKnownHostsFile(config, plan)
 			if err := config.machineConnector.ConnectMachine(cmd.Context(), plan, machine.ConnectSession{
 				Stdin:  config.stdin,
 				Stdout: config.stdout,
@@ -238,6 +239,7 @@ func retryConnectFresh(cmd *cobra.Command, cfg commandConfig, cache incusx.Conne
 	if err := refreshKnownHostsForPrivateIPConnect(cmd.Context(), cfg, plan); err != nil {
 		return err
 	}
+	plan = withTenantKnownHostsFile(cfg, plan)
 	return cfg.machineConnector.ConnectMachine(cmd.Context(), plan, machine.ConnectSession{
 		Stdin:  cfg.stdin,
 		Stdout: cfg.stdout,
@@ -418,6 +420,7 @@ func createAndConnect(cmd *cobra.Command, config commandConfig, reference string
 			cache.StorePlan(key, connectPlan)
 		}
 	}
+	connectPlan = withTenantKnownHostsFile(config, connectPlan)
 	return config.machineConnector.ConnectMachine(cmd.Context(), connectPlan, machine.ConnectSession{
 		Stdin:  config.stdin,
 		Stdout: config.stdout,

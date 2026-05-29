@@ -68,6 +68,29 @@ func TestConnectCacheStoresSSHIdentity(t *testing.T) {
 	}
 }
 
+func TestConnectCacheInvalidatePlanRemovesAssociatedKeyscans(t *testing.T) {
+	cache := ConnectCache{path: filepath.Join(t.TempDir(), "connect-cache.json")}
+	cache.StorePlan("thieso2:io/dev", machine.ConnectPlan{
+		Tenant:    testConnectCacheTenant("thieso2"),
+		Project:   "io",
+		Name:      "dev",
+		Hostname:  "dev.io.thieso2",
+		PrivateIP: "10.248.1.27",
+		Managed:   true,
+	})
+	cache.MarkKeyscanned("dev.io.thieso2")
+	cache.MarkKeyscanned("10.248.1.27")
+
+	cache.InvalidatePlan("thieso2:io/dev")
+
+	if cache.IsKeyscanRecent("dev.io.thieso2") {
+		t.Fatal("hostname keyscan was not removed")
+	}
+	if cache.IsKeyscanRecent("10.248.1.27") {
+		t.Fatal("private IP keyscan was not removed")
+	}
+}
+
 func TestConnectCacheInvalidateTenantRemovesSSHIdentities(t *testing.T) {
 	cache := ConnectCache{path: filepath.Join(t.TempDir(), "connect-cache.json")}
 	cache.StoreSSHIdentity("thieso2:default/test", "/Users/thies/.ssh/id_ed25519")

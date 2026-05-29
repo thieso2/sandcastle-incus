@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -66,6 +68,11 @@ type SSHRunner interface {
 type LocalSSHRunner struct{}
 type LocalMoshRunner struct{}
 
+var (
+	sshControlMasterConfigTimeout = 500 * time.Millisecond
+	sshControlMasterDialTimeout   = 100 * time.Millisecond
+)
+
 func (e MachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	if plan.Managed {
 		return e.connectManagedMachine(ctx, plan, session)
@@ -79,6 +86,7 @@ func (e MachineConnector) connectManagedMachine(ctx context.Context, plan machin
 	}
 	identityKey := sshIdentityCacheKey(plan)
 	identityPath := e.sshIdentity(ctx, plan, identityKey)
+	e.pruneDeadSSHControlMaster(ctx, plan, identityPath)
 	if plan.Mosh {
 		runner := e.MoshRunner
 		if runner == nil {
@@ -124,6 +132,9 @@ func sshSetupArgs(plan machine.ConnectPlan, verbose bool, identityPath string) [
 		"-o", "CheckHostIP=no",
 		"-o", "StrictHostKeyChecking=accept-new",
 	}
+	if strings.TrimSpace(plan.KnownHostsFile) != "" {
+		args = append(args, "-o", "UserKnownHostsFile="+plan.KnownHostsFile)
+	}
 	if verbose {
 		args = append(args, "-v")
 	}
@@ -134,6 +145,85 @@ func sshSetupArgs(plan machine.ConnectPlan, verbose bool, identityPath string) [
 		args = append(args, "-o", "IdentitiesOnly=yes", "-i", identityPath)
 	}
 	return args
+}
+
+type sshControlMasterConfig struct {
+	Master string
+	Path   string
+}
+
+func (e MachineConnector) pruneDeadSSHControlMaster(ctx context.Context, plan machine.ConnectPlan, identityPath string) {
+	config, err := sshEffectiveControlMasterConfig(ctx, plan, identityPath)
+	if err != nil || !config.enabled() {
+		return
+	}
+	info, err := os.Stat(config.Path)
+	if err != nil {
+		return
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return
+	}
+	if sshControlSocketAccepts(config.Path) {
+		return
+	}
+	if err := os.Remove(config.Path); err != nil {
+		e.log("remove stale ssh control socket failed " + config.Path + ": " + err.Error())
+		return
+	}
+	e.log("removed stale ssh control socket " + config.Path)
+}
+
+func sshEffectiveControlMasterConfig(ctx context.Context, plan machine.ConnectPlan, identityPath string) (sshControlMasterConfig, error) {
+	configCtx, cancel := context.WithTimeout(ctx, sshControlMasterConfigTimeout)
+	defer cancel()
+	args := append([]string{"-G"}, sshSetupArgs(plan, false, identityPath)...)
+	args = append(args, plan.LinuxUser+"@"+plan.SSHHost)
+	command := exec.CommandContext(configCtx, "ssh", args...)
+	command.Stdin = strings.NewReader("")
+	output, err := command.Output()
+	if err != nil {
+		return sshControlMasterConfig{}, err
+	}
+	return parseSSHControlMasterConfig(string(output)), nil
+}
+
+func parseSSHControlMasterConfig(output string) sshControlMasterConfig {
+	var config sshControlMasterConfig
+	for _, line := range strings.Split(output, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "controlmaster":
+			config.Master = strings.ToLower(strings.TrimSpace(value))
+		case "controlpath":
+			config.Path = strings.TrimSpace(value)
+		}
+	}
+	return config
+}
+
+func (c sshControlMasterConfig) enabled() bool {
+	if strings.TrimSpace(c.Path) == "" || strings.EqualFold(c.Path, "none") {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Master)) {
+	case "yes", "ask", "auto", "autoask":
+		return true
+	default:
+		return false
+	}
+}
+
+func sshControlSocketAccepts(path string) bool {
+	conn, err := net.DialTimeout("unix", path, sshControlMasterDialTimeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func moshArgs(plan machine.ConnectPlan, verbose bool, identityPath string) []string {

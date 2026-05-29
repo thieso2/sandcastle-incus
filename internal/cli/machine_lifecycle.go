@@ -45,6 +45,7 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 				if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
 					cache.InvalidatePlan(key)
 				}
+				cache.InvalidateKeyscan(machine.MachineHostname(plan.Name, plan.Project, plan.Tenant.DNSSuffix))
 				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
 					return err
 				}

@@ -22,11 +22,12 @@ type machineKnownHostsManager interface {
 type localKnownHostsManager struct {
 	verbose      bool
 	stderr       io.Writer
+	remote       string
 	connectCache *incusx.ConnectCache
 }
 
-func newLocalKnownHostsManager(verbose bool, stderr io.Writer) localKnownHostsManager {
-	return localKnownHostsManager{verbose: verbose, stderr: stderr}
+func newLocalKnownHostsManager(remote string, verbose bool, stderr io.Writer) localKnownHostsManager {
+	return localKnownHostsManager{remote: remote, verbose: verbose, stderr: stderr}
 }
 
 func (m localKnownHostsManager) WithConnectCache(cache incusx.ConnectCache) localKnownHostsManager {
@@ -44,18 +45,13 @@ func (m localKnownHostsManager) RefreshMachine(ctx context.Context, plan machine
 		return fmt.Errorf("machine %s has no private IP for SSH known_hosts refresh", plan.InstanceName)
 	}
 
-	// Fast path: skip the network keyscan if this host was scanned recently.
-	// SSH uses StrictHostKeyChecking=accept-new so the key is already in known_hosts.
-	if m.connectCache != nil && m.connectCache.IsKeyscanRecent(hostname) {
-		return nil
-	}
-
-	path, err := userKnownHostsPath()
-	if err != nil {
-		return err
-	}
+	path := incusx.TenantKnownHostsPath(m.remote, plan.Tenant.Tenant)
 	if err := ensureKnownHostsFile(path); err != nil {
 		return err
+	}
+	if m.knownHostsRecentlyRefreshed(path, hostname, privateIP) {
+		m.log("known_hosts cache hit for " + hostname + " and " + privateIP)
+		return nil
 	}
 	keys, err := m.scanKnownHost(ctx, privateIP)
 	if err != nil {
@@ -82,13 +78,24 @@ func (m localKnownHostsManager) RefreshMachine(ctx context.Context, plan machine
 		return err
 	}
 	m.log("updated " + path + " for " + hostname + " and " + privateIP)
+	if m.connectCache != nil {
+		m.connectCache.MarkKeyscanned(hostname)
+		m.connectCache.MarkKeyscanned(privateIP)
+	}
 	if m.stderr != nil {
 		fmt.Fprintf(m.stderr, "Updated SSH known_hosts for %s (%s).\n", hostname, privateIP)
 	}
-	if m.connectCache != nil {
-		m.connectCache.MarkKeyscanned(hostname)
-	}
 	return nil
+}
+
+func (m localKnownHostsManager) knownHostsRecentlyRefreshed(path string, hostname string, privateIP string) bool {
+	if m.connectCache == nil {
+		return false
+	}
+	if !m.connectCache.IsKeyscanRecent(hostname) || !m.connectCache.IsKeyscanRecent(privateIP) {
+		return false
+	}
+	return knownHostsFileContainsHost(path, hostname) && knownHostsFileContainsHost(path, privateIP)
 }
 
 func (m localKnownHostsManager) removeKnownHost(ctx context.Context, path string, host string) error {
@@ -168,12 +175,11 @@ func refreshMachineKnownHosts(ctx context.Context, config commandConfig, plan ma
 	return config.knownHosts.RefreshMachine(ctx, plan)
 }
 
-func userKnownHostsPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+func withTenantKnownHostsFile(config commandConfig, plan machine.ConnectPlan) machine.ConnectPlan {
+	if plan.Managed && strings.TrimSpace(plan.KnownHostsFile) == "" {
+		plan.KnownHostsFile = incusx.TenantKnownHostsPath(config.adminConfig.Remote, plan.Tenant.Tenant)
 	}
-	return filepath.Join(home, ".ssh", "known_hosts"), nil
+	return plan
 }
 
 func ensureKnownHostsFile(path string) error {
@@ -185,6 +191,33 @@ func ensureKnownHostsFile(path string) error {
 		return err
 	}
 	return file.Close()
+}
+
+func knownHostsFileContainsHost(path string, host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range bytes.Split(content, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || bytes.HasPrefix(line, []byte("#")) || bytes.HasPrefix(line, []byte("|")) {
+			continue
+		}
+		fields := bytes.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		for _, candidate := range bytes.Split(fields[0], []byte(",")) {
+			if string(candidate) == host {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m localKnownHostsManager) log(message string) {

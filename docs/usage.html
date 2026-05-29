@@ -538,7 +538,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Clear the local connect cache <span class="badge badge-user">user</span></h3>
-    <p>The connect cache stores resolved SSH connection plans and keyscan timestamps at <code>~/.config/sandcastle/&lt;remote&gt;/connect-cache.json</code>. Clear it after a tenant is recreated or when a machine's IP has changed.</p>
+    <p>The connect cache stores resolved SSH connection plans at <code>~/.config/sandcastle/&lt;remote&gt;/connect-cache.json</code>. Managed machine host keys are stored separately per remote and tenant under <code>~/.config/sandcastle/&lt;remote&gt;/known_hosts/&lt;tenant&gt;</code> and passed to SSH with <code>UserKnownHostsFile</code>. Clear the connect cache after a tenant is recreated or when a machine's IP has changed.</p>
     <pre><code><span class="cmd">sandcastle cache clear</span> <span class="arg">acme</span>   <span class="comment"># clear cache for one tenant</span>
 <span class="cmd">sandcastle cache clear</span>          <span class="comment"># clear entire cache</span></code></pre>
   </div>

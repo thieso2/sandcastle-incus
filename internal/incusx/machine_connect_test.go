@@ -2,11 +2,14 @@ package incusx
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -37,11 +40,17 @@ func (r *fakeMachineConnectResource) ExecInstance(instanceName string, exec api.
 }
 
 type fakeSSHRunner struct {
-	called bool
-	args   []string
+	called    bool
+	args      []string
+	beforeRun func() error
 }
 
 func (r *fakeSSHRunner) Run(ctx context.Context, session machine.ConnectSession, args ...string) error {
+	if r.beforeRun != nil {
+		if err := r.beforeRun(); err != nil {
+			return err
+		}
+	}
 	r.called = true
 	r.args = append([]string{}, args...)
 	return nil
@@ -62,13 +71,20 @@ func TestMachineConnectorSSHsToManagedMachine(t *testing.T) {
 		InstanceName: "default-codex",
 		SSHHost:      "10.248.0.20",
 		HostKeyAlias: "codex.default.acme",
-		Command:      []string{"/bin/bash", "-l"},
-		LinuxUser:    "alice",
-		UserID:       machine.DefaultLinuxUID,
-		GroupID:      machine.DefaultLinuxGID,
-		WorkingDir:   "/workspace",
-		Interactive:  true,
-		Managed:      true,
+		KnownHostsFile: filepath.Join(
+			t.TempDir(),
+			"sandcastle",
+			"sandcastle-prod",
+			"known_hosts",
+			"acme",
+		),
+		Command:     []string{"/bin/bash", "-l"},
+		LinuxUser:   "alice",
+		UserID:      machine.DefaultLinuxUID,
+		GroupID:     machine.DefaultLinuxGID,
+		WorkingDir:  "/workspace",
+		Interactive: true,
+		Managed:     true,
 	}, machine.ConnectSession{
 		Stdin:  io.Reader(nil),
 		Stdout: io.Discard,
@@ -83,6 +99,8 @@ func TestMachineConnectorSSHsToManagedMachine(t *testing.T) {
 		"CheckHostIP=no",
 		"StrictHostKeyChecking=accept-new",
 		"HostKeyAlias=codex.default.acme",
+		"UserKnownHostsFile=",
+		"known_hosts/acme",
 		"-t",
 		"alice@10.248.0.20",
 		"cd /workspace && exec /bin/bash -l",
@@ -180,6 +198,87 @@ func TestMachineConnectorMoshesToManagedMachine(t *testing.T) {
 	}
 	if len(logs) != 1 || !strings.Contains(logs[0], "mosh ") || !strings.Contains(logs[0], "alice@10.248.0.20") {
 		t.Fatalf("logs = %#v", logs)
+	}
+}
+
+func TestMachineConnectorRemovesUnresponsiveControlMasterSocketBeforeSSH(t *testing.T) {
+	socketDir, err := os.MkdirTemp("/tmp", "scmux-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(socketDir)
+	socketPath := filepath.Join(socketDir, "mux.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(socketPath); err != nil || info.Mode()&os.ModeSocket == 0 {
+		t.Skip("test platform did not leave a unix socket path after close")
+	}
+
+	binDir := t.TempDir()
+	fakeSSHPath := filepath.Join(binDir, "ssh")
+	fakeSSH := `#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = "-G" ]; then
+    printf 'controlmaster auto\ncontrolpath %s\n' "$SANDCASTLE_TEST_CONTROL_PATH"
+    exit 0
+  fi
+done
+exit 0
+`
+	if err := os.WriteFile(fakeSSHPath, []byte(fakeSSH), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SANDCASTLE_TEST_CONTROL_PATH", socketPath)
+	oldTimeout := sshControlMasterDialTimeout
+	sshControlMasterDialTimeout = 10 * time.Millisecond
+	defer func() { sshControlMasterDialTimeout = oldTimeout }()
+
+	runner := &fakeSSHRunner{
+		beforeRun: func() error {
+			if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+				return fmt.Errorf("control socket still exists: %v", err)
+			}
+			return nil
+		},
+	}
+	connector := MachineConnector{Runner: runner}
+	err = connector.ConnectMachine(context.Background(), machine.ConnectPlan{
+		Tenant:       tenant.Summary{Tenant: "acme", IncusName: "sc-acme"},
+		Project:      "default",
+		Name:         "codex",
+		InstanceName: "default-codex",
+		SSHHost:      "10.248.0.20",
+		HostKeyAlias: "codex.default.acme",
+		Command:      []string{"/bin/bash", "-l"},
+		LinuxUser:    "alice",
+		Interactive:  true,
+		Managed:      true,
+	}, machine.ConnectSession{
+		Stdin:  io.Reader(nil),
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.called {
+		t.Fatal("expected ssh runner call")
+	}
+}
+
+func TestParseSSHControlMasterConfig(t *testing.T) {
+	config := parseSSHControlMasterConfig("user alice\ncontrolmaster auto\ncontrolpath /tmp/mux\n")
+	if !config.enabled() {
+		t.Fatalf("config should be enabled: %#v", config)
+	}
+	if config.Path != "/tmp/mux" {
+		t.Fatalf("path = %q", config.Path)
 	}
 }
 

@@ -93,6 +93,7 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					if err != nil {
 						return err
 					}
+					connectPlan = withTenantKnownHostsFile(config, connectPlan)
 					if err := config.machineConnector.ConnectMachine(cmd.Context(), connectPlan, machine.ConnectSession{
 						Stdin:  config.stdin,
 						Stdout: config.stdout,

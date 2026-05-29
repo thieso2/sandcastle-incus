@@ -33,8 +33,9 @@ type connectCacheData struct {
 }
 
 // ConnectCache is a local disk cache for SSH connect metadata.
-// It caches resolved ConnectPlans and keyscan timestamps to avoid repeated Incus API calls
-// and SSH host key scans on rapid successive connects.
+// It caches resolved ConnectPlans to avoid repeated Incus API calls on rapid
+// successive connects. Keyscan timestamps are retained only for migration and
+// invalidation of older cache files; known_hosts refresh no longer trusts them.
 type ConnectCache struct {
 	path string
 }
@@ -232,11 +233,23 @@ func (c ConnectCache) InvalidatePlan(key string) {
 	if data == nil {
 		return
 	}
+	var hostsToInvalidate []string
 	if data.Plans != nil {
+		if entry, ok := data.Plans[key]; ok {
+			if h := strings.TrimSpace(entry.Plan.PrivateIP); h != "" {
+				hostsToInvalidate = append(hostsToInvalidate, h)
+			}
+			if h := strings.TrimSpace(entry.Plan.Hostname); h != "" {
+				hostsToInvalidate = append(hostsToInvalidate, h)
+			}
+		}
 		delete(data.Plans, key)
 	}
 	if data.SSHIdentities != nil {
 		delete(data.SSHIdentities, key)
+	}
+	for _, host := range hostsToInvalidate {
+		delete(data.Keyscans, host)
 	}
 	_ = c.writeData(data)
 }

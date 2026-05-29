@@ -19,7 +19,7 @@ func newCacheCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 func newCacheClearCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "clear [tenant]",
-		Short: "Clear cached SSH connect plans and keyscans for a tenant (or all tenants)",
+		Short: "Clear cached SSH connect plans for a tenant (or all tenants)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cache := incusx.NewConnectCache(config.adminConfig.Remote)
