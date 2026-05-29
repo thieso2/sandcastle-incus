@@ -215,6 +215,7 @@ func (c DeviceClient) UpsertCloudIdentity(ctx context.Context, request CloudIden
 	var payload struct {
 		ID                                string `json:"id"`
 		UserKey                           string `json:"user_key"`
+		Tenant                            string `json:"tenant"`
 		Name                              string `json:"name"`
 		Provider                          string `json:"provider"`
 		GCPAudience                       string `json:"gcp_audience"`
@@ -227,6 +228,57 @@ func (c DeviceClient) UpsertCloudIdentity(ctx context.Context, request CloudIden
 	return CloudIdentityConfig{
 		ID:                                payload.ID,
 		UserKey:                           payload.UserKey,
+		Tenant:                            payload.Tenant,
+		Name:                              payload.Name,
+		Provider:                          payload.Provider,
+		GCPAudience:                       payload.GCPAudience,
+		GCPSubjectTokenType:               payload.GCPSubjectTokenType,
+		GCPServiceAccountImpersonationURL: payload.GCPServiceAccountImpersonationURL,
+	}, nil
+}
+
+func (c DeviceClient) GetCloudIdentity(ctx context.Context, tenant string, name string) (CloudIdentityConfig, error) {
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/cloud-identities"), nil)
+	if err != nil {
+		return CloudIdentityConfig{}, err
+	}
+	query := httpRequest.URL.Query()
+	query.Set("tenant", strings.TrimSpace(tenant))
+	query.Set("name", strings.TrimSpace(name))
+	httpRequest.URL.RawQuery = query.Encode()
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return CloudIdentityConfig{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return CloudIdentityConfig{}, fmt.Errorf("auth app cloud identity get: %s", msg)
+	}
+	var payload struct {
+		ID                                string `json:"id"`
+		UserKey                           string `json:"user_key"`
+		Tenant                            string `json:"tenant"`
+		Name                              string `json:"name"`
+		Provider                          string `json:"provider"`
+		GCPAudience                       string `json:"gcp_audience"`
+		GCPSubjectTokenType               string `json:"gcp_subject_token_type"`
+		GCPServiceAccountImpersonationURL string `json:"gcp_service_account_impersonation_url"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return CloudIdentityConfig{}, err
+	}
+	return CloudIdentityConfig{
+		ID:                                payload.ID,
+		UserKey:                           payload.UserKey,
+		Tenant:                            payload.Tenant,
 		Name:                              payload.Name,
 		Provider:                          payload.Provider,
 		GCPAudience:                       payload.GCPAudience,

@@ -114,6 +114,7 @@ type authWorkloadClient interface {
 
 type authCloudIdentityClient interface {
 	UpsertCloudIdentity(context.Context, authapp.CloudIdentityUpsertRequest) (authapp.CloudIdentityConfig, error)
+	GetCloudIdentity(context.Context, string, string) (authapp.CloudIdentityConfig, error)
 }
 
 type authTenantClient interface {

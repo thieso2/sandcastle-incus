@@ -374,14 +374,14 @@
 
     <section id="gcp">
       <h2>GCP Cloud Identity Configs</h2>
-      <p>Users can confirm or repair cloud identity configs at:</p>
+      <p>Users can confirm or repair tenant-scoped cloud identity configs at:</p>
       <pre><code>https://auth.example.com/cloud-identities</code></pre>
 
       <p>For GCP, a config requires a Workload Identity audience. The subject token type defaults to <code>urn:ietf:params:oauth:token-type:jwt</code> when omitted. A service account impersonation URL is optional.</p>
       <p>To configure the GCP side for one Sandcastle tenant, use the user CLI with the Auth Hostname and CLI Auth Token remembered by <code>sc login</code> and the active <code>gcloud</code> project, or pass <code>--project</code> explicitly:</p>
       <pre><code>sc cloud-identity gcp setup \
   --tenant acme</code></pre>
-      <p>The command creates or updates the Workload Identity Pool and OIDC provider, sets the provider allowed audience to the <code>//iam.googleapis.com/...</code> provider resource name, creates the tenant service account if needed, grants <code>roles/iam.workloadIdentityUser</code>, saves the user-owned Sandcastle Cloud Identity Config named <code>gcp</code>, and prints the audience and service account impersonation URL for confirmation.</p>
+      <p>The command creates or updates the Workload Identity Pool and OIDC provider, sets the provider allowed audience to the <code>//iam.googleapis.com/...</code> provider resource name, creates the tenant service account if needed, grants <code>roles/iam.workloadIdentityUser</code>, saves the user-owned Sandcastle Cloud Identity Config named <code>gcp</code> for that tenant, and prints the audience and service account impersonation URL for confirmation. Project defaults set with <code>sc project set-cloud-identity</code> validate that the selected config exists for the current tenant before metadata is written.</p>
       <p>Use the verification helper to display and check the GCP provider, service account IAM binding, and reachable Sandcastle issuer metadata:</p>
       <pre><code>scripts/verify-gcp-oidc.sh \
   --tenant acme \
@@ -409,8 +409,8 @@
         <li>The Auth Hostname is reserved infrastructure routing and should not be used as a user Public Route.</li>
         <li>The JWKS endpoint publishes public keys only. Private signing keys remain encrypted in the Auth Database.</li>
         <li>Machine runtime secrets are rotated when workload identity is enabled or re-enabled for a machine.</li>
-        <li>Cloud Identity Configs are user-owned and selected per machine in v1. They are not applied automatically at Tenant or Project level.</li>
-        <li>The <code>sc cloud-identity gcp setup</code> command configures tenant-scoped GCP trust and saves the user-owned Cloud Identity Config when the CLI has a stored Auth Token. Users can still manage the saved config at <code>/cloud-identities</code>.</li>
+        <li>Cloud Identity Configs are user-owned and tenant-scoped. They can be selected per machine or set as a validated project default.</li>
+        <li>The <code>sc cloud-identity gcp setup</code> command configures tenant-scoped GCP trust and saves the tenant-scoped Cloud Identity Config when the CLI has a stored Auth Token. Users can still manage the saved config at <code>/cloud-identities</code>.</li>
       </ul>
 
       <h3>Smoke Checks</h3>

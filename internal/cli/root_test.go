@@ -20,6 +20,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/images"
+	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
@@ -128,6 +129,12 @@ type fakeAuthWorkloadClient struct {
 type fakeAuthCloudIdentityClient struct {
 	upsertRequests []authapp.CloudIdentityUpsertRequest
 	upsertResult   authapp.CloudIdentityConfig
+	getRequests    []struct {
+		tenant string
+		name   string
+	}
+	getResult authapp.CloudIdentityConfig
+	getErr    error
 }
 
 type fakeAuthTenantClient struct {
@@ -332,6 +339,7 @@ func (c *fakeAuthCloudIdentityClient) UpsertCloudIdentity(ctx context.Context, r
 	c.upsertRequests = append(c.upsertRequests, request)
 	if c.upsertResult.Name == "" {
 		c.upsertResult = authapp.CloudIdentityConfig{
+			Tenant:                            request.Tenant,
 			Name:                              request.Name,
 			Provider:                          request.Provider,
 			GCPAudience:                       request.GCPAudience,
@@ -340,6 +348,24 @@ func (c *fakeAuthCloudIdentityClient) UpsertCloudIdentity(ctx context.Context, r
 		}
 	}
 	return c.upsertResult, nil
+}
+
+func (c *fakeAuthCloudIdentityClient) GetCloudIdentity(ctx context.Context, tenant string, name string) (authapp.CloudIdentityConfig, error) {
+	c.getRequests = append(c.getRequests, struct {
+		tenant string
+		name   string
+	}{tenant: tenant, name: name})
+	if c.getErr != nil {
+		return authapp.CloudIdentityConfig{}, c.getErr
+	}
+	if c.getResult.Name == "" {
+		c.getResult = authapp.CloudIdentityConfig{
+			Tenant:   tenant,
+			Name:     name,
+			Provider: "gcp",
+		}
+	}
+	return c.getResult, nil
 }
 
 func (c *fakeAuthTenantClient) ListTenants(ctx context.Context) ([]authapp.TenantAccessSummary, error) {
@@ -1689,7 +1715,7 @@ func TestCloudIdentityGCPSetupSavesConfigInAuthApp(t *testing.T) {
 		t.Fatalf("upsert requests = %#v", authClient.upsertRequests)
 	}
 	request := authClient.upsertRequests[0]
-	if request.Name != "gcp" || request.Provider != "gcp" {
+	if request.Tenant != "thieso2" || request.Name != "gcp" || request.Provider != "gcp" {
 		t.Fatalf("upsert request = %#v", request)
 	}
 	if request.GCPAudience != "//iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/sandcastle-thieso2/providers/sandcastle" {
@@ -2161,8 +2187,10 @@ func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	updater := &fakeProjectUpdater{}
+	authClient := &fakeAuthCloudIdentityClient{}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
+		name:              "sandcastle",
+		authCloudIdentity: authClient,
 		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
 			Name:   "sc-acme",
 			Config: configMap,
@@ -2177,6 +2205,43 @@ func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
 	}
 	if !updater.called || updater.incusProject != "sc-acme" || !projectHasCloudIdentity(updater.projects, "default", "gcp") {
 		t.Fatalf("updater = %#v", updater)
+	}
+	if len(authClient.getRequests) != 1 || authClient.getRequests[0].tenant != "acme" || authClient.getRequests[0].name != "gcp" {
+		t.Fatalf("get requests = %#v", authClient.getRequests)
+	}
+}
+
+func TestProjectSetCloudIdentityRejectsMissingTenantConfig(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "some",
+		Projects:    []meta.Project{{Name: "io"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "some"
+	authClient := &fakeAuthCloudIdentityClient{getErr: fmt.Errorf("cloud identity config not found")}
+	updater := &fakeProjectUpdater{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name:              "sandcastle",
+		adminConfig:       admin,
+		authCloudIdentity: authClient,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-some",
+			Config: configMap,
+		}}},
+		tenantUpdater: updater,
+	}, "project", "set-cloud-identity", "io", "gcp")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), `cloud identity config "gcp" is not configured for tenant "some"`) {
+		t.Fatalf("error = %q", err)
+	}
+	if updater.called {
+		t.Fatal("expected project metadata update to be skipped")
 	}
 }
 
@@ -3191,6 +3256,43 @@ func TestMachineDeleteCallsExecutor(t *testing.T) {
 	}
 	if !applier.called || applier.tenant.Tenant != "acme" {
 		t.Fatalf("expected DNS refresh for acme, got %#v", applier)
+	}
+}
+
+func TestMachineDeleteInvalidatesKnownHostsKeyscanCache(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "some",
+		Projects:    []meta.Project{{Name: "io"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := testAdminConfig()
+	admin.Tenant = "some"
+	admin.Project = "io"
+	cache := incusx.NewConnectCache(admin.Remote)
+	cache.MarkKeyscanned("dev.io.some")
+
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		adminConfig: admin,
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-some",
+			Config: configMap,
+		}}},
+		machineStore: fakeMachineStatusStore{
+			machines: []meta.Machine{{Tenant: "some", Project: "io", Name: "dev"}},
+		},
+		machineControl: &fakeMachineController{},
+		dnsApplier:     &fakeDNSApplier{},
+	}, "delete", "dev", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cache.IsKeyscanRecent("dev.io.some") {
+		t.Fatal("expected delete to invalidate machine hostname keyscan cache")
 	}
 }
 

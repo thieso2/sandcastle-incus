@@ -158,6 +158,7 @@ func TestWorkloadEnableAPIUsesApprovedDeviceAndCloudConfig(t *testing.T) {
 	}
 	if _, err := UpsertCloudIdentityConfig(context.Background(), db, CloudIdentityConfig{
 		UserKey:                           "octocat",
+		Tenant:                            "octocat",
 		Name:                              "gcp",
 		GCPAudience:                       "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/sandcastle-acme/providers/sandcastle",
 		GCPServiceAccountImpersonationURL: "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@example.iam.gserviceaccount.com:generateAccessToken",

@@ -328,10 +328,10 @@ https://auth.example.com/admin/access</code></pre>
       <p>The Auth App publishes OIDC provider metadata under the Auth Hostname. See <a href="oidc-configuration.html">Sandcastle OIDC Configuration</a> for the full provider and machine token flow.</p>
       <pre><code>curl https://auth.example.com/t/acme/.well-known/openid-configuration
 curl https://auth.example.com/t/acme/.well-known/jwks.json</code></pre>
-      <p>Users manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. For GCP, the CLI can configure GCP and save the Auth App config named <code>gcp</code> when the user has completed <code>sc login</code>.</p>
+      <p>Users manage User-owned, tenant-scoped Cloud Identity Configs at <code>/cloud-identities</code>. For GCP, the CLI can configure GCP and save the Auth App config named <code>gcp</code> for the selected tenant when the user has completed <code>sc login</code>.</p>
       <pre><code>sc cloud-identity gcp setup \
   --tenant acme</code></pre>
-      <p>The user CLI uses the Auth Hostname and CLI Auth Token remembered by <code>sc login</code> and the active <code>gcloud</code> project by default, configures the tenant Workload Identity Pool and OIDC provider, creates the tenant service account if needed, saves the Sandcastle Cloud Identity Config, and prints the provider resource audience and service account impersonation URL for confirmation.</p>
+      <p>The user CLI uses the Auth Hostname and CLI Auth Token remembered by <code>sc login</code> and the active <code>gcloud</code> project by default, configures the tenant Workload Identity Pool and OIDC provider, creates the tenant service account if needed, saves the tenant-scoped Sandcastle Cloud Identity Config, and prints the provider resource audience and service account impersonation URL for confirmation. Project defaults set with <code>sc project set-cloud-identity</code> validate this tenant-scoped config before updating project metadata.</p>
       <pre><code>scripts/verify-gcp-oidc.sh \
   --tenant acme \
   --auth-hostname auth.example.com</code></pre>

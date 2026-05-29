@@ -107,7 +107,7 @@ func (h handler) enableWorkloadForUser(ctx context.Context, userKey string, requ
 	var cloudConfig CloudIdentityConfig
 	if request.CloudIdentityConfig != "" {
 		var err error
-		cloudConfig, err = FindCloudIdentityConfig(ctx, h.db, userKey, request.CloudIdentityConfig)
+		cloudConfig, err = FindCloudIdentityConfig(ctx, h.db, userKey, request.Tenant, request.CloudIdentityConfig)
 		if err != nil {
 			return WorkloadEnableResult{}, err
 		}
