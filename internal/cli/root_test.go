@@ -72,6 +72,110 @@ func executeForTestWithConfigAndStderr(t *testing.T, config commandConfig, args 
 	return stdout.String(), stderr.String(), err
 }
 
+func TestRootNoArgsRunsInteractiveHomeOnTerminal(t *testing.T) {
+	called := false
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		stdinIsTerminal: func(io.Reader) bool {
+			return true
+		},
+		stdoutIsTerminal: func(io.Writer) bool {
+			return true
+		},
+		interactiveHome: func(context.Context, commandConfig) error {
+			called = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute = %v", err)
+	}
+	if !called {
+		t.Fatalf("interactive home was not called")
+	}
+}
+
+func TestRootNoArgsShowsHelpWhenNotTerminal(t *testing.T) {
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		stdinIsTerminal: func(io.Reader) bool {
+			return false
+		},
+		stdoutIsTerminal: func(io.Writer) bool {
+			return false
+		},
+		interactiveHome: func(context.Context, commandConfig) error {
+			t.Fatalf("interactive home should not run")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute = %v", err)
+	}
+	if !strings.Contains(stdout, "Manage Incus-backed Sandcastle development machines") {
+		t.Fatalf("stdout missing help: %s", stdout)
+	}
+}
+
+func TestRootNoArgsJSONDoesNotRunInteractiveHome(t *testing.T) {
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		stdinIsTerminal: func(io.Reader) bool {
+			return true
+		},
+		stdoutIsTerminal: func(io.Writer) bool {
+			return true
+		},
+		interactiveHome: func(context.Context, commandConfig) error {
+			t.Fatalf("interactive home should not run")
+			return nil
+		},
+	}, "--json")
+	if err != nil {
+		t.Fatalf("Execute = %v", err)
+	}
+	if !strings.Contains(stdout, "Manage Incus-backed Sandcastle development machines") {
+		t.Fatalf("stdout missing help: %s", stdout)
+	}
+}
+
+func TestTUILoadDataShowsNotReadyWithoutCurrentTenant(t *testing.T) {
+	data, err := loadTUIData(context.Background(), commandConfig{
+		adminConfig: scconfig.Admin{Remote: "local"},
+		tenantStore: tenantSwitchStoreForTest(t, "acme"),
+	})
+	if err != nil {
+		t.Fatalf("loadTUIData = %v", err)
+	}
+	if data.LoadError != "Current Tenant is not selected" {
+		t.Fatalf("LoadError = %q", data.LoadError)
+	}
+	if len(data.Tenants) != 1 || data.Tenants[0].Tenant != "acme" {
+		t.Fatalf("Tenants = %#v", data.Tenants)
+	}
+}
+
+func TestTUIViewExposesTenantAndProjectSwitching(t *testing.T) {
+	model := newTUIModel(context.Background(), commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Tenant: "acme", Project: "website", Remote: "local"},
+	})
+	model.data = tuiData{
+		Config: model.config.adminConfig,
+		Tenants: []tenant.Summary{
+			{Tenant: "acme", Projects: []meta.Project{{Name: "default"}, {Name: "website"}}},
+		},
+		Tenant:    tenant.Summary{Tenant: "acme", Projects: []meta.Project{{Name: "default"}, {Name: "website"}}},
+		HasTenant: true,
+	}
+	view := model.View()
+	for _, want := range []string{"Tenant: acme", "Project: website", "t tenant", "p project", "Machines", "Projects", "Shares"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func executeAdminForTest(t *testing.T, name string, args ...string) (string, error) {
 	return executeAdminForTestWithConfig(t, commandConfig{name: name}, args...)
 }

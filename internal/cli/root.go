@@ -30,6 +30,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
+	"golang.org/x/term"
 )
 
 const version = "0.0.0-dev"
@@ -47,6 +48,8 @@ type commandConfig struct {
 	stdout              io.Writer
 	stderr              io.Writer
 	stdinIsTerminal     func(io.Reader) bool
+	stdoutIsTerminal    func(io.Writer) bool
+	interactiveHome     func(context.Context, commandConfig) error
 	tenantStore         tenant.IncusTenantStore
 	adminConfig         scconfig.Admin
 	tenantCreator       tenant.Creator
@@ -276,6 +279,15 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 			opts.output = outputJSON
 			return nil
 		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !shouldLaunchInteractiveHome(cmd, config, opts, jsonOutput) {
+				return cmd.Help()
+			}
+			if config.interactiveHome != nil {
+				return config.interactiveHome(cmd.Context(), config)
+			}
+			return runInteractiveHome(cmd.Context(), config)
+		},
 	}
 	root.PersistentFlags().Var(&opts.output, "output", "output format: text or json")
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "write JSON output")
@@ -310,6 +322,24 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newShareCommand(config, opts))
 
 	return root
+}
+
+func shouldLaunchInteractiveHome(cmd *cobra.Command, config commandConfig, opts *rootOptions, jsonOutput bool) bool {
+	if cmd.Flags().Changed("help") || cmd.Root().PersistentFlags().Changed("help") {
+		return false
+	}
+	if jsonOutput || opts.output == outputJSON || cmd.Root().PersistentFlags().Changed("output") {
+		return false
+	}
+	return isTerminalInput(config) && isTerminalOutput(config)
+}
+
+func isTerminalOutput(config commandConfig) bool {
+	if config.stdoutIsTerminal != nil {
+		return config.stdoutIsTerminal(config.stdout)
+	}
+	file, ok := config.stdout.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
 }
 
 func (f *outputFormat) Set(value string) error {

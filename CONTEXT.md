@@ -153,6 +153,10 @@ _Avoid_: OAuth completion, browser login success
 The structured final response from CLI Device Login that lets the CLI persist local configuration and print the next command.
 _Avoid_: Browser session payload, provisioning log
 
+**Interactive Sandcastle Home**:
+The terminal UI opened by the user CLI to show readiness, current context, resources, and common actions.
+_Avoid_: Help screen, command palette only
+
 **Created By**:
 Audit metadata recording which user created a resource.
 _Avoid_: Resource owner
@@ -359,6 +363,10 @@ _Avoid_: Projectless mode
 - **Machine** is the implicit top-level resource in both user and admin CLIs.
 - The user CLI manages **Public Routes** separately with `route list`, `route create`, `route status`, and `route delete`.
 - The user CLI manages **Projects** with `project list`, `project create`, `project status`, and `project delete`.
+- Running the user CLI with no arguments opens the interactive Sandcastle home only when attached to an interactive terminal.
+- Running the user CLI with no arguments outside an interactive terminal preserves command help behavior.
+- The **Interactive Sandcastle Home** orients the User around readiness, Current Tenant, Current Project, Machines, Public Routes, and common actions.
+- The **Interactive Sandcastle Home** opens even when the CLI is not ready, so it can guide login, tenant selection, and local setup.
 - User **Public Route** mutations go through the **Route Broker**.
 - All user **Public Route** operations go through the **Route Broker**.
 - Users cannot claim the **Auth Hostname** as a **Public Route**.

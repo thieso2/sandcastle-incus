@@ -176,6 +176,13 @@
   </div>
 
   <div class="step">
+    <h3>Open the interactive home</h3>
+    <p>Run <code>sc</code> with no arguments from a terminal to open the interactive Sandcastle home. It shows readiness, Current Tenant, Current Project, Machines, Public Routes, Tenant Storage Shares, setup actions, and config. Use <code>t</code> to switch Tenant, <code>p</code> to switch Project, <code>a</code> for actions, <code>:</code> to run a command by args, <code>r</code> to refresh, and <code>q</code> to quit.</p>
+    <pre><code><span class="cmd">sc</span></code></pre>
+    <p>When <code>sc</code> is not attached to an interactive terminal, or when <code>--help</code>, <code>--json</code>, or <code>--output json</code> is used, it keeps the normal command help and machine-readable output behavior.</p>
+  </div>
+
+  <div class="step">
     <h3>Config file (recommended)</h3>
     <p>Store your defaults in <code>~/.config/sandcastle/config.yml</code> so you don't need to set env vars on every call.</p>
     <pre><code><span class="comment"># ~/.config/sandcastle/config.yml</span>
@@ -996,6 +1003,7 @@ Bootstrap:
       </thead>
       <tbody>
         <tr><td>sandcastle list</td><td>List machines in the current tenant</td></tr>
+        <tr><td>sandcastle</td><td>Open the interactive Sandcastle home in an attached terminal</td></tr>
         <tr><td>sandcastle login &lt;auth-host&gt;</td><td>Start CLI Device Login through the Auth App</td></tr>
         <tr><td>sandcastle tenant list/switch</td><td>List accessible tenants and select the local Current Tenant</td></tr>
         <tr><td>sandcastle config show/set/unset</td><td>Manage local CLI defaults</td></tr>

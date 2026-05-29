@@ -7,6 +7,11 @@ creates tenant-scoped Incus container machines for AI and development workflows,
 connects them to a user-selected Tailscale network, serves private tenant DNS,
 and can publish HTTP routes through shared infrastructure Caddy.
 
+Running `sc` with no arguments opens the interactive Sandcastle home when the
+CLI is attached to a terminal. Use it to switch tenants and projects, inspect
+machines, routes, shares, setup state, and launch common actions. Non-terminal
+invocations and `sc --help` keep the normal command help behavior.
+
 ## Documents
 
 - [Sandcastle v1 specification](docs/sandcastle-v1-spec.md)

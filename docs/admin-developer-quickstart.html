@@ -396,6 +396,7 @@ incus info REMOTE:
       <pre><code>mise run install
 sc version</code></pre>
       <p>This installs the user-facing <code>sandcastle</code> binary and <code>sc</code> alias into <code>~/.local/bin</code> when that directory is already on <code>PATH</code>, otherwise into <code>/usr/local/bin</code>. Developers do not need <code>sandcastle-admin</code> or <code>sc-adm</code>; those are operator tools. If the admin provides prebuilt Linux amd64 binaries instead of a source checkout, install the user CLI and alias directly from the <code>mise run build:linux-amd64</code> output.</p>
+      <p>After login or remote enrollment, running <code>sc</code> with no arguments opens the interactive Sandcastle home in a terminal. Use it to switch Tenant with <code>t</code>, switch Project with <code>p</code>, inspect Machines, Projects, Routes, Shares, setup state, and launch common actions. Non-interactive invocations and <code>sc --help</code> keep the regular command help behavior.</p>
 
       <h3>2. Add the restricted remote</h3>
       <pre><code>sc remote add sandcastle-alice JOIN_TOKEN_FROM_ADMIN --tenant acme</code></pre>
