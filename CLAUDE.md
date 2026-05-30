@@ -16,10 +16,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Integration tests (real Incus): `SANDCASTLE_INCUS_INTEGRATION=1 go test ./internal/integration`
 - E2E tests (creates/destroys real tenants): `SANDCASTLE_INCUS_E2E=1 go test ./internal/e2e`
 - Safe E2E suite: `make e2e-safe` (unit + gated + local stages via `scripts/e2e.sh`)
-- Build base image: `mise run image:base:build-upload` (requires `SANDCASTLE_REMOTE`)
-- Build AI image: `mise run image:ai:build-upload` (resolves latest npm versions, requires `SANDCASTLE_REMOTE`)
-- Build server container: `docker build -t sandcastle-incus:local .`
-- Push to GHCR: `scripts/publish_ghcr_image.sh`
+- Build base image locally: `mise run image:base:build-upload` (docker on the host; requires `SANDCASTLE_REMOTE`)
+- Build AI image locally: `mise run image:ai:build-upload` (resolves latest npm versions, requires `SANDCASTLE_REMOTE`)
+- Build + publish to GHCR via the Image Builder appliance: `mise run image:all:build-remote` (requires `SANDCASTLE_REMOTE` and `SANDCASTLE_GHCR_TOKEN`; see `docs/adr/0010-image-builder-appliance.md`)
 
 ## Architecture
 

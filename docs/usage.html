@@ -772,16 +772,29 @@ Bootstrap:
     <table>
       <thead><tr><th>Task</th><th>Description</th></tr></thead>
       <tbody>
-        <tr><td>mise run image:all:build-upload</td><td>Rebuild base and AI images, upload both to Incus, then sync tenant-local aliases</td></tr>
+        <tr><td>mise run image:all:build-upload</td><td>Rebuild base and AI images locally (docker), upload both to Incus, then sync tenant-local aliases</td></tr>
         <tr><td>mise run image:tenant:sync</td><td>Sync published image aliases into image-enabled Sandcastle tenant projects</td></tr>
-        <tr><td>mise run image:ai:build-upload</td><td>Build AI image with latest tool versions and upload to Incus</td></tr>
-        <tr><td>mise run image:base:build-upload</td><td>Build base image and upload to Incus</td></tr>
+        <tr><td>mise run image:ai:build-upload</td><td>Build AI image locally with latest tool versions and upload to Incus</td></tr>
+        <tr><td>mise run image:base:build-upload</td><td>Build base image locally and upload to Incus</td></tr>
         <tr><td>mise run image:base:build</td><td>Build base image locally only</td></tr>
         <tr><td>mise run image:base:upload</td><td>Upload a previously built base image</td></tr>
+        <tr><td>mise run image:base:build-remote</td><td>Build base image in the <code>sc-build</code> Image Builder appliance and publish to GHCR (needs <code>SANDCASTLE_GHCR_TOKEN</code>)</td></tr>
+        <tr><td>mise run image:ai:build-remote</td><td>Build AI image in the Image Builder appliance with latest tool versions and publish to GHCR</td></tr>
+        <tr><td>mise run image:all:build-remote</td><td>Build base then AI in the Image Builder appliance and publish both to GHCR</td></tr>
         <tr><td>mise run image:deps</td><td>Check that docker, incus, tar, zstd are installed</td></tr>
         <tr><td>mise run install</td><td>Install the user CLI and <code>sc</code> alias</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <div class="step">
+    <h3>Image Builder appliance (build in a container, publish to GHCR)</h3>
+    <p>Instead of building locally with docker, the <strong>Image Builder</strong> builds Sandcastle Images inside a dedicated, admin-managed Incus container and publishes them to GHCR. It is an infrastructure appliance, not a Machine. See <code>docs/adr/0010-image-builder-appliance.md</code>.</p>
+    <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
+<span class="env">export SANDCASTLE_GHCR_TOKEN</span>=&lt;github PAT with write:packages&gt;
+<span class="cmd">mise run image:all:build-remote</span>          <span class="comment"># or sc-adm image build-remote base|ai|all</span></code></pre>
+    <p>How it works: the <code>sc-build</code> project holds a persistent <code>sc-builder</code> container (neutral <code>images:debian/13</code>, <code>security.nesting</code>, <code>/dev/fuse</code>) that builds with <strong>rootless podman</strong> against a cache volume. <code>build-remote</code> ensures the appliance and a one-time <code>ghcr</code> OCI remote, ships the working-tree build context in, logs in with the token over stdin (never persisted), builds <code>:latest</code> + an immutable <code>:&lt;git-describe&gt;</code> tag, pushes to GHCR, then copies the immutable tag into the local Incus alias and syncs tenant aliases. The AI image is built <code>FROM</code> the immutable base tag of the same run.</p>
+    <p>Flags: <code>--require-clean</code> (refuse a dirty tree), <code>--no-push</code>, <code>--no-import</code>, <code>--rebuild-builder</code>, <code>--ghcr-repo</code>, <code>--ghcr-user</code>, <code>--remote</code>, <code>--platform</code>, <code>--dry-run</code>. Manage the appliance with <code>sandcastle-admin image builder status</code> and <code>sandcastle-admin image builder destroy [--keep-cache]</code>. GHCR packages must be public-read so the Incus host pulls without credentials; the token is only used to push.</p>
   </div>
 
   <div class="step">

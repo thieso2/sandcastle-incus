@@ -144,3 +144,51 @@ make build
 
 bash scripts/import-docker-image-to-incus.sh "${AI_TAG}" "${AI_TAG}" "$SANDCASTLE_REMOTE"
 """
+
+[tasks."image:base:build-remote"]
+description = "Build the base image in the sc-build Image Builder appliance and publish to GHCR (needs SANDCASTLE_GHCR_TOKEN)"
+env = { SANDCASTLE_REMOTE = "big" }
+run = [
+  "make build",
+  "./bin/sandcastle-admin image build-remote base",
+]
+
+[tasks."image:ai:build-remote"]
+description = "Resolve AI tool versions, build the AI image in the sc-build appliance, and publish to GHCR (needs SANDCASTLE_GHCR_TOKEN)"
+env = { SANDCASTLE_REMOTE = "big" }
+run = """
+set -euo pipefail
+
+npm_latest() { curl -sf "https://registry.npmjs.org/$1/latest" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])"; }
+
+CODEX_VERSION="${SANDCASTLE_CODEX_VERSION:-$(npm_latest @openai/codex)}"
+CLAUDE_VERSION="${SANDCASTLE_CLAUDE_VERSION:-$(npm_latest @anthropic-ai/claude-code)}"
+GEMINI_VERSION="${SANDCASTLE_GEMINI_VERSION:-$(npm_latest @google/gemini-cli)}"
+
+make build
+
+./bin/sandcastle-admin image build-remote ai \
+  --codex-version  "${CODEX_VERSION}" \
+  --claude-version "${CLAUDE_VERSION}" \
+  --gemini-version "${GEMINI_VERSION}"
+"""
+
+[tasks."image:all:build-remote"]
+description = "Build base then AI in the sc-build appliance and publish both to GHCR (needs SANDCASTLE_GHCR_TOKEN)"
+env = { SANDCASTLE_REMOTE = "big" }
+run = """
+set -euo pipefail
+
+npm_latest() { curl -sf "https://registry.npmjs.org/$1/latest" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])"; }
+
+CODEX_VERSION="${SANDCASTLE_CODEX_VERSION:-$(npm_latest @openai/codex)}"
+CLAUDE_VERSION="${SANDCASTLE_CLAUDE_VERSION:-$(npm_latest @anthropic-ai/claude-code)}"
+GEMINI_VERSION="${SANDCASTLE_GEMINI_VERSION:-$(npm_latest @google/gemini-cli)}"
+
+make build
+
+./bin/sandcastle-admin image build-remote all \
+  --codex-version  "${CODEX_VERSION}" \
+  --claude-version "${CLAUDE_VERSION}" \
+  --gemini-version "${GEMINI_VERSION}"
+"""

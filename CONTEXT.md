@@ -229,6 +229,18 @@ _Avoid_: Sandbox when discussing user-facing resources
 The base image profile used to create a machine.
 _Avoid_: Project template
 
+**Sandcastle Image**:
+The OCI image that backs a Machine Template; the Base Image and the AI Image are its two variants.
+_Avoid_: Container image, docker image
+
+**Image Registry**:
+The external OCI registry that distributes Sandcastle Images for an Incus host to pull and cache locally.
+_Avoid_: Image store, docker hub
+
+**Image Builder**:
+The admin-managed infrastructure appliance that builds Sandcastle Images and publishes them to the Image Registry. Not a Machine.
+_Avoid_: Build machine, sc container, builder Machine
+
 **VM**:
 A future Machine type backed by an Incus virtual machine.
 _Avoid_: Separate product resource
@@ -346,6 +358,9 @@ _Avoid_: Projectless mode
 - A **Machine** has one **App Port**, defaulting to `3000`.
 - A **Machine Template** is a **Machine** property, not a **Project** property.
 - Machine creation defaults to the AI container **Machine Template**.
+- An **Image Builder** builds **Sandcastle Images** and publishes them to the **Image Registry**; an Incus host then pulls and caches them locally for Machine creation.
+- An **Image Builder** runs in its own admin-managed Incus project, separate from the **Infrastructure Project** and from any **Tenant**, and depends on no **Sandcastle Image** it produces.
+- A **Sandcastle Image** changes only when an operator runs a build; there is no independent upstream that updates it.
 - Machine creation starts the **Machine** and connects in an interactive terminal unless detached.
 - Machine creation authorizes the User's uploaded **User SSH Public Key** for shell access.
 - Machine creation waits until the **Machine** has joined the **Tenant Tailnet** and recorded its **Tailscale Machine IP** before reporting success.
@@ -533,3 +548,4 @@ _Avoid_: Projectless mode
 - Older command words such as `add`, `enter`, and `rm` were considered; resolved: the canonical machine CLI verbs are `list`, `create`, `connect`, `start`, `stop`, `restart`, `status`, and `delete`.
 - `inspect` was considered for detailed state; resolved: `status` is the canonical detail command.
 - `docs/sandcastle-v1-spec.md` previously described the superseded owner/project model; resolved domain language now lives here, in ADR-0001, and in the rewritten v1 spec.
+- "sc container" and "build machine" were used for the box that builds images; resolved: it is an **Image Builder** infrastructure appliance, not a **Machine**.
