@@ -239,14 +239,17 @@ func PlanRemoteBuild(admin config.Admin, request RemoteBuildRequest) (RemoteBuil
 	plan.BuildScript = remoteBuildScript(plan)
 
 	if !plan.NoImport {
-		// Refresh the host alias from the immutable tag we just published.
+		// Refresh the host alias from the immutable tag we just published. The
+		// incus CLI resolves OCI manifests for the *client* architecture, so on
+		// a non-amd64 workstation this copy cannot run locally; it runs on the
+		// Incus host (target "local:"), reached over SSH by the executor.
 		plan.SyncSourceRef = remote + ":" + alias
 		plan.ImportCommand = []string{
 			"incus", "image", "copy",
 			plan.GHCRRemote + ":" + ghcrPath(versionedRef),
-			remote + ":",
+			"local:",
 			"--alias", alias,
-			"--reuse",
+			"--reuse", "--copy-aliases",
 		}
 	}
 

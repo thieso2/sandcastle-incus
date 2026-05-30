@@ -11,10 +11,8 @@ ARG SANDCASTLE_IMAGE_COMMIT_DATE=unknown
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN test -n "${CODEX_CLI_VERSION}" \
-    && test -n "${CLAUDE_CODE_VERSION}" \
-    && test -n "${GEMINI_CLI_VERSION}"
-
+# Toolchain layer: independent of the pinned tool versions, so it stays cached
+# across version bumps.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -25,6 +23,10 @@ RUN apt-get update \
         python3 \
         python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+RUN test -n "${CODEX_CLI_VERSION}" \
+    && test -n "${CLAUDE_CODE_VERSION}" \
+    && test -n "${GEMINI_CLI_VERSION}"
 
 RUN npm install -g \
         "@openai/codex@${CODEX_CLI_VERSION}" \

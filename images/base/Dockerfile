@@ -49,11 +49,6 @@ RUN install -dm 0755 /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends mise \
     && rm -rf /var/lib/apt/lists/*
 
-# Global git defaults and aliases; per-user identity is written at bootstrap
-# from the tenant owner (see sandcastle-bootstrap).
-COPY gitconfig /etc/gitconfig
-RUN chmod 0644 /etc/gitconfig
-
 RUN systemctl disable docker.service docker.socket containerd.service >/dev/null 2>&1 || true \
     && rm -f \
         /etc/systemd/system/multi-user.target.wants/docker.service \
@@ -64,14 +59,6 @@ RUN sed -i 's/^# *\(de_DE.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
     && sed -i 's/^# *\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
     && locale-gen \
     && update-locale LANG=C.UTF-8
-
-RUN printf 'Sandcastle %s image\nVersion: %s\nImage: %s\nLast commit: %s\n\n' \
-        "$SANDCASTLE_IMAGE_TEMPLATE" \
-        "$SANDCASTLE_IMAGE_VERSION" \
-        "$SANDCASTLE_IMAGE_TAG" \
-        "$SANDCASTLE_IMAGE_COMMIT_DATE" \
-        >/etc/issue \
-    && cp /etc/issue /etc/issue.net
 
 RUN set -eux; \
     arch="${TARGETARCH:-amd64}"; \
@@ -119,8 +106,24 @@ RUN install -d \
         /workspace \
         /run/sshd
 
+# Cheap, frequently-changing layers go last so the heavy package layers above
+# stay cached across commits. The version stamp changes every commit, so it is
+# the final layer before WORKDIR/CMD.
 COPY sandcastle-bootstrap /usr/local/bin/sandcastle-bootstrap
 RUN chmod 0755 /usr/local/bin/sandcastle-bootstrap
+
+# Global git defaults and aliases; per-user identity is written at bootstrap
+# from the tenant owner (see sandcastle-bootstrap).
+COPY gitconfig /etc/gitconfig
+RUN chmod 0644 /etc/gitconfig
+
+RUN printf 'Sandcastle %s image\nVersion: %s\nImage: %s\nLast commit: %s\n\n' \
+        "$SANDCASTLE_IMAGE_TEMPLATE" \
+        "$SANDCASTLE_IMAGE_VERSION" \
+        "$SANDCASTLE_IMAGE_TAG" \
+        "$SANDCASTLE_IMAGE_COMMIT_DATE" \
+        >/etc/issue \
+    && cp /etc/issue /etc/issue.net
 
 WORKDIR /workspace
 CMD ["sleep", "infinity"]

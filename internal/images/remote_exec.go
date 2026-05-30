@@ -4,8 +4,10 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,9 +59,6 @@ func (b LocalRemoteBuilder) BuildRemote(ctx context.Context, plan RemoteBuildPla
 		fmt.Fprintf(stderr, "[build-remote] "+format+"\n", args...)
 	}
 
-	if err := b.ensureGHCRRemote(ctx, runner, plan); err != nil {
-		return RemoteBuildResult{}, err
-	}
 	if err := b.ensureAppliance(ctx, runner, plan, log); err != nil {
 		return RemoteBuildResult{}, err
 	}
@@ -91,27 +90,73 @@ func (b LocalRemoteBuilder) BuildRemote(ctx context.Context, plan RemoteBuildPla
 		return result, nil
 	}
 
-	log("import %s into %s alias %s", plan.ImageVersncRef, plan.Builder.Remote, plan.Alias)
-	if _, err := runner.Run(ctx, nil, plan.ImportCommand[1:]...); err != nil {
+	log("import %s into %s alias %s (on host)", plan.ImageVersncRef, plan.Builder.Remote, plan.Alias)
+	if err := b.importOnHost(ctx, runner, plan); err != nil {
 		return RemoteBuildResult{}, err
 	}
 	result.Imported = true
 	return result, nil
 }
 
-func (b LocalRemoteBuilder) ensureGHCRRemote(ctx context.Context, runner IncusRunner, plan RemoteBuildPlan) error {
-	out, err := runner.Run(ctx, nil, "remote", "list", "--format", "csv")
+// importOnHost runs the OCI->Incus copy on the Incus host itself, because the
+// incus CLI resolves OCI manifests for the client architecture. It ensures the
+// ghcr OCI remote there, then copies the published image into the alias.
+func (b LocalRemoteBuilder) importOnHost(ctx context.Context, runner IncusRunner, plan RemoteBuildPlan) error {
+	script := "set -e\n" +
+		"incus remote add " + plan.GHCRRemote + " " + ghcrRegistryURL + " --protocol oci >/dev/null 2>&1 || true\n" +
+		strings.Join(plan.ImportCommand, " ") + "\n"
+
+	if plan.Builder.Remote == "local" {
+		// The local incus host is this machine; run the script directly.
+		_, err := runShell(ctx, nil, "bash", "-c", script)
+		return err
+	}
+	host, err := b.hostForRemote(ctx, runner, plan.Builder.Remote)
 	if err != nil {
 		return err
 	}
-	for _, line := range strings.Split(out, "\n") {
-		name := strings.TrimSpace(strings.SplitN(line, ",", 2)[0])
-		if name == plan.GHCRRemote || strings.TrimSuffix(name, " (current)") == plan.GHCRRemote {
-			return nil
-		}
+	user := os.Getenv("SANDCASTLE_IMAGE_UPLOAD_SSH_USER")
+	if strings.TrimSpace(user) == "" {
+		user = "root"
 	}
-	_, err = runner.Run(ctx, nil, "remote", "add", plan.GHCRRemote, ghcrRegistryURL, "--protocol", "oci")
+	_, err = runShell(ctx, strings.NewReader(script), "ssh", user+"@"+host, "bash", "-s")
 	return err
+}
+
+// hostForRemote resolves the SSH hostname for an Incus remote from its address.
+func (b LocalRemoteBuilder) hostForRemote(ctx context.Context, runner IncusRunner, remote string) (string, error) {
+	if override := strings.TrimSpace(os.Getenv("SANDCASTLE_IMAGE_UPLOAD_SSH_HOST")); override != "" {
+		return override, nil
+	}
+	out, err := runner.Run(ctx, nil, "remote", "list", "--format", "json")
+	if err != nil {
+		return "", err
+	}
+	var remotes map[string]struct {
+		Addr string `json:"Addr"`
+	}
+	if err := json.Unmarshal([]byte(out), &remotes); err != nil {
+		return "", fmt.Errorf("parse incus remotes: %w", err)
+	}
+	addr := remotes[remote].Addr
+	u, err := url.Parse(addr)
+	if err != nil || u.Hostname() == "" {
+		return "", fmt.Errorf("cannot derive SSH host for remote %q (addr %q); set SANDCASTLE_IMAGE_UPLOAD_SSH_HOST", remote, addr)
+	}
+	return u.Hostname(), nil
+}
+
+// runShell executes a non-incus command (ssh/bash) for the host import step.
+func runShell(ctx context.Context, stdin io.Reader, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
 }
 
 func (b LocalRemoteBuilder) ensureAppliance(ctx context.Context, runner IncusRunner, plan RemoteBuildPlan, log func(string, ...any)) error {
