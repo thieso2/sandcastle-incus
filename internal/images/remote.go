@@ -321,17 +321,21 @@ if ! id -u ` + builderUser + ` >/dev/null 2>&1; then
 fi
 grep -q '^` + builderUser + `:' /etc/subuid || echo '` + builderUser + `:100000:65536' >>/etc/subuid
 grep -q '^` + builderUser + `:' /etc/subgid || echo '` + builderUser + `:100000:65536' >>/etc/subgid
-install -d ` + builderStorageMount + `
-install -d ` + builderBuildRoot + `
-install -d ` + builderHome + `/.config/containers
-install -d -m 700 /run/user/1000
-cat >` + builderHome + `/.config/containers/storage.conf <<'EOF'
+# install -d sets ownership/mode on each target (idempotent, non-recursive), so
+# warm runs do not chown the whole podman cache volume under the storage mount.
+install -d -o ` + builderUser + ` -g ` + builderUser + ` ` + builderHome + `/.config ` + builderHome + `/.config/containers
+install -d -o ` + builderUser + ` -g ` + builderUser + ` ` + builderStorageMount + `
+install -d -o ` + builderUser + ` -g ` + builderUser + ` ` + builderBuildRoot + `
+install -d -o ` + builderUser + ` -g ` + builderUser + ` -m 700 /run/user/1000
+if [ ! -f ` + builderHome + `/.config/containers/storage.conf ]; then
+  cat >` + builderHome + `/.config/containers/storage.conf <<'EOF'
 [storage]
 driver = "overlay"
 [storage.options.overlay]
 mount_program = "/usr/bin/fuse-overlayfs"
 EOF
-chown -R ` + builderUser + `:` + builderUser + ` ` + builderHome + ` /run/user/1000
+  chown ` + builderUser + `:` + builderUser + ` ` + builderHome + `/.config/containers/storage.conf
+fi
 loginctl enable-linger ` + builderUser + ` >/dev/null 2>&1 || true
 `
 }
