@@ -762,7 +762,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Build and upload the base image</h3>
-    <p>The base image includes tmux, vim, mosh, Docker, gcloud CLI, generated locales, and refreshed forwarded SSH agent sockets across reconnects. Docker service units are disabled in the image so the daemon does not start unless the machine or project configuration opts into it.</p>
+    <p>The base image includes tmux, vim, mosh, ripgrep, mise, Docker, gcloud CLI, generated locales, and refreshed forwarded SSH agent sockets across reconnects. Docker service units are disabled in the image so the daemon does not start unless the machine or project configuration opts into it. The image ships a global <code>git</code> default of <code>init.defaultBranch = main</code>, and machine configuration writes the Sandcastle user's <code>~/.gitconfig</code> <code>[user]</code> identity from the local <code>git config user.name</code>/<code>user.email</code> of whoever runs <code>sandcastle create</code>. Machine configuration also gives the Sandcastle user's group write access to <code>/usr/local</code> so <code>npm install -g</code> (e.g. <code>@openai/codex</code>) works without <code>sudo</code>.</p>
     <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
 <span class="cmd">mise run image:base:build-upload</span></code></pre>
   </div>

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"os/exec"
 	"path"
 	"strings"
 	"time"
@@ -545,6 +546,7 @@ fi
 	appendMachineCaddyConfigScript(&script, files, ipWithPrefix, gateway)
 	var stderr bytes.Buffer
 	dataDone := make(chan bool)
+	gitName, gitEmail := localGitIdentity()
 	op, err := server.ExecInstance(plan.InstanceName, api.InstanceExecPost{
 		Command: []string{"/bin/sh", "-se"},
 		Environment: map[string]string{
@@ -555,6 +557,8 @@ fi
 			"SANDCASTLE_HOSTNAME":         plan.Hostname,
 			"SANDCASTLE_DNS_ADDRESS":      plan.Tenant.DNSAddress,
 			"SANDCASTLE_DOCKER_AUTOSTART": boolEnv(plan.DockerAutostart),
+			"SANDCASTLE_GIT_NAME":         gitName,
+			"SANDCASTLE_GIT_EMAIL":        gitEmail,
 		},
 		WaitForWS: true,
 	}, &incus.InstanceExecArgs{
@@ -570,6 +574,21 @@ fi
 	}
 	<-dataDone
 	return nil
+}
+
+// localGitIdentity resolves the git identity of the CLI user running the
+// create, so each machine's tenant owner gets the same name/email in
+// ~/.gitconfig. Empty values are fine: the bootstrap skips whatever is unset.
+func localGitIdentity() (name string, email string) {
+	return gitConfigValue("user.name"), gitConfigValue("user.email")
+}
+
+func gitConfigValue(key string) string {
+	out, err := exec.Command("git", "config", "--get", key).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func machineNetworkParams(plan machine.CreatePlan) (string, string, error) {

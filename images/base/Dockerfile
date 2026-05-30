@@ -30,6 +30,7 @@ RUN apt-get update \
         net-tools \
         openssh-server \
         python3 \
+        ripgrep \
         sudo \
         systemd \
         systemd-sysv \
@@ -38,6 +39,20 @@ RUN apt-get update \
         traceroute \
         vim \
     && rm -rf /var/lib/apt/lists/*
+
+RUN install -dm 0755 /etc/apt/keyrings \
+    && curl -fsSL https://mise.jdx.dev/gpg-key.pub | gpg --dearmor -o /etc/apt/keyrings/mise-archive-keyring.gpg \
+    && chmod 0644 /etc/apt/keyrings/mise-archive-keyring.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/mise-archive-keyring.gpg arch=${TARGETARCH:-amd64}] https://mise.jdx.dev/deb stable main" \
+        >/etc/apt/sources.list.d/mise.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends mise \
+    && rm -rf /var/lib/apt/lists/*
+
+# Global git defaults and aliases; per-user identity is written at bootstrap
+# from the tenant owner (see sandcastle-bootstrap).
+COPY gitconfig /etc/gitconfig
+RUN chmod 0644 /etc/gitconfig
 
 RUN systemctl disable docker.service docker.socket containerd.service >/dev/null 2>&1 || true \
     && rm -f \

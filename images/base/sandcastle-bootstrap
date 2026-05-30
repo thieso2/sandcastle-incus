@@ -5,6 +5,8 @@ user_name="${SANDCASTLE_USER:-sandcastle}"
 user_id="${SANDCASTLE_UID:-1000}"
 group_id="${SANDCASTLE_GID:-1000}"
 ssh_public_key="${SANDCASTLE_SSH_PUBLIC_KEY:-}"
+git_user_name="${SANDCASTLE_GIT_NAME:-}"
+git_user_email="${SANDCASTLE_GIT_EMAIL:-}"
 
 if ! getent group "${user_name}" >/dev/null 2>&1; then
   groupadd --gid "${group_id}" "${user_name}"
@@ -20,6 +22,14 @@ fi
 # Add user to docker group if it exists
 if getent group docker >/dev/null 2>&1; then
   usermod -aG docker "${user_name}"
+fi
+
+# Let the tenant user group own /usr/local so `npm install -g` works without sudo.
+# setgid on directories keeps the group on anything created later (e.g. node_modules).
+if [ -d /usr/local ]; then
+  chgrp -R "${user_name}" /usr/local
+  chmod -R g+w /usr/local
+  find /usr/local -type d -exec chmod g+s {} +
 fi
 
 install -d -o "${user_name}" -g "${user_name}" "/home/${user_name}"
@@ -73,6 +83,19 @@ fi
 EOF_PROFILE
 fi
 chown "${user_name}:${user_name}" "${bashrc}" "${bash_profile}"
+
+# Git identity for the tenant owner (init.defaultBranch comes from /etc/gitconfig).
+# Written directly so this works on the base image too, where git is not installed.
+if [[ -n "${git_user_name}" || -n "${git_user_email}" ]]; then
+  gitconfig="/home/${user_name}/.gitconfig"
+  {
+    printf '[user]\n'
+    [[ -n "${git_user_name}" ]] && printf '\tname = %s\n' "${git_user_name}"
+    [[ -n "${git_user_email}" ]] && printf '\temail = %s\n' "${git_user_email}"
+  } >"${gitconfig}"
+  chown "${user_name}:${user_name}" "${gitconfig}"
+  chmod 0644 "${gitconfig}"
+fi
 
 ssh_dir="/home/${user_name}/.ssh"
 install -d -m 0700 -o "${user_name}" -g "${user_name}" "${ssh_dir}"
