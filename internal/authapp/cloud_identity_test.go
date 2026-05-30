@@ -9,10 +9,11 @@ import (
 	"testing"
 )
 
-func TestCloudIdentityConfigsAreUserOwnedCRUD(t *testing.T) {
+func TestCloudIdentityConfigsAreUserAndTenantOwnedCRUD(t *testing.T) {
 	db := authDBForTest(t)
 	config, err := UpsertCloudIdentityConfig(context.Background(), db, CloudIdentityConfig{
 		UserKey:     "octocat",
+		Tenant:      "prod",
 		Name:        "prod",
 		GCPAudience: "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
 	})
@@ -31,8 +32,17 @@ func TestCloudIdentityConfigsAreUserOwnedCRUD(t *testing.T) {
 	}
 	if _, err := UpsertCloudIdentityConfig(context.Background(), db, CloudIdentityConfig{
 		UserKey:     "octocat",
+		Tenant:      "prod",
 		Name:        "prod",
 		GCPAudience: "updated",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpsertCloudIdentityConfig(context.Background(), db, CloudIdentityConfig{
+		UserKey:     "octocat",
+		Tenant:      "stage",
+		Name:        "prod",
+		GCPAudience: "stage-audience",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -40,17 +50,17 @@ func TestCloudIdentityConfigsAreUserOwnedCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(configs) != 1 || configs[0].GCPAudience != "updated" {
+	if len(configs) != 2 || configs[0].GCPAudience != "updated" || configs[1].GCPAudience != "stage-audience" {
 		t.Fatalf("configs = %#v", configs)
 	}
-	if err := DeleteCloudIdentityConfig(context.Background(), db, "octocat", "prod"); err != nil {
+	if err := DeleteCloudIdentityConfig(context.Background(), db, "octocat", "prod", "prod"); err != nil {
 		t.Fatal(err)
 	}
 	configs, err = ListCloudIdentityConfigs(context.Background(), db, "octocat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(configs) != 0 {
+	if len(configs) != 1 || configs[0].Tenant != "stage" {
 		t.Fatalf("deleted configs = %#v", configs)
 	}
 }
@@ -59,6 +69,7 @@ func TestMachineWorkloadIdentitySelectsUserOwnedCloudConfig(t *testing.T) {
 	db := authDBForTest(t)
 	if _, err := UpsertCloudIdentityConfig(context.Background(), db, CloudIdentityConfig{
 		UserKey:                           "octocat",
+		Tenant:                            "acme",
 		Name:                              "prod",
 		GCPAudience:                       "aud",
 		GCPSubjectTokenType:               "jwt",
@@ -66,15 +77,18 @@ func TestMachineWorkloadIdentitySelectsUserOwnedCloudConfig(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	request, err := MachineWorkloadIdentityForCloudConfig(context.Background(), db, "octocat", "prod", "https://auth.example.com/internal/workload/token", "secret")
+	request, err := MachineWorkloadIdentityForCloudConfig(context.Background(), db, "octocat", "acme", "prod", "https://auth.example.com/internal/workload/token", "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if request.TokenEndpoint == "" || request.RuntimeSecret != "secret" || request.GCP.Audience != "aud" || request.GCP.ServiceAccountImpersonationURL != "impersonate" {
 		t.Fatalf("request = %#v", request)
 	}
-	if _, err := MachineWorkloadIdentityForCloudConfig(context.Background(), db, "hubot", "prod", "endpoint", "secret"); err == nil {
+	if _, err := MachineWorkloadIdentityForCloudConfig(context.Background(), db, "hubot", "acme", "prod", "endpoint", "secret"); err == nil {
 		t.Fatal("expected owner isolation error")
+	}
+	if _, err := MachineWorkloadIdentityForCloudConfig(context.Background(), db, "octocat", "other", "prod", "endpoint", "secret"); err == nil {
+		t.Fatal("expected tenant isolation error")
 	}
 }
 
@@ -88,7 +102,7 @@ func TestCloudIdentityConfigUIUsesSessionOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := NewHandler(db, HandlerOptions{})
-	request := httptest.NewRequest(http.MethodPost, "/cloud-identities", strings.NewReader("name=prod&gcp_audience=aud"))
+	request := httptest.NewRequest(http.MethodPost, "/cloud-identities", strings.NewReader("tenant=acme&name=prod&gcp_audience=aud"))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.AddCookie(&http.Cookie{Name: "sandcastle_session", Value: sessionID})
 	response := httptest.NewRecorder()
@@ -100,7 +114,7 @@ func TestCloudIdentityConfigUIUsesSessionOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(configs) != 1 || configs[0].Name != "prod" {
+	if len(configs) != 1 || configs[0].Tenant != "acme" || configs[0].Name != "prod" {
 		t.Fatalf("configs = %#v", configs)
 	}
 }
@@ -115,7 +129,7 @@ func TestCloudIdentityConfigAPIAcceptsCLIToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := NewHandler(db, HandlerOptions{})
-	body := `{"name":"gcp","provider":"gcp","gcp_audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider","gcp_service_account_impersonation_url":"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@example.iam.gserviceaccount.com:generateAccessToken"}`
+	body := `{"tenant":"acme","name":"gcp","provider":"gcp","gcp_audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider","gcp_service_account_impersonation_url":"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@example.iam.gserviceaccount.com:generateAccessToken"}`
 	request := httptest.NewRequest(http.MethodPost, "/api/cloud-identities", strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
@@ -127,14 +141,25 @@ func TestCloudIdentityConfigAPIAcceptsCLIToken(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Name != "gcp" || payload.GCPAudience == "" || payload.GCPServiceAccountImpersonationURL == "" {
+	if payload.Tenant != "acme" || payload.Name != "gcp" || payload.GCPAudience == "" || payload.GCPServiceAccountImpersonationURL == "" {
 		t.Fatalf("payload = %#v", payload)
 	}
 	configs, err := ListCloudIdentityConfigs(context.Background(), db, "octocat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(configs) != 1 || configs[0].Name != "gcp" {
+	if len(configs) != 1 || configs[0].Tenant != "acme" || configs[0].Name != "gcp" {
 		t.Fatalf("configs = %#v", configs)
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/cloud-identities?tenant=acme&name=gcp", nil)
+	get.Header.Set("Authorization", "Bearer "+token)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, get)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("get = %d %q", getResponse.Code, getResponse.Body.String())
+	}
+	if !strings.Contains(getResponse.Body.String(), `"tenant":"acme"`) {
+		t.Fatalf("get body = %q", getResponse.Body.String())
 	}
 }

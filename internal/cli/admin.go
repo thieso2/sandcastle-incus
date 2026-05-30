@@ -1160,9 +1160,184 @@ func newAdminImageCommand(config commandConfig, opts *rootOptions) *cobra.Comman
 		Short: "Manage Sandcastle image aliases",
 	}
 	imageCommand.AddCommand(newAdminImageBuildCommand(config, opts))
+	imageCommand.AddCommand(newAdminImageBuildRemoteCommand(config, opts))
 	imageCommand.AddCommand(newAdminImageImportCommand(config, opts))
 	imageCommand.AddCommand(newAdminImageSyncCommand(config, opts))
+	imageCommand.AddCommand(newAdminImageBuilderCommand(config, opts))
 	return imageCommand
+}
+
+// ghcrTokenFromEnv supplies the Image Registry push token to the remote image
+// builder. It is read lazily and only when a build pushes, so it never sits in
+// the plan or on argv.
+func ghcrTokenFromEnv() (string, error) {
+	return os.Getenv("SANDCASTLE_GHCR_TOKEN"), nil
+}
+
+func newAdminImageBuildRemoteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var (
+		ghcrRepo       string
+		ghcrUser       string
+		remote         string
+		platform       string
+		codexVersion   string
+		claudeVersion  string
+		geminiVersion  string
+		requireClean   bool
+		noPush         bool
+		noImport       bool
+		rebuildBuilder bool
+		dryRun         bool
+	)
+	command := &cobra.Command{
+		Use:   "build-remote base|ai|all",
+		Short: "Build Sandcastle Images in the Image Builder appliance and publish to GHCR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			templates, err := remoteBuildTemplates(args[0])
+			if err != nil {
+				return err
+			}
+			for _, template := range templates {
+				plan, err := images.PlanRemoteBuild(config.adminConfig, images.RemoteBuildRequest{
+					Template:       template,
+					Remote:         remote,
+					GHCRRepo:       ghcrRepo,
+					GHCRUser:       ghcrUser,
+					Platform:       platform,
+					CodexVersion:   codexVersion,
+					ClaudeVersion:  claudeVersion,
+					GeminiVersion:  geminiVersion,
+					RequireClean:   requireClean,
+					NoPush:         noPush,
+					NoImport:       noImport,
+					RebuildBuilder: rebuildBuilder,
+				})
+				if err != nil {
+					return err
+				}
+				if dryRun {
+					if err := writeOutput(config.stdout, opts.output, formatRemoteBuildPlan(plan), plan); err != nil {
+						return err
+					}
+					continue
+				}
+				if config.remoteImageBuilder == nil {
+					return fmt.Errorf("remote image builder is not configured")
+				}
+				result, err := config.remoteImageBuilder.BuildRemote(cmd.Context(), plan)
+				if err != nil {
+					return err
+				}
+				if err := writeOutput(config.stdout, opts.output, formatRemoteBuildResult(result), result); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	command.Flags().StringVar(&ghcrRepo, "ghcr-repo", os.Getenv("SANDCASTLE_GHCR_REPO"), "GHCR owner/repo prefix, defaulting to "+images.DefaultGHCRRepo)
+	command.Flags().StringVar(&ghcrUser, "ghcr-user", os.Getenv("SANDCASTLE_GHCR_USER"), "GHCR username for podman login, defaulting to the repo owner")
+	command.Flags().StringVar(&remote, "remote", "", "Incus remote to publish into, defaulting to the configured remote")
+	command.Flags().StringVar(&platform, "platform", "", "OCI build platform, for example linux/amd64")
+	command.Flags().StringVar(&codexVersion, "codex-version", "", "pinned Codex CLI version for AI images")
+	command.Flags().StringVar(&claudeVersion, "claude-version", "", "pinned Claude Code version for AI images")
+	command.Flags().StringVar(&geminiVersion, "gemini-version", "", "pinned Gemini CLI version for AI images")
+	command.Flags().BoolVar(&requireClean, "require-clean", false, "refuse to build when the working tree is dirty")
+	command.Flags().BoolVar(&noPush, "no-push", false, "build without logging in or pushing to GHCR")
+	command.Flags().BoolVar(&noImport, "no-import", false, "skip copying the published image into the Incus alias")
+	command.Flags().BoolVar(&rebuildBuilder, "rebuild-builder", false, "recreate the Image Builder appliance before building")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the remote build plan without running it")
+	return command
+}
+
+func remoteBuildTemplates(arg string) ([]string, error) {
+	switch strings.ToLower(strings.TrimSpace(arg)) {
+	case "base":
+		return []string{"base"}, nil
+	case "ai":
+		return []string{"ai"}, nil
+	case "all":
+		return []string{"base", "ai"}, nil
+	default:
+		return nil, fmt.Errorf("unknown image template %q (want base, ai, or all)", arg)
+	}
+}
+
+func newAdminImageBuilderCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	builderCommand := &cobra.Command{
+		Use:   "builder",
+		Short: "Manage the Image Builder appliance",
+	}
+
+	var statusRemote string
+	statusCommand := &cobra.Command{
+		Use:   "status",
+		Short: "Show Image Builder appliance state",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := images.PlanBuilderAppliance(config.adminConfig, statusRemote)
+			if err != nil {
+				return err
+			}
+			if config.remoteImageBuilder == nil {
+				return fmt.Errorf("remote image builder is not configured")
+			}
+			status, err := config.remoteImageBuilder.BuilderStatus(cmd.Context(), app)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, status, app)
+		},
+	}
+	statusCommand.Flags().StringVar(&statusRemote, "remote", "", "Incus remote, defaulting to the configured remote")
+
+	var destroyRemote string
+	var keepCache bool
+	destroyCommand := &cobra.Command{
+		Use:   "destroy",
+		Short: "Tear down the Image Builder appliance and its project",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := images.PlanBuilderAppliance(config.adminConfig, destroyRemote)
+			if err != nil {
+				return err
+			}
+			if config.remoteImageBuilder == nil {
+				return fmt.Errorf("remote image builder is not configured")
+			}
+			if err := config.remoteImageBuilder.BuilderDestroy(cmd.Context(), app, keepCache); err != nil {
+				return err
+			}
+			fmt.Fprintf(config.stdout, "Destroyed Image Builder %s in %s:%s\n", app.Instance, app.Remote, app.Project)
+			return nil
+		},
+	}
+	destroyCommand.Flags().StringVar(&destroyRemote, "remote", "", "Incus remote, defaulting to the configured remote")
+	destroyCommand.Flags().BoolVar(&keepCache, "keep-cache", false, "preserve the podman layer-cache volume and project")
+
+	builderCommand.AddCommand(statusCommand)
+	builderCommand.AddCommand(destroyCommand)
+	return builderCommand
+}
+
+func formatRemoteBuildPlan(plan images.RemoteBuildPlan) string {
+	lines := []string{
+		"Template: " + plan.Template,
+		"Image: " + plan.ImageVersncRef + " (+ :latest)",
+		"Builder: " + plan.Builder.Remote + ":" + plan.Builder.Project + "/" + plan.Builder.Instance + " (" + plan.Builder.Image + ")",
+	}
+	if plan.BaseRef != "" {
+		lines = append(lines, "Base: "+plan.BaseRef)
+	}
+	if !plan.NoImport {
+		lines = append(lines, "Import: "+strings.Join(plan.ImportCommand, " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatRemoteBuildResult(result images.RemoteBuildResult) string {
+	return fmt.Sprintf("Image: %s\nTemplate: %s\nPushed: %t\nImported: %t", result.ImageVersncRef, result.Template, result.Pushed, result.Imported)
 }
 
 func newAdminImageBuildCommand(config commandConfig, opts *rootOptions) *cobra.Command {

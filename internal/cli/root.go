@@ -61,6 +61,7 @@ type commandConfig struct {
 	imageBuilder        images.Builder
 	imageImporter       images.Importer
 	imageUploader       images.Uploader
+	remoteImageBuilder  images.RemoteImageBuilder
 	topologyStore       tenant.TopologyStore
 	trustManager        usertrust.Manager
 	machineCreator      machine.Creator
@@ -114,6 +115,7 @@ type authWorkloadClient interface {
 
 type authCloudIdentityClient interface {
 	UpsertCloudIdentity(context.Context, authapp.CloudIdentityUpsertRequest) (authapp.CloudIdentityConfig, error)
+	GetCloudIdentity(context.Context, string, string) (authapp.CloudIdentityConfig, error)
 }
 
 type authTenantClient interface {
@@ -182,6 +184,7 @@ func Execute(name string, args []string) int {
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},
 		imageUploader:       images.LocalUploader{},
+		remoteImageBuilder:  images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr},
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),

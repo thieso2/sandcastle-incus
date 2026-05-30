@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -159,6 +160,9 @@ func newProjectSetCloudIdentityCommand(config commandConfig, opts *rootOptions) 
 			if err != nil {
 				return err
 			}
+			if err := validateProjectCloudIdentity(cmd.Context(), config, plan.Tenant.Tenant, strings.TrimSpace(args[1])); err != nil {
+				return err
+			}
 			if !dryRun {
 				if config.tenantUpdater == nil {
 					return fmt.Errorf("project metadata updater is not configured")
@@ -172,6 +176,33 @@ func newProjectSetCloudIdentityCommand(config commandConfig, opts *rootOptions) 
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the project metadata update without mutating resources")
 	return command
+}
+
+func validateProjectCloudIdentity(ctx context.Context, config commandConfig, tenantName string, cloudIdentity string) error {
+	tenantName = strings.TrimSpace(tenantName)
+	cloudIdentity = strings.TrimSpace(cloudIdentity)
+	if tenantName == "" || cloudIdentity == "" {
+		return fmt.Errorf("tenant and cloud identity config are required")
+	}
+	client := config.authCloudIdentity
+	if client == nil {
+		baseURL := commandAuthHostname(config, "")
+		if baseURL == "" {
+			return fmt.Errorf("cannot validate cloud identity %q for tenant %q: --auth-hostname is required (or run sc login again)", cloudIdentity, tenantName)
+		}
+		if strings.TrimSpace(config.adminConfig.AuthToken) == "" {
+			return fmt.Errorf("cannot validate cloud identity %q for tenant %q: run sc login first", cloudIdentity, tenantName)
+		}
+		client = authapp.DeviceClient{BaseURL: baseURL, AuthToken: config.adminConfig.AuthToken}
+	}
+	configured, err := client.GetCloudIdentity(ctx, tenantName, cloudIdentity)
+	if err != nil {
+		return fmt.Errorf("cloud identity config %q is not configured for tenant %q: %w", cloudIdentity, tenantName, err)
+	}
+	if strings.TrimSpace(configured.Tenant) != tenantName {
+		return fmt.Errorf("cloud identity config %q belongs to tenant %q, not tenant %q", cloudIdentity, configured.Tenant, tenantName)
+	}
+	return nil
 }
 
 func newProjectUnsetCloudIdentityCommand(config commandConfig, opts *rootOptions) *cobra.Command {

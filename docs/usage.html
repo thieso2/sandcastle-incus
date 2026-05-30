@@ -415,7 +415,7 @@ Bootstrap:
 <span class="cmd">sandcastle project unset-cloud-identity</span> <span class="arg">default</span>
 <span class="cmd">sandcastle project set-docker-autostart</span> <span class="arg">website</span> <span class="arg">on</span>
 <span class="cmd">sandcastle project delete</span> <span class="arg">website</span> <span class="flag">--yes</span></code></pre>
-    <p>A project's default Cloud Identity Config is used by <code>sandcastle create</code> and by <code>sandcastle connect</code> when it auto-creates a missing machine. The Docker autostart setting controls whether Docker is enabled and started during new machine configuration; it also enables nested container tooling for those new machines. Docker is installed in the base image but the daemon is disabled by default. The default project can carry both settings too.</p>
+    <p>A project's default Cloud Identity Config is used by <code>sandcastle create</code> and by <code>sandcastle connect</code> when it auto-creates a missing machine. <code>sandcastle project set-cloud-identity</code> validates that the named Auth App Cloud Identity Config exists for the current tenant before it updates project metadata; a same-named config from another tenant is refused. The Docker autostart setting controls whether Docker is enabled and started during new machine configuration; it also enables nested container tooling for those new machines. Docker is installed in the base image but the daemon is disabled by default. The default project can carry both settings too.</p>
   </div>
 
   <div class="step">
@@ -676,7 +676,7 @@ Bootstrap:
     <p>Initial Sandcastle Admins from <code>SANDCASTLE_AUTH_ADMIN_GITHUB_USERS</code> can sign in through GitHub and manage the Login Allowlist at <code>/admin/allowlist</code> and Tenant Access at <code>/admin/access</code>. The allowlist accepts explicit GitHub users only; password login is not available. For disposable lab integrations, <code>SANDCASTLE_AUTH_DEBUG_DEVICE_USER</code> enables <code>POST /debug/device/approve</code> to approve CLI Device Login as that allowlisted user without a browser session. <code>SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</code> can be set during <code>infra create</code> to return a Tailscale auth key to approved CLI Device Login clients for unattended tenant sidecar attachment; this is intended for disposable integration environments and is not stored in Incus metadata.</p>
     <p><code>infra create</code> and <code>infra delete</code> print a configuration banner before mutation, including the selected remote, infrastructure project, project prefix, TLS mode, image aliases, uploaded admin binary, Auth Hostname, GitHub OAuth client ID, initial admin users, and Incus socket path. The GitHub OAuth client secret is redacted and shown only as set or unset.</p>
     <p>The Auth App also serves per-tenant OIDC provider metadata at <code>/t/&lt;tenant&gt;/.well-known/openid-configuration</code> and per-tenant public signing keys at <code>/t/&lt;tenant&gt;/.well-known/jwks.json</code>. Legacy global metadata remains available at <code>/.well-known/openid-configuration</code> and <code>/.well-known/jwks.json</code>. Private signing keys are stored encrypted in the Auth Database. See <a href="oidc-configuration.html">Sandcastle OIDC Configuration</a> for the full provider and machine token flow.</p>
-    <p>Users can manage User-owned Cloud Identity Configs at <code>/cloud-identities</code>. Use <code>sc cloud-identity gcp setup --tenant &lt;tenant&gt;</code> after <code>sc login</code> to configure tenant-scoped GCP Workload Identity Federation, save the Auth App config named <code>gcp</code>, and print the audience and service account impersonation URL for confirmation. Use <code>sc workload enable &lt;machine&gt; --cloud-identity gcp</code> to rotate the Machine Runtime Secret and inject workload files into an existing tenant machine, pass <code>--cloud-identity gcp</code> to <code>sc create</code> or <code>sc connect</code>, or set a project default with <code>sc project set-cloud-identity default gcp</code>. Machines that opt into workload identity receive a rotated runtime secret, Auth App token endpoint metadata, <code>/usr/local/bin/sandcastle-workload-token</code>, and, when a GCP config is selected, an executable-sourced external account credential file plus <code>GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES</code>, <code>GOOGLE_APPLICATION_CREDENTIALS</code>, and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code> environment variables.</p>
+    <p>Users can manage User-owned, tenant-scoped Cloud Identity Configs at <code>/cloud-identities</code>. Use <code>sc cloud-identity gcp setup --tenant &lt;tenant&gt;</code> after <code>sc login</code> to configure tenant-scoped GCP Workload Identity Federation, save the Auth App config named <code>gcp</code> for that tenant, and print the audience and service account impersonation URL for confirmation. Use <code>sc workload enable &lt;machine&gt; --cloud-identity gcp</code> to rotate the Machine Runtime Secret and inject workload files into an existing tenant machine, pass <code>--cloud-identity gcp</code> to <code>sc create</code> or <code>sc connect</code>, or set a project default with <code>sc project set-cloud-identity default gcp</code>. Project defaults are accepted only when the named config exists for the current tenant. Machines that opt into workload identity receive a rotated runtime secret, Auth App token endpoint metadata, <code>/usr/local/bin/sandcastle-workload-token</code>, and, when a GCP config is selected, an executable-sourced external account credential file plus <code>GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES</code>, <code>GOOGLE_APPLICATION_CREDENTIALS</code>, and <code>CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE</code> environment variables.</p>
     <pre><code><span class="cmd">sandcastle-admin infra gen-seed</span> <span class="flag">--name</span> <span class="arg">lab</span>
 <span class="cmd">sandcastle-admin infra create</span> <span class="flag">--name</span> <span class="arg">lab</span>
 <span class="cmd">sandcastle-admin infra create</span> <span class="flag">--seed</span> <span class="arg">~/.config/sandcastle/lab.seed.yml</span>
@@ -762,7 +762,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Build and upload the base image</h3>
-    <p>The base image includes tmux, vim, mosh, Docker, gcloud CLI, generated locales, and refreshed forwarded SSH agent sockets across reconnects. Docker service units are disabled in the image so the daemon does not start unless the machine or project configuration opts into it.</p>
+    <p>The base image includes tmux, vim, mosh, ripgrep, mise, Docker, gcloud CLI, generated locales, and refreshed forwarded SSH agent sockets across reconnects. Docker service units are disabled in the image so the daemon does not start unless the machine or project configuration opts into it. The image ships a global <code>git</code> default of <code>init.defaultBranch = main</code>, and machine configuration writes the Sandcastle user's <code>~/.gitconfig</code> <code>[user]</code> identity from the local <code>git config user.name</code>/<code>user.email</code> of whoever runs <code>sandcastle create</code>. Machine configuration also gives the Sandcastle user's group write access to <code>/usr/local</code> so <code>npm install -g</code> (e.g. <code>@openai/codex</code>) works without <code>sudo</code>.</p>
     <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
 <span class="cmd">mise run image:base:build-upload</span></code></pre>
   </div>
@@ -772,16 +772,29 @@ Bootstrap:
     <table>
       <thead><tr><th>Task</th><th>Description</th></tr></thead>
       <tbody>
-        <tr><td>mise run image:all:build-upload</td><td>Rebuild base and AI images, upload both to Incus, then sync tenant-local aliases</td></tr>
+        <tr><td>mise run image:all:build-upload</td><td>Rebuild base and AI images locally (docker), upload both to Incus, then sync tenant-local aliases</td></tr>
         <tr><td>mise run image:tenant:sync</td><td>Sync published image aliases into image-enabled Sandcastle tenant projects</td></tr>
-        <tr><td>mise run image:ai:build-upload</td><td>Build AI image with latest tool versions and upload to Incus</td></tr>
-        <tr><td>mise run image:base:build-upload</td><td>Build base image and upload to Incus</td></tr>
+        <tr><td>mise run image:ai:build-upload</td><td>Build AI image locally with latest tool versions and upload to Incus</td></tr>
+        <tr><td>mise run image:base:build-upload</td><td>Build base image locally and upload to Incus</td></tr>
         <tr><td>mise run image:base:build</td><td>Build base image locally only</td></tr>
         <tr><td>mise run image:base:upload</td><td>Upload a previously built base image</td></tr>
+        <tr><td>mise run image:base:build-remote</td><td>Build base image in the <code>sc-build</code> Image Builder appliance and publish to GHCR (needs <code>SANDCASTLE_GHCR_TOKEN</code>)</td></tr>
+        <tr><td>mise run image:ai:build-remote</td><td>Build AI image in the Image Builder appliance with latest tool versions and publish to GHCR</td></tr>
+        <tr><td>mise run image:all:build-remote</td><td>Build base then AI in the Image Builder appliance and publish both to GHCR</td></tr>
         <tr><td>mise run image:deps</td><td>Check that docker, incus, tar, zstd are installed</td></tr>
         <tr><td>mise run install</td><td>Install the user CLI and <code>sc</code> alias</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <div class="step">
+    <h3>Image Builder appliance (build in a container, publish to GHCR)</h3>
+    <p>Instead of building locally with docker, the <strong>Image Builder</strong> builds Sandcastle Images inside a dedicated, admin-managed Incus container and publishes them to GHCR. It is an infrastructure appliance, not a Machine. See <code>docs/adr/0010-image-builder-appliance.md</code>.</p>
+    <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
+<span class="env">export SANDCASTLE_GHCR_TOKEN</span>=&lt;github PAT with write:packages&gt;
+<span class="cmd">mise run image:all:build-remote</span>          <span class="comment"># or sc-adm image build-remote base|ai|all</span></code></pre>
+    <p>How it works: the <code>sc-build</code> project holds a persistent <code>sc-builder</code> container (neutral <code>images:debian/13</code>, <code>security.nesting</code>, <code>/dev/fuse</code>) that builds with <strong>rootless podman</strong> against a cache volume. <code>build-remote</code> ensures the appliance and a one-time <code>ghcr</code> OCI remote, ships the working-tree build context in, logs in with the token over stdin (never persisted), builds <code>:latest</code> + an immutable <code>:&lt;git-describe&gt;</code> tag, pushes to GHCR, then copies the immutable tag into the local Incus alias and syncs tenant aliases. The AI image is built <code>FROM</code> the immutable base tag of the same run.</p>
+    <p>Flags: <code>--require-clean</code> (refuse a dirty tree), <code>--no-push</code>, <code>--no-import</code>, <code>--rebuild-builder</code>, <code>--ghcr-repo</code>, <code>--ghcr-user</code>, <code>--remote</code>, <code>--platform</code>, <code>--dry-run</code>. Manage the appliance with <code>sandcastle-admin image builder status</code> and <code>sandcastle-admin image builder destroy [--keep-cache]</code>. GHCR packages must be public-read so the Incus host pulls without credentials; the token is only used to push.</p>
   </div>
 
   <div class="step">

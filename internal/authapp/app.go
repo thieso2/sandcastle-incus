@@ -272,6 +272,7 @@ CREATE TABLE IF NOT EXISTS machine_runtime_secrets (
 CREATE TABLE IF NOT EXISTS cloud_identity_configs (
     id TEXT PRIMARY KEY,
     user_key TEXT NOT NULL,
+    tenant TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
     provider TEXT NOT NULL,
     gcp_audience TEXT NOT NULL DEFAULT '',
@@ -280,7 +281,7 @@ CREATE TABLE IF NOT EXISTS cloud_identity_configs (
     deleted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    UNIQUE(user_key, name)
+    UNIQUE(user_key, tenant, name)
 );
 INSERT INTO auth_app_meta (key, value, updated_at)
 VALUES ('schema_version', '1', datetime('now'))
@@ -300,7 +301,100 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 	if err := ensureColumn(ctx, db, "oidc_signing_keys", "tenant", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := ensureColumn(ctx, db, "cloud_identity_configs", "tenant", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := migrateCloudIdentityConfigsTenantScope(ctx, db); err != nil {
+		return err
+	}
 	return nil
+}
+
+func migrateCloudIdentityConfigsTenantScope(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `
+SELECT id, gcp_audience
+FROM cloud_identity_configs
+WHERE tenant = '' AND gcp_audience LIKE '%/workloadIdentityPools/sandcastle-%/providers/%'
+`)
+	if err != nil {
+		return err
+	}
+	var inferred []struct {
+		id     string
+		tenant string
+	}
+	for rows.Next() {
+		var id, audience string
+		if err := rows.Scan(&id, &audience); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if tenant := inferTenantFromGCPAudience(audience); tenant != "" {
+			inferred = append(inferred, struct {
+				id     string
+				tenant string
+			}{id: id, tenant: tenant})
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range inferred {
+		if _, err := db.ExecContext(ctx, "UPDATE cloud_identity_configs SET tenant = ? WHERE id = ?", item.tenant, item.id); err != nil {
+			return err
+		}
+	}
+
+	var createSQL string
+	err = db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cloud_identity_configs'").Scan(&createSQL)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(createSQL, "UNIQUE(user_key, tenant, name)") {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, `
+CREATE TABLE cloud_identity_configs_new (
+    id TEXT PRIMARY KEY,
+    user_key TEXT NOT NULL,
+    tenant TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    gcp_audience TEXT NOT NULL DEFAULT '',
+    gcp_subject_token_type TEXT NOT NULL DEFAULT '',
+    gcp_service_account_impersonation_url TEXT NOT NULL DEFAULT '',
+    deleted INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_key, tenant, name)
+);
+INSERT INTO cloud_identity_configs_new (
+    id, user_key, tenant, name, provider, gcp_audience, gcp_subject_token_type,
+    gcp_service_account_impersonation_url, deleted, created_at, updated_at
+)
+SELECT id, user_key, tenant, name, provider, gcp_audience, gcp_subject_token_type,
+    gcp_service_account_impersonation_url, deleted, created_at, updated_at
+FROM cloud_identity_configs;
+DROP TABLE cloud_identity_configs;
+ALTER TABLE cloud_identity_configs_new RENAME TO cloud_identity_configs;
+`); err != nil {
+		return fmt.Errorf("migrate cloud identity configs tenant scope: %w", err)
+	}
+	return nil
+}
+
+func inferTenantFromGCPAudience(audience string) string {
+	const marker = "/workloadIdentityPools/sandcastle-"
+	index := strings.Index(audience, marker)
+	if index < 0 {
+		return ""
+	}
+	rest := audience[index+len(marker):]
+	tenant, _, ok := strings.Cut(rest, "/providers/")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(tenant)
 }
 
 func ensureColumn(ctx context.Context, db *sql.DB, table string, column string, definition string) error {

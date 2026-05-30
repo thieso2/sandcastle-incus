@@ -96,6 +96,7 @@ func newCloudIdentityGCPSetupCommand(config commandConfig, opts *rootOptions) *c
 				}
 				if client != nil {
 					if _, err := client.UpsertCloudIdentity(cmd.Context(), authapp.CloudIdentityUpsertRequest{
+						Tenant:                            result.Tenant,
 						Name:                              result.ConfigName,
 						Provider:                          "gcp",
 						GCPAudience:                       result.CloudIdentityAudience,

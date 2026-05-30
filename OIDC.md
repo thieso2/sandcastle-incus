@@ -113,7 +113,7 @@ sc project set-cloud-identity default gcp
 sc project unset-cloud-identity default
 ```
 
-When a project default is set, `sc create` and `sc connect` auto-creation use it when `--cloud-identity` is omitted.
+When a project default is set, `sc create` and `sc connect` auto-creation use it when `--cloud-identity` is omitted. `sc project set-cloud-identity` validates that the named Cloud Identity Config exists for the current tenant before updating project metadata; a config named `gcp` saved for another tenant is refused.
 
 This command:
 1. Resolves the machine and its tenant from Incus state.
@@ -199,7 +199,7 @@ sc cloud-identity gcp setup \
   --tenant {tenant}
 ```
 
-It creates or updates the Workload Identity Pool and OIDC provider, creates a service account if needed, grants `roles/iam.workloadIdentityUser`, and saves the user-owned Sandcastle Cloud Identity Config named `gcp` in the Auth App. The command also prints the GCP audience and service account impersonation URL so the web UI can be used to confirm or repair the saved config.
+It creates or updates the Workload Identity Pool and OIDC provider, creates a service account if needed, grants `roles/iam.workloadIdentityUser`, and saves the user-owned, tenant-scoped Sandcastle Cloud Identity Config named `gcp` in the Auth App. The command also prints the GCP audience and service account impersonation URL so the web UI can be used to confirm or repair the saved config.
 
 Verify the configured GCP and Sandcastle issuer state with:
 
