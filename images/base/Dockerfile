@@ -1,13 +1,15 @@
 FROM debian:13-slim
 
 ARG COREDNS_VERSION=1.14.3
-ARG SANDCASTLE_IMAGE_TEMPLATE=base
-ARG SANDCASTLE_IMAGE_TAG=sandcastle/base:latest
-ARG SANDCASTLE_IMAGE_VERSION=unknown
-ARG SANDCASTLE_IMAGE_COMMIT_DATE=unknown
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
+
+# NOTE: The per-build version args are declared near the end, just before the
+# RUN that consumes them. buildah invalidates a layer's cache when any in-scope
+# build-arg VALUE changes (even if the layer does not reference it), so keeping
+# these out of scope of the heavy package layers lets those layers stay cached
+# across commits.
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -117,6 +119,10 @@ RUN chmod 0755 /usr/local/bin/sandcastle-bootstrap
 COPY gitconfig /etc/gitconfig
 RUN chmod 0644 /etc/gitconfig
 
+ARG SANDCASTLE_IMAGE_TEMPLATE=base
+ARG SANDCASTLE_IMAGE_TAG=sandcastle/base:latest
+ARG SANDCASTLE_IMAGE_VERSION=unknown
+ARG SANDCASTLE_IMAGE_COMMIT_DATE=unknown
 RUN printf 'Sandcastle %s image\nVersion: %s\nImage: %s\nLast commit: %s\n\n' \
         "$SANDCASTLE_IMAGE_TEMPLATE" \
         "$SANDCASTLE_IMAGE_VERSION" \
