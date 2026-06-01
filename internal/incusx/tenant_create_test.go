@@ -484,6 +484,11 @@ func TestTenantCreatorCreatesMissingResources(t *testing.T) {
 		if got := strings.Join(infraServer.execCommands[i], " "); !strings.Contains(got, "sandcastle-sidecar-network.service") || !strings.Contains(got, "/usr/sbin/ip addr replace") {
 			t.Fatalf("exec[%d] command = %q, want persistent sidecar network setup", i, got)
 		}
+		// Enablement must not depend on the systemd bus being ready right after
+		// the sidecar starts, or a host reboot leaves the unit disabled with no IP.
+		if got := strings.Join(infraServer.execCommands[i], " "); !strings.Contains(got, "ln -sf /etc/systemd/system/sandcastle-sidecar-network.service /etc/systemd/system/multi-user.target.wants/sandcastle-sidecar-network.service") {
+			t.Fatalf("exec[%d] command = %q, want bus-independent symlink enable", i, got)
+		}
 	}
 	if got := strings.Join(infraServer.execCommands[0], " "); !strings.Contains(got, "systemctl unmask tailscaled.service") || !strings.Contains(got, "systemctl disable --now tailscaled.service") {
 		t.Fatalf("tailscale sidecar command = %q", got)

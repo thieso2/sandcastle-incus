@@ -73,6 +73,12 @@ func TestPlanCreate(t *testing.T) {
 	if plan.Sidecars[1].Name != DNSName || plan.Sidecars[1].Address != "10.248.1.3" {
 		t.Fatalf("dns sidecar = %#v", plan.Sidecars[1])
 	}
+	if eth0 := plan.Sidecars[1].Devices["eth0"]; eth0["ipv4.address"] != "10.248.1.3" {
+		t.Fatalf("dns sidecar eth0 should bake in ipv4.address: %#v", eth0)
+	}
+	if eth0 := plan.Sidecars[0].Devices["eth0"]; eth0["ipv4.address"] != "10.248.1.2" {
+		t.Fatalf("tailscale sidecar eth0 should bake in ipv4.address: %#v", eth0)
+	}
 	if _, ok := plan.Sidecars[1].Devices["tun"]; ok {
 		t.Fatalf("dns sidecar should not have tun device: %#v", plan.Sidecars[1].Devices)
 	}

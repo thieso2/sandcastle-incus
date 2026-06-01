@@ -267,6 +267,13 @@ func sidecarDevices(storagePool string, incusName string, role string, address s
 			"type":    "nic",
 			"nictype": "bridged",
 			"parent":  PrivateNetworkName(incusName),
+			// Bake the well-known sidecar address (tailscale .2, dns .3) in as a
+			// static DHCP reservation on the managed bridge, mirroring machines.
+			// The image has no DHCP client, so the address is actually applied by
+			// the sandcastle-sidecar-network unit (see configureSidecarNetwork);
+			// the reservation keeps the dynamic pool from ever handing out the
+			// sidecar octets and records intent next to the machine devices.
+			"ipv4.address": address,
 		},
 	}
 	if role == "tailscale" {

@@ -665,9 +665,14 @@ func appendMachineNetworkConfigScript(script *strings.Builder, ipWithPrefix stri
 	script.WriteString("[Install]\n")
 	script.WriteString("WantedBy=multi-user.target\n")
 	script.WriteString("EOF_UNIT\n")
+	// Enable via the wants-symlink directly so the static IP is reapplied on every
+	// boot even if systemd's D-Bus is not ready when this provisioning step runs;
+	// a bare `systemctl enable` can otherwise fail and leave the unit disabled.
+	script.WriteString("install -d -m 0755 /etc/systemd/system/multi-user.target.wants\n")
+	script.WriteString("ln -sf /etc/systemd/system/sandcastle-machine-network.service /etc/systemd/system/multi-user.target.wants/sandcastle-machine-network.service\n")
 	script.WriteString("/usr/local/sbin/sandcastle-machine-network\n")
-	script.WriteString("systemctl daemon-reload\n")
-	script.WriteString("systemctl enable sandcastle-machine-network.service\n")
+	script.WriteString("systemctl daemon-reload 2>/dev/null || true\n")
+	script.WriteString("systemctl enable sandcastle-machine-network.service 2>/dev/null || true\n")
 }
 
 type machineCaddyRestarter interface {
