@@ -741,7 +741,20 @@ Bootstrap:
 
 <!-- ─── 9. Images ─────────────────────────────────────────────────────── -->
 <section id="images">
-  <h2>9. Manage images <span class="badge badge-admin">admin</span></h2>
+  <h2>9. Manage images</h2>
+
+  <p><strong>Publishing</strong> new Sandcastle Images is a dev/admin task; <strong>pulling</strong> the published images into your tenant is a user task. Published images are marked public on the Incus host so any tenant can pull them.</p>
+
+  <div class="step">
+    <h3>Pull the newest images into your tenant</h3>
+    <p>Refresh your tenant's <code>base</code> and AI image aliases from the deployment's published images, so new machines use the latest build. Existing machines keep their current image until recreated.</p>
+    <pre><code><span class="cmd">sc image pull</span>            <span class="comment"># both base and ai</span>
+<span class="cmd">sc image pull</span> <span class="arg">ai</span>         <span class="comment"># just one</span>
+<span class="cmd">sc image pull</span> <span class="flag">--dry-run</span>  <span class="comment"># show the plan</span></code></pre>
+    <p>This copies the published images (server-side, within the Incus remote) into your tenant project using your restricted user certificate — no admin access needed.</p>
+  </div>
+
+  <h3 class="badge badge-admin">Publishing (admin)</h3>
 
   <div class="step">
     <h3>Build and upload the AI image (latest tool versions) — recommended</h3>

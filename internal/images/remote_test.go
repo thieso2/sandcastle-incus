@@ -39,7 +39,7 @@ func TestPlanRemoteBuildBaseRefs(t *testing.T) {
 	wantImport := []string{
 		"incus", "image", "copy",
 		"ghcr:thieso2/sandcastle-base:0.1.0-5-gabc1234",
-		"local:", "--alias", "sandcastle/base:latest", "--reuse", "--copy-aliases",
+		"local:", "--alias", "sandcastle/base:latest", "--reuse", "--copy-aliases", "--public",
 	}
 	if strings.Join(plan.ImportCommand, " ") != strings.Join(wantImport, " ") {
 		t.Errorf("import command = %v", plan.ImportCommand)

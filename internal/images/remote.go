@@ -244,12 +244,13 @@ func PlanRemoteBuild(admin config.Admin, request RemoteBuildRequest) (RemoteBuil
 		// a non-amd64 workstation this copy cannot run locally; it runs on the
 		// Incus host (target "local:"), reached over SSH by the executor.
 		plan.SyncSourceRef = remote + ":" + alias
+		// --public so restricted tenant users can pull it with `sc image pull`.
 		plan.ImportCommand = []string{
 			"incus", "image", "copy",
 			plan.GHCRRemote + ":" + ghcrPath(versionedRef),
 			"local:",
 			"--alias", alias,
-			"--reuse", "--copy-aliases",
+			"--reuse", "--copy-aliases", "--public",
 		}
 	}
 

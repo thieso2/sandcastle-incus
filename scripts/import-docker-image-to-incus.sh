@@ -97,7 +97,7 @@ print(urllib.parse.urlparse(addr).hostname or "")
 import_via_incus_api() {
   echo "Importing into Incus remote $remote over Incus API..."
   incus image import "$tmpdir/metadata.tar.zst" "$tmpdir/rootfs.tar.zst" "$remote:" \
-    --alias "$temp_alias"
+    --alias "$temp_alias" --public
   activate_remote_alias
 }
 
@@ -116,7 +116,7 @@ cleanup() {
 trap cleanup EXIT
 
 old_fingerprint="$(incus image info "local:$alias_name" 2>/dev/null | awk '/^Fingerprint:/ { print $2; exit }' || true)"
-incus image import "$remote_tmp/metadata.tar.zst" "$remote_tmp/rootfs.tar.zst" --alias "$temp_alias"
+incus image import "$remote_tmp/metadata.tar.zst" "$remote_tmp/rootfs.tar.zst" --alias "$temp_alias" --public
 if [ -n "$old_fingerprint" ]; then
   incus image alias delete "local:$alias_name"
 fi

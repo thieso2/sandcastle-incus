@@ -62,6 +62,7 @@ type commandConfig struct {
 	imageImporter       images.Importer
 	imageUploader       images.Uploader
 	remoteImageBuilder  images.RemoteImageBuilder
+	imagePuller         images.Puller
 	topologyStore       tenant.TopologyStore
 	trustManager        usertrust.Manager
 	machineCreator      machine.Creator
@@ -185,6 +186,7 @@ func Execute(name string, args []string) int {
 		imageImporter:       images.LocalImporter{},
 		imageUploader:       images.LocalUploader{},
 		remoteImageBuilder:  images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr},
+		imagePuller:         images.LocalPuller{},
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
@@ -311,6 +313,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newCloudIdentityCommand(config, opts))
 	root.AddCommand(newWorkloadCommand(config, opts))
 	root.AddCommand(newShareCommand(config, opts))
+	root.AddCommand(newImageCommand(config, opts))
 
 	return root
 }
