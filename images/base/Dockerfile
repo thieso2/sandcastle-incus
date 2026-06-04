@@ -16,6 +16,7 @@ RUN apt-get update \
         bash \
         ca-certificates \
         caddy \
+        chromium \
         curl \
         dbus \
         dialog \
@@ -30,7 +31,9 @@ RUN apt-get update \
         mosh \
         netcat-openbsd \
         net-tools \
+        openbox \
         openssh-server \
+        pyhoca-cli \
         python3 \
         ripgrep \
         sudo \
@@ -40,6 +43,11 @@ RUN apt-get update \
         tmux \
         traceroute \
         vim \
+        x2goserver \
+        x2goserver-x2gokdrive \
+        x2goserver-xsession \
+        xfce4-terminal \
+        xserver-x2gokdrive \
     && rm -rf /var/lib/apt/lists/*
 
 RUN install -dm 0755 /etc/apt/keyrings \

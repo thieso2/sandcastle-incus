@@ -30,6 +30,12 @@ RUN npm install -g \
         "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
         "@google/gemini-cli@${GEMINI_CLI_VERSION}"
 
+# Install Matt Pocock's agent skills into /etc/skel so every tenant user created
+# by `useradd --create-home` (see sandcastle-bootstrap) inherits them under
+# ~/.claude/skills. HOME drives the `-g` (global) install target.
+RUN install -d /etc/skel \
+    && HOME=/etc/skel npx -y skills@latest add mattpocock/skills -a claude-code -g -y
+
 ARG SANDCASTLE_IMAGE_TEMPLATE=ai
 ARG SANDCASTLE_IMAGE_TAG=sandcastle/ai:latest
 ARG SANDCASTLE_IMAGE_VERSION=unknown

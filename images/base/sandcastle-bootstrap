@@ -24,6 +24,12 @@ if getent group docker >/dev/null 2>&1; then
   usermod -aG docker "${user_name}"
 fi
 
+# Ensure loopback localhost resolves. Some minimal/runtime-managed /etc/hosts
+# files omit the 127.0.0.1 entry, which breaks tools that resolve "localhost".
+if ! grep -qE '^[[:space:]]*127\.0\.0\.1[[:space:]]+.*\blocalhost\b' /etc/hosts 2>/dev/null; then
+  printf '127.0.0.1\tlocalhost\n' >>/etc/hosts
+fi
+
 # Let the tenant user group own /usr/local so `npm install -g` works without sudo.
 # setgid on directories keeps the group on anything created later (e.g. node_modules).
 if [ -d /usr/local ]; then
@@ -51,13 +57,13 @@ fi
 EOF_AUTH_SOCK
 fi
 
-prompt_marker="# sandcastle prompt: full hostname"
+prompt_marker="# sandcastle prompt: fqdn + pwd + git branch"
 if ! grep -qF "${prompt_marker}" "${bashrc}"; then
   cat >>"${bashrc}" <<'EOF_PROMPT'
 
-# sandcastle prompt: full hostname
+# sandcastle prompt: fqdn + pwd + git branch
 if [[ $- == *i* ]]; then
-  PS1='\u@\H:\w\$ '
+  PS1='\H\w [$(git branch --show-current 2>/dev/null)]> '
 fi
 EOF_PROMPT
 fi
