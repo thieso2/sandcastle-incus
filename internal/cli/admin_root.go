@@ -127,7 +127,7 @@ func ExecuteAdmin(name string, args []string) int {
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},
 		imageUploader:       images.LocalUploader{},
-		remoteImageBuilder:  images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr},
+		remoteImageBuilder:  images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr, Verbose: verbose},
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),

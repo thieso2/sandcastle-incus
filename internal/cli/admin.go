@@ -1270,6 +1270,28 @@ func newAdminImageBuilderCommand(config commandConfig, opts *rootOptions) *cobra
 		Short: "Manage the Image Builder appliance",
 	}
 
+	var provisionRemote string
+	provisionCommand := &cobra.Command{
+		Use:   "provision",
+		Short: "Create and provision the Image Builder appliance (so builds skip provisioning)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := images.PlanBuilderAppliance(config.adminConfig, provisionRemote)
+			if err != nil {
+				return err
+			}
+			if config.remoteImageBuilder == nil {
+				return fmt.Errorf("remote image builder is not configured")
+			}
+			if err := config.remoteImageBuilder.ProvisionBuilder(cmd.Context(), app); err != nil {
+				return err
+			}
+			fmt.Fprintf(config.stdout, "Provisioned Image Builder %s in %s:%s\n", app.Instance, app.Remote, app.Project)
+			return nil
+		},
+	}
+	provisionCommand.Flags().StringVar(&provisionRemote, "remote", "", "Incus remote, defaulting to the configured remote")
+
 	var statusRemote string
 	statusCommand := &cobra.Command{
 		Use:   "status",
@@ -1316,6 +1338,7 @@ func newAdminImageBuilderCommand(config commandConfig, opts *rootOptions) *cobra
 	destroyCommand.Flags().StringVar(&destroyRemote, "remote", "", "Incus remote, defaulting to the configured remote")
 	destroyCommand.Flags().BoolVar(&keepCache, "keep-cache", false, "preserve the podman layer-cache volume and project")
 
+	builderCommand.AddCommand(provisionCommand)
 	builderCommand.AddCommand(statusCommand)
 	builderCommand.AddCommand(destroyCommand)
 	return builderCommand

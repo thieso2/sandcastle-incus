@@ -11,7 +11,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 # these out of scope of the heavy package layers lets those layers stay cached
 # across commits.
 
-RUN apt-get update \
+# apt cache mounts keep downloaded .debs and package lists on the builder cache
+# volume (not in the image layer), so a rebuild of this heavy layer reuses the
+# local archive instead of re-fetching. docker-clean is removed once here so apt
+# keeps its archives; its absence persists into all later layers.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         bash \
         ca-certificates \
@@ -47,17 +54,17 @@ RUN apt-get update \
         x2goserver-x2gokdrive \
         x2goserver-xsession \
         xfce4-terminal \
-        xserver-x2gokdrive \
-    && rm -rf /var/lib/apt/lists/*
+        xserver-x2gokdrive
 
-RUN install -dm 0755 /etc/apt/keyrings \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    install -dm 0755 /etc/apt/keyrings \
     && curl -fsSL https://mise.jdx.dev/gpg-key.pub | gpg --dearmor -o /etc/apt/keyrings/mise-archive-keyring.gpg \
     && chmod 0644 /etc/apt/keyrings/mise-archive-keyring.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/mise-archive-keyring.gpg arch=${TARGETARCH:-amd64}] https://mise.jdx.dev/deb stable main" \
         >/etc/apt/sources.list.d/mise.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends mise \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends mise
 
 RUN systemctl disable docker.service docker.socket containerd.service >/dev/null 2>&1 || true \
     && rm -f \
@@ -84,23 +91,29 @@ RUN set -eux; \
     chmod 0755 /usr/local/bin/coredns; \
     rm -f /tmp/coredns.tgz
 
-RUN install -d -m 0755 /usr/share/keyrings \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    install -d -m 0755 /usr/share/keyrings \
     && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
         | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
         >/etc/apt/sources.list.d/google-cloud-sdk.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends google-cloud-cli \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends google-cloud-cli
 
-RUN install -d -m 0755 /usr/share/keyrings \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    install -d -m 0755 /usr/share/keyrings \
     && curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg \
         -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
     && curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list \
         -o /etc/apt/sources.list.d/tailscale.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends tailscale \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends tailscale
+
+# One public IP per host NATs all containers; the host tailscaled owns 41641.
+# Ephemeral port => distinct NAT mapping per container, no collision. Self-allocating, scales to N.
+RUN printf 'PORT="0"\nFLAGS=""\n' > /etc/default/tailscaled
 
 RUN systemctl disable tailscaled.service >/dev/null 2>&1 || true \
     && systemctl mask tailscaled.service >/dev/null 2>&1 || true \

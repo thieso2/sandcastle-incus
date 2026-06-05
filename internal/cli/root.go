@@ -184,7 +184,7 @@ func Execute(name string, args []string) int {
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},
 		imageUploader:       images.LocalUploader{},
-		remoteImageBuilder:  images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr},
+		remoteImageBuilder:  images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr, Verbose: os.Getenv("VERBOSE") == "1"},
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),

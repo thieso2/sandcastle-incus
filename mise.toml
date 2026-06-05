@@ -173,9 +173,17 @@ make build
   --gemini-version "${GEMINI_VERSION}"
 """
 
+[tasks."image:builder:provision"]
+description = "Create and provision the sc-build Image Builder appliance so build-remote runs skip provisioning"
+env = { SANDCASTLE_REMOTE = "big", VERBOSE = "1" }
+run = [
+  "make build",
+  "./bin/sandcastle-admin image builder provision",
+]
+
 [tasks."image:all:build-remote"]
 description = "Build base then AI in the sc-build appliance and publish both to GHCR (needs SANDCASTLE_GHCR_TOKEN)"
-env = { SANDCASTLE_REMOTE = "big" }
+env = { SANDCASTLE_REMOTE = "big", VERBOSE = "1" }
 run = """
 set -euo pipefail
 

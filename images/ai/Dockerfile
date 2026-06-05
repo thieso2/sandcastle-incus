@@ -4,8 +4,14 @@ FROM ${SANDCASTLE_BASE_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Toolchain layer: independent of the pinned tool versions, so it stays cached
-# across version bumps.
-RUN apt-get update \
+# across version bumps. The apt cache mounts keep downloaded .debs and package
+# lists on the builder's cache volume (not in the image layer), so even when this
+# layer is invalidated by a base-image change the install runs from local cache
+# instead of re-fetching ~150 MB. docker-clean is removed so apt keeps archives.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         git \
@@ -13,8 +19,7 @@ RUN apt-get update \
         nodejs \
         npm \
         python3 \
-        python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+        python3-pip
 
 # Tool-version args are declared here (after the toolchain layer) so a version
 # bump rebuilds only the npm layer below, not the apt layer above.
@@ -25,16 +30,20 @@ RUN test -n "${CODEX_CLI_VERSION}" \
     && test -n "${CLAUDE_CODE_VERSION}" \
     && test -n "${GEMINI_CLI_VERSION}"
 
-RUN npm install -g \
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm install -g \
         "@openai/codex@${CODEX_CLI_VERSION}" \
         "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
         "@google/gemini-cli@${GEMINI_CLI_VERSION}"
 
 # Install Matt Pocock's agent skills into /etc/skel so every tenant user created
 # by `useradd --create-home` (see sandcastle-bootstrap) inherits them under
-# ~/.claude/skills. HOME drives the `-g` (global) install target.
-RUN install -d /etc/skel \
-    && HOME=/etc/skel npx -y skills@latest add mattpocock/skills -a claude-code -g -y
+# ~/.claude/skills. HOME drives the `-g` (global) install target. SKILLS_VERSION
+# pins the installer for reproducibility; bump it deliberately to refresh skills.
+ARG SKILLS_VERSION=latest
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    install -d /etc/skel \
+    && HOME=/etc/skel npx -y "skills@${SKILLS_VERSION}" add mattpocock/skills -a claude-code -g -y
 
 ARG SANDCASTLE_IMAGE_TEMPLATE=ai
 ARG SANDCASTLE_IMAGE_TAG=sandcastle/ai:latest

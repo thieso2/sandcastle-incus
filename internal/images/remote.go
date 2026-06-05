@@ -98,6 +98,7 @@ type RemoteBuildPlan struct {
 // appliance lifecycle.
 type RemoteImageBuilder interface {
 	BuildRemote(context.Context, RemoteBuildPlan) (RemoteBuildResult, error)
+	ProvisionBuilder(context.Context, BuilderAppliance) error
 	BuilderStatus(context.Context, BuilderAppliance) (string, error)
 	BuilderDestroy(context.Context, BuilderAppliance, bool) error
 }
@@ -287,8 +288,12 @@ func remoteBuildScript(plan RemoteBuildPlan) string {
 		b.WriteString("rm -f " + builderTokenPath + "\n")
 	}
 
+	// BUILDAH_LAYERS=true forces intermediate-layer caching so an unchanged layer
+	// (e.g. the AI image's apt toolchain) is reused across builds on the warm
+	// cache volume instead of rebuilt. Combined with the Dockerfile cache mounts,
+	// a no-op rebuild is seconds rather than minutes.
 	b.WriteString(fmt.Sprintf(
-		"%s podman build%s -t %s -t %s -f %s %s %s\n",
+		"%s BUILDAH_LAYERS=true podman build%s -t %s -t %s -f %s %s %s\n",
 		run, platform,
 		shellQuoteArg(plan.ImageLatestRef),
 		shellQuoteArg(plan.ImageVersncRef),
