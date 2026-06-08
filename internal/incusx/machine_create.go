@@ -555,6 +555,7 @@ fi
 			"SANDCASTLE_GID":              fmt.Sprintf("%d", machine.DefaultLinuxGID),
 			"SANDCASTLE_SSH_PUBLIC_KEY":   plan.SSHPublicKey,
 			"SANDCASTLE_HOSTNAME":         plan.Hostname,
+			"SANDCASTLE_PROJECT":          plan.Project,
 			"SANDCASTLE_DNS_ADDRESS":      plan.Tenant.DNSAddress,
 			"SANDCASTLE_DOCKER_AUTOSTART": boolEnv(plan.DockerAutostart),
 			"SANDCASTLE_GIT_NAME":         gitName,

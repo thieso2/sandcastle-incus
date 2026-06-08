@@ -132,13 +132,24 @@ if [[ -n "${ssh_public_key}" ]]; then
   chown -R "${user_name}:${user_name}" "/home/${user_name}/.ssh"
 fi
 
-# Render the Samba shares with hostname-prefixed names so a user who mounts
-# several machines gets distinct share names (e.g. <host>-home, <host>-workspace)
-# instead of colliding "home"/"workspace" shares. Samba cannot template section
-# names, so the sections are generated here, where the hostname is already set.
+# Render the Samba shares with <project>-<machine> share names so a user who
+# mounts several machines (even same-named machines in different projects) gets
+# distinct share names instead of colliding "home"/"workspace" shares. Samba
+# cannot template section names, so the sections are generated here, where the
+# project and hostname are known. ('/' is not valid in an SMB share name, so the
+# project and machine are joined with '-'.)
 if [[ -d /etc/samba ]]; then
-  host_prefix="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
-  [[ -n "${host_prefix}" ]] || host_prefix="sandcastle"
+  machine_name="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
+  [[ -n "${machine_name}" ]] || machine_name="machine"
+  # Project from the explicit env, else the first label of the DNS domain
+  # (machines are <machine>.<project>.<tenant>).
+  project_name="${SANDCASTLE_PROJECT:-}"
+  [[ -n "${project_name}" ]] || project_name="$(hostname -d 2>/dev/null | cut -d. -f1)"
+  if [[ -n "${project_name}" ]]; then
+    host_prefix="${project_name}-${machine_name}"
+  else
+    host_prefix="${machine_name}"
+  fi
   samba_shares="/etc/samba/sandcastle-shares.conf"
   cat >"${samba_shares}" <<EOF_SAMBA_SHARES
 [${host_prefix}-home]
