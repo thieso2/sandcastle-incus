@@ -150,11 +150,15 @@ RUN chmod 0755 /usr/local/bin/sandcastle-bootstrap
 COPY gitconfig /etc/gitconfig
 RUN chmod 0644 /etc/gitconfig
 
-# Samba share definitions: [home] (the connecting user's home via %H) and
-# [workspace] (/workspace). Per-user Samba accounts are created at runtime by
-# `sandcastle password set`.
+# Samba global config. The actual shares are hostname-prefixed and rendered at
+# machine-configure time by sandcastle-bootstrap into the included file below;
+# an empty placeholder ships in the image so smbd's `include` resolves on first
+# boot (before bootstrap runs). Per-user Samba accounts are created at runtime
+# by `sandcastle password set`.
 COPY smb.conf /etc/samba/smb.conf
-RUN chmod 0644 /etc/samba/smb.conf
+RUN chmod 0644 /etc/samba/smb.conf \
+    && : > /etc/samba/sandcastle-shares.conf \
+    && chmod 0644 /etc/samba/sandcastle-shares.conf
 
 ARG SANDCASTLE_IMAGE_TEMPLATE=base
 ARG SANDCASTLE_IMAGE_TAG=sandcastle/base:latest

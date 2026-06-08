@@ -131,3 +131,35 @@ if [[ -n "${ssh_public_key}" ]]; then
   done
   chown -R "${user_name}:${user_name}" "/home/${user_name}/.ssh"
 fi
+
+# Render the Samba shares with hostname-prefixed names so a user who mounts
+# several machines gets distinct share names (e.g. <host>-home, <host>-workspace)
+# instead of colliding "home"/"workspace" shares. Samba cannot template section
+# names, so the sections are generated here, where the hostname is already set.
+if [[ -d /etc/samba ]]; then
+  host_prefix="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
+  [[ -n "${host_prefix}" ]] || host_prefix="sandcastle"
+  samba_shares="/etc/samba/sandcastle-shares.conf"
+  cat >"${samba_shares}" <<EOF_SAMBA_SHARES
+[${host_prefix}-home]
+   comment = Sandcastle home (${host_prefix})
+   path = %H
+   browseable = yes
+   read only = no
+   create mask = 0644
+   directory mask = 0755
+
+[${host_prefix}-workspace]
+   comment = Sandcastle workspace (${host_prefix})
+   path = /workspace
+   browseable = yes
+   read only = no
+   create mask = 0644
+   directory mask = 0755
+EOF_SAMBA_SHARES
+  chmod 0644 "${samba_shares}"
+  # Pick up the renamed shares without a full restart if smbd is already up.
+  if command -v smbcontrol >/dev/null 2>&1; then
+    smbcontrol smbd reload-config >/dev/null 2>&1 || true
+  fi
+fi
