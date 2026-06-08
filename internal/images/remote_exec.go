@@ -163,12 +163,16 @@ func (b LocalRemoteBuilder) hostForRemote(ctx context.Context, runner IncusRunne
 		return "", err
 	}
 	var remotes map[string]struct {
-		Addr string `json:"Addr"`
+		Addrs           []string `json:"Addrs"`
+		LastWorkingAddr string   `json:"LastWorkingAddr"`
 	}
 	if err := json.Unmarshal([]byte(out), &remotes); err != nil {
 		return "", fmt.Errorf("parse incus remotes: %w", err)
 	}
-	addr := remotes[remote].Addr
+	addr := remotes[remote].LastWorkingAddr
+	if addr == "" && len(remotes[remote].Addrs) > 0 {
+		addr = remotes[remote].Addrs[0]
+	}
 	u, err := url.Parse(addr)
 	if err != nil || u.Hostname() == "" {
 		return "", fmt.Errorf("cannot derive SSH host for remote %q (addr %q); set SANDCASTLE_IMAGE_UPLOAD_SSH_HOST", remote, addr)
