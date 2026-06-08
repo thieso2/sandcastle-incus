@@ -43,6 +43,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         pyhoca-cli \
         python3 \
         ripgrep \
+        samba \
         sudo \
         systemd \
         systemd-sysv \
@@ -121,6 +122,15 @@ RUN systemctl disable tailscaled.service >/dev/null 2>&1 || true \
 
 RUN printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1\n' >/etc/sysctl.d/99-sandcastle-tailscale.conf
 
+# Samba serves the tenant user's home (/home/<user>) and /workspace over SMB.
+# smbd autostarts on every machine; the shares stay inaccessible until a Samba
+# account exists (created by `sandcastle password set`). nmbd (NetBIOS name
+# broadcast) is not needed, so it is masked.
+RUN systemctl enable smbd.service >/dev/null 2>&1 || true \
+    && systemctl disable nmbd.service >/dev/null 2>&1 || true \
+    && systemctl mask nmbd.service >/dev/null 2>&1 || true \
+    && rm -f /etc/systemd/system/multi-user.target.wants/nmbd.service
+
 RUN install -d \
         /etc/sandcastle/caddy \
         /run/tailscale \
@@ -139,6 +149,12 @@ RUN chmod 0755 /usr/local/bin/sandcastle-bootstrap
 # from the tenant owner (see sandcastle-bootstrap).
 COPY gitconfig /etc/gitconfig
 RUN chmod 0644 /etc/gitconfig
+
+# Samba share definitions: [home] (the connecting user's home via %H) and
+# [workspace] (/workspace). Per-user Samba accounts are created at runtime by
+# `sandcastle password set`.
+COPY smb.conf /etc/samba/smb.conf
+RUN chmod 0644 /etc/samba/smb.conf
 
 ARG SANDCASTLE_IMAGE_TEMPLATE=base
 ARG SANDCASTLE_IMAGE_TAG=sandcastle/base:latest

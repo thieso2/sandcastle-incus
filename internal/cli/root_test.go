@@ -2384,6 +2384,92 @@ func TestSSHKeySetCallsUpdaterWithFile(t *testing.T) {
 	}
 }
 
+func TestPasswordSetReconcilesCurrentTenant(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &fakePasswordReconciler{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		passwordReconciler: reconciler,
+	}, "password", "set", "hunter2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reconciler.called || reconciler.incus != "sc-acme" || reconciler.tenant != "acme" || reconciler.password != "hunter2" {
+		t.Fatalf("reconciler = %#v", reconciler)
+	}
+}
+
+func TestPasswordSetReadsStdin(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &fakePasswordReconciler{}
+	_, err = executeForTestWithConfig(t, commandConfig{
+		name:  "sandcastle",
+		stdin: strings.NewReader("from-stdin\n"),
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		passwordReconciler: reconciler,
+	}, "password", "set")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reconciler.called || reconciler.password != "from-stdin" {
+		t.Fatalf("reconciler = %#v", reconciler)
+	}
+}
+
+func TestPasswordSetDryRunSkipsReconciler(t *testing.T) {
+	configMap, err := meta.TenantConfig(meta.Tenant{
+		Tenant:      "acme",
+		Projects:    []meta.Project{{Name: "default"}},
+		PrivateCIDR: "10.248.0.0/24",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &fakePasswordReconciler{}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name: "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-acme",
+			Config: configMap,
+		}}},
+		passwordReconciler: reconciler,
+	}, "--output", "json", "password", "set", "hunter2", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconciler.called {
+		t.Fatalf("reconciler should not be called on dry run")
+	}
+	var payload passwordSetPayload
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Tenant != "acme" || payload.IncusProject != "sc-acme" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestStatusJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -6040,6 +6126,21 @@ func (f *fakeSSHKeyUpdater) SetTenantSSHKey(ctx context.Context, incusProjectNam
 	f.called = true
 	f.incusProject = incusProjectName
 	f.key = sshKey
+	return nil
+}
+
+type fakePasswordReconciler struct {
+	called   bool
+	incus    string
+	tenant   string
+	password string
+}
+
+func (f *fakePasswordReconciler) ReconcileTenantPassword(ctx context.Context, summary tenant.Summary, password string) error {
+	f.called = true
+	f.incus = summary.IncusName
+	f.tenant = summary.Tenant
+	f.password = password
 	return nil
 }
 

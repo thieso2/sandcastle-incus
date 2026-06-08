@@ -69,6 +69,7 @@ type commandConfig struct {
 	machineConnector    machine.Connector
 	machineControl      machine.Controller
 	machinePort         machine.PortSetter
+	passwordReconciler  machine.PasswordReconciler
 	knownHosts          machineKnownHostsManager
 	dnsApplier          dns.Applier
 	localDNS            localdns.Manager
@@ -192,6 +193,7 @@ func Execute(name string, args []string) int {
 		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr).WithConnectCache(connectCache),
 		machineControl:      incusx.NewMachineController(adminConfig.Remote),
 		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
+		passwordReconciler:  incusx.NewMachinePasswordReconciler(adminConfig.Remote, incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)),
 		knownHosts:          newLocalKnownHostsManager(adminConfig.Remote, verbose, os.Stderr).WithConnectCache(connectCache),
 		dnsApplier:          incusx.NewDNSManager(adminConfig.Remote),
 		localDNS:            localdns.FileManager{},
@@ -293,6 +295,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newMachineLifecycleCommand(config, opts, "restart", machine.ActionRestart, false))
 	root.AddCommand(newMachineLifecycleCommand(config, opts, "delete", machine.ActionDelete, true))
 	root.AddCommand(newPortCommand(config, opts))
+	root.AddCommand(newPasswordCommand(config, opts))
 	root.AddCommand(newProjectCommand(config, opts))
 	root.AddCommand(newSSHKeyCommand(config, opts))
 	root.AddCommand(newDNSCommand(config, opts))

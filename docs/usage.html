@@ -495,6 +495,15 @@ Bootstrap:
   </div>
 
   <div class="step">
+    <h3>Set the login &amp; Samba password <span class="badge badge-user">user</span></h3>
+    <p>Sets the password for the tenant owner's Linux user on every machine in the current tenant. The same secret becomes both the Unix login password and the Samba password, so it unlocks console login and the SMB <code>[home]</code> (the user's home directory) and <code>[workspace]</code> (<code>/workspace</code>) shares served by <code>smbd</code> on port 445.</p>
+    <pre><code><span class="cmd">sandcastle password set</span> <span class="arg">"s3cr3t"</span>
+<span class="comment"># or pipe it in to keep it out of shell history</span>
+<span class="cmd">printf</span> <span class="arg">'s3cr3t'</span> | <span class="cmd">sandcastle password set</span></code></pre>
+    <div class="note"><strong>Note:</strong> Samba autostarts on every machine but stays inaccessible until a password is set. Shares are reachable over the machine's private/Tailscale network only.</div>
+  </div>
+
+  <div class="step">
     <h3>Preview the creation plan without creating <span class="badge badge-user">user</span></h3>
     <pre><code><span class="cmd">sandcastle create</span> <span class="arg">website:codex</span> <span class="flag">--dry-run</span></code></pre>
   </div>
@@ -1027,6 +1036,7 @@ Bootstrap:
         <tr><td>sandcastle share create/list/status/offers/accept/decline/revoke/delete/reconcile</td><td>Create, accept, revoke, delete, and reconcile Tenant Storage Shares</td></tr>
         <tr><td>sandcastle ssh-key set [--file &lt;path&gt;]</td><td>Publish the developer SSH key for tenant machines</td></tr>
         <tr><td>sandcastle port set &lt;ref&gt; &lt;port&gt;</td><td>Change machine app port</td></tr>
+        <tr><td>sandcastle password set [&lt;password&gt;]</td><td>Set the Unix login &amp; Samba password for the tenant's machines</td></tr>
         <tr><td>sandcastle trust install [tenant]</td><td>Trust tenant CA locally</td></tr>
         <tr><td>sandcastle trust uninstall [tenant]</td><td>Remove tenant CA trust</td></tr>
         <tr><td>sandcastle dns setup [tenant]</td><td>Apply tenant DNS and install local resolver config</td></tr>
