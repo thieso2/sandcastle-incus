@@ -496,7 +496,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Set the login &amp; Samba password <span class="badge badge-user">user</span></h3>
-    <p>Sets the password for the tenant owner's Linux user on every machine in the current tenant. The same secret becomes both the Unix login password and the Samba password, so it unlocks console login and the SMB shares served by <code>smbd</code> on port 445. Each machine exports two shares, named <code>&lt;project&gt;-&lt;machine&gt;-home</code> (the user's home directory) and <code>&lt;project&gt;-&lt;machine&gt;-workspace</code> (<code>/workspace</code>) so mounting several machines &mdash; even same-named machines in different projects &mdash; doesn't collide.</p>
+    <p>Sets the password for the tenant owner's Linux user on every machine in the current tenant. The same secret becomes both the Unix login password and the Samba password, so it unlocks console login and the SMB shares served by <code>smbd</code> on port 445. Each machine exports two shares &mdash; the user's home directory and <code>/workspace</code> &mdash; named so that mounting several machines doesn't collide: <code>&lt;machine&gt;-home</code> / <code>&lt;machine&gt;-workspace</code> in the default project, and <code>&lt;project&gt;-&lt;machine&gt;-home</code> / <code>&lt;project&gt;-&lt;machine&gt;-workspace</code> in other projects.</p>
     <pre><code><span class="cmd">sandcastle password set</span> <span class="arg">"s3cr3t"</span>
 <span class="comment"># or pipe it in to keep it out of shell history</span>
 <span class="cmd">printf</span> <span class="arg">'s3cr3t'</span> | <span class="cmd">sandcastle password set</span></code></pre>
