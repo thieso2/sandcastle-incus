@@ -474,6 +474,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	}
 	mux.HandleFunc("/", app.status)
 	mux.HandleFunc("/healthz", app.health)
+	mux.HandleFunc("/machines", app.machinesWeb)
 	mux.HandleFunc("/login/github", app.githubLogin)
 	mux.HandleFunc("/oauth/github/callback", app.githubCallback)
 	mux.HandleFunc("/admin/allowlist", app.adminAllowlist)
@@ -620,6 +621,9 @@ var onboardingTemplate = template.Must(template.New("onboarding").Parse(`<!docty
 <body>
   <main>
     <h1>Sandcastle Onboarding</h1>
+    <section>
+      <p><a href="/machines">View your machines</a></p>
+    </section>
     <section>
       <h2>GitHub identity</h2>
       <p>GitHub Username: {{.User.GitHubUsername}}</p>
