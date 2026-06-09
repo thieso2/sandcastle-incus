@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sandcastle Image Pipeline</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3e;
+      --accent: #6c8ef5;
+      --accent2: #5dd8a0;
+      --text: #d4d8f0;
+      --muted: #7a7f99;
+      --tag-bg: #1e2233;
+      --code-bg: #131620;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      padding: 2rem;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .page-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .page-header h1 { font-size: 1.6rem; color: var(--accent); letter-spacing: 0.03em; }
+    .page-header p  { color: var(--muted); margin-top: 0.4rem; }
+
+    nav {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 2.5rem;
+    }
+    nav h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 0.75rem; }
+    nav ol { padding-left: 1.2rem; }
+    nav li { margin: 0.25rem 0; }
+
+    section { margin-bottom: 3rem; }
+    section h2 {
+      font-size: 1.1rem;
+      color: var(--accent2);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .step {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .step h3 { font-size: 0.95rem; color: var(--text); margin-bottom: 0.75rem; }
+    .step p  { color: var(--muted); margin-bottom: 0.75rem; }
+    .step ul { color: var(--muted); margin: 0.5rem 0 0.75rem 1.2rem; }
+    .step li { margin: 0.2rem 0; }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.85rem 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0;
+    }
+    code { color: var(--accent2); }
+    pre code { color: inherit; }
+
+    .comment { color: var(--muted); }
+    .cmd     { color: #f0c070; }
+    .flag    { color: #80c8ff; }
+    .arg     { color: var(--accent2); }
+    .env     { color: #d88aff; }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      vertical-align: middle;
+      margin-left: 0.5rem;
+    }
+    .badge-admin { background: #3a1f4a; color: #d88aff; }
+    .badge-user  { background: #1a2f1a; color: var(--accent2); }
+    .badge-warn  { background: #4a2a1a; color: #f0a060; }
+
+    .note {
+      border-left: 3px solid var(--accent);
+      background: #1a2040;
+      padding: 0.75rem 1rem;
+      border-radius: 0 6px 6px 0;
+      margin: 0.75rem 0;
+      color: var(--muted);
+    }
+    .note strong { color: var(--text); }
+    .note.warn { border-left-color: #f0a060; background: #2a1f1a; }
+
+    .flow {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin: 1rem 0 2rem;
+      color: var(--muted);
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.75rem;
+    }
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    td:first-child { color: var(--accent2); white-space: nowrap; }
+  </style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1>Sandcastle Image Pipeline</h1>
+  <p>How a new base/AI image is built, published, and delivered into a tenant's machines.</p>
+  <p>See also: <a href="usage.html">Usage Guide</a> &middot; <a href="admin-developer-quickstart.html">Admin Quickstart</a> &middot; <a href="adr/0010-image-builder-appliance.md">ADR 0010 — Image Builder Appliance</a></p>
+</header>
+
+<nav>
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#model">The mental model</a></li>
+    <li><a href="#build">1. Build &amp; publish the image</a></li>
+    <li><a href="#oci">Why publishing isn't enough (OCI vs system container)</a></li>
+    <li><a href="#install">2. Install the image into a tenant</a></li>
+    <li><a href="#machines">3. Machines pick up the image</a></li>
+    <li><a href="#reference">Artifact reference</a></li>
+    <li><a href="#troubleshoot">Troubleshooting</a></li>
+  </ol>
+</nav>
+
+<section id="model">
+  <h2>The mental model</h2>
+  <p style="color:var(--muted); margin-bottom:1rem;">Images flow through four places. Each arrow is a deliberate step &mdash; nothing is automatic end-to-end yet.</p>
+  <div class="flow">  images/base, images/ai          GHCR                          Incus host "big"
+  (Dockerfiles in this repo)      ghcr.io/&lt;owner&gt;/...           ┌─────────────────────────────┐
+          │                          ▲                       │  default project            │
+          │  build in sc-builder     │  push (OCI)            │   sandcastle/ai:latest      │
+          ▼  appliance (podman)      │                       │      (OCI, from build)      │
+   ┌──────────────────┐  ──────push──┘                       │            │ convert+copy   │
+   │  sc-builder      │  ───────────────────import (OCI)────▶│            ▼                │
+   │  (rootless       │                                      │   sc-&lt;tenant&gt; project        │
+   │   podman build)  │  ──podman export rootfs──┐           │   sandcastle/ai:latest      │
+   └──────────────────┘                          ▼           │   (system container)        │
+                                    install-image-to-tenant  │            │                │
+                                    re-imports as a SYSTEM    │            ▼                │
+                                    CONTAINER &amp; repoints ─────▶   tenant machines (sc create)
+                                                              └─────────────────────────────┘</div>
+
+  <div class="step">
+    <h3>Key facts</h3>
+    <ul>
+      <li><strong>The build runs in an appliance</strong> (<code>sc-builder</code>, project <code>sc-build</code>) using rootless podman &mdash; not on your laptop. See <a href="adr/0010-image-builder-appliance.md">ADR 0010</a>.</li>
+      <li><strong>The published artifact is an OCI image</strong> on GHCR. Incus runs OCI images as <em>application containers</em> (PID&nbsp;1 = the entrypoint, no systemd) &mdash; that is <strong>not</strong> usable as a Sandcastle machine.</li>
+      <li><strong>Machines need a <em>system-container</em> image</strong> (boots <code>systemd</code> as PID&nbsp;1). That form is produced by exporting the built rootfs and re-importing it with <code>type: container</code> metadata.</li>
+      <li><strong>Each tenant Incus project keeps its own copy</strong> of the image (<code>sc-&lt;tenant&gt;:sandcastle/ai:latest</code>). Updating the global <code>default</code> alias does <em>not</em> refresh tenant copies.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="build">
+  <h2>1. Build &amp; publish the image <span class="badge badge-admin">admin</span></h2>
+
+  <div class="step">
+    <h3>Build base + AI and publish to GHCR</h3>
+    <p>Builds both images in the <code>sc-builder</code> appliance from the current working tree, pushes them to GHCR, and imports the OCI image into the <code>default</code>-project alias on the host.</p>
+    <pre><code><span class="env">SANDCASTLE_GHCR_TOKEN</span>=`envpocket get SANDCASTLE_GHCR_TOKEN` <span class="cmd">mise run</span> <span class="arg">image:all:build-remote</span></code></pre>
+    <p>Variants: <code>image:base:build-remote</code> and <code>image:ai:build-remote</code> build a single template. The AI variant resolves the latest <code>codex</code>/<code>claude-code</code>/<code>gemini-cli</code> versions automatically.</p>
+    <div class="note"><strong>Tip:</strong> commit your changes first &mdash; a dirty tree publishes a <code>&lt;commit&gt;-dirty</code> tag. A clean tree publishes the plain <code>&lt;commit&gt;</code> tag and a reproducible image.</div>
+  </div>
+
+  <div class="step">
+    <h3>What it produces</h3>
+    <ul>
+      <li><code>ghcr.io/&lt;owner&gt;/sandcastle-base:&lt;tag&gt;</code> and <code>:latest</code> (pushed)</li>
+      <li><code>ghcr.io/&lt;owner&gt;/sandcastle-ai:&lt;tag&gt;</code> and <code>:latest</code> (pushed)</li>
+      <li><code>big:default</code> aliases <code>sandcastle/base:latest</code> / <code>sandcastle/ai:latest</code> &mdash; <span class="badge badge-warn">OCI</span> form, imported from GHCR</li>
+    </ul>
+    <p>Verify the OCI images landed:</p>
+    <pre><code><span class="cmd">incus image list</span> <span class="arg">big:</span> | <span class="cmd">grep</span> <span class="arg">sandcastle</span></code></pre>
+  </div>
+</section>
+
+<section id="oci">
+  <h2>Why publishing isn't enough <span class="badge badge-warn">important</span></h2>
+  <div class="step">
+    <p>After <code>build-remote</code>, the <code>default</code> alias points at an <strong>OCI</strong> image. If you launch it, Incus reports <code>image.type: oci</code> and runs the entrypoint (<code>sleep infinity</code>) as PID&nbsp;1 &mdash; <code>systemd</code> never boots, so <code>smbd</code>, Caddy, and the configure scripts never run. A machine created from it comes up but is broken.</p>
+    <p>That is why there is an explicit <em>install</em> step: it converts the freshly built image into a <strong>system-container</strong> image and copies it into the tenant project. Until tenants can self-serve image pulls, the install step below is the supported path.</p>
+    <div class="note warn"><strong>Do not</strong> point a tenant's <code>sandcastle/ai:latest</code> at the OCI image. Machines created from it will not boot systemd (no Samba, no Caddy, no networking heal).</div>
+  </div>
+</section>
+
+<section id="install">
+  <h2>2. Install the image into a tenant <span class="badge badge-admin">admin</span></h2>
+
+  <div class="step">
+    <h3>One command</h3>
+    <p>Run this after <code>build-remote</code>. It takes the image the appliance already built (podman local storage), exports the rootfs natively (no GHCR re-pull, no emulation), re-imports it as a system container, and repoints the tenant's alias &mdash; all on the host, so the multi-GB rootfs never crosses the network.</p>
+    <pre><code><span class="cmd">bash</span> <span class="arg">scripts/install-image-to-tenant.sh</span> <span class="arg">ai</span> <span class="arg">&lt;tenant&gt;</span></code></pre>
+    <p>Examples:</p>
+    <pre><code><span class="comment"># install the AI image into tenant "thieso2"</span>
+<span class="cmd">bash</span> <span class="arg">scripts/install-image-to-tenant.sh</span> <span class="arg">ai thieso2</span>
+
+<span class="comment"># install the base image instead</span>
+<span class="cmd">bash</span> <span class="arg">scripts/install-image-to-tenant.sh</span> <span class="arg">base thieso2</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>What it does, step by step</h3>
+    <ul>
+      <li><code>podman export</code> the built image's rootfs inside <code>sc-builder</code> &rarr; a tar file.</li>
+      <li><code>incus file pull</code> the tar onto the host.</li>
+      <li>Wrap it in <code>metadata.yaml</code> with <code>type: container</code> and <code>incus image import</code> &rarr; a new fingerprint.</li>
+      <li>Repoint <code>sc-&lt;tenant&gt;:sandcastle/ai:latest</code> at the new system-container image.</li>
+      <li>By default also repoint <code>default:sandcastle/ai:latest</code> so future tenants get a bootable image. Set <code>UPDATE_DEFAULT_ALIAS=0</code> to skip.</li>
+    </ul>
+    <p>Useful environment overrides:</p>
+    <table>
+      <tr><th>Variable</th><th>Default</th><th>Purpose</th></tr>
+      <tr><td>SANDCASTLE_IMAGE_SSH_HOST</td><td>big.thieso2.dev</td><td>SSH host of the Incus server</td></tr>
+      <tr><td>SANDCASTLE_REMOTE</td><td>big</td><td>incus remote name</td></tr>
+      <tr><td>GHCR_OWNER</td><td>thieso2</td><td>GHCR owner of the podman image</td></tr>
+      <tr><td>UPDATE_DEFAULT_ALIAS</td><td>1</td><td>also repoint the default-project alias</td></tr>
+    </table>
+  </div>
+
+  <div class="step">
+    <h3>Verify the tenant got a system container</h3>
+    <pre><code><span class="cmd">incus image list</span> <span class="arg">big:</span> <span class="flag">--project</span> <span class="arg">sc-&lt;tenant&gt;</span> | <span class="cmd">grep</span> <span class="arg">ai:latest</span></code></pre>
+    <p>The <code>TYPE</code> column must read <code>CONTAINER</code> and the description should say <code>system container</code> with a recent date.</p>
+  </div>
+</section>
+
+<section id="machines">
+  <h2>3. Machines pick up the image <span class="badge badge-user">user</span></h2>
+
+  <div class="step">
+    <h3>New machines</h3>
+    <p>The tenant alias only stamps a machine at <em>create</em> time, so a new image reaches a machine when you create it:</p>
+    <pre><code><span class="cmd">sc create</span> <span class="arg">&lt;name&gt;</span>      <span class="comment"># boots from the tenant's current sandcastle/ai:latest</span>
+<span class="cmd">sc password set</span>      <span class="comment"># set Unix + Samba password on all tenant machines</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Existing machines</h3>
+    <p>Already-running machines keep the image they were created from. To move them onto a newer image, recreate them:</p>
+    <pre><code><span class="cmd">sc delete</span> <span class="arg">&lt;name&gt;</span> <span class="flag">--yes</span>
+<span class="cmd">sc create</span> <span class="arg">&lt;name&gt;</span></code></pre>
+    <div class="note"><strong>Persistence:</strong> <code>/workspace</code> and the user's home are backed by per-tenant volumes and survive recreate. Anything written elsewhere in the machine rootfs is lost on recreate.</div>
+  </div>
+
+  <div class="step">
+    <h3>Samba shares (AI/base image)</h3>
+    <p>Each machine serves its home directory and <code>/workspace</code> over SMB on port&nbsp;445. Share names are unique per machine so mounting several doesn't collide:</p>
+    <ul>
+      <li>default project: <code>&lt;machine&gt;-home</code>, <code>&lt;machine&gt;-workspace</code></li>
+      <li>other projects: <code>&lt;project&gt;-&lt;machine&gt;-home</code>, <code>&lt;project&gt;-&lt;machine&gt;-workspace</code></li>
+    </ul>
+    <p>Mount from macOS after <code>sc password set</code>: Finder &rarr; &#8984;K &rarr; <code>smb://&lt;machine&gt;.&lt;project&gt;.&lt;tenant&gt;</code>, user = the tenant Linux user. <code>smbd</code> autostarts but exposes nothing until a Samba account exists (created by <code>sc password set</code>).</p>
+  </div>
+</section>
+
+<section id="reference">
+  <h2>Artifact reference</h2>
+  <table>
+    <tr><th>Artifact</th><th>Where</th><th>Form</th></tr>
+    <tr><td>sandcastle-base / sandcastle-ai</td><td>ghcr.io/&lt;owner&gt;/...</td><td>OCI (distribution)</td></tr>
+    <tr><td>default:sandcastle/ai:latest</td><td>Incus <code>default</code> project</td><td>OCI after build; system container after install</td></tr>
+    <tr><td>sc-&lt;tenant&gt;:sandcastle/ai:latest</td><td>Incus <code>sc-&lt;tenant&gt;</code> project</td><td>system container (what machines boot)</td></tr>
+    <tr><td>sc-builder</td><td>Incus <code>sc-build</code> project</td><td>build appliance (podman)</td></tr>
+  </table>
+  <p style="color:var(--muted); margin-top:1rem;">Image alias names are configurable via <code>SANDCASTLE_BASE_IMAGE</code> / <code>SANDCASTLE_AI_IMAGE</code> (defaults <code>sandcastle/base:latest</code>, <code>sandcastle/ai:latest</code>).</p>
+</section>
+
+<section id="troubleshoot">
+  <h2>Troubleshooting</h2>
+
+  <div class="step">
+    <h3>build-remote fails on import: <code>unauthorized</code> from ghcr.io</h3>
+    <p>The GHCR package is private. The host pulls anonymously, so set the <code>sandcastle-base</code> and <code>sandcastle-ai</code> packages to <strong>public</strong> in GitHub package settings, then re-run.</p>
+  </div>
+
+  <div class="step">
+    <h3>A new machine has no Samba / no systemd (PID 1 is <code>sleep infinity</code>)</h3>
+    <p>The tenant alias points at an OCI image. Re-run the install step (<code>scripts/install-image-to-tenant.sh</code>) so the tenant gets the system-container form, then recreate the machine.</p>
+  </div>
+
+  <div class="step">
+    <h3>A new machine boots the <em>old</em> image</h3>
+    <p>The tenant project's cached copy wasn't refreshed (updating <code>default</code> alone does not update tenants). Run the install step for that tenant, then recreate the machine.</p>
+  </div>
+
+  <div class="step">
+    <h3>macOS &ldquo;authentication error&rdquo; mounting a share</h3>
+    <p>Either no Samba account exists on that machine (run <code>sc password set</code>), or macOS cached a stale credential &mdash; delete the entry for the host in Keychain Access and reconnect. Avoid <code>!</code> in passwords typed at an interactive zsh prompt (history expansion).</p>
+  </div>
+
+  <div class="note"><strong>Roadmap:</strong> the install step is interim. The intended design is a global <code>sc-images</code> store plus a self-service <code>sc image update</code> that pulls the latest image into a tenant via the Auth App. Until then, <code>scripts/install-image-to-tenant.sh</code> is the command.</div>
+</section>
+
+</body>
+</html>
