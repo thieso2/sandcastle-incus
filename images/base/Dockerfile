@@ -1,6 +1,7 @@
 FROM debian:13-slim
 
 ARG COREDNS_VERSION=1.14.3
+ARG ZELLIJ_VERSION=0.44.3
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -33,14 +34,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         gnupg \
         iproute2 \
         iputils-ping \
+        jq \
         locales \
         lsof \
         mosh \
         netcat-openbsd \
         net-tools \
-        openbox \
         openssh-server \
-        pyhoca-cli \
         python3 \
         ripgrep \
         samba \
@@ -50,12 +50,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         tar \
         tmux \
         traceroute \
-        vim \
-        x2goserver \
-        x2goserver-x2gokdrive \
-        x2goserver-xsession \
-        xfce4-terminal \
-        xserver-x2gokdrive
+        vim
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
@@ -91,6 +86,20 @@ RUN set -eux; \
     tar -xzf /tmp/coredns.tgz -C /usr/local/bin coredns; \
     chmod 0755 /usr/local/bin/coredns; \
     rm -f /tmp/coredns.tgz
+
+# zellij is not packaged for Debian, so install the upstream static musl binary.
+RUN set -eux; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "${arch}" in \
+        amd64) zellij_arch="x86_64" ;; \
+        arm64) zellij_arch="aarch64" ;; \
+        *) echo "unsupported zellij architecture: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-${zellij_arch}-unknown-linux-musl.tar.gz" \
+        -o /tmp/zellij.tgz; \
+    tar -xzf /tmp/zellij.tgz -C /usr/local/bin zellij; \
+    chmod 0755 /usr/local/bin/zellij; \
+    rm -f /tmp/zellij.tgz
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
