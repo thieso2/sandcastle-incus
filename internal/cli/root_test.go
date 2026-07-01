@@ -5409,17 +5409,6 @@ func (f *fakeMachineController) ApplyLifecycle(ctx context.Context, plan machine
 	return nil
 }
 
-type fakeTenantCreator struct {
-	called bool
-	plan   tenant.CreatePlan
-}
-
-func (f *fakeTenantCreator) CreateTenant(ctx context.Context, plan tenant.CreatePlan) error {
-	f.called = true
-	f.plan = plan
-	return nil
-}
-
 type fakeProjectUpdater struct {
 	called       bool
 	incusProject string

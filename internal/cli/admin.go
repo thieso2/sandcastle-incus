@@ -342,18 +342,6 @@ func tailscalePlanUpForTenant(ctx context.Context, admin scconfig.Admin, store t
 	})
 }
 
-func formatCreatePlan(plan tenant.CreatePlan) string {
-	var builder strings.Builder
-	fmt.Fprintf(&builder, "Tenant: %s\n", plan.Reference)
-	fmt.Fprintf(&builder, "Incus project: %s\n", plan.IncusProject)
-	fmt.Fprintf(&builder, "DNS suffix: %s\n", plan.DNSSuffix)
-	fmt.Fprintf(&builder, "Private CIDR: %s\n", plan.PrivateCIDR)
-	fmt.Fprintf(&builder, "Network: %s\n", plan.PrivateNetwork)
-	fmt.Fprintf(&builder, "Volumes: %s, %s, %s\n", plan.HomeVolume, plan.WorkspaceVolume, plan.CAVolume)
-	fmt.Fprintf(&builder, "Sidecars: %s (%s), %s (%s)", plan.TailscaleInstance, plan.TailscaleAddress, plan.DNSInstance, plan.DNSAddress)
-	return builder.String()
-}
-
 func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var yes bool
 	var purge bool
