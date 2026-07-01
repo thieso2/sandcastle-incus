@@ -155,9 +155,9 @@ func ExecuteAdmin(name string, args []string) int {
 				Admin:           adminConfig,
 				Tenants:         authAppTenants,
 				Trust:           authAppTrust,
-				// SANDCASTLE_AUTH_PROVISION_V2=1 routes login provisioning through
-				// the v2 flow (default project + sidecar). The auth app has the
-				// host socket, so it creates the tenant directly like the broker.
+				// Login provisioning creates the tenant's default project +
+				// sidecar directly over the mounted host socket (the auth app
+				// has it, like the broker).
 				V2Create: authAppV2Create(adminConfig, authAppCreator),
 			},
 		},
@@ -198,10 +198,9 @@ func authAppServeArgs(args []string) bool {
 	return args[0] == "auth-app" && args[1] == "serve"
 }
 
-// authAppV2Create returns the v2 login-provisioning closure when
-// SANDCASTLE_AUTH_PROVISION_V2=1, else nil (v1 Personal Tenant path). The
-// closure creates the tenant's v2 default project + sidecar directly over the
-// mounted host socket; the sidecar image comes from the plan (SANDCASTLE_BASE_IMAGE).
+// authAppV2Create returns the login-provisioning closure. The closure creates
+// the tenant's default project + sidecar directly over the mounted host socket;
+// the sidecar image comes from the plan (SANDCASTLE_BASE_IMAGE).
 func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(context.Context, tenant.CreatePlanV2) error {
 	return func(ctx context.Context, plan tenant.CreatePlanV2) error {
 		return creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
