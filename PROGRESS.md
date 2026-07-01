@@ -53,9 +53,26 @@ Legend: ⬜ todo · 🔨 in progress · ✅ done · ⚠️ blocked
     dnsmasq (`getent hosts web.acme` ✅), cloud-init applied `dev` + key + sshd. ✅
   - **Login needs a cloud-init image** (`.../cloud`); plain `images:debian/13`
     ships no cloud-init. e2e uses the `/cloud` variant.
-  - Sidecar (`sc2-acme` in infra project, base image, pinned IP `.3`): image
-    copy into project in progress; then CoreDNS (flat `acme` zone + fallthrough
-    → dnsmasq `.1`) + `tailscale up` advertising the `/24`.
+  - Sidecar `sc2-acme` (infra project, **system-container** imported base
+    `df67318483de`, static IP `10.249.0.3`): CoreDNS active (flat `acme` zone +
+    fallthrough → dnsmasq `.1`); `tailscale up --advertise-routes=10.249.0.0/24`
+    joined the tailnet as `100.76.153.28` (subnet router up). ✅
+  - **FULL CORE E2E GREEN (first half):** from this CT,
+    `web.acme` resolves via CoreDNS `.3` → `10.249.0.18`, and
+    `ssh dev@web.acme` → `host=web user=dev uid=2000`. ✅
+
+### Proven v2 tenant-create recipe (to codify in incusx executor)
+1. `incus network create sc2-<t> --project default ipv4.address=<gw>/24 ipv4.nat=true ipv6.address=none dns.domain=<suffix>`
+2. infra project `sc2-<t>`: `features.networks=false features.images=false features.profiles=true features.storage.volumes=true`
+3. app project `sc2-<t>-default`: `features.networks=false features.images=true features.profiles=true features.storage.volumes=true`
+4. app `default` profile: root(disk,default pool) + eth0(bridged→sc2-<t>) + `cloud-init.user-data` (dev/uid2000/sudo + ssh key + openssh-server + enable ssh)
+5. `sidecar` profile (infra): root(disk,default) + eth0(bridged→sc2-<t>)
+6. launch sidecar from a **system-container** base image (imported; raw OCI = app container, no systemd)
+7. sidecar static IP `.3` in-container (base image does NOT DHCP eth0): `ip addr replace .3/24 + default via .1` + a systemd oneshot for reboot persistence
+8. push CoreDNS Corefile+zone+upstream; mask systemd-resolved; `coredns.service` enable --now
+9. `tailscaled` unmask+start; `tailscale up --advertise-routes=<cidr> --auth-key=<key> --hostname=sc2-<t> --accept-dns=false`
+
+**Learnings:** tenant machines need a **cloud-init image** (`images:debian/13/cloud`); sidecar needs a **system-container** base; `features.images=false` on infra avoids a 750MB copy; subnet route needs Tailscale approval for a remote (non-big) device.
 
 ---
 
