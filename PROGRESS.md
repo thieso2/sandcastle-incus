@@ -26,13 +26,23 @@ ssh api.acme                                  # ✅ one sidecar, two projects
 
 | # | Phase | Status |
 |---|-------|--------|
-| 1 | v2 naming helpers (`sc2-<tenant>`, `sc2-<tenant>-<project>`, bridge) | 🔨 |
-| 2 | `sc-adm tenant create-v2`: infra project + sidecar + bridge + `default` project + profile (CA + token: pending) | ✅ code validated on big |
-| 3 | Sandcastle Broker: `project create/delete` endpoint (generalize route-broker) + appliance deploy | 🔨 |
-| 4 | `sc project create/delete` client → broker | ⬜ |
-| 5 | Flat DNS `<machine>.<suffix>` wiring (Corefile + dnsmasq + localdns) | ⬜ |
-| 6 | Per-tenant CA install on `sc connect` | ⬜ |
-| 7 | Deploy to `big` + run acceptance script until green | ⬜ |
+| 1 | v2 naming helpers (`sc2-<tenant>`, `sc2-<tenant>-<project>`, bridge) | ✅ |
+| 2 | `sc-adm tenant create-v2`: infra project + sidecar + bridge + `default` project + profile | ✅ code validated on big |
+| 3 | Project scaffolding `CreateProjectV2` (= broker logic) + `sc-adm project create-v2` | ✅ code validated on big |
+| 3b | Restricted trust-token minting in tenant-create (`incus remote add --token`) | 🔨 |
+| 4 | Sandcastle Broker appliance + `sc project create` client (tenant self-service) | ⬜ |
+| 5 | Flat DNS `<machine>.<suffix>` wiring (Corefile + dnsmasq) | ✅ (in executor) |
+| 6 | Per-tenant CA install on `sc connect` | ⬜ (CA generated; install deferred) |
+| 7 | Deploy to `big` + run acceptance script until green | 🔨 core green |
+
+### CORE E2E GREEN via code (2026-07-01)
+`sc-adm tenant create-v2 demo` + `sc-adm project create-v2 demo backend`, then native
+`incus launch images:debian/13/cloud` into each project:
+- `ssh dev@api.demo` (sc2-demo-default) → `host=api uid=2000` ✅
+- `ssh dev@api2.demo` (sc2-demo-backend) → `host=api2 uid=2000` ✅
+Both resolved by name via the **single** sidecar CoreDNS `10.250.0.3` across two
+projects. Remaining to match the literal self-service script: restricted trust
+token (tenant's own cert) + the tenant-facing broker for `sc project create`.
 
 Legend: ⬜ todo · 🔨 in progress · ✅ done · ⚠️ blocked
 
