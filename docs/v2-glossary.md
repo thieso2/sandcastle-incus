@@ -2,6 +2,17 @@
 
 > The ratified v2 domain vocabulary from the design grilling of 2026-07-01 (ADR-0011, ADR-0012, ADR-0013; overview in `v2-topology.md`). **`CONTEXT.md` remains canonical for the current v1 code** until v2 is implemented; this file supersedes it *for v2 work only*. When v2 lands, fold this into `CONTEXT.md` and retire the superseded terms.
 
+## MVP amendments (ADR-0016 — OAuth-less, admin-provisioned first slice)
+
+The first shippable v2 slice (ADR-0016) amends several terms below. Where they conflict, ADR-0016 wins for the MVP:
+
+- **Tenant is *not* retired.** ADR-0011's "Tenant collapses into User" is deferred: the boundary is an **admin-minted Tenant handle** (no GitHub identity yet). **User** becomes the *later* auth identity that owns a Tenant. Names key on the tenant handle: infra project `sc2-<tenant>`, project `sc2-<tenant>-<project>`, bridge `sc2-<tenant>`.
+- **Machine hostname is flat: `<machine>.<suffix>`** (suffix = the tenant handle), **not** `<machine>.<project>`. One CoreDNS zone per tenant + dnsmasq fallthrough; machine names unique **within the tenant**. (Amends ADR-0012.)
+- **Native Incus access** — the tenant's primary interface for machines is the vanilla `incus` client over a **restricted, project-scoped TLS cert**; project lifecycle is Sandcastle-mediated.
+- **Sandcastle Broker** — the generalized Route Broker appliance at public `big:9443`; authorizes `sc project create/delete` by the tenant's restricted cert and does the privileged scaffolding.
+- **Per-tenant tailnet = the tenant's own Tailscale account** (own auth key supplied at provisioning), not a logical slice of a shared account.
+- **Deferred to step 2:** GitHub OAuth / Auth App / device login, public routes + front door (ADR-0015 Phase P), HTTPS-via-CA polish, inter-tenant Tailscale ACLs.
+
 ## Core nouns
 
 - **User** — The GitHub-authenticated identity that is the top-level owning, identity, and infrastructure boundary. Owns one per-user tailnet, one per-user sidecar, and many projects. *Replaces v1 **Tenant** / **Personal Tenant**.*

@@ -1,6 +1,8 @@
 # Sandcastle v2 Topology — Design Overview
 
 > Status: proposed, arrived at via a design grilling on 2026-07-01. Decisions are recorded in ADR-0011, ADR-0012, ADR-0013 (which supersede/amend ADR-0001, 0006, 0007). This doc ties them together and maps them onto the code that has to change. Nothing here is implemented yet.
+>
+> **MVP note (ADR-0016):** the first shippable slice keeps the boundary term **Tenant** (admin-minted, OAuth deferred), uses **flat `<machine>.<suffix>` DNS** (one zone per tenant, not per-project), gives tenants **native `incus`** access via a restricted cert plus a **Sandcastle Broker** at `big:9443` for project lifecycle, and coexists with v1 on `big` via the `sc2-` prefix + `10.249/16` + broker port `:9443` (no front-door refactor). Read the model below as the target; ADR-0016 is the subset shipping first. Naming below uses `sc-<username>`; the MVP uses `sc2-<tenant>`.
 
 ## The model
 
