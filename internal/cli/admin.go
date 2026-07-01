@@ -20,6 +20,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
@@ -293,6 +294,33 @@ func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 		Short: "Admin project operations (v2)",
 	}
 	command.AddCommand(newAdminProjectCreateV2Command(config, opts))
+	command.AddCommand(newAdminProjectBrokerServeCommand(config))
+	return command
+}
+
+func newAdminProjectBrokerServeCommand(config commandConfig) *cobra.Command {
+	var listen, certFile, keyFile string
+	command := &cobra.Command{
+		Use:   "broker-serve",
+		Short: "Run the Sandcastle project broker (tenant self-service sc project create; ADR-0016)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			creator, ok := config.tenantCreator.(incusx.TenantCreator)
+			if !ok {
+				return fmt.Errorf("v2 project creation executor is not configured")
+			}
+			handler := projectbroker.Handler{
+				Trust:   incusx.NewRouteBrokerTrustMapper(config.adminConfig.Remote),
+				Creator: incusx.ProjectBrokerCreator{Creator: creator, Trust: config.trustManager},
+			}
+			fmt.Fprintf(config.stderr, "project broker listening on %s\n", listen)
+			return projectbroker.Serve(cmd.Context(), projectbroker.ServePlan{
+				Address: listen, CertFile: certFile, KeyFile: keyFile,
+			}, handler)
+		},
+	}
+	command.Flags().StringVar(&listen, "listen", ":9443", "broker listen address")
+	command.Flags().StringVar(&certFile, "cert", "", "broker TLS certificate file")
+	command.Flags().StringVar(&keyFile, "key", "", "broker TLS key file")
 	return command
 }
 

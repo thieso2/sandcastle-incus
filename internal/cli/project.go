@@ -19,6 +19,7 @@ func newProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	}
 	command.AddCommand(newProjectListCommand(config, opts))
 	command.AddCommand(newProjectCreateCommand(config, opts))
+	command.AddCommand(newProjectCreateV2Command(config, opts))
 	command.AddCommand(newProjectStatusCommand(config, opts))
 	command.AddCommand(newProjectSetCloudIdentityCommand(config, opts))
 	command.AddCommand(newProjectUnsetCloudIdentityCommand(config, opts))
