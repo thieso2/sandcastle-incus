@@ -235,6 +235,25 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			}); err != nil {
 				return err
 			}
+			// Mint a restricted Incus Certificate Add Token scoped to the tenant's
+			// projects. The tenant redeems it with their own client, so the private
+			// key never leaves them (ADR-0016).
+			if config.trustManager != nil {
+				tok, err := config.trustManager.CreateToken(cmd.Context(), usertrust.UserPlan{
+					User:            plan.Tenant,
+					CertificateName: usertrust.RestrictedName(plan.Tenant),
+					RemoteName:      usertrust.RestrictedName(plan.Tenant),
+					Restricted:      true,
+					Projects:        plan.RestrictedProjects,
+					Description:     "Sandcastle v2 tenant " + plan.Tenant,
+				})
+				if err != nil {
+					fmt.Fprintf(config.stderr, "Warning: trust token creation failed: %v\n", err)
+				} else {
+					fmt.Fprintf(config.stdout, "\nTenant enrollment (restricted to %v):\n  incus remote add %s <incus-https-endpoint> --token=%s\n",
+						tok.Projects, plan.Tenant, tok.Token)
+				}
+			}
 			return writeOutput(config.stdout, opts.output, formatCreatePlanV2(plan), plan)
 		},
 	}
