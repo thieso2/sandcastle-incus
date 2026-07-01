@@ -30,7 +30,7 @@ ssh api.acme                                  # ✅ one sidecar, two projects
 | 2 | `sc-adm tenant create-v2`: infra project + sidecar + bridge + `default` project + profile | ✅ code validated on big |
 | 3 | Project scaffolding `CreateProjectV2` (= broker logic) + `sc-adm project create-v2` | ✅ code validated on big |
 | 3b | Restricted trust-token minting in tenant-create (`incus remote add --token`) | ✅ token+scope verified on big |
-| 4 | Sandcastle Broker appliance + `sc project create` client (tenant self-service) | 🔨 |
+| 4 | Sandcastle Broker + `sc project create-v2` client (tenant self-service) | ✅ validated on big |
 | 5 | Flat DNS `<machine>.<suffix>` wiring (Corefile + dnsmasq) | ✅ (in executor) |
 | 6 | Per-tenant CA install on `sc connect` | ⬜ (CA generated; install deferred) |
 | 7 | Deploy to `big` + run acceptance script until green | ✅ `scripts/e2e-v2.sh` GREEN |
@@ -286,3 +286,13 @@ The whole flow runs through the codified `sc-adm tenant create-v2` +
 projects. `sc-adm project create-v2` IS the Sandcastle Broker's scaffolding;
 the tenant-facing broker (`sc project create` over big:9443 + cert extension)
 is the remaining self-service delivery wrapper (deferred with OAuth).
+
+### Sandcastle Broker self-service VALIDATED on big (2026-07-01)
+Ran `sc-adm project broker-serve` locally (admin creds via bigv2); the tenant
+called `sc project create-v2 backend --broker https://127.0.0.1:9443 --cert … --key …`
+with their **own restricted cert**. Broker mapped the cert → tenant `bkr`,
+created `sc2-bkr-backend`, and **extended the tenant cert** to
+`[sc2-bkr-default, sc2-bkr-backend]` (verified via /1.0/certificates). Full
+decision-B self-service loop works. Remaining for production: package the broker
+as an infra appliance on `big:9443` (proxy device + admin socket mount) — the
+serve command + handler are done; only deployment/wiring remains.
