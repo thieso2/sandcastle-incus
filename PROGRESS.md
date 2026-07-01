@@ -29,8 +29,8 @@ ssh api.acme                                  # ✅ one sidecar, two projects
 | 1 | v2 naming helpers (`sc2-<tenant>`, `sc2-<tenant>-<project>`, bridge) | ✅ |
 | 2 | `sc-adm tenant create-v2`: infra project + sidecar + bridge + `default` project + profile | ✅ code validated on big |
 | 3 | Project scaffolding `CreateProjectV2` (= broker logic) + `sc-adm project create-v2` | ✅ code validated on big |
-| 3b | Restricted trust-token minting in tenant-create (`incus remote add --token`) | 🔨 |
-| 4 | Sandcastle Broker appliance + `sc project create` client (tenant self-service) | ⬜ |
+| 3b | Restricted trust-token minting in tenant-create (`incus remote add --token`) | ✅ token+scope verified on big |
+| 4 | Sandcastle Broker appliance + `sc project create` client (tenant self-service) | 🔨 |
 | 5 | Flat DNS `<machine>.<suffix>` wiring (Corefile + dnsmasq) | ✅ (in executor) |
 | 6 | Per-tenant CA install on `sc connect` | ⬜ (CA generated; install deferred) |
 | 7 | Deploy to `big` + run acceptance script until green | ✅ `scripts/e2e-v2.sh` GREEN |

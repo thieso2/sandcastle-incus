@@ -44,6 +44,16 @@ cleanup() {
     for i in $(incus list --project "$p" -c n --format csv 2>/dev/null); do
       incus delete "$i" --project "$p" --force 2>/dev/null || true
     done
+    # a project is only removable once empty: drop non-default profiles and any
+    # images it owns (app projects run features.images=true).
+    for prof in $(incus profile list --project "$p" --format csv -c n 2>/dev/null | grep -v '^default$'); do
+      incus profile delete "$prof" --project "$p" 2>/dev/null || true
+    done
+    if [ "$(incus project get "$p" features.images 2>/dev/null)" = "true" ]; then
+      for f in $(incus image list --project "$p" --format csv -c f 2>/dev/null); do
+        incus image delete "$f" --project "$p" 2>/dev/null || true
+      done
+    fi
     incus project delete "$p" 2>/dev/null || true
   done
   incus network delete "$INFRA" --project default 2>/dev/null || true
