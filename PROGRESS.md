@@ -307,7 +307,12 @@ the only direct-incus op; everything else via the broker).
 - ✅ Broker **admin plane**: AdminAuthorizer (trusted unrestricted cert) +
   TenantProvisionerAdapter; `sc-adm tenant create-v2 --broker` routes through
   :9443 (validated: created brtest via the broker, sidecar RUNNING).
-- ⬜ Remaining: admin endpoints for tenant list/delete + project create; the
-  one-time `sc-adm bootstrap` that deploys the broker as an appliance on big
-  (mount admin socket + `:9443` proxy device); flip `sc-adm` defaults to broker
-  mode; fold DNS-resolver + CA-trust into `sc connect`.
+- ✅ `sc-adm bootstrap` deploys the broker as an appliance on the host
+  (privileged, host admin unix socket mounted, `:9443` proxy, pushed binary +
+  TLS + systemd unit) — the broker uses the local socket with full rights.
+  VALIDATED on big: bootstrap → `tenant create-v2 --broker big.thieso2.dev:9443`
+  provisioned a tenant through the appliance. The broker `sc2-broker` is now
+  LIVE on big.
+- ⬜ Remaining: admin endpoints for tenant list/delete + admin project create;
+  flip `sc-adm` defaults to broker mode; fold DNS-resolver + CA-trust into
+  `sc connect`.
