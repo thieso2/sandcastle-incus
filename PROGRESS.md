@@ -380,3 +380,9 @@ cloud-init applies the profile (user `dev` + SSH key + openssh) → **SSH works 
 - ✅ **infra chunk removed** (commit): internal/infra + incusx/infrastructure.go + `sc-adm infra` CLI + v1 infra tests + v1 e2e test files (shared e2e helpers extracted). Build/vet/tests green.
 - **Next:** auth-app provisioner v2-only (drop v1 EnsurePersonalTenant), v1 tenant create, routes/routebroker, v1 machine create, and their tests.
 - Added protocol MD Phase 7c (🚧): shared `$HOME` + `/workspace` per project (v2 profile currently mounts only root disk — feature to build).
+
+## v1 removal — progress (cont.)
+- ✅ **provisioner chunk removed** (commit 5905b44): auth-app is v2-only (v1 EnsurePersonalTenant body + helpers + fields + interfaces + provision_test.go gone).
+- ✅ **e2e re-run GREEN after removals**: fat binary dispatches; `sc2.thieso2.dev/healthz` 200; CoreDNS resolves ct1/vm1; SSH into CT+VM works. (Per the "run e2e on feature finish/removal" rule.)
+- **Entanglement found:** `internal/routebroker` is partly shared — `routebroker.Principal` + `incusx.RouteBrokerTrustMapper` are used by the **v2** projectbroker. So the routes chunk must keep those and remove only the v1 route mutation (RouteManager, `internal/route`, `cli/route.go`, `incusx/route.go`, route-broker serve).
+- **Remaining v1 chunks:** routes (partial), v1 tenant create (`tenant.PlanCreate`, `incusx.CreateTenant`, CLI), v1 machine create, + their tests.

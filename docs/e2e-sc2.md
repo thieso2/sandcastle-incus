@@ -187,6 +187,23 @@ incus exec big:sc2-$TENANT --project sc2-$TENANT -- sh -c 'for n in ct1.'$TENANT
 ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[ct1]} 'echo OK $(whoami)@$(hostname) $(uname -r)'   # OK dev@ct1 7.0.x  (container)
 ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[vm1]} 'echo OK $(whoami)@$(hostname) $(uname -r)'   # OK dev@vm1 6.12.x (VM kernel)
 ```
+
+**Shared `$HOME` + `/workspace` across the project (CT ↔ VM) 🚧** — machines in the
+same project share `$HOME` and `/workspace` **by default** (a per-project storage
+volume), so a file written on the CT is visible on the VM and vice-versa:
+```bash
+# write on the CT, read on the VM (and the reverse) — same project, shared volume
+incus exec big:ct1 $Pd -- sh -c 'echo from-ct > /workspace/marker; echo from-ct-home > /home/dev/hmarker'
+incus exec big:vm1 $Pd -- sh -c 'cat /workspace/marker; cat /home/dev/hmarker'   # → from-ct / from-ct-home
+ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[vm1]} 'echo from-vm >> /workspace/marker'
+incus exec big:ct1 $Pd -- cat /workspace/marker                                   # → from-ct then from-vm
+```
+**PASS (target):** the VM reads `from-ct` / `from-ct-home` written by the CT, and the
+CT sees the VM's append — `$HOME` and `/workspace` are one shared volume per project.
+🚧 **Not built yet:** the v2 default-project profile mounts only the root disk. Build a
+**per-project storage volume** added to the `default` profile as a `disk` device at
+`/workspace`, with the `dev` user's `$HOME` pointed at it, so every CT/VM in the project shares it.
+
 > ⚠️ Auto-registration of machine A-records on create is TODO (added manually above).
 > The plain `d31c34fadc08` image has no cloud-init → no `dev` user / sshd; always use `images:debian/13/cloud` for tenant machines.
 
@@ -228,30 +245,6 @@ curl -s --resolve $HOST:443:65.21.132.31 https://$HOST/ -w '  [%{http_code} veri
 echo | openssl s_client -servername $HOST -connect 65.21.132.31:443 2>/dev/null | openssl x509 -noout -issuer
 # → issuer=… Let's Encrypt
 ```
-
----
-
-## Phase 7c — Shared `$HOME` and `/workspace` within a project 🚧
-Machines in the **same project** share `$HOME` and `/workspace` **by default** — a
-per-project storage volume mounted into every machine — so a file created on one
-machine appears on another. Test by writing on one and reading on the other.
-
-```bash
-Pd="--project sc2-$TENANT-default"
-incus launch images:debian/13/cloud big:app1 $Pd
-incus launch images:debian/13/cloud big:app2 $Pd
-# wait for cloud-init (dev user) on both, then:
-incus exec big:app1 $Pd -- sh -c 'echo shared-ws  > /workspace/marker; echo shared-home > /home/dev/hmarker'
-incus exec big:app2 $Pd -- sh -c 'cat /workspace/marker; cat /home/dev/hmarker'
-# from a client, SSH proves it too:
-ssh -i ~/.ssh/sandcastle_ed25519 dev@<app2-ip> 'cat /workspace/marker /home/dev/hmarker'
-```
-**PASS (target):** `app2` reads `shared-ws` from `/workspace/marker` and `shared-home`
-from `/home/dev/hmarker` — files written by `app1`.
-🚧 **Not built yet:** the v2 default-project profile mounts only the root disk (no
-shared volume). Remaining work: create a **per-project storage volume** and add it
-to the `default` profile as a `disk` device mounted at `/workspace` (and point the
-`dev` user's `$HOME` at it), so every machine in the project shares it automatically.
 
 ---
 
