@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
-	cliconfig "github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/lxc/incus/v6/shared/api"
+	cliconfig "github.com/lxc/incus/v6/shared/cliconfig"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -45,11 +45,11 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		return err
 	}
 	c.log("ensure infra project " + plan.InfraProject)
-	if err := ensureV2Project(server, plan.InfraProject, "Sandcastle v2 infra for "+plan.Tenant, "infra", plan.Tenant, false); err != nil {
+	if err := ensureV2Project(server, plan.InfraProject, "Sandcastle v2 infra for "+plan.Tenant, "infra", plan.Tenant, false, v2InfraMetadata(plan)); err != nil {
 		return err
 	}
 	c.log("ensure app project " + plan.DefaultProject)
-	if err := ensureV2Project(server, plan.DefaultProject, "Sandcastle v2 project default for "+plan.Tenant, "project", plan.Tenant, true); err != nil {
+	if err := ensureV2Project(server, plan.DefaultProject, "Sandcastle v2 project default for "+plan.Tenant, "project", plan.Tenant, true, nil); err != nil {
 		return err
 	}
 	c.log("ensure app default profile " + plan.DefaultProject)
@@ -130,25 +130,54 @@ func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 // bridge via features.networks=false. Infra shares the default image store
 // (features.images=false) to avoid copying the base; app projects keep their
 // own image store so tenants can pull their own images.
-func ensureV2Project(server TenantCreateServer, name string, description string, kind string, tenantName string, ownImages bool) error {
+// v2 infra-project metadata keys. The infra project is the durable record of a
+// tenant's shared settings so a later project-create (broker) can rebuild an app
+// project + profile without the operator re-supplying them.
+const (
+	keyV2Bridge = "user.sandcastle.v2.bridge"
+	keyV2Pool   = "user.sandcastle.v2.pool"
+	keyV2Suffix = "user.sandcastle.v2.suffix"
+	keyV2CIDR   = "user.sandcastle.v2.cidr"
+	keyV2User   = "user.sandcastle.v2.user"
+	keyV2SSHKey = "user.sandcastle.v2.sshkey"
+	keyV2Prefix = "user.sandcastle.v2.prefix"
+)
+
+func v2InfraMetadata(plan tenant.CreatePlanV2) map[string]string {
+	return map[string]string{
+		keyV2Bridge: plan.Bridge,
+		keyV2Pool:   plan.StoragePool,
+		keyV2Suffix: plan.DNSSuffix,
+		keyV2CIDR:   plan.PrivateCIDR,
+		keyV2User:   plan.DefaultProfileUser,
+		keyV2SSHKey: plan.SSHPublicKey,
+		keyV2Prefix: plan.Prefix,
+	}
+}
+
+func ensureV2Project(server TenantCreateServer, name string, description string, kind string, tenantName string, ownImages bool, extra map[string]string) error {
 	if _, _, err := server.GetProject(name); err == nil {
 		return nil
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) && !api.StatusErrorCheck(err, http.StatusForbidden) {
 		return fmt.Errorf("get project %s: %w", name, err)
 	}
+	config := api.ConfigMap{
+		"features.networks":        "false",
+		"features.images":          boolStr(ownImages),
+		"features.profiles":        "true",
+		"features.storage.volumes": "true",
+		meta.KeyKind:               kind,
+		meta.KeyTenant:             tenantName,
+		meta.KeyVersion:            "2",
+	}
+	for k, v := range extra {
+		config[k] = v
+	}
 	return server.CreateProject(api.ProjectsPost{
 		Name: name,
 		ProjectPut: api.ProjectPut{
 			Description: description,
-			Config: api.ConfigMap{
-				"features.networks":        "false",
-				"features.images":          boolStr(ownImages),
-				"features.profiles":        "true",
-				"features.storage.volumes": "true",
-				meta.KeyKind:               kind,
-				meta.KeyTenant:             tenantName,
-				meta.KeyVersion:            "2",
-			},
+			Config:      config,
 		},
 	})
 }
@@ -200,9 +229,9 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 		source.Alias = image
 	}
 	op, err := server.CreateInstance(api.InstancesPost{
-		Name:  plan.SidecarInstance,
-		Type:  "container",
-		Start: true,
+		Name:   plan.SidecarInstance,
+		Type:   "container",
+		Start:  true,
 		Source: source,
 		InstancePut: api.InstancePut{
 			Description: "Sandcastle v2 sidecar (CoreDNS + Tailscale + Caddy)",

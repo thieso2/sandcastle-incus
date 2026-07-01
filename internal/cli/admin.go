@@ -246,6 +246,37 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 	return command
 }
 
+func newAdminProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "create-v2 tenant project",
+		Short: "Create a v2 app project for a tenant (broker scaffolding; ADR-0016)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			creator, ok := config.tenantCreator.(incusx.TenantCreator)
+			if !ok {
+				return fmt.Errorf("v2 project creation executor is not configured")
+			}
+			result, err := creator.CreateProjectV2(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			banner := fmt.Sprintf("Tenant: %s\nProject: %s\nIncus project: %s\nBridge: %s\nDNS suffix: %s",
+				result.Tenant, result.Project, result.IncusProject, result.Bridge, result.DNSSuffix)
+			return writeOutput(config.stdout, opts.output, banner, result)
+		},
+	}
+	return command
+}
+
+func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "project",
+		Short: "Admin project operations (v2)",
+	}
+	command.AddCommand(newAdminProjectCreateV2Command(config, opts))
+	return command
+}
+
 func formatCreatePlanV2(plan tenant.CreatePlanV2) string {
 	return fmt.Sprintf("Tenant: %s\nInfra project: %s\nDefault project: %s\nBridge: %s\nCIDR: %s\nDNS suffix: %s\nSidecar: %s (dns %s, gateway %s)",
 		plan.Tenant, plan.InfraProject, plan.DefaultProject, plan.Bridge, plan.PrivateCIDR, plan.DNSSuffix, plan.SidecarInstance, plan.DNSAddress, plan.GatewayAddress)
