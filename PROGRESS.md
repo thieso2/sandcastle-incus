@@ -33,7 +33,7 @@ ssh api.acme                                  # ✅ one sidecar, two projects
 | 4 | Sandcastle Broker appliance + `sc project create` client (tenant self-service) | ⬜ |
 | 5 | Flat DNS `<machine>.<suffix>` wiring (Corefile + dnsmasq) | ✅ (in executor) |
 | 6 | Per-tenant CA install on `sc connect` | ⬜ (CA generated; install deferred) |
-| 7 | Deploy to `big` + run acceptance script until green | 🔨 core green |
+| 7 | Deploy to `big` + run acceptance script until green | ✅ `scripts/e2e-v2.sh` GREEN |
 
 ### CORE E2E GREEN via code (2026-07-01)
 `sc-adm tenant create-v2 demo` + `sc-adm project create-v2 demo backend`, then native
@@ -269,3 +269,20 @@ Note: SDK needs a single-address remote — added `bigv2` (big has a multi-addr
 failover list the Go SDK can't parse). Sidecar image must be a system container
 (passed imported base `df67318483de`); a proper `sc-adm image import` base is the
 production source.
+
+### Repeatable e2e GREEN (2026-07-01) — `scripts/e2e-v2.sh`
+```
+SANDCASTLE_REMOTE=bigv2 V2_SIDECAR_IMAGE=df67318483de ./scripts/e2e-v2.sh
+PASS: tenant created (sidecar DNS 10.252.0.3)
+PASS: project backend created
+PASS: CoreDNS resolves web.e2ev2 -> 10.252.0.195
+PASS: ssh dev@web.e2ev2 -> OK:web:2000
+PASS: CoreDNS resolves api.e2ev2 -> 10.252.0.134
+PASS: ssh dev@api.e2ev2 -> OK:api:2000
+v2 e2e: GREEN   (then clean teardown)
+```
+The whole flow runs through the codified `sc-adm tenant create-v2` +
+`sc-adm project create-v2` + native `incus launch`, one sidecar serving two
+projects. `sc-adm project create-v2` IS the Sandcastle Broker's scaffolding;
+the tenant-facing broker (`sc project create` over big:9443 + cert extension)
+is the remaining self-service delivery wrapper (deferred with OAuth).
