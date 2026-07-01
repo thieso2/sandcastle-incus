@@ -4,7 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/lxc/incus/v6/shared/api"
+	"github.com/lxc/incus/v6/shared/cliconfig"
+
+	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
+	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -41,4 +46,95 @@ func (p ProjectBrokerCreator) CreateTenantProject(ctx context.Context, tenant st
 		Bridge:       res.Bridge,
 		DNSSuffix:    res.DNSSuffix,
 	}, nil
+}
+
+// TenantProvisionerAdapter implements projectbroker.TenantProvisioner: the
+// broker's admin plane drives the full v2 tenant bring-up + mints the
+// enrollment token, using the admin Incus credentials the broker holds.
+type TenantProvisionerAdapter struct {
+	Creator      TenantCreator
+	Trust        usertrust.Manager
+	Admin        config.Admin
+	SidecarImage string
+}
+
+func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectbroker.TenantRequest) (projectbroker.TenantResult, error) {
+	plan, err := tenant.PlanCreateV2(a.Admin, tenant.CreateRequest{
+		Reference:    req.Tenant,
+		SSHPublicKey: req.SSHPublicKey,
+	})
+	if err != nil {
+		return projectbroker.TenantResult{}, err
+	}
+	if err := a.Creator.CreateTenantV2(ctx, plan, CreateV2Options{
+		TailscaleAuthKey: req.TailscaleAuthKey,
+		SidecarImage:     a.SidecarImage,
+	}); err != nil {
+		return projectbroker.TenantResult{}, err
+	}
+	result := projectbroker.TenantResult{
+		Tenant:         plan.Tenant,
+		InfraProject:   plan.InfraProject,
+		DefaultProject: plan.DefaultProject,
+		Bridge:         plan.Bridge,
+		DNSSuffix:      plan.DNSSuffix,
+	}
+	if a.Trust != nil {
+		tok, err := a.Trust.CreateToken(ctx, usertrust.UserPlan{
+			User:            plan.Tenant,
+			CertificateName: usertrust.RestrictedName(plan.Tenant),
+			RemoteName:      usertrust.RestrictedName(plan.Tenant),
+			Restricted:      true,
+			Projects:        plan.RestrictedProjects,
+			Description:     "Sandcastle v2 tenant " + plan.Tenant,
+		})
+		if err != nil {
+			return projectbroker.TenantResult{}, fmt.Errorf("mint enrollment token: %w", err)
+		}
+		result.Token = tok.Token
+	}
+	return result, nil
+}
+
+// AdminAuthorizer implements projectbroker.AdminAuthorizer by treating any
+// trusted, unrestricted client certificate on the Incus server as an admin.
+type AdminAuthorizer struct {
+	Remote     string
+	ConfigPath string
+	Server     RouteBrokerTrustServer
+}
+
+func NewAdminAuthorizer(remote string) AdminAuthorizer {
+	return AdminAuthorizer{Remote: remote}
+}
+
+func (a AdminAuthorizer) IsAdmin(ctx context.Context, fingerprint string) (bool, error) {
+	server := a.Server
+	if server == nil {
+		loaded, err := cliconfig.LoadConfig(a.ConfigPath)
+		if err != nil {
+			return false, fmt.Errorf("load Incus config: %w", err)
+		}
+		remote := a.Remote
+		if remote == "" {
+			remote = loaded.DefaultRemote
+		}
+		instanceServer, err := loaded.GetInstanceServer(remote)
+		if err != nil {
+			return false, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+		}
+		server = instanceServer
+	}
+	certificates, err := server.GetCertificates()
+	if err != nil {
+		return false, fmt.Errorf("list Incus certificates: %w", err)
+	}
+	want := normalizeFingerprint(fingerprint)
+	for _, c := range certificates {
+		if normalizeFingerprint(c.Fingerprint) != want {
+			continue
+		}
+		return c.Type == api.CertificateTypeClient && !c.Restricted, nil
+	}
+	return false, nil
 }

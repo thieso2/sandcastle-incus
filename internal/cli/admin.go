@@ -19,8 +19,8 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
-	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
+	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
@@ -207,11 +207,33 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 	var tailscaleAuthKey string
 	var sidecarImage string
 	var cidrPool string
+	var broker, brokerCert, brokerKey string
 	command := &cobra.Command{
 		Use:   "create-v2 tenant",
 		Short: "Create a v2 MVP tenant (native incus access, flat DNS; ADR-0016)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Broker plane: route the create through the broker's admin API
+			// instead of opening a direct Incus connection (ADR-0016).
+			if strings.TrimSpace(broker) != "" {
+				certFile, keyFile := adminClientCert(brokerCert, brokerKey)
+				var result struct {
+					Tenant, InfraProject, DefaultProject, Bridge, DNSSuffix, Token string
+				}
+				if err := brokerPost(cmd.Context(), broker, "/v2/tenants", certFile, keyFile, map[string]string{
+					"tenant":           args[0],
+					"sshPublicKey":     sshKey,
+					"tailscaleAuthKey": tailscaleAuthKey,
+				}, &result); err != nil {
+					return err
+				}
+				fmt.Fprintf(config.stdout, "Tenant: %s\nInfra project: %s\nDefault project: %s\nBridge: %s\nDNS suffix: %s\n",
+					result.Tenant, result.InfraProject, result.DefaultProject, result.Bridge, result.DNSSuffix)
+				if result.Token != "" {
+					fmt.Fprintf(config.stdout, "\nEnrollment:\n  sc connect-v2 %s --token %s\n", result.Tenant, result.Token)
+				}
+				return nil
+			}
 			admin := config.adminConfig
 			if strings.TrimSpace(cidrPool) != "" {
 				admin.CIDRPool = strings.TrimSpace(cidrPool)
@@ -263,6 +285,9 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 	command.Flags().StringVar(&sidecarImage, "sidecar-image", "", "system-container base image (alias or fingerprint) for the sidecar; defaults to the configured base")
 	command.Flags().StringVar(&cidrPool, "cidr-pool", "10.249.0.0/16", "CIDR pool to allocate the tenant's /24 from (must not overlap v1)")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the v2 plan without mutating Incus")
+	command.Flags().StringVar(&broker, "broker", "", "route through the Sandcastle Broker admin API (e.g. https://big.thieso2.dev:9443) instead of direct Incus")
+	command.Flags().StringVar(&brokerCert, "broker-cert", "", "admin client cert for the broker (default: admin incus config)")
+	command.Flags().StringVar(&brokerKey, "broker-key", "", "admin client key for the broker (default: admin incus config)")
 	return command
 }
 
@@ -299,20 +324,29 @@ func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 }
 
 func newAdminProjectBrokerServeCommand(config commandConfig) *cobra.Command {
-	var listen, certFile, keyFile string
+	var listen, certFile, keyFile, sidecarImage string
 	command := &cobra.Command{
 		Use:   "broker-serve",
-		Short: "Run the Sandcastle project broker (tenant self-service sc project create; ADR-0016)",
+		Short: "Run the Sandcastle broker (tenant + admin plane over :9443; ADR-0016)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			creator, ok := config.tenantCreator.(incusx.TenantCreator)
 			if !ok {
-				return fmt.Errorf("v2 project creation executor is not configured")
+				return fmt.Errorf("v2 executor is not configured")
 			}
 			handler := projectbroker.Handler{
+				// tenant plane
 				Trust:   incusx.NewRouteBrokerTrustMapper(config.adminConfig.Remote),
 				Creator: incusx.ProjectBrokerCreator{Creator: creator, Trust: config.trustManager},
+				// admin plane
+				Admin: incusx.NewAdminAuthorizer(config.adminConfig.Remote),
+				Provisioner: incusx.TenantProvisionerAdapter{
+					Creator:      creator,
+					Trust:        config.trustManager,
+					Admin:        config.adminConfig,
+					SidecarImage: strings.TrimSpace(sidecarImage),
+				},
 			}
-			fmt.Fprintf(config.stderr, "project broker listening on %s\n", listen)
+			fmt.Fprintf(config.stderr, "broker listening on %s (tenant + admin plane)\n", listen)
 			return projectbroker.Serve(cmd.Context(), projectbroker.ServePlan{
 				Address: listen, CertFile: certFile, KeyFile: keyFile,
 			}, handler)
@@ -321,6 +355,7 @@ func newAdminProjectBrokerServeCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&listen, "listen", ":9443", "broker listen address")
 	command.Flags().StringVar(&certFile, "cert", "", "broker TLS certificate file")
 	command.Flags().StringVar(&keyFile, "key", "", "broker TLS key file")
+	command.Flags().StringVar(&sidecarImage, "sidecar-image", "", "system-container base image for tenant sidecars (admin plane)")
 	return command
 }
 

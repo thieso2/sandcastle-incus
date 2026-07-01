@@ -40,6 +40,37 @@ type ProjectCreator interface {
 	CreateTenantProject(ctx context.Context, tenant string, project string) (ProjectResult, error)
 }
 
+// AdminAuthorizer reports whether a client-certificate fingerprint belongs to a
+// Sandcastle admin (a trusted, unrestricted client cert). This is the broker's
+// admin plane: after the one-time bootstrap, admin tooling talks to the broker
+// instead of opening a direct Incus connection.
+type AdminAuthorizer interface {
+	IsAdmin(context.Context, string) (bool, error)
+}
+
+// TenantProvisioner performs the privileged tenant bring-up (ADR-0016) and
+// returns the enrollment token — the admin-plane counterpart of ProjectCreator.
+type TenantProvisioner interface {
+	CreateTenant(context.Context, TenantRequest) (TenantResult, error)
+}
+
+// TenantRequest is the admin's create-tenant payload.
+type TenantRequest struct {
+	Tenant           string `json:"tenant"`
+	SSHPublicKey     string `json:"sshPublicKey,omitempty"`
+	TailscaleAuthKey string `json:"tailscaleAuthKey,omitempty"`
+}
+
+// TenantResult is returned to the admin after a successful tenant bring-up.
+type TenantResult struct {
+	Tenant         string `json:"tenant"`
+	InfraProject   string `json:"infraProject"`
+	DefaultProject string `json:"defaultProject"`
+	Bridge         string `json:"bridge"`
+	DNSSuffix      string `json:"dnsSuffix"`
+	Token          string `json:"token,omitempty"`
+}
+
 // ProjectResult is returned to the caller after a successful create.
 type ProjectResult struct {
 	Tenant       string `json:"tenant"`
@@ -54,22 +85,33 @@ type createRequest struct {
 }
 
 // Handler is the broker's HTTP handler. It expects a verified client
-// certificate on the request TLS state.
+// certificate on the request TLS state. The tenant plane (Trust + Creator)
+// serves `sc project create`; the admin plane (Admin + Provisioner) serves
+// admin operations like `sc-adm tenant create`.
 type Handler struct {
-	Trust   TrustMapper
-	Creator ProjectCreator
+	Trust       TrustMapper
+	Creator     ProjectCreator
+	Admin       AdminAuthorizer
+	Provisioner TenantProvisioner
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || r.URL.Path != "/v2/projects" {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		http.Error(w, "client certificate required", http.StatusUnauthorized)
 		return
 	}
 	fingerprint := certificateFingerprint(r.TLS.PeerCertificates[0].Raw)
+	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/v2/projects":
+		h.handleProjectCreate(w, r, fingerprint)
+	case r.Method == http.MethodPost && r.URL.Path == "/v2/tenants":
+		h.handleTenantCreate(w, r, fingerprint)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
+}
+
+func (h Handler) handleProjectCreate(w http.ResponseWriter, r *http.Request, fingerprint string) {
 	principal, err := ResolvePrincipal(r.Context(), h.Trust, fingerprint)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
@@ -90,8 +132,43 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	writeJSON(w, result)
+}
+
+func (h Handler) handleTenantCreate(w http.ResponseWriter, r *http.Request, fingerprint string) {
+	if h.Admin == nil || h.Provisioner == nil {
+		http.Error(w, "admin plane not configured", http.StatusNotFound)
+		return
+	}
+	ok, err := h.Admin.IsAdmin(r.Context(), fingerprint)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if !ok {
+		http.Error(w, "admin privileges required", http.StatusForbidden)
+		return
+	}
+	var req TenantRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := naming.ValidateTenantName(strings.TrimSpace(req.Tenant)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	result, err := h.Provisioner.CreateTenant(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // ResolvePrincipal maps a fingerprint to a broker Principal via the trust mapper.

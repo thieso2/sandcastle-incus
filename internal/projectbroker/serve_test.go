@@ -85,3 +85,38 @@ func TestHandlerRejectsInvalidProjectName(t *testing.T) {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
+
+type fakeAdmin struct{ ok bool }
+
+func (f fakeAdmin) IsAdmin(_ context.Context, _ string) (bool, error) { return f.ok, nil }
+
+type fakeProvisioner struct{ got string }
+
+func (f *fakeProvisioner) CreateTenant(_ context.Context, req TenantRequest) (TenantResult, error) {
+	f.got = req.Tenant
+	return TenantResult{Tenant: req.Tenant, InfraProject: "sc2-" + req.Tenant, Token: "tok"}, nil
+}
+
+func tenantReq(t *testing.T, admin bool) *httptest.ResponseRecorder {
+	prov := &fakeProvisioner{}
+	h := Handler{Admin: fakeAdmin{ok: admin}, Provisioner: prov}
+	req := httptest.NewRequest("POST", "/v2/tenants", strings.NewReader(`{"tenant":"acme"}`))
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{Raw: []byte("der")}}}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestHandlerAdminTenantCreateAuthorized(t *testing.T) {
+	rec := tenantReq(t, true)
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlerAdminTenantCreateRejectsNonAdmin(t *testing.T) {
+	rec := tenantReq(t, false)
+	if rec.Code != 403 {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+}
