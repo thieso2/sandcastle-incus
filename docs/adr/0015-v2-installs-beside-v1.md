@@ -13,7 +13,10 @@ v2 is a **different topology** (ADR-0011: User boundary, Project = Incus project
 
 Two host-global singletons are hardcoded and must become **deployment-scoped** (seed-configurable):
 
-1. **Host front door.** The infra Caddy publishes `tcp:0.0.0.0:80` / `:443` via proxy devices (`internal/infra/plan.go:648-654`). Only one deployment can bind the host's 80/443. Options: seed-configurable **listen address/ports** (v2 on a second host IP, or on `:8080/:8443`), or a shared L4/SNI router owning `:443` and forwarding by hostname to each deployment's Caddy. (The SNI-router option is the long-term clean answer; per-IP or per-port is the cheap one.)
+1. **Host front door.** The infra Caddy publishes `tcp:0.0.0.0:80` / `:443` via proxy devices (`internal/infra/plan.go:648-654`). There is a **single public IP**, so only one deployment can own `:80/:443`. **Decision: make the Caddy proxy listen ports seed-configurable and give v2 alternate ports (e.g. `:8080/:8443`) during coexistence**; v1 keeps `:80/:443`. At cutover (v1 retired) the primary deployment takes `:443`.
+   - *Private traffic is unaffected* (the per-user sidecar Caddy is reached over the tailnet; ports don't matter).
+   - *Public-route caveats on the alternate port:* (a) public URLs carry the port (`https://host:8443`) — acceptable for the migration window; (b) **ACME HTTP-01/TLS-ALPN-01 require `:80/:443`** (held by v1), so a v2 Caddy on `:8443` must use **DNS-01** for real certs, or run **internal TLS** (self-signed, test-only) until it takes `:443`.
+   - *Rejected for now:* a shared L4/SNI router owning `:443` and forwarding by hostname to each deployment's Caddy — only needed if v1 **and** v2 must both serve public on `:443` *permanently*; unnecessary for migrate-then-retire.
 2. **Infra bridge + sidecar octets.** The infra sidecars sit on `incusbr0` (`plan.go:41`) at fixed last-octets `.20/.21/.22` (`infrastructure.go:206-211`). A second deployment derives the same three addresses on the same bridge → collision. Make the **infra bridge name and the octets seed-configurable**, or give each deployment its **own infra bridge**.
 
 ## Consequences
