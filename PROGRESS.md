@@ -27,8 +27,8 @@ ssh api.acme                                  # ✅ one sidecar, two projects
 | # | Phase | Status |
 |---|-------|--------|
 | 1 | v2 naming helpers (`sc2-<tenant>`, `sc2-<tenant>-<project>`, bridge) | 🔨 |
-| 2 | `sc-adm tenant create`: infra project + sidecar + bridge + `default` project + profile + CA + restricted trust token | ⬜ |
-| 3 | Sandcastle Broker: `project create/delete` endpoint (generalize route-broker) + appliance deploy | ⬜ |
+| 2 | `sc-adm tenant create-v2`: infra project + sidecar + bridge + `default` project + profile (CA + token: pending) | ✅ code validated on big |
+| 3 | Sandcastle Broker: `project create/delete` endpoint (generalize route-broker) + appliance deploy | 🔨 |
 | 4 | `sc project create/delete` client → broker | ⬜ |
 | 5 | Flat DNS `<machine>.<suffix>` wiring (Corefile + dnsmasq + localdns) | ⬜ |
 | 6 | Per-tenant CA install on `sc connect` | ⬜ |
@@ -248,3 +248,14 @@ available in a plain local checkout:
 
 The active goal remains open until those gates can be exercised in an
 environment that provides their prerequisites.
+
+### Phase 2 validated (2026-07-01)
+`sc-adm tenant create-v2 demo --cidr-pool 10.250.0.0/16 --sidecar-image df67318483de`
+ran the Go executor end-to-end on big (exit 0): bridge + infra/app projects +
+cloud-init profile + system-container sidecar + CoreDNS. Then native
+`incus launch images:debian/13/cloud api --project sc2-demo-default` → CoreDNS
+`api.demo` → `10.250.0.252` → `ssh dev@api.demo` = `host=api user=dev uid=2000`. ✅
+Note: SDK needs a single-address remote — added `bigv2` (big has a multi-addr
+failover list the Go SDK can't parse). Sidecar image must be a system container
+(passed imported base `df67318483de`); a proper `sc-adm image import` base is the
+production source.
