@@ -41,6 +41,9 @@ func TestPlanCreateV2Names(t *testing.T) {
 	if len(plan.RestrictedProjects) != 1 || plan.RestrictedProjects[0] != "sc2-acme-default" {
 		t.Fatalf("RestrictedProjects = %v", plan.RestrictedProjects)
 	}
+	if plan.StoragePool != "default" {
+		t.Fatalf("StoragePool = %q, want default", plan.StoragePool)
+	}
 }
 
 func TestPlanCreateV2RoleAddresses(t *testing.T) {

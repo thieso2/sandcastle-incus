@@ -1,6 +1,7 @@
 package tenant
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,6 +12,28 @@ import (
 	domainrules "github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
+
+// V2DefaultProfileUserData renders the cloud-init user-data baked into a v2
+// project's default profile. Freeform `incus launch` of a cloud-init image
+// applies it at first boot, creating the login user (UID 2000, sudo) with the
+// tenant's SSH key and an enabled sshd — so machines are reachable over the
+// tenant's tailnet with no Sandcastle-in-the-loop configure step.
+func V2DefaultProfileUserData(user string, sshKey string) string {
+	return fmt.Sprintf(`#cloud-config
+users:
+  - name: %s
+    uid: 2000
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - %s
+packages:
+  - openssh-server
+runcmd:
+  - [systemctl, enable, --now, ssh]
+`, user, sshKey)
+}
 
 // DefaultV2UnixUser is the login user baked into a v2 project's default
 // profile when the create request does not specify one. It matches the UID-2000
@@ -124,7 +147,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 		GatewayAddress:     gatewayAddress.String(),
 		TailscaleAddress:   tailscaleAddress.String(),
 		DNSAddress:         dnsAddress.String(),
-		StoragePool:        infraProject,
+		StoragePool:        admin.StoragePool,
 		HomeVolume:         HomeVolumeName,
 		WorkspaceVolume:    WorkspaceVolumeName,
 		CAVolume:           CAVolumeName,

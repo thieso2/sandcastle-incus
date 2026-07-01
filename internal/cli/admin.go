@@ -64,6 +64,7 @@ func newAdminTenantCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 	command.AddCommand(newAdminTenantListCommand(config, opts))
 	command.AddCommand(newAdminTenantStatusCommand(config, opts))
 	command.AddCommand(newAdminTenantCreateCommand(config, opts))
+	command.AddCommand(newAdminTenantCreateV2Command(config, opts))
 	command.AddCommand(newAdminTenantDeleteCommand(config, opts))
 	command.AddCommand(newAdminTenantGrantCommand(config, opts))
 	command.AddCommand(newAdminTenantRevokeCommand(config, opts))
@@ -197,6 +198,57 @@ func newAdminTenantCreateCommand(config commandConfig, opts *rootOptions) *cobra
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the Incus creation plan without mutating resources")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key; if set, runs tailscale up after tenant creation")
 	return command
+}
+
+func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cobra.Command {
+	var dryRun bool
+	var sshKey string
+	var tailscaleAuthKey string
+	var sidecarImage string
+	var cidrPool string
+	command := &cobra.Command{
+		Use:   "create-v2 tenant",
+		Short: "Create a v2 MVP tenant (native incus access, flat DNS; ADR-0016)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			admin := config.adminConfig
+			if strings.TrimSpace(cidrPool) != "" {
+				admin.CIDRPool = strings.TrimSpace(cidrPool)
+			}
+			plan, err := tenant.PlanCreateV2(admin, tenant.CreateRequest{
+				Reference:    args[0],
+				SSHPublicKey: sshKey,
+			})
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return writeOutput(config.stdout, opts.output, formatCreatePlanV2(plan), plan)
+			}
+			creator, ok := config.tenantCreator.(incusx.TenantCreator)
+			if !ok {
+				return fmt.Errorf("v2 tenant creation executor is not configured")
+			}
+			if err := creator.CreateTenantV2(cmd.Context(), plan, incusx.CreateV2Options{
+				TailscaleAuthKey: strings.TrimSpace(tailscaleAuthKey),
+				SidecarImage:     strings.TrimSpace(sidecarImage),
+			}); err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatCreatePlanV2(plan), plan)
+		},
+	}
+	command.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key baked into the tenant's default project profile")
+	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-authkey", "", "the tenant's Tailscale auth key (joins the sidecar to the tenant's tailnet)")
+	command.Flags().StringVar(&sidecarImage, "sidecar-image", "", "system-container base image (alias or fingerprint) for the sidecar; defaults to the configured base")
+	command.Flags().StringVar(&cidrPool, "cidr-pool", "10.249.0.0/16", "CIDR pool to allocate the tenant's /24 from (must not overlap v1)")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the v2 plan without mutating Incus")
+	return command
+}
+
+func formatCreatePlanV2(plan tenant.CreatePlanV2) string {
+	return fmt.Sprintf("Tenant: %s\nInfra project: %s\nDefault project: %s\nBridge: %s\nCIDR: %s\nDNS suffix: %s\nSidecar: %s (dns %s, gateway %s)",
+		plan.Tenant, plan.InfraProject, plan.DefaultProject, plan.Bridge, plan.PrivateCIDR, plan.DNSSuffix, plan.SidecarInstance, plan.DNSAddress, plan.GatewayAddress)
 }
 
 func tailscalePlanUpForTenant(ctx context.Context, admin scconfig.Admin, store tenant.IncusTenantStore, authKey string) (tailscale.UpPlan, error) {
