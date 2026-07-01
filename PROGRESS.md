@@ -4,6 +4,45 @@ This file tracks the current Sandcastle Incus implementation state. Historical
 owner/project/sandbox milestones were superseded by the tenant/project/machine
 model described in `docs/sandcastle-v1-spec.md`.
 
+---
+
+# v2 MVP — Active Build (ADR-0016)
+
+Goal: full v2 MVP per **ADR-0016**, deployed to `big`, until the e2e acceptance
+script is green. Branch: `freeform-launch-profiles-dns`.
+
+## e2e acceptance (definition of done)
+```
+sc-adm tenant create acme --tailscale-authkey=$TS_AUTHKEY
+incus remote add big https://65.21.132.31:8443 --token=<tok>
+incus launch images:debian/13 web            # into sc2-acme-default
+ssh web.acme                                  # ✅
+sc project create backend                     # broker at big:9443
+incus launch images:debian/13 api --project sc2-acme-backend
+ssh api.acme                                  # ✅ one sidecar, two projects
+```
+
+## Phases
+
+| # | Phase | Status |
+|---|-------|--------|
+| 1 | v2 naming helpers (`sc2-<tenant>`, `sc2-<tenant>-<project>`, bridge) | 🔨 |
+| 2 | `sc-adm tenant create`: infra project + sidecar + bridge + `default` project + profile + CA + restricted trust token | ⬜ |
+| 3 | Sandcastle Broker: `project create/delete` endpoint (generalize route-broker) + appliance deploy | ⬜ |
+| 4 | `sc project create/delete` client → broker | ⬜ |
+| 5 | Flat DNS `<machine>.<suffix>` wiring (Corefile + dnsmasq + localdns) | ⬜ |
+| 6 | Per-tenant CA install on `sc connect` | ⬜ |
+| 7 | Deploy to `big` + run acceptance script until green | ⬜ |
+
+Legend: ⬜ todo · 🔨 in progress · ✅ done · ⚠️ blocked
+
+## v2 Log
+- 2026-07-01: ADR-0016 ratified + committed (`ed1b21e`). Incus 7.2 client on this
+  CT; `big` set as default remote. Starting Phase 1 (v2 naming).
+
+---
+
+
 ## Current Shape
 
 - Product CLI: `sandcastle`, with `sc` installed as a symlink alias.
