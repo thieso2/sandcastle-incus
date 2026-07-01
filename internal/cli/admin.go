@@ -57,7 +57,6 @@ func newAdminTenantCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 	}
 	command.AddCommand(newAdminTenantListCommand(config, opts))
 	command.AddCommand(newAdminTenantStatusCommand(config, opts))
-	command.AddCommand(newAdminTenantCreateCommand(config, opts))
 	command.AddCommand(newAdminTenantCreateV2Command(config, opts))
 	command.AddCommand(newAdminTenantDeleteCommand(config, opts))
 	command.AddCommand(newAdminTenantGrantCommand(config, opts))
@@ -131,67 +130,6 @@ func newAdminTenantStatusCommand(config commandConfig, opts *rootOptions) *cobra
 			return writeOutput(config.stdout, opts.output, formatTenantStatus(status), status)
 		},
 	}
-}
-
-func newAdminTenantCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var dryRun bool
-	var sshKey string
-	var tailscaleAuthKey string
-	command := &cobra.Command{
-		Use:   "create tenant",
-		Short: "Create a Sandcastle tenant",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var occupiedCIDRs []string
-			if !dryRun {
-				existingTenants, err := listTenants(cmd.Context(), config.tenantStore)
-				if err != nil {
-					return err
-				}
-				occupiedCIDRs = tenant.OccupiedCIDRs(existingTenants)
-			}
-			plan, err := tenant.PlanCreate(config.adminConfig, tenant.CreateRequest{
-				Reference:     args[0],
-				SSHPublicKey:  sshKey,
-				OccupiedCIDRs: occupiedCIDRs,
-			})
-			if err != nil {
-				return err
-			}
-			if !dryRun {
-				if config.tenantCreator == nil {
-					return fmt.Errorf("tenant creation executor is not configured")
-				}
-				incusx.NewConnectCache(config.adminConfig.Remote).InvalidateTenant(plan.Reference)
-				incusx.InvalidateTenantCA(config.adminConfig.Remote, plan.IncusProject)
-				if err := config.tenantCreator.CreateTenant(cmd.Context(), plan); err != nil {
-					return err
-				}
-				authKey := strings.TrimSpace(tailscaleAuthKey)
-				if authKey == "" {
-					authKey = strings.TrimSpace(config.adminConfig.AuthTailscaleAuthKey)
-				}
-				if config.tailscale != nil {
-					tsAdmin := config.adminConfig
-					tsAdmin.Tenant = plan.Reference
-					upPlan, err := tailscalePlanUpForTenant(cmd.Context(), tsAdmin, config.tenantStore, authKey)
-					if err != nil {
-						fmt.Fprintf(config.stderr, "Warning: tailscale up plan failed: %v\n", err)
-					} else if err := config.tailscale.RunUp(cmd.Context(), upPlan, tailscale.RunSession{
-						Stdout: config.stdout,
-						Stderr: config.stderr,
-					}); err != nil {
-						fmt.Fprintf(config.stderr, "Warning: tailscale up failed: %v\n", err)
-					}
-				}
-			}
-			return writeOutput(config.stdout, opts.output, formatCreatePlan(plan), plan)
-		},
-	}
-	command.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key to inject into all tenant machines")
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the Incus creation plan without mutating resources")
-	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key; if set, runs tailscale up after tenant creation")
-	return command
 }
 
 func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cobra.Command {

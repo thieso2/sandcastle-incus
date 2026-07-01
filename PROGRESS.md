@@ -386,3 +386,7 @@ cloud-init applies the profile (user `dev` + SSH key + openssh) → **SSH works 
 - ✅ **e2e re-run GREEN after removals**: fat binary dispatches; `sc2.thieso2.dev/healthz` 200; CoreDNS resolves ct1/vm1; SSH into CT+VM works. (Per the "run e2e on feature finish/removal" rule.)
 - **Entanglement found:** `internal/routebroker` is partly shared — `routebroker.Principal` + `incusx.RouteBrokerTrustMapper` are used by the **v2** projectbroker. So the routes chunk must keep those and remove only the v1 route mutation (RouteManager, `internal/route`, `cli/route.go`, `incusx/route.go`, route-broker serve).
 - **Remaining v1 chunks:** routes (partial), v1 tenant create (`tenant.PlanCreate`, `incusx.CreateTenant`, CLI), v1 machine create, + their tests.
+
+## v1 removal — progress (cont. 2)
+- ✅ **v1 `tenant create` CLI + tests removed** (create-v2 is the only tenant create). e2e smoke re-run green.
+- Dead-but-present v1 machinery to remove in deeper increments: `incusx.CreateTenant`, `tenant.PlanCreate` (entangled with shared `create_plan.CreateRequest` / `tenant_create.go` helpers used by v2).

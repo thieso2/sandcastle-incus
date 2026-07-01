@@ -4461,53 +4461,6 @@ func TestAdminTenantListJSON(t *testing.T) {
 	}
 }
 
-func TestAdminTenantCreateDryRunJSON(t *testing.T) {
-	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
-		name:        "sandcastle-admin",
-		adminConfig: scconfig.LoadAdminFromEnv(),
-	}, "--output", "json", "tenant", "create", "acme", "--dry-run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload tenant.CreatePlan
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.IncusProject != "sc-acme" {
-		t.Fatalf("IncusProject = %q", payload.IncusProject)
-	}
-	if payload.PrivateCIDR != "10.248.0.0/24" {
-		t.Fatalf("PrivateCIDR = %q", payload.PrivateCIDR)
-	}
-}
-
-func TestAdminTenantCreateRequiresExecutor(t *testing.T) {
-	_, err := executeAdminForTest(t, "sandcastle-admin", "tenant", "create", "acme")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "executor") {
-		t.Fatalf("error = %q, want executor hint", err.Error())
-	}
-}
-
-func TestAdminTenantCreateRejectsKnownTLD(t *testing.T) {
-	creator := &fakeTenantCreator{}
-	_, err := executeAdminForTestWithConfig(t, commandConfig{
-		name:          "sandcastle-admin",
-		tenantCreator: creator,
-	}, "tenant", "create", "test")
-	if err == nil {
-		t.Fatal("expected known TLD error")
-	}
-	if !strings.Contains(err.Error(), "denied special-use suffix") {
-		t.Fatalf("error = %q", err.Error())
-	}
-	if creator.called {
-		t.Fatal("creator should not be called for invalid tenant")
-	}
-}
-
 func TestAdminMachineListJSON(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
