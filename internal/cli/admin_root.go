@@ -259,6 +259,7 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminImageCommand(config, opts))
 	root.AddCommand(newAdminTLDCommand(config, opts))
 	root.AddCommand(newAdminProjectCommand(config, opts))
+	root.AddCommand(newAdminBootstrapCommand(config))
 	root.AddCommand(newAdminRouteBrokerCommand(config))
 	root.AddCommand(newAdminAuthAppCommand(config))
 	root.AddCommand(newAdminMachineWorkloadCommand(config, opts))

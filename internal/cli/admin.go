@@ -313,6 +313,57 @@ func newAdminProjectCreateV2Command(config commandConfig, opts *rootOptions) *co
 	return command
 }
 
+func newAdminBootstrapCommand(config commandConfig) *cobra.Command {
+	var baseImage, sidecarImage, binaryPath, bridge, storagePool, hostname, cidrPool, port string
+	command := &cobra.Command{
+		Use:   "bootstrap",
+		Short: "Deploy the Sandcastle broker as an appliance on the Incus host (ADR-0016)",
+		Long: "Run once on (or against) the Incus host. Launches the broker appliance with the host " +
+			"admin unix socket mounted, so the broker talks to Incus with full rights over that socket — " +
+			"no TLS/remote/cert for the server side. Exposes the broker on the host port (:9443).",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			creator, ok := config.tenantCreator.(incusx.TenantCreator)
+			if !ok {
+				return fmt.Errorf("v2 executor is not configured")
+			}
+			if strings.TrimSpace(binaryPath) == "" {
+				exe, err := os.Executable()
+				if err != nil {
+					return fmt.Errorf("resolve sandcastle-admin binary (pass --binary): %w", err)
+				}
+				binaryPath = exe
+			}
+			if strings.TrimSpace(sidecarImage) == "" {
+				sidecarImage = strings.TrimSpace(baseImage)
+			}
+			if err := creator.BootstrapV2(cmd.Context(), incusx.BootstrapV2Request{
+				BaseImage:    strings.TrimSpace(baseImage),
+				BinaryPath:   strings.TrimSpace(binaryPath),
+				Bridge:       strings.TrimSpace(bridge),
+				StoragePool:  strings.TrimSpace(storagePool),
+				Hostname:     strings.TrimSpace(hostname),
+				CIDRPool:     strings.TrimSpace(cidrPool),
+				SidecarImage: strings.TrimSpace(sidecarImage),
+				PublicPort:   strings.TrimSpace(port),
+			}); err != nil {
+				return err
+			}
+			fmt.Fprintf(config.stdout, "broker deployed: %s (project %s)\nreach it at https://%s:%s\n",
+				incusx.BrokerInstanceName, incusx.BrokerProjectName, hostname, port)
+			return nil
+		},
+	}
+	command.Flags().StringVar(&baseImage, "base-image", "", "system-container base image (alias or fingerprint) for the appliance")
+	command.Flags().StringVar(&sidecarImage, "sidecar-image", "", "system-container base for tenant sidecars (default: --base-image)")
+	command.Flags().StringVar(&binaryPath, "binary", "", "path to the sandcastle-admin binary to push (default: this binary)")
+	command.Flags().StringVar(&bridge, "bridge", "incusbr0", "bridge the appliance NIC attaches to")
+	command.Flags().StringVar(&storagePool, "storage-pool", "default", "storage pool for the appliance root disk")
+	command.Flags().StringVar(&hostname, "hostname", "", "broker DNS name (cert SAN + reported URL)")
+	command.Flags().StringVar(&cidrPool, "cidr-pool", "10.249.0.0/16", "v2 CIDR pool the broker allocates tenant /24s from")
+	command.Flags().StringVar(&port, "port", "9443", "host port to expose the broker on")
+	return command
+}
+
 func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "project",
