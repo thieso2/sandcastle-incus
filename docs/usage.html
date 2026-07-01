@@ -289,6 +289,15 @@ remote: sc-alice</code></pre>
   </div>
 
   <div class="step">
+    <h3>Create a v2 tenant <span class="badge badge-admin">admin</span> <span class="badge">v2 MVP</span></h3>
+    <p>The v2 MVP (see <code>docs/adr/0016-v2-mvp-admin-provisioned-native-incus.md</code>) provisions a tenant for <strong>native <code>incus</code> access</strong>: one per-tenant infra project <code>sc2-&lt;tenant&gt;</code> with a single sidecar (CoreDNS + Tailscale subnet-router), a shared bridge, and a seeded default app project <code>sc2-&lt;tenant&gt;-default</code> whose profile carries the shared bridge NIC + cloud-init login. Machines resolve flat at <code>&lt;machine&gt;.&lt;tenant&gt;</code>. Prints a restricted Incus certificate-add token the tenant redeems with their own client.</p>
+    <pre><code><span class="cmd">sandcastle-admin tenant create-v2</span> <span class="arg">acme</span> <span class="flag">--tailscale-authkey</span> <span class="arg">tskey-…</span> <span class="flag">--ssh-key</span> <span class="arg">"ssh-ed25519 AAAA…"</span>
+<span class="comment"># --cidr-pool defaults to 10.249.0.0/16 (must not overlap v1); --sidecar-image</span>
+<span class="comment"># takes a system-container base image (alias/fingerprint); --dry-run to preview</span></code></pre>
+    <div class="note"><strong>Native use:</strong> after <code>incus remote add … --token=…</code>, the tenant runs plain <code>incus launch images:debian/13/cloud web</code> into <code>sc2-acme-default</code> and reaches it at <code>web.acme</code>. Cloud-init images are required for login. Add more projects with <code>sandcastle-admin project create-v2 acme backend</code> (the Sandcastle Broker scaffolding). End-to-end coverage: <code>scripts/e2e-v2.sh</code>.</div>
+  </div>
+
+  <div class="step">
     <h3>Set or update tenant SSH key</h3>
     <p>The developer publishes her own SSH public key after accepting the tenant token. The key is injected into machines created or re-ensured after this point.</p>
     <pre><code><span class="cmd">sandcastle ssh-key set</span> <span class="flag">--file</span> <span class="arg">~/.ssh/id_ed25519.pub</span>
