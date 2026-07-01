@@ -34,10 +34,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 			"Required values not passed as flags are prompted for on the command line.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			creator, ok := config.tenantCreator.(incusx.TenantCreator)
-			if !ok {
-				return fmt.Errorf("v2 executor is not configured")
-			}
+			creator := config.tenantCreator
 			if strings.TrimSpace(binaryPath) == "" {
 				exe, err := os.Executable()
 				if err != nil {

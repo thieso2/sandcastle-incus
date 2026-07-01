@@ -48,7 +48,7 @@ type commandConfig struct {
 	stdinIsTerminal     func(io.Reader) bool
 	tenantStore         tenant.IncusTenantStore
 	adminConfig         scconfig.Admin
-	tenantCreator       tenant.Creator
+	tenantCreator       incusx.TenantCreator
 	tenantDeleter       tenant.Deleter
 	tenantSSHKeyUpdater tenant.SSHKeyUpdater
 	tenantUpdater       tenant.ProjectUpdater

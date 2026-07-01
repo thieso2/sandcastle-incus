@@ -179,10 +179,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			if dryRun {
 				return writeOutput(config.stdout, opts.output, formatCreatePlanV2(plan), plan)
 			}
-			creator, ok := config.tenantCreator.(incusx.TenantCreator)
-			if !ok {
-				return fmt.Errorf("v2 tenant creation executor is not configured")
-			}
+			creator := config.tenantCreator
 			if err := creator.CreateTenantV2(cmd.Context(), plan, incusx.CreateV2Options{
 				TailscaleAuthKey: strings.TrimSpace(tailscaleAuthKey),
 				SidecarImage:     strings.TrimSpace(sidecarImage),
@@ -228,10 +225,7 @@ func newAdminProjectCreateV2Command(config commandConfig, opts *rootOptions) *co
 		Short: "Create a v2 app project for a tenant (broker scaffolding; ADR-0016)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			creator, ok := config.tenantCreator.(incusx.TenantCreator)
-			if !ok {
-				return fmt.Errorf("v2 project creation executor is not configured")
-			}
+			creator := config.tenantCreator
 			result, err := creator.CreateProjectV2(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
@@ -253,10 +247,7 @@ func newAdminBootstrapCommand(config commandConfig) *cobra.Command {
 			"admin unix socket mounted, so the broker talks to Incus with full rights over that socket — " +
 			"no TLS/remote/cert for the server side. Exposes the broker on the host port (:9443).",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			creator, ok := config.tenantCreator.(incusx.TenantCreator)
-			if !ok {
-				return fmt.Errorf("v2 executor is not configured")
-			}
+			creator := config.tenantCreator
 			if strings.TrimSpace(binaryPath) == "" {
 				exe, err := os.Executable()
 				if err != nil {
@@ -311,10 +302,7 @@ func newAdminProjectBrokerServeCommand(config commandConfig) *cobra.Command {
 		Use:   "broker-serve",
 		Short: "Run the Sandcastle broker (tenant + admin plane over :9443; ADR-0016)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			creator, ok := config.tenantCreator.(incusx.TenantCreator)
-			if !ok {
-				return fmt.Errorf("v2 executor is not configured")
-			}
+			creator := config.tenantCreator
 			handler := projectbroker.Handler{
 				// tenant plane
 				Trust:   incusx.NewRouteBrokerTrustMapper(config.adminConfig.Remote),
