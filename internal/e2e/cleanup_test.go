@@ -12,7 +12,6 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -56,7 +55,6 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 	}
 
 	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
-	infraDeleter := incusx.NewInfrastructureDeleter(e2eConfig.Remote)
 	deletedProjects := 0
 	deletedInfrastructure := 0
 	for _, incusProject := range projects {
@@ -85,15 +83,8 @@ func TestCleanupDisposableResourcesE2E(t *testing.T) {
 			if !managedInfrastructureMatchesRun(incusProject, runToken) {
 				continue
 			}
-			t.Logf("cleanup matched infrastructure project %s", incusProject.Name)
-			deletePlan, err := infra.PlanDelete(adminConfig, infra.DeleteRequest{Project: incusProject.Name})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := infraDeleter.DeleteInfrastructure(ctx, deletePlan); err != nil {
-				t.Fatalf("cleanup infrastructure project %s: %v", incusProject.Name, err)
-			}
-			deletedInfrastructure++
+			// v1 infrastructure removed — nothing to clean up here.
+			t.Logf("skipping legacy infrastructure project %s (v1 removed)", incusProject.Name)
 		}
 	}
 	deletedCertificates, err := cleanupDisposableCertificates(t, server, runToken)

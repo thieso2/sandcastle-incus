@@ -14,7 +14,6 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -120,9 +119,6 @@ func ExecuteAdmin(name string, args []string) int {
 		tenantDeleter:       incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManager(adminConfig.Remote),
 		tenantUpdater:       incusx.NewTenantSSHKeyManager(adminConfig.Remote),
-		infraCreator:        incusx.NewInfrastructureCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
-		infraDeleter:        incusx.NewInfrastructureDeleter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
-		infraCaddyData:      incusx.NewInfrastructureCaddyDataExporter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		imageManager:        incusx.NewImageManager(adminConfig.Remote),
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},
@@ -185,13 +181,13 @@ func ExecuteAdmin(name string, args []string) int {
 }
 
 func routeBrokerSocketServer() (incus.InstanceServer, error) {
-	if _, err := os.Stat(infra.RouteBrokerIncusSocketPath); err != nil {
+	if _, err := os.Stat("/var/lib/incus/unix.socket"); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return incus.ConnectIncusUnix(infra.RouteBrokerIncusSocketPath, nil)
+	return incus.ConnectIncusUnix("/var/lib/incus/unix.socket", nil)
 }
 
 func routeBrokerServeArgs(args []string) bool {
@@ -274,7 +270,6 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminMachineDeleteCommand(config, opts))
 	root.AddCommand(newAdminTenantCommand(config, opts))
 	root.AddCommand(newAdminUserCommand(config, opts))
-	root.AddCommand(newAdminInfraCommand(config, opts))
 	root.AddCommand(newAdminImageCommand(config, opts))
 	root.AddCommand(newAdminTLDCommand(config, opts))
 	root.AddCommand(newAdminProjectCommand(config, opts))

@@ -19,7 +19,6 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	"github.com/thieso2/sandcastle-incus/internal/infra"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
@@ -54,9 +53,6 @@ type commandConfig struct {
 	tenantSSHKeyUpdater tenant.SSHKeyUpdater
 	tenantUpdater       tenant.ProjectUpdater
 	tenantUnixUser      tenant.UnixUserUpdater
-	infraCreator        infra.Creator
-	infraDeleter        infra.Deleter
-	infraCaddyData      infra.CaddyDataExporter
 	imageManager        images.Manager
 	imageBuilder        images.Builder
 	imageImporter       images.Importer
@@ -178,9 +174,6 @@ func Execute(name string, args []string) int {
 		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManager(adminConfig.Remote),
 		tenantUpdater:       incusx.NewTenantSSHKeyManager(adminConfig.Remote),
 		tenantUnixUser:      incusx.NewTenantSSHKeyManager(adminConfig.Remote),
-		infraCreator:        incusx.NewInfrastructureCreator(adminConfig.Remote),
-		infraDeleter:        incusx.NewInfrastructureDeleter(adminConfig.Remote),
-		infraCaddyData:      incusx.NewInfrastructureCaddyDataExporter(adminConfig.Remote),
 		imageManager:        incusx.NewImageManager(adminConfig.Remote),
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},
