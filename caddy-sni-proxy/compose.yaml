@@ -1,0 +1,22 @@
+services:
+  caddy:
+    build: .
+    # Or pull a prebuilt image instead of building:
+    #   image: ghcr.io/YOU/caddy-sni-proxy:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Let's Encrypt contact address (used for expiry notices).
+      ACME_EMAIL: you@example.com
+    volumes:
+      # Persist issued certs so recreates don't re-hit ACME rate limits.
+      - caddy_data:/data
+      - caddy_config:/config
+      # Edit the Caddyfile on the host without rebuilding the image:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+volumes:
+  caddy_data:
+  caddy_config:

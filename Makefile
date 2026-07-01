@@ -11,19 +11,21 @@ SC_ADM_ALIAS := $(BIN_DIR)/sc-adm
 
 .PHONY: build install test e2e-safe clean
 
+# One fat binary; the other names are symlinks that select their role via argv[0]
+# (see cmd/sandcastle/main.go). No separate admin binary is built.
 build:
 	mkdir -p $(BIN_DIR)
 	$(GO) build -o $(SANDCASTLE_BIN) ./cmd/sandcastle
 	ln -sf sandcastle $(SC_ALIAS)
-	$(GO) build -o $(SANDCASTLE_ADMIN_BIN) ./cmd/sandcastle-admin
-	ln -sf sandcastle-admin $(SC_ADM_ALIAS)
+	ln -sf sandcastle $(SANDCASTLE_ADMIN_BIN)
+	ln -sf sandcastle $(SC_ADM_ALIAS)
 
 install: build
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 0755 $(SANDCASTLE_BIN) $(DESTDIR)$(BINDIR)/sandcastle
 	ln -sf sandcastle $(DESTDIR)$(BINDIR)/sc
-	install -m 0755 $(SANDCASTLE_ADMIN_BIN) $(DESTDIR)$(BINDIR)/sandcastle-admin
-	ln -sf sandcastle-admin $(DESTDIR)$(BINDIR)/sc-adm
+	ln -sf sandcastle $(DESTDIR)$(BINDIR)/sandcastle-admin
+	ln -sf sandcastle $(DESTDIR)$(BINDIR)/sc-adm
 
 test:
 	$(GO) test ./...

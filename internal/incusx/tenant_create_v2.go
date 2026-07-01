@@ -64,6 +64,10 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	if err := ensureV2Sidecar(server.UseProject(plan.InfraProject), plan, sidecarImage); err != nil {
 		return err
 	}
+	c.log("install CoreDNS + Tailscale on sidecar (stock base image)")
+	if err := installV2SidecarPackages(server.UseProject(plan.InfraProject), plan); err != nil {
+		return err
+	}
 	c.log("configure sidecar network + CoreDNS")
 	if err := configureV2Sidecar(server.UseProject(plan.InfraProject), plan); err != nil {
 		return err
@@ -252,6 +256,42 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 	return nil
 }
 
+// coreDNSVersion is the CoreDNS release fetched onto stock-Debian sidecars
+// (CoreDNS is not packaged in Debian apt, so we install the release binary).
+const coreDNSVersion = "1.14.3"
+
+// installV2SidecarPackages makes a stock Debian system container into a usable
+// sidecar: it installs the CoreDNS release binary (not in apt) and Tailscale
+// (via Tailscale's official apt repo). Idempotent — skips work already done, so
+// re-running create is cheap. This replaces the prebuilt sandcastle/base image.
+func installV2SidecarPackages(server TenantResourceServer, plan tenant.CreatePlanV2) error {
+	script := strings.Join([]string{
+		"set -eu",
+		"export DEBIAN_FRONTEND=noninteractive",
+		"need_apt=0",
+		"command -v curl >/dev/null 2>&1 || need_apt=1",
+		"command -v tailscale >/dev/null 2>&1 || need_apt=1",
+		"if [ \"$need_apt\" = 1 ]; then apt-get update -qq && apt-get install -y -qq curl ca-certificates gnupg tar; fi",
+		// CoreDNS release binary (arch-matched; dpkg arch names == coredns arch names).
+		"if [ ! -x /usr/local/bin/coredns ]; then " +
+			"ARCH=$(dpkg --print-architecture); " +
+			"curl -fsSL \"https://github.com/coredns/coredns/releases/download/v" + coreDNSVersion +
+			"/coredns_" + coreDNSVersion + "_linux_${ARCH}.tgz\" -o /tmp/coredns.tgz && " +
+			"tar -xzf /tmp/coredns.tgz -C /usr/local/bin coredns && chmod 0755 /usr/local/bin/coredns && rm -f /tmp/coredns.tgz; fi",
+		// Tailscale via its official apt repo (keyed to the container's codename).
+		"if ! command -v tailscale >/dev/null 2>&1; then " +
+			". /etc/os-release; " +
+			"curl -fsSL \"https://pkgs.tailscale.com/stable/debian/${VERSION_CODENAME}.noarmor.gpg\" -o /usr/share/keyrings/tailscale-archive-keyring.gpg && " +
+			"curl -fsSL \"https://pkgs.tailscale.com/stable/debian/${VERSION_CODENAME}.tailscale-keyring.list\" -o /etc/apt/sources.list.d/tailscale.list && " +
+			"apt-get update -qq && apt-get install -y -qq tailscale; fi",
+		"command -v /usr/local/bin/coredns >/dev/null && command -v tailscale >/dev/null",
+	}, "\n")
+	if err := execSidecar(server, plan.SidecarInstance, script); err != nil {
+		return fmt.Errorf("install sidecar packages (CoreDNS+Tailscale): %w", err)
+	}
+	return nil
+}
+
 // configureV2Sidecar pins the sidecar's static IP (the base image does not DHCP
 // eth0), writes the CoreDNS config, and starts CoreDNS. Tailscale is handled
 // separately so the auth key can be omitted when re-running.
@@ -316,14 +356,21 @@ func configureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2) e
 }
 
 func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKey string) error {
+	upCmd := "tailscale up --auth-key='" + authKey + "' --advertise-routes=" + plan.PrivateCIDR +
+		" --hostname=" + plan.SidecarInstance + " --accept-dns=false --timeout=60s"
 	up := strings.Join([]string{
+		"set -e",
 		"systemctl unmask tailscaled.service 2>/dev/null || true",
 		"systemctl enable --now tailscaled.service",
-		"sleep 2",
-		"tailscale up --auth-key='" + authKey + "' --advertise-routes=" + plan.PrivateCIDR +
-			" --hostname=" + plan.SidecarInstance + " --accept-dns=false --timeout=60s",
-		"tailscale status >/dev/null 2>&1",
-	}, " && ")
+		// Wait for tailscaled to accept commands before bringing the link up —
+		// on a freshly apt-installed sidecar the daemon socket lags the unit.
+		"for i in $(seq 1 30); do tailscale status >/dev/null 2>&1 && break; sleep 1; done",
+		// Bring up and confirm we actually got a tailnet IP (a bare `up` can
+		// exit 0 without connecting); retry a couple of times if not.
+		"for attempt in 1 2 3; do " + upCmd + " || true; tailscale ip -4 >/dev/null 2>&1 && break; sleep 3; done",
+		// Hard gate: fail the create if the sidecar is not on the tailnet.
+		"tailscale ip -4 >/dev/null 2>&1 || { echo 'tailscale did not connect' >&2; tailscale status >&2; exit 1; }",
+	}, "\n")
 	if err := execSidecar(server, plan.SidecarInstance, up); err != nil {
 		return fmt.Errorf("tailscale up: %w", err)
 	}

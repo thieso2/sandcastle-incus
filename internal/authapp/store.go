@@ -20,6 +20,9 @@ type User struct {
 	Allowlisted              bool
 	SandcastleAdmin          bool
 	LocalUnixUser            string
+	// SSHPublicKey is populated transiently during device-login provisioning so
+	// the v2 tenant profile can bake it in at create time.
+	SSHPublicKey string
 }
 
 func NormalizeGitHubUsername(username string) string {

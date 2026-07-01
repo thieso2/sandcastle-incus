@@ -353,7 +353,7 @@ func newAdminBootstrapCommand(config commandConfig) *cobra.Command {
 			return nil
 		},
 	}
-	command.Flags().StringVar(&baseImage, "base-image", "", "system-container base image (alias or fingerprint) for the appliance")
+	command.Flags().StringVar(&baseImage, "base-image", incusx.DefaultApplianceImage, "system-container base image (a stock systemd image; the fat binary is copied in)")
 	command.Flags().StringVar(&sidecarImage, "sidecar-image", "", "system-container base for tenant sidecars (default: --base-image)")
 	command.Flags().StringVar(&binaryPath, "binary", "", "path to the sandcastle-admin binary to push (default: this binary)")
 	command.Flags().StringVar(&bridge, "bridge", "incusbr0", "bridge the appliance NIC attaches to")
@@ -1981,6 +1981,7 @@ func newAdminAuthAppCommand(config commandConfig) *cobra.Command {
 		Short: "Manage the Sandcastle Auth App",
 	}
 	auth.AddCommand(newAdminAuthAppServeCommand(config))
+	auth.AddCommand(newAdminAuthAppDeployCommand(config))
 	return auth
 }
 

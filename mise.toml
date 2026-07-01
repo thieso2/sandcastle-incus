@@ -37,7 +37,7 @@ echo "Installed ${bindir}/sandcastle and ${bindir}/sc"
 """
 
 [tasks."build:linux-amd64"]
-description = "Cross-compile sandcastle and sandcastle-admin for Linux amd64"
+description = "Cross-compile the fat sandcastle binary for Linux amd64"
 env = { GOOS = "linux", GOARCH = "amd64", CGO_ENABLED = "0", BIN_DIR = "bin/linux-amd64" }
 run = "make build"
 

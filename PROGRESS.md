@@ -316,3 +316,62 @@ the only direct-incus op; everything else via the broker).
 - ⬜ Remaining: admin endpoints for tenant list/delete + admin project create;
   flip `sc-adm` defaults to broker mode; fold DNS-resolver + CA-trust into
   `sc connect`.
+
+---
+
+# 2026-07-01 — sc2 web API + full e2e (`docs/e2e-sc2.md`)
+
+## Deployed on `big`
+- **Fat binary**: one `bin/sandcastle`; `sc`/`sc-adm`/`sandcastle-admin` are symlinks (argv0 dispatch + `sc admin …`).
+- **`sc-edge`** (project `infrastructure`) owns host `:80/:443`; `sc-caddy` retired/stopped.
+- **`sc2-auth-app`** deployed on stock Debian, fronted at `https://sc2.thieso2.dev` (LE cert, no client certs, GitHub OAuth). New `sc admin auth-app deploy`.
+- **`sc2-broker`** redeployed with current binary.
+
+## Code changes
+- `installV2SidecarPackages`: CoreDNS binary v1.14.3 + Tailscale via apt on a **stock** Debian sidecar (no `sandcastle/base`).
+- `v2TailscaleUp`: readiness wait + retry + `tailscale ip -4` success gate (fixes the up race).
+- `DefaultApplianceImage=images:debian/13`; deploy no longer needs `--base-image`/`--default-unix-user`.
+
+## e2e status (`docs/e2e-sc2.md`) — **Phases 0–8 GREEN (validated live)**
+- create-v2 → connect-v2 → `incus remote switch` → profile (ssh + cloud-init) ✅
+- fresh VM `e2eweb` → `sc-edge` vhost `e2eweb.scdev.thieso2.dev` → **valid LE cert** ✅
+- CoreDNS resolves machine names at the sidecar **tailscale IP** ✅
+
+## Remaining for full green
+1. Auth-app → broker/v2 **login provisioning** (currently v1 `EnsurePersonalTenant`, fails on stale image).
+2. Machine **DNS auto-registration** on create.
+3. Per-tenant **tenant-CA** cert path + `sc trust install` (Linux/macOS).
+4. **Split-DNS** over tailscale.
+5. Deploy-command multi-address remote fix.
+
+## Problems encountered & fixes
+- **OCI base has no systemd** → appliances wouldn't run services. Fix: CONTAINER-type systemd image (`images:debian/13` / `d31c34fadc08`).
+- **systemd gives Caddy no `$HOME`** → it ignored copied certs and tried to re-issue. Fix: pin `storage file_system /root/.local/share/caddy` in the sc-edge Caddyfile.
+- **`sc-adm` wrapper mangled the multi-address `big` remote** → drove ops via `incus` + broker `exec` directly. (Fix pending.)
+- **`text file busy`** pushing the binary into a running appliance → stop service, push, start.
+- **default project has its own image store** → copy the stock image in before launching machines.
+- **CoreDNS/Tailscale not in Debian apt** → CoreDNS binary download; Tailscale official apt repo.
+- **Tailscale `up` race** on a freshly-installed sidecar → readiness wait + retry (code fix above).
+
+## Update — unattended v2 login GREEN
+`sc login https://sc2.thieso2.dev --debug-approve` now works end-to-end:
+provision (v2 default project + sidecar, SSH key **baked into the profile at create**,
+CIDR via OccupiedCIDRs) → approve → client cert → **enrolled remote** `sandcastle-logintest`
+(works: `incus list` clean) → local incus config written from scratch.
+Code: auth-app `V2Create` closure (`SANDCASTLE_AUTH_PROVISION_V2=1`), `ensurePersonalTenantV2`
+(occupied-CIDR aware, bakes SSH key), v1 SSH-key reconcile/set made no-op for v2, `User.SSHPublicKey`.
+- ⚠️ Tailscale up still flaky on **reused/re-keyed** sidecars (readiness fix helps; fresh sidecars connect).
+
+## NEXT: remove all v1 code (user directive, repeated)
+Going v2-only. v1 surface to delete: `internal/tenant` v1 create/plan (`tenant_create.go`,
+`create_plan.go`), `internal/infra` (v1 sc-caddy/route-broker/auth-app deploy), v1 `Provisioner`
+path, v1 machine/route code, v1 CLI (`tenant create`, `infra ...`), v1 e2e tests. Large refactor —
+keep the build green as it shrinks.
+
+## Update — CT+VM launch → DNS + SSH GREEN
+Tenant `incus launch` of **both** a CT (`images:debian/13/cloud`) and a VM (`…/cloud --vm`):
+cloud-init applies the profile (user `dev` + SSH key + openssh) → **SSH works into both**
+(`dev@ct1`, `dev@vm1`), CoreDNS resolves both names. sc-dev reaches the tenant bridge via host routing.
+- **Key gotcha:** tenant machines MUST use the `/cloud` image variant — the plain image has no
+  cloud-init, so the profile (dev user/ssh key) never applies and sshd is absent. (Appliances/sidecar
+  keep the plain systemd image since they're configured via `incus exec`, not cloud-init.)

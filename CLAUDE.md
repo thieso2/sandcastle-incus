@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-- Build: `make build` (drops binaries at `bin/sandcastle`, `bin/sandcastle-admin`, and `sc`/`sc-adm` symlinks) or `mise run build` (same + copies to `/tmp/`)
+- Build: `make build` (builds one fat binary `bin/sandcastle` and symlinks `sc`, `sc-adm`, `sandcastle-admin` to it) or `mise run build` (same + copies to `/tmp/`)
 - Cross-compile for Linux: `mise run build:linux-amd64`
 - Unit tests: `go test ./...` or `make test`
 - Single package/test: `go test ./internal/tenant -run TestCreatePlan`
@@ -22,12 +22,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-Two binaries under `cmd/`:
+**One fat binary** built from `cmd/sandcastle`, busybox-style — the invocation name selects the role (`cmd/sandcastle/main.go` dispatches on `argv[0]`):
 
-- **`sandcastle`** — user-facing CLI (`sc` alias)
-- **`sandcastle-admin`** — admin CLI (`sc-adm` alias)
+- **`sc`** / **`sandcastle`** — user-facing CLI
+- **`sc-adm`** / **`sandcastle-admin`** (symlinks) — admin CLI; also hosts the long-running services as subcommands (`auth-app serve`, `project broker-serve`, route broker)
+- **`sc admin …`** — the admin tree reached as a subcommand of the user binary
 
-Both are assembled in `internal/cli/`. `root.go` and `admin_root.go` build the Cobra command tree and wire `commandConfig` — a large dependency-injection struct holding interface values for every domain capability. Commands are split into per-domain files (`machine_lifecycle.go`, `login.go`, `route.go`, `project.go`, etc.) rather than one monolithic file.
+The same executable is what admin deploy commands copy into the appliances they create (via `os.Executable()` → `incus file push`), so each appliance runs its service from this exact binary. Both trees are assembled in `internal/cli/`: `Execute`/`root.go` (user) and `ExecuteAdmin`/`admin_root.go` (admin) build the Cobra command tree and wire `commandConfig` — a large dependency-injection struct holding interface values for every domain capability. Commands are split into per-domain files (`machine_lifecycle.go`, `login.go`, `route.go`, `project.go`, etc.) rather than one monolithic file. Note: `Execute` points `INCUS_CONF` at the per-remote restricted cert dir; `ExecuteAdmin` leaves it unset so admin commands use the global `~/.config/incus/` admin certs — this distinction must survive the merged dispatch.
 
 ### Domain packages under `internal/`
 

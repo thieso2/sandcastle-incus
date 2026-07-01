@@ -165,6 +165,10 @@ func ExecuteAdmin(name string, args []string) int {
 				UnixUserUpdater: authAppMetadataUpdater,
 				AuxProjects:     authAppCreator,
 				Trust:           authAppTrust,
+				// SANDCASTLE_AUTH_PROVISION_V2=1 routes login provisioning through
+				// the v2 flow (default project + sidecar). The auth app has the
+				// host socket, so it creates the tenant directly like the broker.
+				V2Create: authAppV2Create(adminConfig, authAppCreator),
 			},
 		},
 		shareStore:      adminShareStore,
@@ -202,6 +206,21 @@ func authAppServeArgs(args []string) bool {
 		return false
 	}
 	return args[0] == "auth-app" && args[1] == "serve"
+}
+
+// authAppV2Create returns the v2 login-provisioning closure when
+// SANDCASTLE_AUTH_PROVISION_V2=1, else nil (v1 Personal Tenant path). The
+// closure creates the tenant's v2 default project + sidecar directly over the
+// mounted host socket; the sidecar image comes from the plan (SANDCASTLE_BASE_IMAGE).
+func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(context.Context, tenant.CreatePlanV2) error {
+	if os.Getenv("SANDCASTLE_AUTH_PROVISION_V2") != "1" {
+		return nil
+	}
+	return func(ctx context.Context, plan tenant.CreatePlanV2) error {
+		return creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
+			TailscaleAuthKey: admin.AuthTailscaleAuthKey,
+		})
+	}
 }
 
 // NewAdminRootCommand builds the Sandcastle admin command tree with all admin

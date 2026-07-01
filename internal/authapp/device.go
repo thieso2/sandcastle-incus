@@ -111,7 +111,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if login.Status == DeviceStatusApproved && login.ProvisionedAt == "" && h.provisioner != nil {
-		login, err = h.provisionPersonalTenant(r.Context(), login, request.LocalUnixUser)
+		login, err = h.provisionPersonalTenant(r.Context(), login, request.LocalUnixUser, request.SSHPublicKey)
 		if err != nil {
 			login.Status = DeviceStatusPending
 		}
@@ -197,7 +197,9 @@ func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey stri
 			return nil
 		}
 	}
-	return fmt.Errorf("cannot reconcile User SSH Public Key: Personal Tenant %s not found", tenantName)
+	// v2 tenants bake the SSH key into the default-project profile at create, so
+	// there is no v1 Personal Tenant to reconcile here — nothing to do.
+	return nil
 }
 
 func (h handler) setPersonalTenantSSHKey(ctx context.Context, userKey string, publicKey string) error {
@@ -209,7 +211,9 @@ func (h handler) setPersonalTenantSSHKey(ctx context.Context, userKey string, pu
 	}
 	summary, err := h.findPersonalTenant(ctx, userKey)
 	if err != nil {
-		return fmt.Errorf("cannot set Personal Tenant SSH metadata: %w", err)
+		// v2 tenants have no v1 Personal Tenant to stamp — the key is already in
+		// the default-project profile from create. Skip rather than fail.
+		return nil
 	}
 	if err := h.tenantSSHKeys.SetTenantSSHKey(ctx, summary.IncusName, publicKey); err != nil {
 		return fmt.Errorf("set Personal Tenant SSH metadata for %s: %w", summary.Tenant, err)
@@ -310,12 +314,13 @@ func nextCommandForDeviceLogin(login DeviceLogin) string {
 	return ""
 }
 
-func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string) (DeviceLogin, error) {
+func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string, sshPublicKey string) (DeviceLogin, error) {
 	user, err := FindUser(ctx, h.db, login.UserKey)
 	if err != nil {
 		return DeviceLogin{}, err
 	}
 	user.LocalUnixUser = strings.TrimSpace(localUnixUser)
+	user.SSHPublicKey = strings.TrimSpace(sshPublicKey)
 	if _, err := h.db.ExecContext(ctx, "UPDATE device_logins SET message = ? WHERE device_code = ? AND provisioned_at = ''", "Provisioning Personal Tenant for "+user.UserKey+".", login.DeviceCode); err != nil {
 		return DeviceLogin{}, err
 	}
