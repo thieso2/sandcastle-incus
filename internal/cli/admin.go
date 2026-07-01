@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
-	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
@@ -17,7 +15,6 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
-	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 	_ "modernc.org/sqlite"
@@ -334,13 +331,6 @@ func formatCreatePlanV2(plan tenant.CreatePlanV2) string {
 		plan.Tenant, plan.InfraProject, plan.DefaultProject, plan.Bridge, plan.PrivateCIDR, plan.DNSSuffix, plan.SidecarInstance, plan.DNSAddress, plan.GatewayAddress)
 }
 
-func tailscalePlanUpForTenant(ctx context.Context, admin scconfig.Admin, store tenant.IncusTenantStore, authKey string) (tailscale.UpPlan, error) {
-	return tailscale.PlanUp(ctx, admin, store, tailscale.UpRequest{
-		Reference:     admin.Tenant,
-		AuthKey:       authKey,
-		AdvertiseTags: defaultAdvertiseTags(),
-	})
-}
 
 func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var yes bool
@@ -526,14 +516,6 @@ func formatDeletePlan(plan tenant.DeletePlan) string {
 		return fmt.Sprintf("Deleted %s and purged durable state.", plan.Reference)
 	}
 	return fmt.Sprintf("Deleted runtime resources for %s; durable state was preserved.", plan.Reference)
-}
-
-func bannerValue(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "unset"
-	}
-	return value
 }
 
 func newAdminImageCommand(config commandConfig, opts *rootOptions) *cobra.Command {
