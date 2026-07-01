@@ -375,3 +375,8 @@ cloud-init applies the profile (user `dev` + SSH key + openssh) → **SSH works 
 - **Key gotcha:** tenant machines MUST use the `/cloud` image variant — the plain image has no
   cloud-init, so the profile (dev user/ssh key) never applies and sshd is absent. (Appliances/sidecar
   keep the plain systemd image since they're configured via `incus exec`, not cloud-init.)
+
+## v1 removal — progress
+- ✅ **infra chunk removed** (commit): internal/infra + incusx/infrastructure.go + `sc-adm infra` CLI + v1 infra tests + v1 e2e test files (shared e2e helpers extracted). Build/vet/tests green.
+- **Next:** auth-app provisioner v2-only (drop v1 EnsurePersonalTenant), v1 tenant create, routes/routebroker, v1 machine create, and their tests.
+- Added protocol MD Phase 7c (🚧): shared `$HOME` + `/workspace` per project (v2 profile currently mounts only root disk — feature to build).

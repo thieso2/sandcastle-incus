@@ -231,6 +231,30 @@ echo | openssl s_client -servername $HOST -connect 65.21.132.31:443 2>/dev/null 
 
 ---
 
+## Phase 7c — Shared `$HOME` and `/workspace` within a project 🚧
+Machines in the **same project** share `$HOME` and `/workspace` **by default** — a
+per-project storage volume mounted into every machine — so a file created on one
+machine appears on another. Test by writing on one and reading on the other.
+
+```bash
+Pd="--project sc2-$TENANT-default"
+incus launch images:debian/13/cloud big:app1 $Pd
+incus launch images:debian/13/cloud big:app2 $Pd
+# wait for cloud-init (dev user) on both, then:
+incus exec big:app1 $Pd -- sh -c 'echo shared-ws  > /workspace/marker; echo shared-home > /home/dev/hmarker'
+incus exec big:app2 $Pd -- sh -c 'cat /workspace/marker; cat /home/dev/hmarker'
+# from a client, SSH proves it too:
+ssh -i ~/.ssh/sandcastle_ed25519 dev@<app2-ip> 'cat /workspace/marker /home/dev/hmarker'
+```
+**PASS (target):** `app2` reads `shared-ws` from `/workspace/marker` and `shared-home`
+from `/home/dev/hmarker` — files written by `app1`.
+🚧 **Not built yet:** the v2 default-project profile mounts only the root disk (no
+shared volume). Remaining work: create a **per-project storage volume** and add it
+to the `default` profile as a `disk` device mounted at `/workspace` (and point the
+`dev` user's `$HOME` at it), so every machine in the project shares it automatically.
+
+---
+
 ## Phase 8 — Tenant DNS via CoreDNS (queried at the sidecar tailscale IP) ✅
 The tenant sidecar's CoreDNS serves the `<suffix>` zone (`/etc/coredns/zones/db.e2etest`).
 Machine A-records live there; query CoreDNS at the **sidecar's tailscale IP** — that's the

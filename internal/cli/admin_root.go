@@ -77,7 +77,6 @@ func ExecuteAdmin(name string, args []string) int {
 	adminShareStore := incusx.NewTenantSSHKeyManager(adminConfig.Remote)
 	adminShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, incusx.NewHostOverrideManagerForSharedRemote(sharedRemote))
 	adminShareReconciler.Admin = adminConfig
-	var authAppProjectUpdater tenant.ProjectUpdater = authAppMetadataUpdater
 	if routeBrokerServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
 			routeBrokerTenants = incusx.NewTenantStoreForServer(socketServer)
@@ -102,7 +101,6 @@ func ExecuteAdmin(name string, args []string) int {
 			authAppShareReconciler = incusx.NewShareReconcilerForServer(socketServer, authAppMachines, authAppMetadataUpdater, adminConfig)
 			adminShareStore = authAppMetadataUpdater
 			adminShareReconciler = incusx.NewShareReconcilerForServer(socketServer, incusx.NewHostOverrideManagerForServer(socketServer), adminShareStore, adminConfig)
-			authAppProjectUpdater = authAppMetadataUpdater
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)
 		}
@@ -156,10 +154,6 @@ func ExecuteAdmin(name string, args []string) int {
 			Provisioner: authapp.Provisioner{
 				Admin:           adminConfig,
 				Tenants:         authAppTenants,
-				TenantCreator:   authAppCreator,
-				ProjectUpdater:  authAppProjectUpdater,
-				UnixUserUpdater: authAppMetadataUpdater,
-				AuxProjects:     authAppCreator,
 				Trust:           authAppTrust,
 				// SANDCASTLE_AUTH_PROVISION_V2=1 routes login provisioning through
 				// the v2 flow (default project + sidecar). The auth app has the
@@ -209,9 +203,6 @@ func authAppServeArgs(args []string) bool {
 // closure creates the tenant's v2 default project + sidecar directly over the
 // mounted host socket; the sidecar image comes from the plan (SANDCASTLE_BASE_IMAGE).
 func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(context.Context, tenant.CreatePlanV2) error {
-	if os.Getenv("SANDCASTLE_AUTH_PROVISION_V2") != "1" {
-		return nil
-	}
 	return func(ctx context.Context, plan tenant.CreatePlanV2) error {
 		return creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
 			TailscaleAuthKey: admin.AuthTailscaleAuthKey,
