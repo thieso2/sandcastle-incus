@@ -296,3 +296,18 @@ created `sc2-bkr-backend`, and **extended the tenant cert** to
 decision-B self-service loop works. Remaining for production: package the broker
 as an infra appliance on `big:9443` (proxy device + admin socket mount) — the
 serve command + handler are done; only deployment/wiring remains.
+
+### Broker-backend refactor (in progress)
+Moving admin ops behind the broker's :9443 web API (two-plane model: bootstrap =
+the only direct-incus op; everything else via the broker).
+- ✅ Admin config isolated to `~/.config/incus-admin` (plain `incus` is clean);
+  default `~/.config/incus` purged; `binc`/`sc-adm` aliases in `~/.bashrc`.
+- ✅ `sc connect-v2 <tenant>` regenerates a tenant's local incus config
+  (enroll + per-project cert-pinned remotes via big.thieso2.dev:8443).
+- ✅ Broker **admin plane**: AdminAuthorizer (trusted unrestricted cert) +
+  TenantProvisionerAdapter; `sc-adm tenant create-v2 --broker` routes through
+  :9443 (validated: created brtest via the broker, sidecar RUNNING).
+- ⬜ Remaining: admin endpoints for tenant list/delete + project create; the
+  one-time `sc-adm bootstrap` that deploys the broker as an appliance on big
+  (mount admin socket + `:9443` proxy device); flip `sc-adm` defaults to broker
+  mode; fold DNS-resolver + CA-trust into `sc connect`.
