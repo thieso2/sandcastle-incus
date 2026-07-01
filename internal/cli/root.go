@@ -290,6 +290,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newStatusCommand(config, opts))
 	root.AddCommand(newCreateCommand(config, opts))
 	root.AddCommand(newConnectCommand(config, opts))
+	root.AddCommand(newConnectV2Command(config, opts))
 	root.AddCommand(newMachineLifecycleCommand(config, opts, "start", machine.ActionStart, false))
 	root.AddCommand(newMachineLifecycleCommand(config, opts, "stop", machine.ActionStop, false))
 	root.AddCommand(newMachineLifecycleCommand(config, opts, "restart", machine.ActionRestart, false))

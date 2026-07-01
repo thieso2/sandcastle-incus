@@ -37,3 +37,16 @@ func TestIncusEndpointFromBrokerNoHost(t *testing.T) {
 		t.Fatal("expected error for URL without host")
 	}
 }
+
+func TestShortProjectName(t *testing.T) {
+	if got := shortProjectName("sc2-demo-backend", "demo"); got != "backend" {
+		t.Fatalf("got %q, want backend", got)
+	}
+	if got := shortProjectName("sc2-demo-default", "demo"); got != "default" {
+		t.Fatalf("got %q, want default", got)
+	}
+	// not this tenant's project → skip
+	if got := shortProjectName("sc2-other-x", "demo"); got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
