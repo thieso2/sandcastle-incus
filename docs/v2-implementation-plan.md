@@ -1,11 +1,17 @@
 # Sandcastle v2 — Implementation Plan
 
-> Sequenced rollout of the v2 topology (ADR-0011/0012/0013, `v2-topology.md`). Ordered so each phase is independently shippable and testable, and so **v1 and v2 can coexist** during rollout (new naming/helpers land additively before v1 paths are removed). Migration (Phase 8) depends on the still-open migration grilling. Commits are kept tiny per the repo's convention.
+> Sequenced rollout of the v2 topology (ADR-0011/0012/0013/0014/0015, `v2-topology.md`). **v2 ships as a parallel deployment beside v1** (ADR-0015) — not a flag inside v1's running deployment. The v2 code is built incrementally (phases below) and tested on a throwaway parallel deployment, then stood up beside v1 for real; users migrate one at a time (Phase 8); v1 is retired last. Commits are kept tiny per the repo's convention.
+
+## Phase P — Prerequisite: make the infra deployment-scoped (blocker for coexistence, ADR-0015)
+Two host-global singletons are hardcoded and prevent a second deployment from installing beside v1. This must land **first** (it's also useful for v1 alone — enables N deployments per host):
+- **Host front door:** make the infra Caddy's proxy listen address/ports seed-configurable (`internal/infra/plan.go:648-654` `tcp:0.0.0.0:80/443`) — v2 on a second host IP or `:8080/:8443` (or, longer-term, a shared SNI router owning `:443`).
+- **Infra bridge + octets:** make `InfrastructureNetworkName` (`plan.go:41` `incusbr0`) and the sidecar last-octets (`infrastructure.go:206-211` `.20/.21/.22`) seed-configurable, or give each deployment its own infra bridge.
+- *Commits:* (1) seed fields for front-door listen + infra bridge/octets, (2) thread through `PlanCreate`/`ApplyStaticNetwork`/`infrastructureStaticAddresses`, (3) `infra create` a 2nd deployment on distinct prefix/CIDR/ports on one host (e2e).
 
 ## Phase 0 — Scaffolding (additive, no behavior change)
-- Add v2 naming helpers in `internal/naming` **alongside** v1: `UserInfraProjectName(user) = sc-<user>`, `UserProjectName(user, project) = sc-<user>-<project>`, `UserBridgeName(user) = sc-<user>`. Keep `TenantIncusProjectName` etc. intact.
-- Add a `v2` feature flag (env/config) gating any new behavior. Ship dark.
-- *Commits:* (1) naming helpers + tests, (2) feature flag plumbing.
+- Add v2 naming helpers in `internal/naming` **alongside** v1: `UserInfraProjectName(user) = sc2-<user>`, `UserProjectName(user, project) = sc2-<user>-<project>`, `UserBridgeName(user) = sc2-<user>` (v2 uses a distinct project prefix so it coexists with v1's `sc-*`). Keep `TenantIncusProjectName` etc. intact.
+- No in-binary `v2` flag — the v2 build *is* v2; it's the deployment (distinct seed/prefix) that makes it parallel to v1.
+- *Commits:* (1) naming helpers + tests, (2) v2 seed template (prefix `sc2`, non-overlapping CIDR, own auth host/OAuth/DB).
 
 ## Phase 1 — Per-user infra project + consolidated sidecar
 - Build `sc-<user>` infra project creation and the single sidecar (CoreDNS + private Caddy + Tailscale subnet-router) in `internal/incusx` (new file, don't touch `tenant_create.go` yet).
@@ -51,7 +57,7 @@ Per user, one at a time (v1 stays until v2 verified):
 - Remove v1 code paths + the feature flag; delete `{project}-{machine}` and per-tenant sidecar code; **fold `docs/v2-glossary.md` into `CONTEXT.md`** and retire superseded terms; mark ADR-0001/0006/0007 superseded.
 
 ## Test strategy
-- Unit tests per phase (as today). Gated integration/e2e (`SANDCASTLE_INCUS_INTEGRATION=1`, `SANDCASTLE_INCUS_E2E=1`) exercise each phase end-to-end on real Incus. `make e2e-safe` in CI. v2 behavior stays behind the flag until Phase 9.
+- Unit tests per phase (as today). Gated integration/e2e (`SANDCASTLE_INCUS_INTEGRATION=1`, `SANDCASTLE_INCUS_E2E=1`) exercise each phase end-to-end on real Incus. `make e2e-safe` in CI. v2 phases are validated on a **throwaway parallel deployment** (distinct `sc2` prefix / CIDR / ports), so v1 is never touched during development.
 
 ## Risks / dependencies
 - **Migration** is the highest-risk phase and is unspecified pending the grilling.
