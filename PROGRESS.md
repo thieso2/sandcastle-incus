@@ -39,6 +39,23 @@ Legend: ⬜ todo · 🔨 in progress · ✅ done · ⚠️ blocked
 ## v2 Log
 - 2026-07-01: ADR-0016 ratified + committed (`ed1b21e`). Incus 7.2 client on this
   CT; `big` set as default remote. Starting Phase 1 (v2 naming).
+- Phase 1 ✅ (`73c8ea5`): v2 naming helpers + tests.
+- Phase 2a ✅ (`d06bf07`): `tenant.PlanCreateV2` + tests.
+- Phase 2 topology **proven manually on big** (tenant `acme`, prefix `sc2`,
+  CIDR `10.249.0.0/24`), to be codified into the incusx executor:
+  - Bridge `sc2-acme` in `default` project, `dns.domain=acme`, `ipv4=10.249.0.1/24`. ✅
+  - Infra project `sc2-acme` + app project `sc2-acme-default`, both
+    `features.networks=false` (share the bridge). ✅
+  - App `default` profile: root disk (default pool) + eth0 (bridged→sc2-acme)
+    + cloud-init `dev`/uid2000/sudo + e2e ssh key + sshd. ✅
+  - **Native launch works:** `incus launch images:debian/13/cloud web
+    --project sc2-acme-default` → `10.249.0.x`, `web.acme` resolves via bridge
+    dnsmasq (`getent hosts web.acme` ✅), cloud-init applied `dev` + key + sshd. ✅
+  - **Login needs a cloud-init image** (`.../cloud`); plain `images:debian/13`
+    ships no cloud-init. e2e uses the `/cloud` variant.
+  - Sidecar (`sc2-acme` in infra project, base image, pinned IP `.3`): image
+    copy into project in progress; then CoreDNS (flat `acme` zone + fallthrough
+    → dnsmasq `.1`) + `tailscale up` advertising the `/24`.
 
 ---
 
