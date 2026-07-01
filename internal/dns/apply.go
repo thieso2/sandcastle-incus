@@ -34,7 +34,11 @@ func PlanApply(summary Tenant, machines []meta.Machine) (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	files, err := RenderTenant(summary.DNSSuffix, dnsAddress, machines)
+	gatewayAddress, err := roleAddress(summary.PrivateCIDR, cidr.GatewayHostOctet)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	files, err := RenderTenant(summary.DNSSuffix, dnsAddress, gatewayAddress, machines)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -48,15 +52,19 @@ func PlanApply(summary Tenant, machines []meta.Machine) (ApplyResult, error) {
 }
 
 func dnsAddress(privateCIDR string) (string, error) {
+	return roleAddress(privateCIDR, cidr.DNSHostOctet)
+}
+
+func roleAddress(privateCIDR string, hostOctet byte) (string, error) {
 	prefix, err := netip.ParsePrefix(privateCIDR)
 	if err != nil {
 		return "", err
 	}
 	addr := prefix.Masked().Addr().As4()
-	addr[3] = cidr.DNSHostOctet
+	addr[3] = hostOctet
 	candidate := netip.AddrFrom4(addr)
 	if !prefix.Contains(candidate) {
-		return "", fmt.Errorf("DNS address .%d is outside %s", cidr.DNSHostOctet, privateCIDR)
+		return "", fmt.Errorf("address .%d is outside %s", hostOctet, privateCIDR)
 	}
 	return candidate.String(), nil
 }

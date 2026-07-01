@@ -8,7 +8,7 @@ import (
 )
 
 func TestRenderInitial(t *testing.T) {
-	files, err := RenderInitial("Acme.", "10.248.0.3")
+	files, err := RenderInitial("Acme.", "10.248.0.3", "10.248.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +27,12 @@ func TestRenderInitial(t *testing.T) {
 	}
 	if !strings.Contains(corefile.Content, "force_tcp") {
 		t.Fatalf("Corefile missing TCP upstream forwarding: %q", corefile.Content)
+	}
+	if !strings.Contains(corefile.Content, "fallthrough") {
+		t.Fatalf("Corefile missing zone fallthrough: %q", corefile.Content)
+	}
+	if !strings.Contains(corefile.Content, "forward . 10.248.0.1") {
+		t.Fatalf("Corefile missing gateway dnsmasq forwarding: %q", corefile.Content)
 	}
 	zoneFile := fileByPath(t, files, "/etc/coredns/zones/db.acme")
 	if zoneFile.Path != "/etc/coredns/zones/db.acme" {
@@ -49,14 +55,21 @@ func TestRenderInitial(t *testing.T) {
 }
 
 func TestRenderInitialRequiresTenantDNSSuffix(t *testing.T) {
-	_, err := RenderInitial("", "10.248.0.3")
+	_, err := RenderInitial("", "10.248.0.3", "10.248.0.1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestRenderTenantRequiresGatewayAddress(t *testing.T) {
+	_, err := RenderTenant("acme", "10.248.0.3", "", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestRenderTenantIncludesMachineRecords(t *testing.T) {
-	files, err := RenderTenant("acme", "10.248.0.3", []meta.Machine{
+	files, err := RenderTenant("acme", "10.248.0.3", "10.248.0.1", []meta.Machine{
 		{Project: "default", Name: "codex", PrivateIP: "10.248.0.20"},
 	})
 	if err != nil {

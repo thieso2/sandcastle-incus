@@ -398,6 +398,8 @@ Bootstrap:
 <span class="cmd">sc incus</span> <span class="arg">exec website-codex -- bash</span>
 <span class="cmd">sc incus-native</span> <span class="arg">launch images:debian/12</span>  <span class="comment"># launch a freeform instance</span>
 <span class="cmd">sc incus-infra</span> <span class="arg">ls</span>                   <span class="comment"># inspect sidecars</span></code></pre>
+    <p>Freeform instances inherit the tenant's <code>default</code> profile, which attaches <code>eth0</code> to the tenant's private bridge — so a bare <code>launch</code> comes up with networking. The bridge runs Incus' built-in dnsmasq with <code>dns.domain={DefaultProject}.{tenant}</code>, and the CoreDNS sidecar forwards any name not in its static machine zone to that dnsmasq. The upshot: an instance launched as <code>{name}</code> resolves over the tailnet as <code>{name}.{DefaultProject}.{tenant}</code> (e.g. <code>my-test.default.acme</code>) from its DHCP lease — no Sandcastle-managed record needed. Managed machines keep their pinned <code>{machine}.{project}.{tenant}</code> records.</p>
+    <p>To make freeform launches SSH-ready, set <code>cloud-init.user-data</code> on the <code>default</code> profile (cloud images only) — e.g. install <code>openssh-server</code> and add a user with your key. Sandcastle-managed machines are unaffected: they use no profile.</p>
   </div>
 </section>
 

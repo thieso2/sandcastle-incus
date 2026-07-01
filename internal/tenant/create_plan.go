@@ -134,6 +134,10 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
+	gatewayAddress, err := roleAddress(tenantCIDR, cidr.GatewayHostOctet)
+	if err != nil {
+		return CreatePlan{}, err
+	}
 
 	tenantMetadata := meta.Tenant{
 		Tenant:       ref.Tenant,
@@ -151,7 +155,7 @@ func PlanCreate(admin config.Admin, request CreateRequest) (CreatePlan, error) {
 	if err != nil {
 		return CreatePlan{}, err
 	}
-	dnsFiles, err := dns.RenderInitial(tenantSuffix, dnsAddress.String())
+	dnsFiles, err := dns.RenderInitial(tenantSuffix, dnsAddress.String(), gatewayAddress.String())
 	if err != nil {
 		return CreatePlan{}, err
 	}

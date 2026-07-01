@@ -22,17 +22,25 @@ const (
 	UpstreamResolverContent = "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
 )
 
-func RenderInitial(suffix string, dnsAddress string) ([]File, error) {
-	return RenderTenant(suffix, dnsAddress, nil)
+func RenderInitial(suffix string, dnsAddress string, gatewayAddress string) ([]File, error) {
+	return RenderTenant(suffix, dnsAddress, gatewayAddress, nil)
 }
 
-func RenderTenant(domain string, dnsAddress string, machines []meta.Machine) ([]File, error) {
+// RenderTenant builds the CoreDNS config for a tenant. The tenant zone serves
+// static A records for managed machines from the zone file; the file plugin's
+// fallthrough hands any name not in the zone to the bridge gateway's built-in
+// dnsmasq (gatewayAddress), so freeform `incus launch` instances resolve under
+// their DHCP-assigned <name>.<DefaultProjectName>.<suffix> without static records.
+func RenderTenant(domain string, dnsAddress string, gatewayAddress string, machines []meta.Machine) ([]File, error) {
 	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
 	if domain == "" {
 		return nil, fmt.Errorf("tenant DNS suffix is required")
 	}
 	if dnsAddress == "" {
 		return nil, fmt.Errorf("DNS address is required")
+	}
+	if gatewayAddress == "" {
+		return nil, fmt.Errorf("gateway address is required")
 	}
 
 	zonePath := path.Join("/etc/coredns/zones", "db."+domain)
@@ -61,7 +69,10 @@ ns IN A %s
 			Mode: 0o644,
 			Content: fmt.Sprintf(`%s:53 {
     errors
-    file %s %s
+    file %s %s {
+        fallthrough
+    }
+    forward . %s
 }
 .:53 {
     errors
@@ -69,7 +80,7 @@ ns IN A %s
         force_tcp
     }
 }
-`, domain, zonePath, domain, UpstreamResolverPath),
+`, domain, zonePath, domain, gatewayAddress, UpstreamResolverPath),
 		},
 		{
 			Path:    zonePath,

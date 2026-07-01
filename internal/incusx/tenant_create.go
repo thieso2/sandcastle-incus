@@ -759,9 +759,14 @@ func networkRequest(plan tenant.CreatePlan) api.NetworksPost {
 		NetworkPut: api.NetworkPut{
 			Description: "Sandcastle private bridge for " + plan.Reference,
 			Config: api.ConfigMap{
-				"ipv4.address":      gatewayCIDR(plan.PrivateCIDR),
-				"ipv4.nat":          "true",
-				"ipv6.address":      "none",
+				"ipv4.address": gatewayCIDR(plan.PrivateCIDR),
+				"ipv4.nat":     "true",
+				"ipv6.address": "none",
+				// The bridge's built-in dnsmasq publishes <name>.<dns.domain> for every
+				// instance it leases, so freeform `incus launch` instances resolve under
+				// the tenant's default project without Sandcastle-managed static records.
+				// CoreDNS forwards zone misses here (see internal/dns.RenderTenant).
+				"dns.domain":        naming.DefaultProjectName + "." + plan.DNSSuffix,
 				meta.KeyKind:        "network",
 				meta.KeyTenant:      plan.Reference,
 				meta.KeyPrivateCIDR: plan.PrivateCIDR,
