@@ -235,13 +235,7 @@ func uniqueImageAliases(aliases ...string) []string {
 	return output
 }
 
-func NewSidecarPlan(ref naming.TenantRef, admin config.Admin, incusName string, name string, role string, address string) SidecarPlan {
-	return sidecarPlan(ref, admin, incusName, name, role, address)
-}
 
-func UniqueImageAliases(aliases ...string) []string {
-	return uniqueImageAliases(aliases...)
-}
 
 func sidecarPlan(ref naming.TenantRef, admin config.Admin, incusName string, name string, role string, address string) SidecarPlan {
 	return SidecarPlan{

@@ -31,6 +31,59 @@ IMAGE=d31c34fadc08          # stock debian trixie container
 
 ---
 
+## Hermetic harness — a fresh sc2 per run, torn down after 🚧
+The real e2e provisions a **throwaway sc2 host** as a VM on `big`, with its **own
+nested Incus** and its own sc2 stack (edge + broker + auth-app), and routes a fresh
+public hostname to it through the **outer** `sc-edge`. Each run is fully isolated and
+leaves nothing behind — no shared appliances, no leftover tenants.
+
+Why it works: **`*.scdev.thieso2.dev` is a public wildcard CNAME to the outer
+`sc-edge`.** So a run can claim `<run>.scdev.thieso2.dev`, point the outer sc-edge at
+the run's VM, and the whole flow (LE cert, GitHub OAuth, login, machines) happens
+against a hostname that resolves publicly and terminates at a **fresh, disposable**
+sc2 — a genuine end-to-end path, not a mock.
+
+```bash
+RUN=e2e-$(date +%s)                 # unique id per run
+HOST=$RUN.scdev.thieso2.dev         # resolves (publicly) to the outer sc-edge
+
+# 1) fresh VM on big with nested virtualization → it becomes its own Incus host
+incus launch images:debian/13/cloud big:sc2-$RUN --vm \
+  -c security.secureboot=false -c limits.cpu=4 -c limits.memory=8GiB \
+  -c security.nesting=true
+# wait for cloud-init + agent, capture the VM's bridge IP
+for i in $(seq 1 60); do VMIP=$(incus ls big:sc2-$RUN -c4 --format csv 2>/dev/null | grep -oE '10\.[0-9.]+' | head -1); [ -n "$VMIP" ] && break; sleep 3; done
+
+# 2) inside the VM: install Incus + push this fat binary + stand up the sc2 stack.
+#    The run's sc2 uses $HOST as its Auth Hostname (so LE + OAuth callback match).
+incus exec big:sc2-$RUN -- bash -c 'apt-get update -qq && apt-get install -y -qq incus'
+incus file push bin/linux-amd64/sandcastle big:sc2-$RUN/usr/local/bin/sandcastle --mode 0755
+#    … init incus, deploy sc-edge/broker/auth-app inside the VM (Phases 1–3 run *in* the VM),
+#    with the inner auth app fronted by the inner sc-edge for $HOST.
+
+# 3) route <RUN>.scdev.thieso2.dev → the run's VM via the OUTER sc-edge.
+#    SNI passthrough so the VM's inner edge owns the TLS (does its own LE for $HOST):
+incus exec big:sc-edge --project infrastructure -- bash -c "
+  # add a layer4 SNI-passthrough for $HOST → $VMIP:443, then reload
+  systemctl reload caddy"
+```
+
+**Teardown (always, even on failure):**
+```bash
+incus delete -f big:sc2-$RUN                       # removes the whole disposable sc2
+incus exec big:sc-edge --project infrastructure -- \
+  sed -i "/$HOST/d" /etc/caddy/Caddyfile           # drop the run's route
+incus exec big:sc-edge --project infrastructure -- systemctl reload caddy
+```
+
+🚧 **To build:** the nested-Incus VM image + an automated inner-stack deploy
+(`Phases 1–3` executed *inside* the VM against `$HOST`), and the outer sc-edge
+SNI-passthrough entry. Until then, the phases below run against the **persistent**
+sc2 on `big` (edge/broker/auth-app + a throwaway `e2etest` tenant) — same flow, but
+sharing the long-lived appliances. The hermetic harness makes every run disposable.
+
+---
+
 ## Phase 0 — Teardown (idempotent reset) ✅
 Remove any prior test-tenant server state + local client config so the run starts clean.
 
