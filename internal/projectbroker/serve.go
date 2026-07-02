@@ -69,6 +69,9 @@ type TenantResult struct {
 	Bridge         string `json:"bridge"`
 	DNSSuffix      string `json:"dnsSuffix"`
 	Token          string `json:"token,omitempty"`
+	// TailscaleLoginURL is set when the tenant was created without a Tailscale
+	// auth key: the caller shows it so the user can register the sidecar.
+	TailscaleLoginURL string `json:"tailscaleLoginURL,omitempty"`
 }
 
 // ProjectResult is returned to the caller after a successful create.

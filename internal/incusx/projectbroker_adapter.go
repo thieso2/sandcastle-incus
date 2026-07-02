@@ -66,18 +66,21 @@ func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectb
 	if err != nil {
 		return projectbroker.TenantResult{}, err
 	}
+	var tailscaleLoginURL string
 	if err := a.Creator.CreateTenantV2(ctx, plan, CreateV2Options{
-		TailscaleAuthKey: req.TailscaleAuthKey,
-		SidecarImage:     a.SidecarImage,
+		TailscaleAuthKey:    req.TailscaleAuthKey,
+		SidecarImage:        a.SidecarImage,
+		OnTailscaleLoginURL: func(u string) { tailscaleLoginURL = u },
 	}); err != nil {
 		return projectbroker.TenantResult{}, err
 	}
 	result := projectbroker.TenantResult{
-		Tenant:         plan.Tenant,
-		InfraProject:   plan.InfraProject,
-		DefaultProject: plan.DefaultProject,
-		Bridge:         plan.Bridge,
-		DNSSuffix:      plan.DNSSuffix,
+		Tenant:            plan.Tenant,
+		InfraProject:      plan.InfraProject,
+		DefaultProject:    plan.DefaultProject,
+		Bridge:            plan.Bridge,
+		DNSSuffix:         plan.DNSSuffix,
+		TailscaleLoginURL: tailscaleLoginURL,
 	}
 	if a.Trust != nil {
 		tok, err := a.Trust.CreateToken(ctx, usertrust.UserPlan{

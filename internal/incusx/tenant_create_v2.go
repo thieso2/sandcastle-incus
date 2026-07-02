@@ -23,6 +23,10 @@ import (
 type CreateV2Options struct {
 	TailscaleAuthKey string
 	SidecarImage     string
+	// OnTailscaleLoginURL, when set, is invoked with the sidecar's interactive
+	// `tailscale up` login URL when no auth key was supplied. The caller shows it
+	// to the user, who visits it to register the sidecar into their tailnet.
+	OnTailscaleLoginURL func(url string)
 }
 
 // CreateTenantV2 executes a CreatePlanV2 against Incus, reproducing the v2 MVP
@@ -72,10 +76,15 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	if err := configureV2Sidecar(server.UseProject(plan.InfraProject), plan); err != nil {
 		return err
 	}
-	if strings.TrimSpace(opts.TailscaleAuthKey) != "" {
-		c.log("tailscale up (advertise " + plan.PrivateCIDR + ")")
-		if err := v2TailscaleUp(server.UseProject(plan.InfraProject), plan, opts.TailscaleAuthKey); err != nil {
-			return err
+	c.log("tailscale up (advertise " + plan.PrivateCIDR + ")")
+	loginURL, err := v2TailscaleUp(server.UseProject(plan.InfraProject), plan, strings.TrimSpace(opts.TailscaleAuthKey))
+	if err != nil {
+		return err
+	}
+	if loginURL != "" {
+		c.log("tailscale: sidecar not on a tailnet yet — register it at " + loginURL)
+		if opts.OnTailscaleLoginURL != nil {
+			opts.OnTailscaleLoginURL(loginURL)
 		}
 	}
 	c.log("done")
@@ -355,9 +364,40 @@ func configureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2) e
 	return nil
 }
 
-func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKey string) error {
-	upCmd := "tailscale up --auth-key='" + authKey + "' --advertise-routes=" + plan.PrivateCIDR +
-		" --hostname=" + plan.SidecarInstance + " --accept-dns=false --timeout=60s"
+// v2TailscaleUp brings the sidecar onto the tenant's tailnet. With an auth key it
+// joins non-interactively and hard-gates on getting a tailnet IP. Without one it
+// starts an interactive `tailscale up` as a detached unit (which blocks waiting for
+// the user) and returns the login URL it prints, so the caller can show it; the
+// sidecar joins once the user visits that URL. Returns "" when a key was used or the
+// sidecar is already registered.
+func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKey string) (string, error) {
+	base := "--advertise-routes=" + plan.PrivateCIDR + " --hostname=" + plan.SidecarInstance + " --accept-dns=false"
+	if authKey == "" {
+		const log = "/var/lib/sandcastle-tsup.log"
+		script := strings.Join([]string{
+			"set -e",
+			"systemctl unmask tailscaled.service 2>/dev/null || true",
+			"systemctl enable --now tailscaled.service",
+			"for i in $(seq 1 30); do tailscale status >/dev/null 2>&1 && break; sleep 1; done",
+			// Idempotent re-create: if already authenticated, nothing to show.
+			"if tailscale ip -4 >/dev/null 2>&1; then exit 0; fi",
+			// `tailscale up` blocks until the user authenticates, so run it as a
+			// detached transient unit and read the login URL it prints to a file.
+			"printf '#!/bin/sh\\nexec tailscale up " + base + " > " + log + " 2>&1\\n' > /usr/local/bin/sandcastle-tsup.sh",
+			"chmod +x /usr/local/bin/sandcastle-tsup.sh",
+			": > " + log,
+			"systemctl reset-failed sandcastle-tsup.service 2>/dev/null || true",
+			"systemd-run --unit=sandcastle-tsup --collect /usr/local/bin/sandcastle-tsup.sh >/dev/null 2>&1 || true",
+			"for i in $(seq 1 30); do url=$(grep -Eom1 'https://login\\.tailscale\\.com/[A-Za-z0-9._/-]+' " + log + " || true); [ -n \"$url\" ] && { printf 'TSLOGINURL=%s\\n' \"$url\"; exit 0; }; sleep 1; done",
+			"exit 0",
+		}, "\n")
+		out, err := execSidecarCapture(server, plan.SidecarInstance, script)
+		if err != nil {
+			return "", fmt.Errorf("tailscale up (interactive): %w", err)
+		}
+		return parseTailscaleLoginURL(out), nil
+	}
+	upCmd := "tailscale up --auth-key='" + authKey + "' " + base + " --timeout=60s"
 	up := strings.Join([]string{
 		"set -e",
 		"systemctl unmask tailscaled.service 2>/dev/null || true",
@@ -372,9 +412,19 @@ func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKe
 		"tailscale ip -4 >/dev/null 2>&1 || { echo 'tailscale did not connect' >&2; tailscale status >&2; exit 1; }",
 	}, "\n")
 	if err := execSidecar(server, plan.SidecarInstance, up); err != nil {
-		return fmt.Errorf("tailscale up: %w", err)
+		return "", fmt.Errorf("tailscale up: %w", err)
 	}
-	return nil
+	return "", nil
+}
+
+// parseTailscaleLoginURL extracts the URL emitted by the interactive up script.
+func parseTailscaleLoginURL(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if url, ok := strings.CutPrefix(strings.TrimSpace(line), "TSLOGINURL="); ok {
+			return strings.TrimSpace(url)
+		}
+	}
+	return ""
 }
 
 func writeInstanceDir(server TenantResourceServer, instance string, filePath string) error {
@@ -383,6 +433,29 @@ func writeInstanceDir(server TenantResourceServer, instance string, filePath str
 		return nil
 	}
 	return execSidecar(server, instance, "mkdir -p "+dir)
+}
+
+// execSidecarCapture runs a script in the sidecar and returns its stdout.
+func execSidecarCapture(server TenantResourceServer, instance string, script string) (string, error) {
+	var stdout, stderr strings.Builder
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instance, api.InstanceExecPost{
+		Command:   []string{"/bin/sh", "-c", script},
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		Stdout:   &stdout,
+		Stderr:   &stderr,
+		DataDone: dataDone,
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := op.Wait(); err != nil {
+		return "", fmt.Errorf("%w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	<-dataDone
+	return stdout.String(), nil
 }
 
 func execSidecar(server TenantResourceServer, instance string, script string) error {

@@ -3,6 +3,7 @@ package cli
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -147,6 +148,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				certFile, keyFile := adminClientCert(brokerCert, brokerKey)
 				var result struct {
 					Tenant, InfraProject, DefaultProject, Bridge, DNSSuffix, Token string
+					TailscaleLoginURL                                              string
 				}
 				if err := brokerPost(cmd.Context(), broker, "/v2/tenants", certFile, keyFile, map[string]string{
 					"tenant":           args[0],
@@ -160,6 +162,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				if result.Token != "" {
 					fmt.Fprintf(config.stdout, "\nEnrollment:\n  sc connect-v2 %s --token %s\n", result.Tenant, result.Token)
 				}
+				printTailscaleLoginURL(config.stdout, result.TailscaleLoginURL)
 				return nil
 			}
 			admin := config.adminConfig
@@ -177,9 +180,11 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				return writeOutput(config.stdout, opts.output, formatCreatePlanV2(plan), plan)
 			}
 			creator := config.tenantCreator
+			var tailscaleLoginURL string
 			if err := creator.CreateTenantV2(cmd.Context(), plan, incusx.CreateV2Options{
-				TailscaleAuthKey: strings.TrimSpace(tailscaleAuthKey),
-				SidecarImage:     strings.TrimSpace(sidecarImage),
+				TailscaleAuthKey:    strings.TrimSpace(tailscaleAuthKey),
+				SidecarImage:        strings.TrimSpace(sidecarImage),
+				OnTailscaleLoginURL: func(u string) { tailscaleLoginURL = u },
 			}); err != nil {
 				return err
 			}
@@ -202,6 +207,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 						tok.Projects, plan.Tenant, tok.Token)
 				}
 			}
+			printTailscaleLoginURL(config.stdout, tailscaleLoginURL)
 			return writeOutput(config.stdout, opts.output, formatCreatePlanV2(plan), plan)
 		},
 	}
@@ -324,6 +330,17 @@ func newAdminProjectBrokerServeCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&keyFile, "key", "", "broker TLS key file")
 	command.Flags().StringVar(&sidecarImage, "sidecar-image", "", "system-container base image for tenant sidecars (admin plane)")
 	return command
+}
+
+// printTailscaleLoginURL surfaces the sidecar's interactive Tailscale login URL
+// (set only when the tenant was created without a --tailscale-authkey) so the
+// operator can register the sidecar into their tailnet.
+func printTailscaleLoginURL(w io.Writer, url string) {
+	if strings.TrimSpace(url) == "" {
+		return
+	}
+	fmt.Fprintf(w, "\nTailscale: no auth key was given, so the sidecar is not on a tailnet yet.\n"+
+		"Register it by opening this URL and approving the machine:\n  %s\n", url)
 }
 
 func formatCreatePlanV2(plan tenant.CreatePlanV2) string {
