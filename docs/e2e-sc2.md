@@ -386,14 +386,16 @@ and `Remote "sandcastle-thieso2" enrolled.` The tenant's default project + sidec
 (CoreDNS + Tailscale) are created exactly as in Phase 3; `--skip-setup` skips the
 client-side `RunPostLoginSetup` (DNS/trust/`tailscale up`).
 
-> ⚠️ **Auth-app CIDR pool must not overlap v1 or other v2 tenants.** The allocator
-> (`cidr.Allocate`) only skips CIDRs reported by `tenant.List` (v2 tenants) — it is
-> **blind to foreign bridges** (v1 `sc-*` bridges, or v2 tenants whose CIDR metadata
-> it can't read). If the auth app's `SANDCASTLE_CIDR_POOL` overlaps those, provisioning
-> dies with `dnsmasq: failed to create listening socket for <gw>: Address already in
-> use`. Point the auth app at a clean, unused pool (this run used `10.250.0.0/16`;
-> the broker uses `10.249.0.0/16`). **Follow-up:** teach the allocator to enumerate
-> all existing bridges, not just v2 tenant CIDRs, so a single shared pool is safe.
+> ✅ **CIDR allocation (fixed).** Provisioning now derives occupancy with
+> `tenant.CIDRAllocationInputs`, which scans **all** managed projects and reads the
+> CIDR from both v1 (`kind=tenant`) and v2 (`kind=infra`, `user.sandcastle.v2.cidr`)
+> tenants — so a new tenant never reuses another tenant's `/24`, and re-provisioning
+> an existing tenant **reuses its own** `/24` (idempotent; via `PreferredCIDR`).
+> Earlier this path allocated the pool's first `/24` every time and collided
+> (`dnsmasq: failed to create listening socket for <gw>: Address already in use`).
+> Still keep the broker and auth-app pools from overlapping **v1** or each other
+> (broker `10.249.0.0/16`, auth-app a distinct clean range like `10.250.0.0/16`):
+> the allocator sees tenant-owned bridges, not arbitrary foreign/orphaned ones.
 
 ---
 
@@ -412,7 +414,7 @@ tenant-CA trust), which stays ⚠️ pending the unbuilt per-tenant tenant-CA ce
 2. **Per-tenant tenant-CA cert path** (Phase 8b) — issue a tenant CA + leaf so the *private* HTTPS path exists; then `sc trust install` (Linux/macOS) makes it trusted. (The *public* sc-edge LE path in Phase 7 already works with no CA install.)
 3. **Split-DNS over tailscale** (Phase 8) — serve the tenant zone to tailnet clients on the sidecar tailscale IP.
 4. **Shared `$HOME` + `/workspace`** (Phase 7) — per-project storage volume mounted into the default profile so CT/VM in a project share state.
-5. **Deploy-command polish** — local-image default; fix the multi-address remote mangling so Phases 1/3 run via the CLI, not by-hand; reconcile the auth-app vs broker CIDR pools (and teach `cidr.Allocate` to see all bridges) so login provisioning can't collide.
+5. **Deploy-command polish** — local-image default; fix the multi-address remote mangling so Phases 1/3 run via the CLI, not by-hand. (CIDR allocation across v1+v2 tenants and idempotent re-provision are now fixed — see the appendix.)
 
 Phases 0–9 are validated green today; the items above are refinements, not blockers.
 
@@ -435,7 +437,8 @@ stays truthful and self-healing.
 | Machine name doesn't resolve in CoreDNS | No A-record auto-registration on machine create yet | Add the record to `db.e2etest` + bump SOA + `systemctl restart coredns` (auto-reg TODO) |
 | Tenant machine SSH refused / no `dev` user | Plain image has no cloud-init → profile user-data never applied | Launch tenant machines from `images:debian/13/cloud` (has cloud-init) |
 | `create-v2` → `Image not provided for instance creation` | Phase 0 image-purge removed the last local copy of the stock base; infra shares the default store (`features.images=false`) so it must live in `default` | `incus image copy images:debian/13 big: --project default` (restores fingerprint `d31c34fadc08`) |
-| Login provisioning → `dnsmasq: failed to create listening socket for 10.248.3.1: Address already in use` | Auth-app `SANDCASTLE_CIDR_POOL` (`10.248.0.0/16`) overlapped v1 `sc-*` bridges + a stale v2 tenant; `cidr.Allocate` only skips CIDRs from `tenant.List`, so it's blind to foreign bridges | Point the auth app at a clean unused pool (`SANDCASTLE_CIDR_POOL='10.250.0.0/16'`) and restart; follow-up is to make the allocator enumerate all bridges |
+| Second v2 tenant → `dnsmasq: failed to create listening socket for <gw>: Address already in use` | Occupancy was `tenant.List`+`OccupiedCIDRs`, which only surfaces v1 `kind=tenant` projects; v2 tenants (`kind=infra`) were invisible, so the allocator re-picked the pool's first `/24` | **Fixed:** `tenant.CIDRAllocationInputs` scans v1+v2 projects for occupancy; also point pools clear of v1 (`10.248.x`) as defense-in-depth |
+| Re-provision/login of an existing tenant → `Device IP address … not within network … subnet` | The v2-aware occupancy fix counted the tenant's OWN `/24` as occupied and allocated a fresh one that didn't match the existing bridge | **Fixed:** `CreateRequest.PreferredCIDR` reuses the tenant's existing `/24` (idempotent) |
 | Auth-app tailnet key ignored / sidecar `Logged out` | `SANDCASTLE_AUTH_TAILSCALE_AUTHKEY` line in `/etc/sandcastle/auth-app/env` was mangled by repeated `sed` edits (concatenated key + var name) | Rewrite the line cleanly from `.env.sc2`: `sed -i "8s\|.*\|SANDCASTLE_AUTH_TAILSCALE_AUTHKEY='<key>'\|" env`, then restart |
 | `sc login`/`ssh` needs the running fat binary on appliances | Appliances still ran a pre-v1-removal binary | `systemctl stop`, `incus file push bin/linux-amd64/sandcastle …/usr/local/bin/sandcastle-admin`, `systemctl start` on `sc2-broker` **and** `sc2-auth-app` |
 | SSH `Too many authentication failures` reaching a tenant machine | The local ssh-agent offered many keys before the right one; server cut off at 6 | Add `-o IdentitiesOnly=yes -i ~/.ssh/sandcastle_ed25519` |
