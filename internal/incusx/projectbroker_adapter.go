@@ -56,12 +56,25 @@ type TenantProvisionerAdapter struct {
 	Trust        usertrust.Manager
 	Admin        config.Admin
 	SidecarImage string
+	// Tenants lists existing tenants so the CIDR allocator skips /24s already in
+	// use; without it the allocator always returns the pool's first /24 and every
+	// tenant after the first collides on its bridge gateway.
+	Tenants tenant.IncusTenantStore
 }
 
 func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectbroker.TenantRequest) (projectbroker.TenantResult, error) {
+	var occupied []string
+	if a.Tenants != nil {
+		var err error
+		occupied, err = tenant.AllocatedCIDRs(ctx, a.Tenants)
+		if err != nil {
+			return projectbroker.TenantResult{}, fmt.Errorf("list allocated CIDRs: %w", err)
+		}
+	}
 	plan, err := tenant.PlanCreateV2(a.Admin, tenant.CreateRequest{
-		Reference:    req.Tenant,
-		SSHPublicKey: req.SSHPublicKey,
+		Reference:     req.Tenant,
+		SSHPublicKey:  req.SSHPublicKey,
+		OccupiedCIDRs: occupied,
 	})
 	if err != nil {
 		return projectbroker.TenantResult{}, err

@@ -169,9 +169,17 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			if strings.TrimSpace(cidrPool) != "" {
 				admin.CIDRPool = strings.TrimSpace(cidrPool)
 			}
+			var occupied []string
+			if config.tenantStore != nil {
+				var err error
+				if occupied, err = tenant.AllocatedCIDRs(cmd.Context(), config.tenantStore); err != nil {
+					return fmt.Errorf("list allocated CIDRs: %w", err)
+				}
+			}
 			plan, err := tenant.PlanCreateV2(admin, tenant.CreateRequest{
-				Reference:    args[0],
-				SSHPublicKey: sshKey,
+				Reference:     args[0],
+				SSHPublicKey:  sshKey,
+				OccupiedCIDRs: occupied,
 			})
 			if err != nil {
 				return err
@@ -317,6 +325,7 @@ func newAdminProjectBrokerServeCommand(config commandConfig) *cobra.Command {
 					Trust:        config.trustManager,
 					Admin:        config.adminConfig,
 					SidecarImage: strings.TrimSpace(sidecarImage),
+					Tenants:      config.tenantStore,
 				},
 			}
 			fmt.Fprintf(config.stderr, "broker listening on %s (tenant + admin plane)\n", listen)

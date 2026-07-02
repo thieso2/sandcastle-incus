@@ -52,11 +52,13 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	if p.Trust == nil {
 		return PersonalTenantResult{}, fmt.Errorf("trust manager is not configured")
 	}
-	// Avoid CIDR collisions with existing tenants (the v2 pool is shared).
+	// Avoid CIDR collisions with existing tenants (the v2 pool is shared). Use
+	// AllocatedCIDRs, not List+OccupiedCIDRs — List only surfaces v1 kind=tenant
+	// projects, so it would miss every v2 tenant and let the allocator collide.
 	var occupied []string
 	if p.Tenants != nil {
-		if summaries, err := tenant.List(ctx, p.Tenants); err == nil {
-			occupied = tenant.OccupiedCIDRs(summaries)
+		if cidrs, err := tenant.AllocatedCIDRs(ctx, p.Tenants); err == nil {
+			occupied = cidrs
 		}
 	}
 	plan, err := tenant.PlanCreateV2(p.Admin, tenant.CreateRequest{

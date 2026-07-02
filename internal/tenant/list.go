@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sort"
+	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
@@ -77,6 +78,38 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 		return summaries[i].Tenant < summaries[j].Tenant
 	})
 	return summaries, nil
+}
+
+// AllocatedCIDRs returns every tenant private CIDR currently allocated on the
+// host, spanning BOTH v1 tenants (kind=tenant, CIDR in tenant metadata) and v2
+// tenants (kind=infra, CIDR in the v2 metadata key). The CIDR allocator feeds
+// this in as OccupiedCIDRs so a new tenant never reuses a /24 whose bridge
+// already exists — OccupiedCIDRs(List(...)) alone misses v2 tenants, since List
+// only surfaces kind=tenant projects.
+func AllocatedCIDRs(ctx context.Context, store IncusTenantStore) ([]string, error) {
+	projects, err := store.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var cidrs []string
+	for _, incusProject := range projects {
+		if !meta.IsManaged(incusProject.Config) {
+			continue
+		}
+		switch incusProject.Config[meta.KeyKind] {
+		case meta.KindTenant:
+			if t, err := meta.ParseTenantConfig(incusProject.Config); err == nil {
+				if strings.TrimSpace(t.PrivateCIDR) != "" {
+					cidrs = append(cidrs, t.PrivateCIDR)
+				}
+			}
+		case meta.KindInfra:
+			if c := strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR]); c != "" {
+				cidrs = append(cidrs, c)
+			}
+		}
+	}
+	return cidrs, nil
 }
 
 func OccupiedCIDRs(tenants []Summary) []string {

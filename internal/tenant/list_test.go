@@ -61,6 +61,34 @@ func TestListReportsInvalidManagedMetadata(t *testing.T) {
 	}
 }
 
+func TestAllocatedCIDRsSpansV1AndV2(t *testing.T) {
+	v1Config, err := meta.TenantConfig(meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.0.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "default", Config: map[string]string{}},                                                       // unmanaged
+		{Name: "sc-acme", Config: v1Config},                                                                  // v1 tenant
+		{Name: "sc2-zeus", Config: map[string]string{meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyV2CIDR: "10.249.1.0/24"}}, // v2 infra
+		{Name: "sc2-zeus-default", Config: map[string]string{meta.KeyKind: "project", meta.KeyVersion: "2"}}, // v2 app project: no CIDR
+	}}
+
+	cidrs, err := AllocatedCIDRs(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, c := range cidrs {
+		got[c] = true
+	}
+	if !got["10.248.0.0/24"] || !got["10.249.1.0/24"] {
+		t.Fatalf("AllocatedCIDRs = %#v, want both v1 10.248.0.0/24 and v2 10.249.1.0/24", cidrs)
+	}
+	if len(cidrs) != 2 {
+		t.Fatalf("len(cidrs) = %d, want 2 (no CIDR from unmanaged/app projects)", len(cidrs))
+	}
+}
+
 func TestOccupiedCIDRs(t *testing.T) {
 	cidrs := OccupiedCIDRs([]Summary{
 		{PrivateCIDR: "10.248.0.0/24"},
