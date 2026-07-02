@@ -8,7 +8,7 @@ Run it top-to-bottom. **Phase 0 (teardown)** makes it idempotent — re-running
 starts from a clean slate.
 
 ## Status legend
-- ✅ **validated** live on `big` (2026-07-01)
+- ✅ **validated** live on `big` (2026-07-02)
 - ⚠️ **partial** — works but has a known rough edge (noted inline)
 - 🚧 **to build** — feature not implemented yet; step documents the target
 
@@ -88,11 +88,16 @@ sharing the long-lived appliances. The hermetic harness makes every run disposab
 Remove any prior test-tenant server state + local client config so the run starts clean.
 
 ```bash
-# server: delete the test tenant's instances + projects + bridge
+# server: delete the test tenant's instances + images + custom profiles + projects + bridge.
+# NB: v2 projects have their own image store (features.images=true) and a custom
+# `sidecar` profile; a project won't delete until BOTH are cleared, so purge them too.
 for p in sc2-$TENANT-default sc2-$TENANT; do
   incus list big: --project $p -c n --format csv 2>/dev/null | while read -r n; do
-    incus delete -f big:$n --project $p 2>/dev/null; done
-  incus profile delete big:default --project $p 2>/dev/null || true
+    [ -n "$n" ] && incus delete -f big:$n --project $p 2>/dev/null; done
+  incus image list big: --project $p --format csv -c f 2>/dev/null | while read -r fp; do
+    [ -n "$fp" ] && incus image delete big:$fp --project $p 2>/dev/null; done
+  incus profile list big: --project $p --format csv -c n 2>/dev/null | while read -r pr; do
+    [ -n "$pr" ] && [ "$pr" != "default" ] && incus profile delete big:$pr --project $p 2>/dev/null; done
   incus project delete big:$p 2>/dev/null || true
 done
 incus network delete big:sc2-$TENANT 2>/dev/null || true
@@ -100,6 +105,12 @@ incus network delete big:sc2-$TENANT 2>/dev/null || true
 rm -rf ~/.config/sandcastle/$TENANT
 ```
 **PASS:** no `sc2-e2etest*` projects remain (`incus project list big: | grep e2etest` is empty).
+
+> ⚠️ Purging a v2 project's image store deletes its **only local copy** of the stock
+> base image if that image lives solely inside the tenant project. If a later run
+> reports `Image not provided for instance creation`, re-cache it into the shared
+> store: `incus image copy images:debian/13 big: --project default` (restores
+> fingerprint `d31c34fadc08`, which infra projects share via `features.images=false`).
 
 ---
 
@@ -350,7 +361,7 @@ issue (see remaining work). The public `sc-edge` path in Phase 7 needs **no** CA
 
 ---
 
-## Phase 9 — Unattended login via the debug short-circuit ✅ (mechanism) / ⚠️ (provisioning)
+## Phase 9 — Unattended login via the debug short-circuit ✅
 The hidden debug URL already exists: `/debug/device/approve`, enabled when the auth
 app runs with `--debug-device-user <gh-user>`; `sc login --debug-approve` uses it to
 bypass the GitHub browser step for CI.
@@ -367,31 +378,43 @@ rm -rf ~/.config/sandcastle/$TENANT
 incus exec big:sc2-auth-app --project infrastructure -- bash -c \
   "sed -i \"s/^SANDCASTLE_AUTH_DEBUG_DEVICE_USER=.*/SANDCASTLE_AUTH_DEBUG_DEVICE_USER=''/\" /etc/sandcastle/auth-app/env && systemctl restart sandcastle-auth-app"
 ```
-**PASS (✅ validated):** device flow starts, `--debug-approve` auto-approves (no browser).
-⚠️ **Provisioning-on-login pending:** the auth app currently runs **v1** `EnsurePersonalTenant`
-which fails on a stale `sandcastle/base:latest` alias. **Fix pending (decided):** on
-login, the auth app **delegates to the broker** (`TenantProvisionerAdapter` →
-`CreateTenantV2`) so login provisions the same v2 default-project + sidecar as Phase 3,
-then the existing client `RunPostLoginSetup` does DNS/trust/`tailscale up`.
+**PASS (✅ validated):** `--debug-approve` auto-approves (no browser); the auth app
+**provisions the v2 tenant directly** over its mounted host socket (v2-only
+`EnsurePersonalTenant` → `ensurePersonalTenantV2` → `CreateTenantV2` — the old v1
+Personal-Tenant path is gone). Login output ends with `v2 tenant thieso2 is ready.`
+and `Remote "sandcastle-thieso2" enrolled.` The tenant's default project + sidecar
+(CoreDNS + Tailscale) are created exactly as in Phase 3; `--skip-setup` skips the
+client-side `RunPostLoginSetup` (DNS/trust/`tailscale up`).
+
+> ⚠️ **Auth-app CIDR pool must not overlap v1 or other v2 tenants.** The allocator
+> (`cidr.Allocate`) only skips CIDRs reported by `tenant.List` (v2 tenants) — it is
+> **blind to foreign bridges** (v1 `sc-*` bridges, or v2 tenants whose CIDR metadata
+> it can't read). If the auth app's `SANDCASTLE_CIDR_POOL` overlaps those, provisioning
+> dies with `dnsmasq: failed to create listening socket for <gw>: Address already in
+> use`. Point the auth app at a clean, unused pool (this run used `10.250.0.0/16`;
+> the broker uses `10.249.0.0/16`). **Follow-up:** teach the allocator to enumerate
+> all existing bridges, not just v2 tenant CIDRs, so a single shared pool is safe.
 
 ---
 
 ## Summary
-**Green today (validated live):** Phases 0–8 — teardown, auth-app deploy, sc-edge front,
-v2 tenant provision (stock Debian sidecar: CoreDNS + Tailscale), client enrollment, remote
-switch, profile (SSH+cloud-init), **fresh VM connected to sc-edge with a real LE cert**, and
-**tenant DNS resolving at the CoreDNS tailscale IP**. Tailscale-readiness race is **fixed**.
+**Green today (validated live 2026-07-02):** Phases 0–9 — teardown, auth-app deploy, sc-edge
+front, v2 tenant provision (stock Debian sidecar: CoreDNS + Tailscale), client enrollment,
+remote switch, profile (SSH+cloud-init), CT **and** VM launched via `incus launch` with DNS +
+SSH, a machine **exposed on sc-edge over public HTTPS with a real LE cert** (7b),
+**tenant DNS resolving at the CoreDNS tailscale IP**, and **unattended login provisioning the
+v2 tenant** (v2-only `EnsurePersonalTenant`). Tailscale-readiness race is **fixed**; the v1
+Personal-Tenant login path is **removed**. The one non-green step is **Phase 8b** (private
+tenant-CA trust), which stays ⚠️ pending the unbuilt per-tenant tenant-CA cert path.
 
 **Remaining work to make every phase green:**
-1. **Auth-app → broker delegation** (Phase 9) — replace v1 `EnsurePersonalTenant` with the broker/v2 path so unattended login provisions the same v2 tenant.
-2. **Machine DNS auto-registration** (Phase 8) — write the A-record into `db.e2etest` on machine create (done manually in the e2e today).
-3. **Per-tenant tenant-CA cert path** (Phase 8b) — issue a tenant CA + leaf so the *private* HTTPS path exists; then `sc trust install` (Linux/macOS) makes it trusted. (The *public* sc-edge LE path in Phase 7 already works with no CA install.)
-4. **Split-DNS over tailscale** (Phase 8) — serve the tenant zone to tailnet clients on the sidecar tailscale IP.
-5. **Deploy-command polish** — local-image default + fix the multi-address remote mangling so Phases 1/3 run via the CLI, not by-hand.
-4. **DNS record-on-create** (Phase 7) — confirm machine A-records land in `db.e2etest`.
-5. **Deploy-command polish** — local-image default + fix the multi-address remote mangling so Phases 1/3 run via the CLI, not by-hand.
+1. **Machine DNS auto-registration** (Phases 7/8) — write the A-record into `db.e2etest` on machine create (done manually in the e2e today).
+2. **Per-tenant tenant-CA cert path** (Phase 8b) — issue a tenant CA + leaf so the *private* HTTPS path exists; then `sc trust install` (Linux/macOS) makes it trusted. (The *public* sc-edge LE path in Phase 7 already works with no CA install.)
+3. **Split-DNS over tailscale** (Phase 8) — serve the tenant zone to tailnet clients on the sidecar tailscale IP.
+4. **Shared `$HOME` + `/workspace`** (Phase 7) — per-project storage volume mounted into the default profile so CT/VM in a project share state.
+5. **Deploy-command polish** — local-image default; fix the multi-address remote mangling so Phases 1/3 run via the CLI, not by-hand; reconcile the auth-app vs broker CIDR pools (and teach `cidr.Allocate` to see all bridges) so login provisioning can't collide.
 
-Phases 0–6 are validated green today; 7–9 are the build frontier.
+Phases 0–9 are validated green today; the items above are refinements, not blockers.
 
 ---
 
@@ -411,3 +434,8 @@ stays truthful and self-healing.
 | `:3000` server won't start / `setsid` hangs `incus exec` | Minimal image lacks `python3`; detached process blocks the exec stream | `apt-get install python3`; start via `systemd-run --unit=app --collect` |
 | Machine name doesn't resolve in CoreDNS | No A-record auto-registration on machine create yet | Add the record to `db.e2etest` + bump SOA + `systemctl restart coredns` (auto-reg TODO) |
 | Tenant machine SSH refused / no `dev` user | Plain image has no cloud-init → profile user-data never applied | Launch tenant machines from `images:debian/13/cloud` (has cloud-init) |
+| `create-v2` → `Image not provided for instance creation` | Phase 0 image-purge removed the last local copy of the stock base; infra shares the default store (`features.images=false`) so it must live in `default` | `incus image copy images:debian/13 big: --project default` (restores fingerprint `d31c34fadc08`) |
+| Login provisioning → `dnsmasq: failed to create listening socket for 10.248.3.1: Address already in use` | Auth-app `SANDCASTLE_CIDR_POOL` (`10.248.0.0/16`) overlapped v1 `sc-*` bridges + a stale v2 tenant; `cidr.Allocate` only skips CIDRs from `tenant.List`, so it's blind to foreign bridges | Point the auth app at a clean unused pool (`SANDCASTLE_CIDR_POOL='10.250.0.0/16'`) and restart; follow-up is to make the allocator enumerate all bridges |
+| Auth-app tailnet key ignored / sidecar `Logged out` | `SANDCASTLE_AUTH_TAILSCALE_AUTHKEY` line in `/etc/sandcastle/auth-app/env` was mangled by repeated `sed` edits (concatenated key + var name) | Rewrite the line cleanly from `.env.sc2`: `sed -i "8s\|.*\|SANDCASTLE_AUTH_TAILSCALE_AUTHKEY='<key>'\|" env`, then restart |
+| `sc login`/`ssh` needs the running fat binary on appliances | Appliances still ran a pre-v1-removal binary | `systemctl stop`, `incus file push bin/linux-amd64/sandcastle …/usr/local/bin/sandcastle-admin`, `systemctl start` on `sc2-broker` **and** `sc2-auth-app` |
+| SSH `Too many authentication failures` reaching a tenant machine | The local ssh-agent offered many keys before the right one; server cut off at 6 | Add `-o IdentitiesOnly=yes -i ~/.ssh/sandcastle_ed25519` |
