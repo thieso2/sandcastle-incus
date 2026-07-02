@@ -63,10 +63,11 @@ type TenantProvisionerAdapter struct {
 }
 
 func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectbroker.TenantRequest) (projectbroker.TenantResult, error) {
+	var ownCIDR string
 	var occupied []string
 	if a.Tenants != nil {
 		var err error
-		occupied, err = tenant.AllocatedCIDRs(ctx, a.Tenants)
+		ownCIDR, occupied, err = tenant.CIDRAllocationInputs(ctx, a.Tenants, req.Tenant)
 		if err != nil {
 			return projectbroker.TenantResult{}, fmt.Errorf("list allocated CIDRs: %w", err)
 		}
@@ -75,6 +76,7 @@ func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectb
 		Reference:     req.Tenant,
 		SSHPublicKey:  req.SSHPublicKey,
 		OccupiedCIDRs: occupied,
+		PreferredCIDR: ownCIDR,
 	})
 	if err != nil {
 		return projectbroker.TenantResult{}, err

@@ -46,6 +46,21 @@ func TestPlanCreateV2Names(t *testing.T) {
 	}
 }
 
+func TestPlanCreateV2PreferredCIDRReused(t *testing.T) {
+	// Re-provisioning an existing tenant reuses its /24 rather than allocating
+	// a fresh one from the pool.
+	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", PreferredCIDR: "10.249.7.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.PrivateCIDR != "10.249.7.0/24" {
+		t.Fatalf("PrivateCIDR = %q, want 10.249.7.0/24 (reused)", plan.PrivateCIDR)
+	}
+	if plan.GatewayAddress != "10.249.7.1" || plan.DNSAddress != "10.249.7.3" {
+		t.Fatalf("role addresses off the reused CIDR: gw=%q dns=%q", plan.GatewayAddress, plan.DNSAddress)
+	}
+}
+
 func TestPlanCreateV2RoleAddresses(t *testing.T) {
 	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
 	if err != nil {

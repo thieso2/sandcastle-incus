@@ -169,10 +169,11 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			if strings.TrimSpace(cidrPool) != "" {
 				admin.CIDRPool = strings.TrimSpace(cidrPool)
 			}
+			var ownCIDR string
 			var occupied []string
 			if config.tenantStore != nil {
 				var err error
-				if occupied, err = tenant.AllocatedCIDRs(cmd.Context(), config.tenantStore); err != nil {
+				if ownCIDR, occupied, err = tenant.CIDRAllocationInputs(cmd.Context(), config.tenantStore, args[0]); err != nil {
 					return fmt.Errorf("list allocated CIDRs: %w", err)
 				}
 			}
@@ -180,6 +181,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				Reference:     args[0],
 				SSHPublicKey:  sshKey,
 				OccupiedCIDRs: occupied,
+				PreferredCIDR: ownCIDR,
 			})
 			if err != nil {
 				return err

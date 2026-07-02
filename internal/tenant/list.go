@@ -87,29 +87,47 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 // already exists — OccupiedCIDRs(List(...)) alone misses v2 tenants, since List
 // only surfaces kind=tenant projects.
 func AllocatedCIDRs(ctx context.Context, store IncusTenantStore) ([]string, error) {
+	_, all, err := CIDRAllocationInputs(ctx, store, "")
+	return all, err
+}
+
+// CIDRAllocationInputs scans all managed projects and splits allocated CIDRs
+// into the target tenant's OWN /24 (empty if it doesn't exist yet) and every
+// OTHER tenant's /24. Create uses `own` as PreferredCIDR (so re-provisioning is
+// idempotent) and `others` as OccupiedCIDRs (so a fresh tenant avoids
+// collisions). Covers both v1 (kind=tenant) and v2 (kind=infra) tenants.
+func CIDRAllocationInputs(ctx context.Context, store IncusTenantStore, tenantName string) (own string, others []string, err error) {
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	var cidrs []string
+	tenantName = strings.TrimSpace(tenantName)
 	for _, incusProject := range projects {
 		if !meta.IsManaged(incusProject.Config) {
 			continue
 		}
+		var cidr, owner string
 		switch incusProject.Config[meta.KeyKind] {
 		case meta.KindTenant:
-			if t, err := meta.ParseTenantConfig(incusProject.Config); err == nil {
-				if strings.TrimSpace(t.PrivateCIDR) != "" {
-					cidrs = append(cidrs, t.PrivateCIDR)
-				}
+			if t, e := meta.ParseTenantConfig(incusProject.Config); e == nil {
+				cidr, owner = strings.TrimSpace(t.PrivateCIDR), strings.TrimSpace(t.Tenant)
 			}
 		case meta.KindInfra:
-			if c := strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR]); c != "" {
-				cidrs = append(cidrs, c)
-			}
+			cidr = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
+			owner = strings.TrimSpace(incusProject.Config[meta.KeyTenant])
+		default:
+			continue
+		}
+		if cidr == "" {
+			continue
+		}
+		if tenantName != "" && owner == tenantName {
+			own = cidr
+		} else {
+			others = append(others, cidr)
 		}
 	}
-	return cidrs, nil
+	return own, others, nil
 }
 
 func OccupiedCIDRs(tenants []Summary) []string {

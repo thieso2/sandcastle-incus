@@ -89,6 +89,44 @@ func TestAllocatedCIDRsSpansV1AndV2(t *testing.T) {
 	}
 }
 
+func TestCIDRAllocationInputsSplitsOwnFromOthers(t *testing.T) {
+	acme, err := meta.TenantConfig(meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.0.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "sc-acme", Config: acme}, // v1, other tenant
+		{Name: "sc2-zeus", Config: map[string]string{meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "zeus", meta.KeyV2CIDR: "10.249.0.0/24"}},
+		{Name: "sc2-hera", Config: map[string]string{meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "hera", meta.KeyV2CIDR: "10.249.1.0/24"}},
+	}}
+
+	// Existing tenant → own CIDR returned, its own CIDR excluded from others.
+	own, others, err := CIDRAllocationInputs(context.Background(), store, "zeus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own != "10.249.0.0/24" {
+		t.Fatalf("own = %q, want 10.249.0.0/24", own)
+	}
+	for _, c := range others {
+		if c == "10.249.0.0/24" {
+			t.Fatalf("others %#v must not contain zeus's own CIDR", others)
+		}
+	}
+	if len(others) != 2 {
+		t.Fatalf("len(others) = %d, want 2 (acme + hera)", len(others))
+	}
+
+	// New tenant → no own CIDR, all three are occupied.
+	own, others, err = CIDRAllocationInputs(context.Background(), store, "newbie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own != "" || len(others) != 3 {
+		t.Fatalf("newbie: own=%q others=%#v, want own empty and 3 others", own, others)
+	}
+}
+
 func TestOccupiedCIDRs(t *testing.T) {
 	cidrs := OccupiedCIDRs([]Summary{
 		{PrivateCIDR: "10.248.0.0/24"},

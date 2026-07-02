@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -111,8 +112,15 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 	if err != nil {
 		return CreatePlanV2{}, err
 	}
-	tenantCIDR, err := cidr.Allocate(admin.CIDRPool, cidr.DefaultTenantPrefixBits, request.OccupiedCIDRs)
-	if err != nil {
+	var tenantCIDR netip.Prefix
+	if pref := strings.TrimSpace(request.PreferredCIDR); pref != "" {
+		// Reuse the tenant's existing /24 (idempotent re-provision).
+		tenantCIDR, err = netip.ParsePrefix(pref)
+		if err != nil {
+			return CreatePlanV2{}, fmt.Errorf("parse preferred CIDR %q: %w", pref, err)
+		}
+		tenantCIDR = tenantCIDR.Masked()
+	} else if tenantCIDR, err = cidr.Allocate(admin.CIDRPool, cidr.DefaultTenantPrefixBits, request.OccupiedCIDRs); err != nil {
 		return CreatePlanV2{}, err
 	}
 	gatewayAddress, err := roleAddress(tenantCIDR, cidr.GatewayHostOctet)

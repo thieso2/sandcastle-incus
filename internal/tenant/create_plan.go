@@ -38,6 +38,10 @@ type CreateRequest struct {
 	Reference     string
 	SSHPublicKey  string
 	OccupiedCIDRs []string
+	// PreferredCIDR, when set, is used verbatim instead of allocating from the
+	// pool — so re-provisioning an existing tenant reuses its /24 (idempotent)
+	// rather than picking a fresh one that wouldn't match the existing bridge.
+	PreferredCIDR string
 	Personal      bool
 	CreatedBy     string
 	UnixUser      string
