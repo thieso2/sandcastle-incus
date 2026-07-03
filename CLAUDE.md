@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - Build: `make build` (builds one fat binary `bin/sandcastle` and symlinks `sc`, `sc-adm`, `sandcastle-admin` to it) or `mise run build` (same + copies to `/tmp/`)
-- Cross-compile for Linux: `mise run build:linux-amd64`
+- Cross-compile: `mise run build:linux-amd64` (also `build:linux-arm64`, `build:darwin-arm64`, or `build:all` for all three → `bin/<os>-<arch>/`)
 - Unit tests: `go test ./...` or `make test`
 - Single package/test: `go test ./internal/tenant -run TestCreatePlan`
 - Lint: `go vet ./...` (no separate lint step; format with `gofmt`)

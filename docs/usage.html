@@ -162,9 +162,12 @@
 
   <div class="step">
     <h3>Build binaries</h3>
-    <p>Build native binaries for local use, or cross-compile Linux amd64 binaries for handoff to Linux hosts.</p>
+    <p>Build native binaries for local use, or cross-compile for handoff to other hosts. Each cross target writes <code>bin/&lt;os&gt;-&lt;arch&gt;/{sandcastle,sc,sandcastle-admin,sc-adm}</code>.</p>
     <pre><code><span class="cmd">mise run build</span>
-<span class="cmd">mise run build:linux-amd64</span>  <span class="comment"># writes bin/linux-amd64/{sandcastle,sc,sandcastle-admin,sc-adm}</span></code></pre>
+<span class="cmd">mise run build:linux-amd64</span>    <span class="comment"># Linux x86-64</span>
+<span class="cmd">mise run build:linux-arm64</span>    <span class="comment"># Linux arm64</span>
+<span class="cmd">mise run build:darwin-arm64</span>   <span class="comment"># macOS Apple Silicon</span>
+<span class="cmd">mise run build:all</span>           <span class="comment"># all three of the above</span></code></pre>
   </div>
 
   <div class="step">
@@ -1080,7 +1083,10 @@ Bootstrap:
         <tr><td>sandcastle-admin image import</td><td>Import OCI image into Incus</td></tr>
         <tr><td>sandcastle-admin image sync</td><td>Sync imported image to alias</td></tr>
         <tr><td>mise run build</td><td>Build native CLI binaries</td></tr>
-        <tr><td>mise run build:linux-amd64</td><td>Cross-compile Linux amd64 CLI binaries</td></tr>
+        <tr><td>mise run build:linux-amd64</td><td>Cross-compile Linux amd64 (x86-64) CLI binaries</td></tr>
+        <tr><td>mise run build:linux-arm64</td><td>Cross-compile Linux arm64 CLI binaries</td></tr>
+        <tr><td>mise run build:darwin-arm64</td><td>Cross-compile macOS arm64 (Apple Silicon) CLI binaries</td></tr>
+        <tr><td>mise run build:all</td><td>Cross-compile Linux amd64 + Linux arm64 + macOS arm64</td></tr>
         <tr><td>mise run install</td><td>Install <code>sandcastle</code> and the <code>sc</code> alias for normal users</td></tr>
       </tbody>
     </table>

@@ -37,9 +37,23 @@ echo "Installed ${bindir}/sandcastle and ${bindir}/sc"
 """
 
 [tasks."build:linux-amd64"]
-description = "Cross-compile the fat sandcastle binary for Linux amd64"
+description = "Cross-compile the fat sandcastle binary for Linux amd64 (x86-64)"
 env = { GOOS = "linux", GOARCH = "amd64", CGO_ENABLED = "0", BIN_DIR = "bin/linux-amd64" }
 run = "make build"
+
+[tasks."build:linux-arm64"]
+description = "Cross-compile the fat sandcastle binary for Linux arm64"
+env = { GOOS = "linux", GOARCH = "arm64", CGO_ENABLED = "0", BIN_DIR = "bin/linux-arm64" }
+run = "make build"
+
+[tasks."build:darwin-arm64"]
+description = "Cross-compile the fat sandcastle binary for macOS arm64 (Apple Silicon)"
+env = { GOOS = "darwin", GOARCH = "arm64", CGO_ENABLED = "0", BIN_DIR = "bin/darwin-arm64" }
+run = "make build"
+
+[tasks."build:all"]
+description = "Cross-compile the fat sandcastle binary for Linux amd64, Linux arm64, and macOS arm64"
+depends = ["build:linux-amd64", "build:linux-arm64", "build:darwin-arm64"]
 
 [tasks."image:deps"]
 description = "Check local tools required for image upload"
