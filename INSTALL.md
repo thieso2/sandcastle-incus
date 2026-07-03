@@ -20,10 +20,23 @@ for design background see `docs/adr/0016-*` and `CONTEXT.md`.
 
 - **A fresh Incus host** with a storage pool (`default`) and a bridge (`incusbr0`),
   reachable as an admin Incus remote. Verify: `incus info big:` returns server config.
-- **Public DNS + reachable `:80`/`:443`.** Pick an **Auth Hostname** (e.g.
-  `sc2.example.dev`) that resolves publicly to the host's public IP. `:80` and `:443`
-  must be internet-reachable so Let's Encrypt (ACME HTTP-01 / TLS-ALPN-01) can issue.
-  A wildcard like `*.apps.example.dev` → the host IP lets you expose tenant apps later.
+- **The Incus daemon listening on the network** — set once:
+  `incus config set core.https_address :8443`. Without it, tenant provisioning fails
+  at token issuance with `Can't issue token when server isn't listening on network`.
+- **Public ingress — you need EXACTLY ONE of:**
+  - **(a) A public IP.** An **Auth Hostname** (e.g. `sc2.example.dev`) resolving to the
+    host's public IP, with `:80`/`:443` internet-reachable so `sc-edge` can issue a
+    Let's Encrypt cert (ACME HTTP-01 / TLS-ALPN-01). A wildcard `*.apps.example.dev` →
+    the host IP lets you expose tenant apps later.
+  - **(b) A Cloudflare tunnel** (host has **no public IP**). Run `sc-edge` tunnel-only
+    (`PUBLIC_PORTS=0`) with a `CLOUDFLARE_TUNNEL_TOKEN`; Cloudflare terminates TLS at
+    its edge and forwards to the auth-app. The Auth Hostname must be **first-level**
+    (`hello.thieso2.dev` — Universal SSL doesn't cover 2-level names free). See
+    [`docs/handoff-sandcastle-e2e-tunnel.md`](docs/handoff-sandcastle-e2e-tunnel.md).
+- **CIDR pools clear of the host's own network.** Give the broker and auth-app
+  **distinct** `/16`s (e.g. `10.249.0.0/16`, `10.250.0.0/16`) that don't overlap the
+  host IP, `incusbr0`, or existing bridges — an overlap fails with
+  `dnsmasq: Address already in use` (see §7).
 - **A GitHub OAuth App** (for login). Set its **Authorization callback URL** to
   `https://<auth-hostname>/oauth/github/callback`. Note the **client id** + **secret**.
   - **Testing shortcut — no OAuth app needed.** Pass `--simulate-github-token <secret>`
@@ -36,16 +49,13 @@ for design background see `docs/adr/0016-*` and `CONTEXT.md`.
   approved device logins so they join the tailnet non-interactively. **Optional:** if
   you omit it when creating a tenant, provisioning instead prints a `tailscale up`
   **login URL** you open in a browser to register that sidecar yourself (see §6).
-- **A stock systemd base image cached on the host.** Use a **container-type** Debian
-  image (`images:debian/13`), *not* an OCI/app image — appliances need systemd as PID 1:
-  ```bash
-  # Optional now — appliance/sidecar launches pull `images:debian/13` from the
-  # public remote on demand (imageInstanceSource). Pre-cache only to avoid repeat
-  # pulls / for offline hosts:
-  incus image copy images:debian/13 big: --project default
-  ```
-  The tenant **infra** projects share this `default` image store (`features.images=false`),
-  so the sidecar base must live here.
+- **Stock images, no custom base build.** Everything — appliances *and* tenant
+  sidecars — runs on the **stock** `images:debian/13` (a container-type systemd image,
+  *not* an OCI/app image), **pulled from the public `images:` remote on demand**. No
+  `sandcastle/base` build and no manual `incus image copy` pre-caching required; the
+  Incus **server** just needs outbound access to `images.linuxcontainers.org`. (Optional:
+  pre-cache with `incus image copy images:debian/13 big: --project default` to avoid
+  repeat pulls or for offline hosts.)
 - **The fat binary, built static for Linux.** One binary provides `sc` / `sc-adm`; it is
   copied into every appliance:
   ```bash
@@ -55,21 +65,30 @@ for design background see `docs/adr/0016-*` and `CONTEXT.md`.
 
 ---
 
-## 2. Deploy `sc-edge` — the TLS edge that owns `:80`/`:443`
+## 2. Deploy `sc-edge` — the TLS edge
 
-`sc-edge` is the portable edge appliance from [`sc-edge/`](sc-edge/). It runs Caddy
-natively under systemd in an Incus system container, does `http→https` redirect, SNI
-passthrough, and ACME-terminating reverse-proxy. It is the **only** thing that binds the
-public `:80`/`:443`; the auth-app and tenant apps sit behind it on the bridge. (It can
-also front apps via a Cloudflare tunnel with no public IP — set `CLOUDFLARE_TUNNEL_TOKEN`;
-see [`sc-edge/README.md`](sc-edge/README.md). Not used on this public-IP reference host.)
+`sc-edge` is the portable edge appliance from [`sc-edge/`](sc-edge/). It runs Caddy +
+(optionally) `cloudflared` natively under systemd in an Incus system container. It is the
+one thing that fronts the auth-app and tenant apps. Deploy it in whichever ingress mode
+you chose in §1:
 
+**(a) Public-IP host** — Caddy owns `:80`/`:443`, ACME-terminates, SNI-passthrough:
 ```bash
 cd sc-edge
 # Back /var/lib/caddy with a host path so issued certs survive CT deletion (avoids
 # hammering Let's Encrypt rate limits on rebuild).
 ACME_EMAIL=you@example.com DATA_HOST_PATH=/srv/caddy-data ./launch.sh sc-edge
 cd ..
+```
+
+**(b) No public IP — Cloudflare tunnel** — `cloudflared` dials out; nothing inbound:
+```bash
+cd sc-edge
+CLOUDFLARE_TUNNEL_TOKEN=eyJ... PUBLIC_PORTS=0 ./launch.sh sc-edge
+cd ..
+# Then add a first-level Public Hostname in the Cloudflare dashboard:
+#   hello.thieso2.dev → http://127.0.0.1:8080   (auto-creates DNS + cert)
+# The auth-app is fronted by a :8080 vhost — see the handoff doc.
 ```
 
 Move it into the `infrastructure` project if you keep appliances there (optional but
@@ -91,6 +110,9 @@ Creates a system container, copies **this** fat binary in, and runs `auth-app se
 under systemd on `:9444` (no host port — fronted by sc-edge). Uses the global admin
 socket for provisioning.
 
+Stock image is the default (pulled on demand — no `--base-image` needed).
+
+**Real GitHub OAuth app:**
 ```bash
 sc-adm auth-app deploy \
   --auth-hostname   sc2.example.dev \
@@ -98,10 +120,12 @@ sc-adm auth-app deploy \
   --github-client-secret "$GH_CLIENT_SECRET" \
   --admin-github-users   yourgithubname \
   --tailscale-auth-key   "$TAILSCALE_AUTH_KEY" \
-  --base-image  images:debian/13 \
   --binary      bin/linux-amd64/sandcastle \
   --cidr-pool   10.250.0.0/16          # see CIDR note in §7 — do NOT leave the default
 ```
+
+**Simulated GitHub (dev/e2e — no OAuth app):** swap the two `--github-*` flags for
+`--simulate-github-token "$SIMULATE_TOKEN"`; everything else is identical.
 
 Verify:
 ```bash
@@ -112,9 +136,10 @@ incus exec big:sc2-auth-app --project infrastructure -- systemctl is-active sand
 
 ## 4. Front the auth-app on `sc-edge`
 
-Add a terminate vhost so `https://<auth-hostname>` reverse-proxies to the auth-app's
-bridge IP on `:9444`, then reload Caddy (no downtime):
+Point `sc-edge` at the auth-app's bridge IP on `:9444`, then reload Caddy (no downtime).
+The vhost differs by ingress mode:
 
+**(a) Public-IP** — an ACME `terminate` vhost (Caddy gets the LE cert):
 ```bash
 AUTH_IP=$(incus exec big:sc2-auth-app --project infrastructure -- \
   ip -4 -o addr show eth0 | grep -oE '10\.[0-9.]+' | head -1)
@@ -124,10 +149,14 @@ incus exec big:sc-edge --project infrastructure -- bash -c "
   caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy"
 ```
 
-Verify the public path (LE cert + login redirect):
+**(b) Cloudflare tunnel** — a plain-HTTP `127.0.0.1:8080` vhost (Cloudflare already
+terminated TLS); see the handoff doc for the full Caddyfile.
+
+Verify the public path:
 ```bash
-curl -s https://sc2.example.dev/healthz -o /dev/null -w '%{http_code}\n'          # 200
-curl -sD - https://sc2.example.dev/login/github -o /dev/null | grep -i location   # 302 → github.com …client_id=…
+curl -s https://<auth-hostname>/healthz -o /dev/null -w '%{http_code}\n'   # 200
+# real OAuth:  /login/github → 302 to github.com …client_id=…
+# simulated:   /oauth/github/simulate?token=$SIMULATE_TOKEN&username=<you> → 200
 ```
 
 ---
@@ -140,9 +169,8 @@ port `:9443`.
 ```bash
 sc-adm bootstrap \
   --hostname     sc2.example.dev \
-  --base-image   images:debian/13 \
   --binary       bin/linux-amd64/sandcastle \
-  --cidr-pool    10.249.0.0/16
+  --cidr-pool    10.249.0.0/16          # stock image is the default; distinct /16 from auth-app
 ```
 
 Verify:
