@@ -65,6 +65,10 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	if err := ensureV2Project(server, plan.DefaultProject, "Sandcastle v2 project default for "+plan.Tenant, "project", plan.Tenant, true, nil); err != nil {
 		return err
 	}
+	c.log("ensure shared /workspace volume in " + plan.DefaultProject)
+	if err := ensureV2WorkspaceVolume(server.UseProject(plan.DefaultProject), plan); err != nil {
+		return err
+	}
 	c.log("ensure app default profile " + plan.DefaultProject)
 	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan); err != nil {
 		return err
@@ -218,6 +222,27 @@ func ensureV2Project(server TenantCreateServer, name string, description string,
 	})
 }
 
+// v2WorkspaceVolumeName is the per-project custom filesystem volume mounted at
+// /workspace on every machine in a tenant's default project, so CTs and VMs in
+// the same project share a working directory (attach-many is fine for a
+// filesystem volume; concurrent writes are the workload's concern).
+const v2WorkspaceVolumeName = "workspace"
+
+func ensureV2WorkspaceVolume(server TenantResourceServer, plan tenant.CreatePlanV2) error {
+	if _, _, err := server.GetStoragePoolVolume(plan.StoragePool, "custom", v2WorkspaceVolumeName); err == nil {
+		return nil
+	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("get workspace volume: %w", err)
+	}
+	return server.CreateStoragePoolVolume(plan.StoragePool, api.StorageVolumesPost{
+		Name: v2WorkspaceVolumeName,
+		Type: "custom",
+		StorageVolumePut: api.StorageVolumePut{
+			Description: "Shared /workspace for Sandcastle v2 tenant " + plan.Tenant,
+		},
+	})
+}
+
 func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2) error {
 	desired := api.ProfilePut{
 		Description: "Sandcastle v2 default profile for " + plan.Tenant,
@@ -228,8 +253,9 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2) e
 			meta.KeyVersion:        "2",
 		},
 		Devices: api.DevicesMap{
-			"root": {"type": "disk", "pool": plan.StoragePool, "path": "/"},
-			"eth0": {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},
+			"root":      {"type": "disk", "pool": plan.StoragePool, "path": "/"},
+			"eth0":      {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},
+			"workspace": {"type": "disk", "pool": plan.StoragePool, "source": v2WorkspaceVolumeName, "path": "/workspace"},
 		},
 	}
 	return ensureExactProfile(server, "default", desired)
