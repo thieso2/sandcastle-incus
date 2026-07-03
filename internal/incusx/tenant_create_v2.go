@@ -393,8 +393,13 @@ func configureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2) e
 // the sidecar's tailnet :8443 to the host's Incus gateway, plus it returns the
 // sidecar's tailnet IPv4 (the address the client's Incus remote points at).
 // Returns (interactiveLoginURL, sidecarTailnetIP, error).
+// sidecarTailnetTag tags every sidecar so the tenant's advertised subnet route
+// is auto-approved by a Tailscale `autoApprovers` ACL rule (routes → this tag),
+// removing the need for manual admin approval or a Tailscale API key.
+const sidecarTailnetTag = "tag:sandcastle"
+
 func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKey string) (string, string, error) {
-	base := "--advertise-routes=" + plan.PrivateCIDR + " --hostname=" + plan.SidecarInstance + " --accept-dns=false"
+	base := "--advertise-routes=" + plan.PrivateCIDR + " --hostname=" + plan.SidecarInstance + " --accept-dns=false --advertise-tags=" + sidecarTailnetTag
 	if authKey == "" {
 		const log = "/var/lib/sandcastle-tsup.log"
 		script := strings.Join([]string{

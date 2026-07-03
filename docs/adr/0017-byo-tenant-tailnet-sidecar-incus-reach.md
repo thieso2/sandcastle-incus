@@ -58,3 +58,10 @@ dropped.)
 - Isolation rests entirely on mTLS + restricted certs. If network-layer isolation between
   tenants is ever wanted, per-tenant tailnets already provide it (a tenant's client is only
   on their own net) — this decision does not preclude it.
+- **Tenant *machine* reachability (distinct from the Incus reach above) still uses a subnet
+  route:** the sidecar advertises the tenant `/24` (`tailscale up --advertise-routes`) so a
+  client can reach machines at `10.x.x.N`. That route needs approval — solved zero-touch by
+  tagging every sidecar `tag:sandcastle` and an `autoApprovers` ACL rule keyed on that tag
+  (no API key, no manual step). `sc login` verifies the route genuinely egresses over the
+  tailnet (local endpoint in `100.64.0.0/10`), so a coincidental LAN path to the same
+  address cannot falsely pass the check.
