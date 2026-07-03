@@ -237,3 +237,35 @@ docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
   public hostname does **not** auto-create its DNS record (you must add the proxied
   `*.sub` CNAME → `<tunnel-id>.cfargotunnel.com` manually), whereas a **specific**
   public hostname **does** auto-create DNS.
+
+## Deployment gotchas (learned running the sc2 e2e)
+
+- **Fetch binaries on the host, push them in.** `launch.sh` now downloads `caddy`
+  and `cloudflared` on the *host* and `incus file push`es them into the CT. An
+  in-container download over the NAT'd bridge can be pathologically slow (a 35 MB
+  `cloudflared` fetch timed out past 10 min in-container vs <1 s on the host).
+- **`layer4` (caddy-l4) can fail to parse on newer builds.** The `layer4 { … proxy
+  { to … } }` block in the shipped `Caddyfile` was rejected by a freshly-pulled
+  caddy-l4 (`wrong argument count … after 'to'`). **Tunnel-only mode needs no
+  `layer4` at all** — Cloudflare terminates TLS and sends plain HTTP to
+  `127.0.0.1:8080`. For a tunnel-only host, a minimal Caddyfile is enough:
+  ```
+  { auto_https off }
+  http://<host>:8080 { bind 127.0.0.1
+      reverse_proxy http://<backend-ip>:<port> }
+  http://:8080 { bind 127.0.0.1
+      respond "no such host" 404 }
+  ```
+  (Only SNI-passthrough / ACME-terminate modes need the layer4 block + the l4 caddy
+  build.)
+- **Do not set `admin off` if you want `systemctl reload caddy`.** `caddy reload`
+  drives the local admin API (`127.0.0.1:2019`); with `admin off` the reload fails
+  and the old config stays live. Either keep the admin API on (default) or use
+  `systemctl restart caddy` to apply changes.
+- **Create the tunnel by API, no dashboard clicks.** With a Cloudflare API token
+  (`Account:Cloudflare Tunnel:Edit`, `Zone:DNS:Edit`, `Zone:Zone:Read`) you can
+  create the tunnel, push its ingress config (`<host> → http://localhost:8080`),
+  create the proxied `<host>` CNAME → `<tunnel-id>.cfargotunnel.com`, and read the
+  connector token — all via `POST/PUT /accounts/{acct}/cfd_tunnel…` and
+  `POST /zones/{zone}/dns_records`. A **first-level** hostname is auto-covered by
+  Universal SSL.

@@ -55,13 +55,16 @@ echo ">> waiting for network"
 incus exec "$NAME" -- sh -c 'for i in $(seq 1 60); do getent hosts caddyserver.com >/dev/null 2>&1 && exit 0; sleep 1; done; echo "no network" >&2; exit 1'
 
 echo ">> installing layer4-enabled caddy binary + caddy user"
+# Fetch the binary on the HOST (fast) and push it in. An in-container download
+# over the NAT'd bridge can crawl or time out entirely on some hosts (observed:
+# a 35 MB fetch timing out past 10 min in-container vs <1 s on the host). Same
+# host-fetch-then-push trick for cloudflared below.
+ARCH=$(dpkg --print-architecture)
+CADDY_TMP=$(mktemp)
+curl -fsSL -o "$CADDY_TMP" "https://caddyserver.com/api/download?os=linux&arch=${ARCH}&p=github.com/mholt/caddy-l4"
+incus file push "$CADDY_TMP" "$NAME"/usr/bin/caddy --mode 0755
+rm -f "$CADDY_TMP"
 incus exec "$NAME" -- sh -eu -c '
-	export DEBIAN_FRONTEND=noninteractive
-	apt-get update -qq
-	apt-get install -y -qq curl ca-certificates >/dev/null
-	ARCH=$(dpkg --print-architecture)
-	curl -fsSL -o /usr/bin/caddy "https://caddyserver.com/api/download?os=linux&arch=${ARCH}&p=github.com/mholt/caddy-l4"
-	chmod +x /usr/bin/caddy
 	id caddy >/dev/null 2>&1 || useradd --system --home /var/lib/caddy --create-home --shell /usr/sbin/nologin caddy
 	install -d -o caddy -g caddy /var/lib/caddy
 	install -d /etc/caddy
@@ -82,12 +85,11 @@ incus exec "$NAME" -- systemctl enable --now caddy
 # ---- Cloudflare tunnel (mode 3) - only when a token is provided --------------
 if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
 	echo ">> installing cloudflared (Cloudflare tunnel enabled)"
-	incus exec "$NAME" -- sh -eu -c '
-		ARCH=$(dpkg --print-architecture)
-		curl -fsSL -o /usr/bin/cloudflared \
-			"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}"
-		chmod +x /usr/bin/cloudflared
-	'
+	CF_TMP=$(mktemp)
+	curl -fsSL -o "$CF_TMP" \
+		"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}"
+	incus file push "$CF_TMP" "$NAME"/usr/bin/cloudflared --mode 0755
+	rm -f "$CF_TMP"
 	echo ">> pushing cloudflared unit + token"
 	incus file push "$HERE/cloudflared.service" "$NAME"/etc/systemd/system/cloudflared.service
 	incus exec "$NAME" -- sh -c "printf 'TUNNEL_TOKEN=%s\n' '$CLOUDFLARE_TUNNEL_TOKEN' > /etc/default/cloudflared"
