@@ -91,13 +91,9 @@ func (c TenantCreator) BootstrapV2(ctx context.Context, req BootstrapV2Request) 
 	}
 
 	c.log("start broker service")
-	start := strings.Join([]string{
+	start := applianceStartScript([]string{
 		"install -d -m 0700 /etc/sandcastle/broker",
-		"systemctl daemon-reload",
-		"systemctl enable --now sandcastle-broker.service",
-		"sleep 1",
-		"systemctl is-active sandcastle-broker.service",
-	}, " && ")
+	}, "sandcastle-broker.service")
 	if err := execSidecar(psrv, BrokerInstanceName, start); err != nil {
 		return fmt.Errorf("start broker service: %w", err)
 	}

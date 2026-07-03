@@ -103,15 +103,11 @@ func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAp
 	}
 
 	c.log("start auth-app service")
-	start := strings.Join([]string{
+	start := applianceStartScript([]string{
 		"install -d -m 0755 /etc/sandcastle",
 		"install -d -m 0700 /etc/sandcastle/auth-app",
 		"install -d -m 0700 /var/lib/sandcastle/auth",
-		"systemctl daemon-reload",
-		"systemctl enable --now sandcastle-auth-app.service",
-		"sleep 1",
-		"systemctl is-active sandcastle-auth-app.service",
-	}, " && ")
+	}, "sandcastle-auth-app.service")
 	if err := execSidecar(psrv, instance, start); err != nil {
 		return fmt.Errorf("start auth-app service: %w", err)
 	}
