@@ -224,3 +224,16 @@ docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
   (a secret — stored `600` at `/etc/default/cloudflared`, never committed).
   Cloudflare terminates TLS, so a tunneled host **cannot** also be a passthrough
   host and does not use ACME.
+- **Tunnel edge-cert depth (learned the hard way).** Because Cloudflare terminates
+  TLS, the *edge* needs a cert for your hostname — the origin/Caddy cert is
+  irrelevant. Cloudflare's free **Universal SSL only covers the apex and the
+  first level** of subdomains (`example.com`, `*.example.com` / `app.example.com`).
+  A **2-level** name like `app.sc2.example.com` — or a wildcard `*.sc2.example.com`
+  — is **not** covered: the TLS handshake at the edge fails (`SSL handshake
+  failure`) even though DNS resolves and the tunnel is healthy. Options for deeper
+  names: (1) keep names **first-level** (`app.example.com`) — free; (2) buy
+  **Advanced Certificate Manager** (~$10/mo) + Total TLS to cover deeper wildcards;
+  (3) an Enterprise-only **subdomain zone**. Also note: adding a **wildcard**
+  public hostname does **not** auto-create its DNS record (you must add the proxied
+  `*.sub` CNAME → `<tunnel-id>.cfargotunnel.com` manually), whereas a **specific**
+  public hostname **does** auto-create DNS.
