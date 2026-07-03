@@ -27,6 +27,10 @@ type CreateV2Options struct {
 	// `tailscale up` login URL when no auth key was supplied. The caller shows it
 	// to the user, who visits it to register the sidecar into their tailnet.
 	OnTailscaleLoginURL func(url string)
+	// OnSidecarTailnetIP, when set, is invoked with the sidecar's tailnet IPv4
+	// once it joins (auth-key path only). The client's Incus remote is pointed at
+	// this address:8443 — the sidecar proxies it to the host's Incus (ADR-0017).
+	OnSidecarTailnetIP func(ip string)
 }
 
 // CreateTenantV2 executes a CreatePlanV2 against Incus, reproducing the v2 MVP
@@ -77,7 +81,7 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		return err
 	}
 	c.log("tailscale up (advertise " + plan.PrivateCIDR + ")")
-	loginURL, err := v2TailscaleUp(server.UseProject(plan.InfraProject), plan, strings.TrimSpace(opts.TailscaleAuthKey))
+	loginURL, sidecarIP, err := v2TailscaleUp(server.UseProject(plan.InfraProject), plan, strings.TrimSpace(opts.TailscaleAuthKey))
 	if err != nil {
 		return err
 	}
@@ -85,6 +89,12 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		c.log("tailscale: sidecar not on a tailnet yet — register it at " + loginURL)
 		if opts.OnTailscaleLoginURL != nil {
 			opts.OnTailscaleLoginURL(loginURL)
+		}
+	}
+	if sidecarIP != "" {
+		c.log("sidecar tailnet IP " + sidecarIP + " (Incus Reach)")
+		if opts.OnSidecarTailnetIP != nil {
+			opts.OnSidecarTailnetIP(sidecarIP)
 		}
 	}
 	c.log("done")
@@ -365,7 +375,12 @@ func configureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2) e
 // the user) and returns the login URL it prints, so the caller can show it; the
 // sidecar joins once the user visits that URL. Returns "" when a key was used or the
 // sidecar is already registered.
-func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKey string) (string, error) {
+// v2TailscaleUp brings the sidecar onto the tenant's tailnet and, on the auth-key
+// path, sets up the Incus Reach (ADR-0017): a raw-TCP `tailscale serve` forwarding
+// the sidecar's tailnet :8443 to the host's Incus gateway, plus it returns the
+// sidecar's tailnet IPv4 (the address the client's Incus remote points at).
+// Returns (interactiveLoginURL, sidecarTailnetIP, error).
+func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKey string) (string, string, error) {
 	base := "--advertise-routes=" + plan.PrivateCIDR + " --hostname=" + plan.SidecarInstance + " --accept-dns=false"
 	if authKey == "" {
 		const log = "/var/lib/sandcastle-tsup.log"
@@ -388,9 +403,13 @@ func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKe
 		}, "\n")
 		out, err := execSidecarCapture(server, plan.SidecarInstance, script)
 		if err != nil {
-			return "", fmt.Errorf("tailscale up (interactive): %w", err)
+			return "", "", fmt.Errorf("tailscale up (interactive): %w", err)
 		}
-		return parseTailscaleLoginURL(out), nil
+		return parseTailscaleLoginURL(out), "", nil
+	}
+	gateway, err := gatewayIPFromCIDR(plan.PrivateCIDR)
+	if err != nil {
+		return "", "", err
 	}
 	upCmd := "tailscale up --auth-key='" + authKey + "' " + base + " --timeout=60s"
 	up := strings.Join([]string{
@@ -405,11 +424,28 @@ func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKe
 		"for attempt in 1 2 3; do " + upCmd + " || true; tailscale ip -4 >/dev/null 2>&1 && break; sleep 3; done",
 		// Hard gate: fail the create if the sidecar is not on the tailnet.
 		"tailscale ip -4 >/dev/null 2>&1 || { echo 'tailscale did not connect' >&2; tailscale status >&2; exit 1; }",
+		// Incus Reach (ADR-0017): proxy the host's Incus API onto the tenant
+		// tailnet — raw TCP, TLS passes through so the host cert is pinned.
+		"tailscale serve --bg --tcp=8443 tcp://" + gateway + ":8443",
+		// Emit the sidecar's tailnet IPv4 for the caller (the client's remote addr).
+		"printf 'TSIP=%s\\n' \"$(tailscale ip -4 | head -1)\"",
 	}, "\n")
-	if err := execSidecar(server, plan.SidecarInstance, up); err != nil {
-		return "", fmt.Errorf("tailscale up: %w", err)
+	out, err := execSidecarCapture(server, plan.SidecarInstance, up)
+	if err != nil {
+		return "", "", fmt.Errorf("tailscale up: %w", err)
 	}
-	return "", nil
+	return "", parseTailnetIP(out), nil
+}
+
+// parseTailnetIP extracts the `TSIP=<ipv4>` line emitted by the sidecar setup.
+func parseTailnetIP(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, "TSIP="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // parseTailscaleLoginURL extracts the URL emitted by the interactive up script.

@@ -26,19 +26,20 @@ const (
 )
 
 type DeviceLogin struct {
-	DeviceCode        string
-	UserCode          string
-	Status            string
-	UserKey           string
-	Message           string
-	ProvisionedAt     string
-	Token             string
-	RemoteName        string
-	AccessibleTenants []string
-	Projects          []string
-	VerificationURI   string
-	ExpiresAt         time.Time
-	Interval          int
+	DeviceCode         string
+	UserCode           string
+	Status             string
+	UserKey            string
+	Message            string
+	ProvisionedAt      string
+	Token              string
+	RemoteName         string
+	IncusRemoteAddress string
+	AccessibleTenants  []string
+	Projects           []string
+	VerificationURI    string
+	ExpiresAt          time.Time
+	Interval           int
 }
 
 type deviceStartResponse struct {
@@ -58,6 +59,7 @@ type devicePollResponse struct {
 	CLIAuthToken       string          `json:"cli_auth_token,omitempty"`
 	Token              string          `json:"incus_certificate_add_token,omitempty"`
 	RemoteName         string          `json:"remote_name,omitempty"`
+	IncusRemoteAddress string          `json:"incus_remote_address,omitempty"`
 	AccessibleTenants  []string        `json:"accessible_tenants,omitempty"`
 	Projects           []string        `json:"projects,omitempty"`
 	CurrentTenant      string          `json:"current_tenant,omitempty"`
@@ -157,6 +159,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		CLIAuthToken:       cliAuthToken,
 		Token:              login.Token,
 		RemoteName:         login.RemoteName,
+		IncusRemoteAddress: login.IncusRemoteAddress,
 		AccessibleTenants:  login.AccessibleTenants,
 		Projects:           login.Projects,
 		CurrentTenant:      currentTenantForDeviceLogin(login),
@@ -251,6 +254,7 @@ type CLILoginResult struct {
 type CredentialEnrollment struct {
 	IncusCertificateAddToken string `json:"incus_certificate_add_token,omitempty"`
 	RemoteName               string `json:"remote_name,omitempty"`
+	IncusRemoteAddress       string `json:"incus_remote_address,omitempty"`
 }
 
 type TenantTailnetStatus struct {
@@ -269,6 +273,7 @@ func loginResultForDeviceLogin(login DeviceLogin, sshFingerprint string) *CLILog
 		CredentialEnrollment: CredentialEnrollment{
 			IncusCertificateAddToken: login.Token,
 			RemoteName:               login.RemoteName,
+			IncusRemoteAddress:       login.IncusRemoteAddress,
 		},
 		SSHKeyFingerprint: sshFingerprint,
 		TenantTailnetStatus: TenantTailnetStatus{
@@ -342,6 +347,7 @@ func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin,
 	}
 	login.Token = result.Token
 	login.RemoteName = result.RemoteName
+	login.IncusRemoteAddress = result.IncusRemoteAddress
 	login.AccessibleTenants = append([]string{}, result.AccessibleTenants...)
 	login.Projects = append([]string{}, result.Projects...)
 	return login, nil

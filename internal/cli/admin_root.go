@@ -152,9 +152,9 @@ func ExecuteAdmin(name string, args []string) int {
 			ShareStore:       authAppMetadataUpdater,
 			ShareReconciler:  authAppShareReconciler,
 			Provisioner: authapp.Provisioner{
-				Admin:           adminConfig,
-				Tenants:         authAppTenants,
-				Trust:           authAppTrust,
+				Admin:   adminConfig,
+				Tenants: authAppTenants,
+				Trust:   authAppTrust,
 				// Login provisioning creates the tenant's default project +
 				// sidecar directly over the mounted host socket (the auth app
 				// has it, like the broker).
@@ -201,11 +201,14 @@ func authAppServeArgs(args []string) bool {
 // authAppV2Create returns the login-provisioning closure. The closure creates
 // the tenant's default project + sidecar directly over the mounted host socket;
 // the sidecar image comes from the plan (SANDCASTLE_BASE_IMAGE).
-func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(context.Context, tenant.CreatePlanV2) error {
-	return func(ctx context.Context, plan tenant.CreatePlanV2) error {
-		return creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
-			TailscaleAuthKey: admin.AuthTailscaleAuthKey,
+func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(context.Context, tenant.CreatePlanV2) (string, error) {
+	return func(ctx context.Context, plan tenant.CreatePlanV2) (string, error) {
+		var sidecarIP string
+		err := creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
+			TailscaleAuthKey:   admin.AuthTailscaleAuthKey,
+			OnSidecarTailnetIP: func(ip string) { sidecarIP = ip },
 		})
+		return sidecarIP, err
 	}
 }
 

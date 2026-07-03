@@ -21,9 +21,10 @@ import (
 )
 
 type loginRemoteInstallRequest struct {
-	RemoteName string
-	Token      string
-	Tenant     string
+	RemoteName   string
+	Token        string
+	Tenant       string
+	IncusAddress string // sidecar tailnet IP; the remote URL is set to https://<addr>:8443
 }
 
 type loginRemoteInstallResult struct {
@@ -318,9 +319,10 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 						if err := steps.run("enroll Incus remote", func() error {
 							var err error
 							installed, err = installer.InstallLoginRemote(cmd.Context(), loginRemoteInstallRequest{
-								RemoteName: remoteName,
-								Token:      result.Token,
-								Tenant:     tenant,
+								RemoteName:   remoteName,
+								Token:        result.Token,
+								Tenant:       tenant,
+								IncusAddress: result.IncusRemoteAddress,
 							})
 							return err
 						}); err != nil {

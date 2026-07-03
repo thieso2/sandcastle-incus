@@ -50,7 +50,7 @@ Use --tenant to also set your default tenant name in one step:
 				stdin:  config.stdin,
 				stdout: config.stdout,
 				stderr: config.stderr,
-			}, args[0], args[1], tenant)
+			}, args[0], args[1], tenant, "")
 			if err != nil {
 				return err
 			}
@@ -88,14 +88,18 @@ type incusLoginRemoteInstaller struct {
 }
 
 func (i incusLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, request loginRemoteInstallRequest) (loginRemoteInstallResult, error) {
-	result, err := addIncusRemoteWithToken(ctx, remoteAddIO{stdin: i.stdin, stdout: i.stdout, stderr: i.stderr}, request.RemoteName, request.Token, request.Tenant)
+	result, err := addIncusRemoteWithToken(ctx, remoteAddIO{stdin: i.stdin, stdout: i.stdout, stderr: i.stderr}, request.RemoteName, request.Token, request.Tenant, request.IncusAddress)
 	if err != nil {
 		return loginRemoteInstallResult{}, err
 	}
 	return loginRemoteInstallResult{RemoteName: result.RemoteName, IncusConfig: result.IncusConfig, Tenant: result.Tenant}, nil
 }
 
-func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name string, joinToken string, tenant string) (remoteAddResult, error) {
+// addIncusRemoteWithToken redeems the join token into a per-remote Incus config.
+// When incusAddress is set (the sidecar's tailnet IP — ADR-0017), the remote URL
+// is pinned to https://<addr>:8443 so the connection rides the tenant tailnet via
+// the sidecar proxy; otherwise the address the token advertised is normalized.
+func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name string, joinToken string, tenant string, incusAddress string) (remoteAddResult, error) {
 	incusDir := scconfig.RemoteIncusDir(name)
 	if err := os.MkdirAll(incusDir, 0o700); err != nil {
 		return remoteAddResult{}, fmt.Errorf("create incus config dir: %w", err)
@@ -129,7 +133,17 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 	if err := switchCmd.Run(); err != nil {
 		return remoteAddResult{}, fmt.Errorf("incus remote switch: %w", err)
 	}
-	if err := normalizeRemoteURL(ctx, name, incusDir, env, ioConfig.stderr); err != nil {
+	if strings.TrimSpace(incusAddress) != "" {
+		// Pin the remote at the sidecar's tailnet endpoint; the sidecar proxies it
+		// to the host's Incus. Skip the token-address normalization entirely.
+		url := "https://" + net.JoinHostPort(strings.TrimSpace(incusAddress), "8443")
+		setURLCmd := exec.CommandContext(ctx, "incus", "remote", "set-url", name, url)
+		setURLCmd.Env = env
+		setURLCmd.Stderr = ioConfig.stderr
+		if err := setURLCmd.Run(); err != nil {
+			return remoteAddResult{}, fmt.Errorf("incus remote set-url %s: %w", url, err)
+		}
+	} else if err := normalizeRemoteURL(ctx, name, incusDir, env, ioConfig.stderr); err != nil {
 		return remoteAddResult{}, err
 	}
 

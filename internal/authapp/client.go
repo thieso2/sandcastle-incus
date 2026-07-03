@@ -40,6 +40,7 @@ type DevicePollResult struct {
 	CLIAuthToken       string
 	Token              string
 	RemoteName         string
+	IncusRemoteAddress string
 	AccessibleTenants  []string
 	Projects           []string
 	CurrentTenant      string
@@ -120,6 +121,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		CLIAuthToken:       payload.CLIAuthToken,
 		Token:              payload.Token,
 		RemoteName:         payload.RemoteName,
+		IncusRemoteAddress: payload.IncusRemoteAddress,
 		AccessibleTenants:  append([]string{}, payload.AccessibleTenants...),
 		Projects:           append([]string{}, payload.Projects...),
 		CurrentTenant:      payload.CurrentTenant,

@@ -192,8 +192,26 @@ The DNS, Tailscale, and certificate authority services shared by all projects in
 _Avoid_: Project sidecars
 
 **Tenant Tailnet**:
-The Tailscale network dedicated to exactly one Tenant.
-_Avoid_: Shared Sandcastle tailnet, project tailnet
+The Tailscale network dedicated to exactly one Tenant. It is **bring-your-own**: the
+Tenant supplies their own Tailscale auth key at registration and the Tenant's own
+Sidecar joins that network. Sandcastle hosts no coordinator of its own (no Headscale).
+_Avoid_: Shared Sandcastle tailnet, project tailnet, platform-hosted tailnet
+
+**Sidecar** (Tenant Sidecar):
+The per-Tenant instance that joins the Tenant Tailnet and is the Tenant's single
+doorway onto it. It carries the Tenant's DNS (CoreDNS) and, as the **Incus Reach**,
+proxies the host's Incus API onto the Tenant Tailnet so the Tenant can reach it
+without the host being on any tailnet.
+_Avoid_: Project sidecar
+
+**Incus Reach**:
+How a Tenant reaches the host's Incus API. The host is on no tailnet; the Tenant's
+Sidecar forwards its own tailnet address to the host's Incus, so a client on the
+Tenant Tailnet connects to the Sidecar's tailnet address and the connection lands on
+the host's Incus. Authentication is unchanged — mutual TLS with the Tenant's
+restricted client certificate is the isolation boundary; the tailnet only provides
+reachability.
+_Avoid_: public Incus endpoint, host-on-tailnet
 
 **Tenant CA**:
 The certificate authority used for private machine TLS hostnames in a tenant.

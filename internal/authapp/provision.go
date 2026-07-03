@@ -22,6 +22,7 @@ type PersonalTenantResult struct {
 	AccessibleTenants   []string
 	Token               string
 	RemoteName          string
+	IncusRemoteAddress  string
 	Projects            []string
 	CurrentProject      string
 	DefaultProjectReady bool
@@ -42,7 +43,8 @@ type Provisioner struct {
 	// V2Create, when set, routes login provisioning through the v2 flow
 	// (default project + sidecar) instead of the v1 Personal Tenant path.
 	// The caller supplies the closure so this package need not import incusx.
-	V2Create func(context.Context, tenant.CreatePlanV2) error
+	// It returns the sidecar's tailnet IP (the client's Incus Reach address).
+	V2Create func(context.Context, tenant.CreatePlanV2) (string, error)
 }
 
 // ensurePersonalTenantV2 provisions (or re-ensures) the caller's v2 tenant via
@@ -72,7 +74,8 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
-	if err := p.V2Create(ctx, plan); err != nil {
+	sidecarIP, err := p.V2Create(ctx, plan)
+	if err != nil {
 		return PersonalTenantResult{}, err
 	}
 	tok, err := p.Trust.CreateToken(ctx, usertrust.UserPlan{
@@ -93,6 +96,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		AccessibleTenants:   []string{plan.Tenant},
 		Token:               tok.Token,
 		RemoteName:          tok.RemoteName,
+		IncusRemoteAddress:  sidecarIP,
 		Projects:            append([]string{}, tok.Projects...),
 		CurrentProject:      naming.DefaultProjectName,
 		DefaultProjectReady: true,
