@@ -180,6 +180,8 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var skipSetup bool
 	var tailscaleAuthKey string
 	var debugApprove bool
+	var simulateToken string
+	var simulateAs string
 	command := &cobra.Command{
 		Use:   "login auth-host",
 		Short: "Sign in to Sandcastle through the Auth App",
@@ -221,7 +223,15 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(config.stdout, "Open: %s\nCode: %s\n", start.VerificationURI, start.UserCode)
-			if debugApprove {
+			if strings.TrimSpace(simulateToken) != "" {
+				asUser := strings.TrimSpace(simulateAs)
+				if asUser == "" {
+					return fmt.Errorf("--as <github-username> is required with --simulate-token")
+				}
+				if err := client.SimulateApprove(cmd.Context(), start.UserCode, asUser, simulateToken); err != nil {
+					return fmt.Errorf("simulate approve: %w", err)
+				}
+			} else if debugApprove {
 				if err := client.DebugApprove(cmd.Context(), start.UserCode); err != nil {
 					return fmt.Errorf("debug approve: %w", err)
 				}
@@ -379,6 +389,8 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().BoolVar(&skipSetup, "skip-setup", false, "skip automatic DNS and Tailscale setup after enrollment")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key for unattended post-login attachment")
 	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve via /debug/device/approve (requires server --debug-device-user)")
+	command.Flags().StringVar(&simulateToken, "simulate-token", "", "DEV ONLY: auto-approve via /oauth/github/simulate using this shared secret (requires server --simulate-github-token); no browser/GitHub")
+	command.Flags().StringVar(&simulateAs, "as", "", "GitHub username to log in as when using --simulate-token")
 	return command
 }
 

@@ -234,13 +234,8 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get sidecar %s: %w", plan.SidecarInstance, err)
 	}
-	source := api.InstanceSource{Type: "image"}
-	// Accept either an alias or a fingerprint for the system-container base.
-	if looksLikeFingerprint(image) {
-		source.Fingerprint = image
-	} else {
-		source.Alias = image
-	}
+	// Accept a public-remote ref (images:debian/13), a fingerprint, or a local alias.
+	source := imageInstanceSource(image)
 	op, err := server.CreateInstance(api.InstancesPost{
 		Name:   plan.SidecarInstance,
 		Type:   "container",

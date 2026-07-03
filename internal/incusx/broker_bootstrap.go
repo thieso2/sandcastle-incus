@@ -128,12 +128,7 @@ func ensureBrokerInstance(server TenantResourceServer, req BootstrapV2Request, p
 	if _, _, err := server.GetInstance(BrokerInstanceName); err == nil {
 		return nil
 	}
-	source := api.InstanceSource{Type: "image"}
-	if looksLikeFingerprint(req.BaseImage) {
-		source.Fingerprint = req.BaseImage
-	} else {
-		source.Alias = req.BaseImage
-	}
+	source := imageInstanceSource(req.BaseImage)
 	op, err := server.CreateInstance(api.InstancesPost{
 		Name:   BrokerInstanceName,
 		Type:   "container",
@@ -198,7 +193,7 @@ func brokerEnv(req BootstrapV2Request) string {
 		"SANDCASTLE_CIDR_POOL=" + pool,
 		"SANDCASTLE_INCUS_PROJECT_PREFIX=sc2",
 		"SANDCASTLE_INFRASTRUCTURE_PROJECT=" + BrokerProjectName,
-		"SANDCASTLE_BASE_IMAGE=sandcastle/base:latest",
+		"SANDCASTLE_BASE_IMAGE=" + DefaultApplianceImage,
 		"SANDCASTLE_AI_IMAGE=sandcastle/ai:latest",
 	}
 	return strings.Join(lines, "\n") + "\n"

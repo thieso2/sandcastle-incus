@@ -15,9 +15,14 @@ starts from a clean slate.
 ## Prerequisites
 - Run from a host with the **admin** Incus remote: `export INCUS_CONF=~/.config/incus-admin` (remote `big`).
 - The one **fat binary** built static for linux: `bin/linux-amd64/sandcastle` (`make build` with `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 BIN_DIR=bin/linux-amd64`). It is copied into every appliance.
-- A **stock systemd base image** present locally on `big` — Debian trixie **container** (`d31c34fadc08`). No custom `sandcastle/base` image is used.
-- `.env.sc2` at repo root with: `GH_CLIENT_ID`, `GH_CLIENT_SECRET`, `PUBIC_URL=sc2.thieso2.dev`, `TAILSCALE_AUTH_KEY`.
-- Public DNS: `sc2.thieso2.dev` → the host's public IP (`65.21.132.31`).
+- **Stock images, no `sandcastle/base`.** Everything (auth-app, broker, tenant sidecars) runs on the stock upstream image `images:debian/13`, **pulled on demand from the public `images:` remote** — no custom image build and no manual `incus image copy` pre-caching required. (The appliance/sidecar launch code resolves `images:…`/`ubuntu:…` refs to a simplestreams pull; a bare alias or fingerprint still means a local image.) The Incus **server** just needs outbound access to `images.linuxcontainers.org`.
+- **`core.https_address` must be set** on the host (`incus config set core.https_address :8443`) — otherwise tenant provisioning fails at token issuance with `Can't issue token when server isn't listening on network`.
+- **GitHub auth — two modes:**
+  - **Simulated (no OAuth app, recommended for e2e):** deploy the auth-app with `--simulate-github-token <secret>`; log in with `sc login <auth-host> --simulate-token <secret> --as <username>`. No `GH_CLIENT_ID`/`GH_CLIENT_SECRET`, no browser, no network to GitHub. **Dev/e2e only.**
+  - **Real OAuth app:** `.env.sc2` with `GH_CLIENT_ID`, `GH_CLIENT_SECRET`; the OAuth **callback URL is `https://<auth-host>/oauth/github/callback`** (note `/oauth/…`, not `/login/…`).
+- `.env.sc2` at repo root with: `PUBIC_URL=sc2.thieso2.dev`, `TAILSCALE_AUTH_KEY`, and (real-OAuth only) `GH_CLIENT_ID`/`GH_CLIENT_SECRET`.
+- **CIDR pools must not overlap the host's own network.** Pick `/16`s clear of the host IP and of `incusbr0`/other bridges (e.g. broker `10.249.0.0/16`, auth-app `10.250.0.0/16`). The allocator only sees existing v2 tenants, not the host subnet — an overlap fails with `dnsmasq: Address already in use`.
+- Public DNS: `sc2.thieso2.dev` → the host's public IP (`65.21.132.31`). *(On an IP-less host, front the auth-host via a Cloudflare tunnel + `sc-edge` instead — see `docs/handoff-sandcastle-e2e-tunnel.md`.)*
 - `TENANT=e2etest` throughout.
 
 ```bash
@@ -26,7 +31,8 @@ export INCUS_CONF=~/.config/incus-admin
 set -a; . ./.env.sc2; set +a
 TENANT=e2etest
 SSHKEY=$(cat ~/.ssh/sandcastle_ed25519.pub)
-IMAGE=d31c34fadc08          # stock debian trixie container
+IMAGE=images:debian/13          # stock upstream image, pulled on demand
+SIMULATE_TOKEN=e2e-simulate-$(head -c6 /dev/urandom | base64 | tr -dc a-z0-9)   # simulated-auth mode
 ```
 
 ---
@@ -116,15 +122,23 @@ rm -rf ~/.config/sandcastle/$TENANT
 
 ## Phase 1 — Deploy the Auth App appliance ✅
 The sc2 web API. No host port (fronted by `sc-edge`). Copies the fat binary in.
-Uses `.env.sc2` for all answers (GitHub OAuth); a stock image (no `--base-image` needed).
+Stock image is the default (`--base-image images:debian/13`, pulled on demand — no `--base-image` needed).
 
+**Simulated GitHub (recommended for e2e — no OAuth app):**
+```bash
+sc-adm auth-app deploy \
+  --auth-hostname "$PUBIC_URL" \
+  --simulate-github-token "$SIMULATE_TOKEN" \
+  --admin-github-users thieso2
+```
+
+**Real OAuth app (alternative):**
 ```bash
 sc-adm auth-app deploy \
   --auth-hostname "$PUBIC_URL" \
   --github-client-id "$GH_CLIENT_ID" \
   --github-client-secret "$GH_CLIENT_SECRET" \
-  --admin-github-users thieso2 \
-  --base-image $IMAGE
+  --admin-github-users thieso2
 ```
 > Note (⚠️): running the wrapper against a multi-address remote can mangle the
 > address list. Deployed here by hand into `d31c34fadc08` in project
@@ -148,7 +162,10 @@ incus exec big:sc-edge --project infrastructure -- bash -c "
 **PASS (all ✅ validated):**
 ```bash
 curl -s --resolve $PUBIC_URL:443:65.21.132.31 https://$PUBIC_URL/healthz -o /dev/null -w '%{http_code}\n'   # 200
-curl -s --resolve $PUBIC_URL:443:65.21.132.31 -D - https://$PUBIC_URL/login/github -o /dev/null | grep -i location   # 302 → github.com …client_id=<GH_CLIENT_ID>
+# simulated mode: a valid token mints a session (200); a wrong token → 403; unset → 404 (route unregistered)
+curl -s --resolve $PUBIC_URL:443:65.21.132.31 -o /dev/null -w '%{http_code}\n' \
+  "https://$PUBIC_URL/oauth/github/simulate?token=$SIMULATE_TOKEN&username=thieso2"   # 200
+# real-OAuth mode instead: /login/github → 302 to github.com; callback lands at /oauth/github/callback
 echo | openssl s_client -servername $PUBIC_URL -connect 65.21.132.31:443 2>/dev/null | openssl x509 -noout -issuer   # issuer=… Let's Encrypt
 ```
 
@@ -361,10 +378,34 @@ issue (see remaining work). The public `sc-edge` path in Phase 7 needs **no** CA
 
 ---
 
-## Phase 9 — Unattended login via the debug short-circuit ✅
-The hidden debug URL already exists: `/debug/device/approve`, enabled when the auth
-app runs with `--debug-device-user <gh-user>`; `sc login --debug-approve` uses it to
-bypass the GitHub browser step for CI.
+## Phase 9 — Unattended login without GitHub ✅
+Two short-circuits bypass the GitHub browser step for CI. **Prefer the simulated-auth
+path** (Phase 9a): it needs no real OAuth app at all, is token-gated, and works for any
+username. The older `--debug-device-user` hack (Phase 9b) is single-user and untoken.
+
+### Phase 9a — Simulated GitHub (recommended) ✅
+If the auth-app was deployed with `--simulate-github-token` (Phase 1), one command does
+the whole device login offline — no browser, no GitHub, no OAuth app:
+
+```bash
+rm -rf ~/.config/sandcastle/$TENANT
+./bin/sc login https://$PUBIC_URL --simulate-token "$SIMULATE_TOKEN" --as thieso2 --skip-setup
+```
+`--simulate-token` drives `/oauth/github/simulate` (token-gated, constant-time compare),
+which auto-allowlists `--as <user>`, approves the pending device code, and mints the
+session. The auth-app then **provisions the v2 tenant directly** over its mounted host
+socket (`EnsurePersonalTenant` → `ensurePersonalTenantV2` → `CreateTenantV2`).
+
+**PASS (✅ validated on vm-thieso, 2026-07-03):** login output ends with `v2 tenant
+thieso2 is ready.`, `Approved as thieso2.`, and `Remote "sandcastle-thieso2" enrolled.`
+The tenant sidecar (CoreDNS + Tailscale) comes up on **stock `images:debian/13` pulled
+from the remote** — no cached image, no `sandcastle/base`. `--skip-setup` skips the
+client-side `RunPostLoginSetup` (DNS/trust/`tailscale up`).
+
+### Phase 9b — Legacy `--debug-device-user` short-circuit ✅
+The older hidden URL `/debug/device/approve`, enabled when the auth app runs with
+`--debug-device-user <gh-user>`; `sc login --debug-approve` uses it. Single fixed user,
+not token-gated — kept for back-compat.
 
 ```bash
 # TEMPORARILY enable on the auth app (revert after!):
@@ -378,13 +419,8 @@ rm -rf ~/.config/sandcastle/$TENANT
 incus exec big:sc2-auth-app --project infrastructure -- bash -c \
   "sed -i \"s/^SANDCASTLE_AUTH_DEBUG_DEVICE_USER=.*/SANDCASTLE_AUTH_DEBUG_DEVICE_USER=''/\" /etc/sandcastle/auth-app/env && systemctl restart sandcastle-auth-app"
 ```
-**PASS (✅ validated):** `--debug-approve` auto-approves (no browser); the auth app
-**provisions the v2 tenant directly** over its mounted host socket (v2-only
-`EnsurePersonalTenant` → `ensurePersonalTenantV2` → `CreateTenantV2` — the old v1
-Personal-Tenant path is gone). Login output ends with `v2 tenant thieso2 is ready.`
-and `Remote "sandcastle-thieso2" enrolled.` The tenant's default project + sidecar
-(CoreDNS + Tailscale) are created exactly as in Phase 3; `--skip-setup` skips the
-client-side `RunPostLoginSetup` (DNS/trust/`tailscale up`).
+**PASS (✅ validated):** `--debug-approve` auto-approves (no browser); same provisioning
+path and end state as Phase 9a.
 
 > ✅ **CIDR allocation (fixed).** Provisioning now derives occupancy with
 > `tenant.CIDRAllocationInputs`, which scans **all** managed projects and reads the
@@ -436,7 +472,7 @@ stays truthful and self-healing.
 | `:3000` server won't start / `setsid` hangs `incus exec` | Minimal image lacks `python3`; detached process blocks the exec stream | `apt-get install python3`; start via `systemd-run --unit=app --collect` |
 | Machine name doesn't resolve in CoreDNS | No A-record auto-registration on machine create yet | Add the record to `db.e2etest` + bump SOA + `systemctl restart coredns` (auto-reg TODO) |
 | Tenant machine SSH refused / no `dev` user | Plain image has no cloud-init → profile user-data never applied | Launch tenant machines from `images:debian/13/cloud` (has cloud-init) |
-| `create-v2` → `Image not provided for instance creation` | Phase 0 image-purge removed the last local copy of the stock base; infra shares the default store (`features.images=false`) so it must live in `default` | `incus image copy images:debian/13 big: --project default` (restores fingerprint `d31c34fadc08`) |
+| `create-v2` / appliance deploy → `Image not provided for instance creation` | Historic: the launch code only resolved *local* aliases/fingerprints, so a stock `images:debian/13` ref wasn't pulled | **Fixed:** `imageInstanceSource` now turns an `images:…`/`ubuntu:…` ref into a simplestreams **pull** — stock images work with no pre-caching. (Bare alias/fingerprint still means a local image; the Incus server needs outbound access to `images.linuxcontainers.org`.) |
 | Second v2 tenant → `dnsmasq: failed to create listening socket for <gw>: Address already in use` | Occupancy was `tenant.List`+`OccupiedCIDRs`, which only surfaces v1 `kind=tenant` projects; v2 tenants (`kind=infra`) were invisible, so the allocator re-picked the pool's first `/24` | **Fixed:** `tenant.CIDRAllocationInputs` scans v1+v2 projects for occupancy; also point pools clear of v1 (`10.248.x`) as defense-in-depth |
 | Re-provision/login of an existing tenant → `Device IP address … not within network … subnet` | The v2-aware occupancy fix counted the tenant's OWN `/24` as occupied and allocated a fresh one that didn't match the existing bridge | **Fixed:** `CreateRequest.PreferredCIDR` reuses the tenant's existing `/24` (idempotent) |
 | Auth-app tailnet key ignored / sidecar `Logged out` | `SANDCASTLE_AUTH_TAILSCALE_AUTHKEY` line in `/etc/sandcastle/auth-app/env` was mangled by repeated `sed` edits (concatenated key + var name) | Rewrite the line cleanly from `.env.sc2`: `sed -i "8s\|.*\|SANDCASTLE_AUTH_TAILSCALE_AUTHKEY='<key>'\|" env`, then restart |

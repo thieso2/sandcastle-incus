@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,6 +29,7 @@ type ServeRequest struct {
 	GitHubClientSecret  string
 	BootstrapAdminUsers []string
 	DebugDeviceUser     string
+	SimulateGitHubToken string
 	DefaultUnixUser     string
 	TailscaleAuthKey    string
 }
@@ -40,6 +42,7 @@ type ServePlan struct {
 	GitHubClientSecret  string   `json:"-"`
 	BootstrapAdminUsers []string `json:"bootstrapAdminUsers,omitempty"`
 	DebugDeviceUser     string   `json:"debugDeviceUser,omitempty"`
+	SimulateGitHubToken string   `json:"-"`
 	DefaultUnixUser     string   `json:"defaultUnixUser,omitempty"`
 	TailscaleAuthKey    string   `json:"-"`
 }
@@ -111,6 +114,7 @@ func PlanServe(request ServeRequest) (ServePlan, error) {
 		GitHubClientSecret:  strings.TrimSpace(request.GitHubClientSecret),
 		BootstrapAdminUsers: NormalizeGitHubUsernames(request.BootstrapAdminUsers),
 		DebugDeviceUser:     NormalizeGitHubUsername(request.DebugDeviceUser),
+		SimulateGitHubToken: strings.TrimSpace(request.SimulateGitHubToken),
 		DefaultUnixUser:     defaultUnixUser,
 		TailscaleAuthKey:    strings.TrimSpace(request.TailscaleAuthKey),
 	}, nil
@@ -136,22 +140,23 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	server := &http.Server{
 		Addr: plan.Address,
 		Handler: NewHandler(db, HandlerOptions{
-			AuthHostname:       plan.AuthHostname,
-			GitHubClientID:     plan.GitHubClientID,
-			GitHubClientSecret: plan.GitHubClientSecret,
-			RestrictedUsers:    r.RestrictedUsers,
-			Provisioner:        provisioner,
-			Admin:              r.Admin,
-			Tenants:            r.Tenants,
-			TenantAccess:       r.TenantAccess,
-			Machines:           r.Machines,
-			MachineSSHKeys:     r.MachineSSHKeys,
-			TenantSSHKeys:      r.TenantSSHKeys,
-			MachineSSHAccess:   r.MachineSSHAccess,
-			ShareStore:         r.ShareStore,
-			ShareReconciler:    r.ShareReconciler,
-			DebugDeviceUser:    plan.DebugDeviceUser,
-			TailscaleAuthKey:   plan.TailscaleAuthKey,
+			AuthHostname:        plan.AuthHostname,
+			GitHubClientID:      plan.GitHubClientID,
+			GitHubClientSecret:  plan.GitHubClientSecret,
+			RestrictedUsers:     r.RestrictedUsers,
+			Provisioner:         provisioner,
+			Admin:               r.Admin,
+			Tenants:             r.Tenants,
+			TenantAccess:        r.TenantAccess,
+			Machines:            r.Machines,
+			MachineSSHKeys:      r.MachineSSHKeys,
+			TenantSSHKeys:       r.TenantSSHKeys,
+			MachineSSHAccess:    r.MachineSSHAccess,
+			ShareStore:          r.ShareStore,
+			ShareReconciler:     r.ShareReconciler,
+			DebugDeviceUser:     plan.DebugDeviceUser,
+			SimulateGitHubToken: plan.SimulateGitHubToken,
+			TailscaleAuthKey:    plan.TailscaleAuthKey,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -427,23 +432,24 @@ func ensureColumn(ctx context.Context, db *sql.DB, table string, column string, 
 }
 
 type HandlerOptions struct {
-	AuthHostname       string
-	GitHubClientID     string
-	GitHubClientSecret string
-	GitHub             GitHubClient
-	RestrictedUsers    RestrictedUserRevoker
-	Provisioner        PersonalTenantProvisioner
-	Admin              config.Admin
-	Tenants            tenant.IncusTenantStore
-	TenantAccess       TenantAccessManager
-	Machines           machine.Store
-	MachineSSHKeys     MachineSSHKeyReconciler
-	TenantSSHKeys      TenantSSHKeyUpdater
-	MachineSSHAccess   MachineSSHAccessRevoker
-	ShareStore         share.Store
-	ShareReconciler    ShareReconciler
-	DebugDeviceUser    string
-	TailscaleAuthKey   string
+	AuthHostname        string
+	GitHubClientID      string
+	GitHubClientSecret  string
+	GitHub              GitHubClient
+	RestrictedUsers     RestrictedUserRevoker
+	Provisioner         PersonalTenantProvisioner
+	Admin               config.Admin
+	Tenants             tenant.IncusTenantStore
+	TenantAccess        TenantAccessManager
+	Machines            machine.Store
+	MachineSSHKeys      MachineSSHKeyReconciler
+	TenantSSHKeys       TenantSSHKeyUpdater
+	MachineSSHAccess    MachineSSHAccessRevoker
+	ShareStore          share.Store
+	ShareReconciler     ShareReconciler
+	DebugDeviceUser     string
+	SimulateGitHubToken string
+	TailscaleAuthKey    string
 }
 
 func NewHandler(db *sql.DB, options any) http.Handler {
@@ -466,11 +472,17 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		shareStore:       handlerOptions.ShareStore,
 		shareReconciler:  handlerOptions.ShareReconciler,
 		debugDeviceUser:  NormalizeGitHubUsername(handlerOptions.DebugDeviceUser),
+		simulateToken:    strings.TrimSpace(handlerOptions.SimulateGitHubToken),
 		tailscaleAuthKey: strings.TrimSpace(handlerOptions.TailscaleAuthKey),
 		sessionCookie:    "sandcastle_session",
 	}
 	if app.githubClient == nil {
-		app.githubClient = HTTPGitHubClient{}
+		if app.simulateToken != "" {
+			// No real GitHub OAuth app: fabricate profiles offline.
+			app.githubClient = SimulatedGitHubClient{}
+		} else {
+			app.githubClient = HTTPGitHubClient{}
+		}
 	}
 	mux.HandleFunc("/", app.status)
 	mux.HandleFunc("/healthz", app.health)
@@ -499,6 +511,10 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/device", app.deviceApprove)
 	if app.debugDeviceUser != "" {
 		mux.HandleFunc("/debug/device/approve", app.debugDeviceApprove)
+	}
+	if app.simulateToken != "" {
+		mux.HandleFunc("/oauth/github/simulate", app.simulateLogin)
+		log.Printf("auth-app WARNING: simulated GitHub mode ENABLED — /oauth/github/simulate accepts a shared token and auto-allowlists any user; DO NOT run this in production")
 	}
 	mux.HandleFunc("/.well-known/openid-configuration", app.oidcDiscovery)
 	mux.HandleFunc("/.well-known/jwks.json", app.oidcJWKS)
@@ -535,6 +551,7 @@ type handler struct {
 	shareStore       share.Store
 	shareReconciler  ShareReconciler
 	debugDeviceUser  string
+	simulateToken    string
 	tailscaleAuthKey string
 	sessionCookie    string
 }

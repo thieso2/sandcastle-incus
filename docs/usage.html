@@ -745,8 +745,10 @@ Bootstrap:
   <span class="flag">--github-client-id</span> <span class="arg">...</span> \
   <span class="flag">--github-client-secret</span> <span class="arg">...</span> \
   <span class="flag">--admin-github-users</span> <span class="arg">octocat,hubot</span> \
-  <span class="flag">--debug-device-user</span> <span class="arg">octocat</span></code></pre>
+  <span class="flag">--debug-device-user</span> <span class="arg">octocat</span> \
+  <span class="flag">--simulate-github-token</span> <span class="arg">&lt;shared-secret&gt;</span></code></pre>
     <p>The debug device user flag is intended only for disposable integration environments. It registers <code>POST /debug/device/approve</code>, which approves a pending device code as the configured allowlisted user. Use <code>--tailscale-auth-key</code> only for unattended lab login flows where approved CLI clients should receive a Tailscale auth key for tenant sidecar attachment.</p>
+    <p><strong>Simulated GitHub mode (dev/e2e only).</strong> Passing <code>--simulate-github-token &lt;secret&gt;</code> (also accepted by <code>auth-app deploy</code>; env <code>SANDCASTLE_AUTH_SIMULATE_GITHUB_TOKEN</code>) lets the Auth App fabricate GitHub logins with no real OAuth app — <code>--github-client-id</code>/<code>--github-client-secret</code> become optional. It registers <code>GET/POST /oauth/github/simulate</code>, which (gated by a constant-time comparison against the shared secret) allowlists the given <code>username</code>, mints the browser session, and optionally approves a pending device <code>user_code</code>. Drive it from the CLI with <code>sc login &lt;auth-host&gt; --simulate-token &lt;secret&gt; --as &lt;username&gt;</code>. <strong>Never enable in production</strong> — anyone holding the token can authenticate as any user. A wrong token returns 403; an unset token leaves the route unregistered (404).</p>
   </div>
 
   <div class="step">

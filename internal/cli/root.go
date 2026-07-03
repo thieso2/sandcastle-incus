@@ -101,6 +101,7 @@ type authDeviceClient interface {
 	Start(context.Context) (authapp.DeviceStartResult, error)
 	Poll(context.Context, string, authapp.DevicePollRequest) (authapp.DevicePollResult, error)
 	DebugApprove(context.Context, string) error
+	SimulateApprove(ctx context.Context, userCode, username, token string) error
 }
 
 type authWorkloadClient interface {

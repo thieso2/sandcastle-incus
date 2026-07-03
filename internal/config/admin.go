@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	DefaultRemote                 = "local"
-	DefaultStoragePool            = "default"
-	DefaultCIDRPool               = "10.248.0.0/16"
-	DefaultIncusProjectPrefix     = "sc"
-	DefaultInfrastructureProject  = "sc-infra"
-	DefaultInfrastructureHost     = ""
-	DefaultLetsEncryptEmail       = ""
-	DefaultInfrastructureTLSMode  = "acme"
+	DefaultRemote                = "local"
+	DefaultStoragePool           = "default"
+	DefaultCIDRPool              = "10.248.0.0/16"
+	DefaultIncusProjectPrefix    = "sc"
+	DefaultInfrastructureProject = "sc-infra"
+	DefaultInfrastructureHost    = ""
+	DefaultLetsEncryptEmail      = ""
+	DefaultInfrastructureTLSMode = "acme"
 	DefaultAuthHostname           = ""
 	DefaultBaseImageAlias         = "sandcastle/base:latest"
 	DefaultAIImageAlias           = "sandcastle/ai:latest"

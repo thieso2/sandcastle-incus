@@ -22,6 +22,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 		project, instance, baseImage, binaryPath, bridge, storagePool string
 		hostname, githubClientID, githubClientSecret, adminUsers      string
 		defaultUnixUser, tailscaleAuthKey, debugDeviceUser            string
+		simulateGitHubToken                                           string
 		cidrPool, projectPrefix, infraProject, tlsMode                string
 		tenantBaseImage, tenantAIImage                                string
 	)
@@ -43,43 +44,54 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 				binaryPath = exe
 			}
 
+			// DEV ONLY: with a simulate-github token, the appliance fabricates
+			// GitHub logins offline, so a real OAuth app (client id/secret) is not
+			// needed — skip prompting for and requiring them.
+			simulate := strings.TrimSpace(simulateGitHubToken) != ""
+
 			in := bufio.NewReader(config.stdin)
 			hostname = promptIfBlank(config.stdout, in, hostname, "Auth Hostname (e.g. sc2.thieso2.dev)")
-			githubClientID = promptIfBlank(config.stdout, in, githubClientID, "GitHub OAuth client id")
-			githubClientSecret = promptIfBlank(config.stdout, in, githubClientSecret, "GitHub OAuth client secret")
+			if !simulate {
+				githubClientID = promptIfBlank(config.stdout, in, githubClientID, "GitHub OAuth client id")
+				githubClientSecret = promptIfBlank(config.stdout, in, githubClientSecret, "GitHub OAuth client secret")
+			}
 			adminUsers = promptIfBlank(config.stdout, in, adminUsers, "Admin GitHub users (comma-separated)")
 
-			for label, v := range map[string]string{
-				"auth-hostname":        hostname,
-				"github-client-id":     githubClientID,
-				"github-client-secret": githubClientSecret,
-				"admin-github-users":   adminUsers,
-			} {
+			required := map[string]string{
+				"auth-hostname":      hostname,
+				"admin-github-users": adminUsers,
+			}
+			if !simulate {
+				required["github-client-id"] = githubClientID
+				required["github-client-secret"] = githubClientSecret
+			}
+			for label, v := range required {
 				if strings.TrimSpace(v) == "" {
 					return fmt.Errorf("%s is required", label)
 				}
 			}
 
 			if err := creator.BootstrapAuthApp(cmd.Context(), incusx.BootstrapAuthAppRequest{
-				Project:            project,
-				Instance:           instance,
-				BaseImage:          baseImage,
-				BinaryPath:         binaryPath,
-				Bridge:             bridge,
-				StoragePool:        storagePool,
-				Hostname:           hostname,
-				GitHubClientID:     githubClientID,
-				GitHubClientSecret: githubClientSecret,
-				AdminGitHubUsers:   splitCommaList(adminUsers),
-				DefaultUnixUser:    defaultUnixUser,
-				TailscaleAuthKey:   tailscaleAuthKey,
-				DebugDeviceUser:    debugDeviceUser,
-				CIDRPool:           cidrPool,
-				ProjectPrefix:      projectPrefix,
-				InfraProject:       infraProject,
-				TLSMode:            tlsMode,
-				BaseImageRef:       tenantBaseImage,
-				AIImageRef:         tenantAIImage,
+				Project:             project,
+				Instance:            instance,
+				BaseImage:           baseImage,
+				BinaryPath:          binaryPath,
+				Bridge:              bridge,
+				StoragePool:         storagePool,
+				Hostname:            hostname,
+				GitHubClientID:      githubClientID,
+				GitHubClientSecret:  githubClientSecret,
+				AdminGitHubUsers:    splitCommaList(adminUsers),
+				DefaultUnixUser:     defaultUnixUser,
+				TailscaleAuthKey:    tailscaleAuthKey,
+				DebugDeviceUser:     debugDeviceUser,
+				SimulateGitHubToken: simulateGitHubToken,
+				CIDRPool:            cidrPool,
+				ProjectPrefix:       projectPrefix,
+				InfraProject:        infraProject,
+				TLSMode:             tlsMode,
+				BaseImageRef:        tenantBaseImage,
+				AIImageRef:          tenantAIImage,
 			}); err != nil {
 				return err
 			}
@@ -103,11 +115,12 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix login for provisioned machines")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key handed to approved device logins")
 	command.Flags().StringVar(&debugDeviceUser, "debug-device-user", "", "enable debug device approval as this allowlisted user")
+	command.Flags().StringVar(&simulateGitHubToken, "simulate-github-token", "", "DEV ONLY: run the appliance in simulated-GitHub mode gated by this shared secret (no real OAuth app; github-client-id/secret become optional)")
 	command.Flags().StringVar(&cidrPool, "cidr-pool", "10.248.0.0/16", "tenant CIDR pool the Auth App allocates from")
 	command.Flags().StringVar(&projectPrefix, "project-prefix", "sc", "Incus project name prefix for provisioned tenants")
 	command.Flags().StringVar(&infraProject, "infra-project", "sc-infra", "infrastructure project used for provisioning")
 	command.Flags().StringVar(&tlsMode, "infra-tls-mode", "acme", "infrastructure TLS mode")
-	command.Flags().StringVar(&tenantBaseImage, "tenant-base-image", "sandcastle/base:latest", "base image tenants are built from")
+	command.Flags().StringVar(&tenantBaseImage, "tenant-base-image", incusx.DefaultApplianceImage, "stock base image for tenant sidecars (pulled from the images: remote)")
 	command.Flags().StringVar(&tenantAIImage, "tenant-ai-image", "sandcastle/ai:latest", "AI image tenants can use")
 	return command
 }

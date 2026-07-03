@@ -44,13 +44,14 @@ type BootstrapAuthAppRequest struct {
 	Bridge      string // bridge the appliance NIC attaches to (e.g. incusbr0)
 	StoragePool string // storage pool for the appliance root disk
 
-	Hostname           string   // public Auth Hostname (e.g. sc2.thieso2.dev)
-	GitHubClientID     string   // GitHub OAuth app client id
-	GitHubClientSecret string   // GitHub OAuth app client secret
-	AdminGitHubUsers   []string // initial Sandcastle Admin GitHub usernames
-	DefaultUnixUser    string   // default Unix login for provisioned machines
-	TailscaleAuthKey   string   // key handed to approved device logins (optional)
-	DebugDeviceUser    string   // enable debug device approval as this user (optional)
+	Hostname            string   // public Auth Hostname (e.g. sc2.thieso2.dev)
+	GitHubClientID      string   // GitHub OAuth app client id
+	GitHubClientSecret  string   // GitHub OAuth app client secret
+	AdminGitHubUsers    []string // initial Sandcastle Admin GitHub usernames
+	DefaultUnixUser     string   // default Unix login for provisioned machines
+	TailscaleAuthKey    string   // key handed to approved device logins (optional)
+	DebugDeviceUser     string   // enable debug device approval as this user (optional)
+	SimulateGitHubToken string   // DEV ONLY: enable simulated-GitHub auth gated by this token (optional)
 
 	// Provisioning config baked into the appliance env (the Auth App provisions
 	// tenants on device login).
@@ -140,12 +141,7 @@ func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequ
 	if _, _, err := server.GetInstance(instance); err == nil {
 		return nil
 	}
-	source := api.InstanceSource{Type: "image"}
-	if looksLikeFingerprint(req.BaseImage) {
-		source.Fingerprint = req.BaseImage
-	} else {
-		source.Alias = req.BaseImage
-	}
+	source := imageInstanceSource(req.BaseImage)
 	op, err := server.CreateInstance(api.InstancesPost{
 		Name:   instance,
 		Type:   "container",
@@ -206,6 +202,7 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=" + q(strings.TrimSpace(req.GitHubClientSecret)),
 		"SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=" + q(strings.Join(req.AdminGitHubUsers, ",")),
 		"SANDCASTLE_AUTH_DEBUG_DEVICE_USER=" + q(strings.TrimSpace(req.DebugDeviceUser)),
+		"SANDCASTLE_AUTH_SIMULATE_GITHUB_TOKEN=" + q(strings.TrimSpace(req.SimulateGitHubToken)),
 		"SANDCASTLE_AUTH_DEFAULT_UNIX_USER=" + q(strings.TrimSpace(req.DefaultUnixUser)),
 		"SANDCASTLE_AUTH_TAILSCALE_AUTHKEY=" + q(strings.TrimSpace(req.TailscaleAuthKey)),
 		// Incus access: the mounted host admin unix socket.
@@ -215,7 +212,7 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_INCUS_PROJECT_PREFIX=" + q(orDefaultStr(req.ProjectPrefix, "sc")),
 		"SANDCASTLE_INFRA_PROJECT=" + q(orDefaultStr(req.InfraProject, "sc-infra")),
 		"SANDCASTLE_INFRA_TLS_MODE=" + q(orDefaultStr(req.TLSMode, "acme")),
-		"SANDCASTLE_BASE_IMAGE=" + q(orDefaultStr(req.BaseImageRef, "sandcastle/base:latest")),
+		"SANDCASTLE_BASE_IMAGE=" + q(orDefaultStr(req.BaseImageRef, DefaultApplianceImage)),
 		"SANDCASTLE_AI_IMAGE=" + q(orDefaultStr(req.AIImageRef, "sandcastle/ai:latest")),
 	}
 	return strings.Join(lines, "\n") + "\n"
@@ -232,6 +229,7 @@ func authAppUnit() string {
 		" --github-client-secret ${SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET}" +
 		" --admin-github-users ${SANDCASTLE_AUTH_ADMIN_GITHUB_USERS}" +
 		" --debug-device-user ${SANDCASTLE_AUTH_DEBUG_DEVICE_USER}" +
+		" --simulate-github-token ${SANDCASTLE_AUTH_SIMULATE_GITHUB_TOKEN}" +
 		" --default-unix-user ${SANDCASTLE_AUTH_DEFAULT_UNIX_USER}" +
 		" --tailscale-auth-key ${SANDCASTLE_AUTH_TAILSCALE_AUTHKEY}\n" +
 		"Restart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n"

@@ -25,7 +25,13 @@ for design background see `docs/adr/0016-*` and `CONTEXT.md`.
   must be internet-reachable so Let's Encrypt (ACME HTTP-01 / TLS-ALPN-01) can issue.
   A wildcard like `*.apps.example.dev` → the host IP lets you expose tenant apps later.
 - **A GitHub OAuth App** (for login). Set its **Authorization callback URL** to
-  `https://<auth-hostname>/login/github/callback`. Note the **client id** + **secret**.
+  `https://<auth-hostname>/oauth/github/callback`. Note the **client id** + **secret**.
+  - **Testing shortcut — no OAuth app needed.** Pass `--simulate-github-token <secret>`
+    to `auth-app deploy`/`serve` to run in **simulated-GitHub mode**: the appliance
+    fabricates logins offline (any username), gated by that shared secret, and
+    `--github-client-id`/`--github-client-secret` become optional. Log in with
+    `sc login <auth-host> --simulate-token <secret> --as <username>`. **Dev/e2e only —
+    never enable in production** (it will "authenticate" anyone who has the token).
 - **A Tailscale auth key** (reusable/ephemeral) — handed to tenant sidecars and to
   approved device logins so they join the tailnet non-interactively. **Optional:** if
   you omit it when creating a tenant, provisioning instead prints a `tailscale up`
@@ -33,7 +39,10 @@ for design background see `docs/adr/0016-*` and `CONTEXT.md`.
 - **A stock systemd base image cached on the host.** Use a **container-type** Debian
   image (`images:debian/13`), *not* an OCI/app image — appliances need systemd as PID 1:
   ```bash
-  incus image copy images:debian/13 big: --project default   # fingerprint d31c34fadc08…
+  # Optional now — appliance/sidecar launches pull `images:debian/13` from the
+  # public remote on demand (imageInstanceSource). Pre-cache only to avoid repeat
+  # pulls / for offline hosts:
+  incus image copy images:debian/13 big: --project default
   ```
   The tenant **infra** projects share this `default` image store (`features.images=false`),
   so the sidecar base must live here.

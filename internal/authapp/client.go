@@ -159,6 +159,36 @@ func (c DeviceClient) DebugApprove(ctx context.Context, userCode string) error {
 	return nil
 }
 
+// SimulateApprove drives the token-gated /oauth/github/simulate endpoint to
+// approve the pending device login as `username`, with no browser and no GitHub.
+// The server must be running with --simulate-github-token equal to `token`. This
+// is the offline counterpart to a real GitHub device login (DEV ONLY).
+func (c DeviceClient) SimulateApprove(ctx context.Context, userCode, username, token string) error {
+	form := url.Values{}
+	form.Set("token", token)
+	form.Set("username", username)
+	form.Set("user_code", userCode)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/oauth/github/simulate"), strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := c.client().Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(b))
+		if msg == "" {
+			msg = response.Status
+		}
+		return fmt.Errorf("simulate approve: %s", msg)
+	}
+	return nil
+}
+
 func (c DeviceClient) EnableWorkload(ctx context.Context, request WorkloadEnableRequest) (WorkloadEnableResult, error) {
 	body, _ := json.Marshal(request)
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/workload/enable"), bytes.NewReader(body))

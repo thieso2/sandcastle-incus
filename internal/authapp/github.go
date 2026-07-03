@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -160,6 +162,48 @@ func (c HTTPGitHubClient) client() *http.Client {
 		return c.HTTPClient
 	}
 	return &http.Client{Timeout: 10 * time.Second}
+}
+
+// SimulatedGitHubClient is a GitHubClient that fabricates deterministic profiles
+// without ever contacting GitHub. It is installed ONLY when the auth-app runs in
+// simulated-GitHub mode (a shared secret token is configured) so an end-to-end
+// deployment needs no real GitHub OAuth app. It must never be used in production —
+// it will happily "verify" any well-formed username.
+type SimulatedGitHubClient struct{}
+
+func (SimulatedGitHubClient) ExchangeCode(_ context.Context, _ GitHubOAuth, code string) (string, error) {
+	// The simulated flow carries the username as the OAuth "code"; the returned
+	// "access token" is just the normalized username (see Profile).
+	username := NormalizeGitHubUsername(code)
+	if username == "" {
+		return "", fmt.Errorf("simulated GitHub: empty code")
+	}
+	return username, nil
+}
+
+func (SimulatedGitHubClient) Profile(_ context.Context, accessToken string) (GitHubProfile, error) {
+	return SimulatedGitHubProfile(accessToken)
+}
+
+func (SimulatedGitHubClient) VerifyUsername(_ context.Context, username string) (GitHubProfile, error) {
+	return SimulatedGitHubProfile(username)
+}
+
+// SimulatedGitHubProfile builds a deterministic synthetic profile for a username:
+// the GitHub id is a stable hash of the name so repeated logins are the same
+// account, and the email is a clearly-fake `.invalid` address.
+func SimulatedGitHubProfile(username string) (GitHubProfile, error) {
+	normalized := NormalizeGitHubUsername(username)
+	if err := ValidateGitHubUsername(normalized); err != nil {
+		return GitHubProfile{}, err
+	}
+	sum := sha256.Sum256([]byte("sandcastle-simulated-github:" + normalized))
+	id := binary.BigEndian.Uint64(sum[:8]) >> 1 // keep it positive
+	return GitHubProfile{
+		Login: normalized,
+		ID:    strconv.FormatUint(id, 10),
+		Email: normalized + "@simulated.invalid",
+	}, nil
 }
 
 func GitHubAuthorizeURL(clientID string, state string) string {

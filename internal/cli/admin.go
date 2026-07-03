@@ -359,7 +359,6 @@ func formatCreatePlanV2(plan tenant.CreatePlanV2) string {
 		plan.Tenant, plan.InfraProject, plan.DefaultProject, plan.Bridge, plan.PrivateCIDR, plan.DNSSuffix, plan.SidecarInstance, plan.DNSAddress, plan.GatewayAddress)
 }
 
-
 func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var yes bool
 	var purge bool
@@ -1169,6 +1168,7 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	var githubClientSecret string
 	var adminGitHubUsers string
 	var debugDeviceUser string
+	var simulateGitHubToken string
 	var defaultUnixUser string
 	var tailscaleAuthKey string
 	command := &cobra.Command{
@@ -1184,6 +1184,7 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 				GitHubClientSecret:  githubClientSecret,
 				BootstrapAdminUsers: strings.Split(adminGitHubUsers, ","),
 				DebugDeviceUser:     debugDeviceUser,
+				SimulateGitHubToken: simulateGitHubToken,
 				DefaultUnixUser:     defaultUnixUser,
 				TailscaleAuthKey:    tailscaleAuthKey,
 			})
@@ -1203,6 +1204,7 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&githubClientSecret, "github-client-secret", "", "GitHub OAuth client secret")
 	command.Flags().StringVar(&adminGitHubUsers, "admin-github-users", "", "comma-separated initial Sandcastle Admin GitHub usernames")
 	command.Flags().StringVar(&debugDeviceUser, "debug-device-user", "", "enable debug device approval as this allowlisted GitHub username")
+	command.Flags().StringVar(&simulateGitHubToken, "simulate-github-token", "", "DEV ONLY: enable simulated GitHub auth gated by this shared secret (no real OAuth app needed); serves /oauth/github/simulate")
 	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix username for newly provisioned Personal Tenant machines")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key returned to approved CLI device logins for unattended tenant attachment")
 	_ = command.MarkFlagRequired("database")

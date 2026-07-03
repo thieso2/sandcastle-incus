@@ -295,6 +295,10 @@ func (c *fakeAuthDeviceClient) DebugApprove(ctx context.Context, userCode string
 	return nil
 }
 
+func (c *fakeAuthDeviceClient) SimulateApprove(ctx context.Context, userCode, username, token string) error {
+	return nil
+}
+
 func (c *fakeAuthWorkloadClient) Start(ctx context.Context) (authapp.DeviceStartResult, error) {
 	c.starts++
 	if c.start.DeviceCode == "" {
