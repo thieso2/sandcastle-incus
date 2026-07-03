@@ -79,6 +79,20 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	config.localTrust = incusx.LocalTrustManager{Remote: request.RemoteName, ConfigPath: incusConfigFile, Store: localtrust.NewPlatformStore()}
 	config.tailscale = incusx.TailscaleManager{Remote: request.RemoteName, ConfigPath: incusConfigFile}
 
+	// v2 tenant: DNS records auto-register in the sidecar CoreDNS and resolve via
+	// Tailscale Split DNS; the client is on its own (BYO) tailnet. So the only
+	// client-side setup is ensuring the tenant subnet route is accepted + reachable
+	// — the v1 local-DNS/trust/tailscale-up steps below don't apply (and their v1
+	// tenant lookup can't even see a v2 tenant).
+	if strings.TrimSpace(request.TenantPrivateCIDR) != "" {
+		if err := steps.run("verify tenant routing", func() error {
+			return ensureTenantRouting(ctx, r.config.stdout, request.TenantPrivateCIDR)
+		}); err != nil {
+			return loginSetupResult{}, err
+		}
+		return loginSetupResult{}, nil
+	}
+
 	var dnsResult dnsSetupResult
 	if err := steps.run("setup DNS", func() error {
 		var err error
@@ -133,11 +147,6 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	}); err != nil {
 		return loginSetupResult{}, err
 	}
-	if err := steps.run("verify tenant routing", func() error {
-		return ensureTenantRouting(ctx, r.config.stdout, request.TenantPrivateCIDR)
-	}); err != nil {
-		return loginSetupResult{}, err
-	}
 	return loginSetupResult{DNS: dnsResult, Trust: trustResult, Tailscale: tailscalePlan}, nil
 }
 
@@ -166,8 +175,17 @@ func ensureTenantRouting(ctx context.Context, stdout io.Writer, cidr string) err
 	for {
 		conn, err := net.DialTimeout("tcp", target, 4*time.Second)
 		if err == nil {
+			// A raw TCP connect is not enough: the gateway address can be
+			// coincidentally routable via the client's own LAN, which would
+			// falsely pass while tenant machines (other hosts in the /24) stay
+			// unreachable. Only a connection whose local endpoint is this
+			// machine's Tailscale address (CGNAT 100.64.0.0/10) proves the
+			// packet egressed over the tenant's approved subnet route.
+			viaTailnet := connEgressedViaTailnet(conn)
 			_ = conn.Close()
-			return nil
+			if viaTailnet {
+				return nil
+			}
 		}
 		if !time.Now().Before(deadline) {
 			break
@@ -192,6 +210,25 @@ func firstHostInCIDR(cidr string) (string, error) {
 		return "", err
 	}
 	return prefix.Masked().Addr().Next().String(), nil
+}
+
+// tailscaleCGNAT is the 100.64.0.0/10 range Tailscale assigns to every node.
+var tailscaleCGNAT = netip.MustParsePrefix("100.64.0.0/10")
+
+// connEgressedViaTailnet reports whether an established connection left this
+// machine through its Tailscale interface — i.e. its local address is a
+// Tailscale node IP. This distinguishes a genuine tenant-subnet route from a
+// coincidental LAN path to the same destination address.
+func connEgressedViaTailnet(conn net.Conn) bool {
+	tcpAddr, ok := conn.LocalAddr().(*net.TCPAddr)
+	if !ok {
+		return false
+	}
+	addr, ok := netip.AddrFromSlice(tcpAddr.IP)
+	if !ok {
+		return false
+	}
+	return tailscaleCGNAT.Contains(addr.Unmap())
 }
 
 func setLoginSetupIncusConfig(path string) func() {
