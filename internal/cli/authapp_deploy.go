@@ -22,7 +22,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 		project, instance, baseImage, binaryPath, bridge, storagePool string
 		hostname, githubClientID, githubClientSecret, adminUsers      string
 		defaultUnixUser, tailscaleAuthKey, debugDeviceUser            string
-		simulateGitHubToken                                           string
+		simulateGitHubToken, tailscaleAPIKey                          string
 		cidrPool, projectPrefix, infraProject, tlsMode                string
 		tenantBaseImage, tenantAIImage                                string
 	)
@@ -84,6 +84,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 				AdminGitHubUsers:    splitCommaList(adminUsers),
 				DefaultUnixUser:     defaultUnixUser,
 				TailscaleAuthKey:    tailscaleAuthKey,
+				TailscaleAPIKey:     tailscaleAPIKey,
 				DebugDeviceUser:     debugDeviceUser,
 				SimulateGitHubToken: simulateGitHubToken,
 				CIDRPool:            cidrPool,
@@ -114,6 +115,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&adminUsers, "admin-github-users", "", "comma-separated admin GitHub usernames; prompted if empty")
 	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix login for provisioned machines")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key handed to approved device logins")
+	command.Flags().StringVar(&tailscaleAPIKey, "tailscale-api-key", "", "Tailscale API key (tskey-api-…) for optional tenant route auto-approval")
 	command.Flags().StringVar(&debugDeviceUser, "debug-device-user", "", "enable debug device approval as this allowlisted user")
 	command.Flags().StringVar(&simulateGitHubToken, "simulate-github-token", "", "DEV ONLY: run the appliance in simulated-GitHub mode gated by this shared secret (no real OAuth app; github-client-id/secret become optional)")
 	command.Flags().StringVar(&cidrPool, "cidr-pool", "10.248.0.0/16", "tenant CIDR pool the Auth App allocates from")

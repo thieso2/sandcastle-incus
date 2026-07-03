@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,10 +40,11 @@ type loginRemoteInstaller interface {
 }
 
 type loginSetupRequest struct {
-	RemoteName       string
-	IncusConfig      string
-	Tenant           string
-	TailscaleAuthKey string
+	RemoteName        string
+	IncusConfig       string
+	Tenant            string
+	TailscaleAuthKey  string
+	TenantPrivateCIDR string
 }
 
 type loginSetupResult struct {
@@ -130,7 +133,65 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	}); err != nil {
 		return loginSetupResult{}, err
 	}
+	if err := steps.run("verify tenant routing", func() error {
+		return ensureTenantRouting(ctx, r.config.stdout, request.TenantPrivateCIDR)
+	}); err != nil {
+		return loginSetupResult{}, err
+	}
 	return loginSetupResult{DNS: dnsResult, Trust: trustResult, Tailscale: tailscalePlan}, nil
+}
+
+// ensureTenantRouting makes this client accept the tenant's advertised subnet
+// route (`tailscale set --accept-routes`) and then verifies the tenant subnet is
+// actually reachable — reaching the tenant-bridge gateway's Incus port, which is
+// only routable via the sidecar's approved subnet route. If it is not reachable
+// it HALTS with guidance, because tenant machines would otherwise be unreachable.
+func ensureTenantRouting(ctx context.Context, stdout io.Writer, cidr string) error {
+	cidr = strings.TrimSpace(cidr)
+	if cidr == "" {
+		return nil
+	}
+	gateway, err := firstHostInCIDR(cidr)
+	if err != nil {
+		return nil // can't derive a target; don't block login on a parse error
+	}
+	// Best-effort: accept subnet routes on this machine's own tailnet. Ignore
+	// errors — the client may not run tailscale, or may already accept routes;
+	// the reachability check below is the real gate.
+	if _, err := exec.LookPath("tailscale"); err == nil {
+		_ = exec.CommandContext(ctx, "tailscale", "set", "--accept-routes=true").Run()
+	}
+	target := net.JoinHostPort(gateway, "8443")
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", target, 4*time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	fmt.Fprintln(stdout)
+	return fmt.Errorf("tenant subnet %s is not routable from this machine.\n"+
+		"  Tenant machines will be unreachable until the subnet route is set up:\n"+
+		"    • Approve the route the tenant sidecar advertises in your Tailscale admin\n"+
+		"      console (Machines → the sidecar → Edit route settings → approve %s), or\n"+
+		"    • deploy the auth-app with --tailscale-api-key for automatic approval.\n"+
+		"  Also ensure this machine accepts routes (`tailscale set --accept-routes`).\n"+
+		"  Then re-run `sc login`.", cidr, cidr)
+}
+
+// firstHostInCIDR returns the first usable host in a CIDR (the gateway), e.g.
+// 10.250.0.0/24 -> 10.250.0.1.
+func firstHostInCIDR(cidr string) (string, error) {
+	prefix, err := netip.ParsePrefix(strings.TrimSpace(cidr))
+	if err != nil {
+		return "", err
+	}
+	return prefix.Masked().Addr().Next().String(), nil
 }
 
 func setLoginSetupIncusConfig(path string) func() {
@@ -352,10 +413,11 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 								if err := steps.run("post-login setup", func() error {
 									var err error
 									setup, err = runner.RunPostLoginSetup(cmd.Context(), loginSetupRequest{
-										RemoteName:       installed.RemoteName,
-										IncusConfig:      installed.IncusConfig,
-										Tenant:           installed.Tenant,
-										TailscaleAuthKey: authKey,
+										RemoteName:        installed.RemoteName,
+										IncusConfig:       installed.IncusConfig,
+										Tenant:            installed.Tenant,
+										TailscaleAuthKey:  authKey,
+										TenantPrivateCIDR: result.TenantPrivateCIDR,
 									})
 									return err
 								}); err != nil {

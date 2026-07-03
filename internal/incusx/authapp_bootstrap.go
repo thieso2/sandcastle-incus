@@ -50,6 +50,7 @@ type BootstrapAuthAppRequest struct {
 	AdminGitHubUsers    []string // initial Sandcastle Admin GitHub usernames
 	DefaultUnixUser     string   // default Unix login for provisioned machines
 	TailscaleAuthKey    string   // key handed to approved device logins (optional)
+	TailscaleAPIKey     string   // Tailscale API key for optional route auto-approval (optional)
 	DebugDeviceUser     string   // enable debug device approval as this user (optional)
 	SimulateGitHubToken string   // DEV ONLY: enable simulated-GitHub auth gated by this token (optional)
 
@@ -201,6 +202,7 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_AUTH_SIMULATE_GITHUB_TOKEN=" + q(strings.TrimSpace(req.SimulateGitHubToken)),
 		"SANDCASTLE_AUTH_DEFAULT_UNIX_USER=" + q(strings.TrimSpace(req.DefaultUnixUser)),
 		"SANDCASTLE_AUTH_TAILSCALE_AUTHKEY=" + q(strings.TrimSpace(req.TailscaleAuthKey)),
+		"SANDCASTLE_TAILSCALE_API_KEY=" + q(strings.TrimSpace(req.TailscaleAPIKey)),
 		// Incus access: the mounted host admin unix socket.
 		"SANDCASTLE_REMOTE=" + q("local"),
 		"SANDCASTLE_STORAGE_POOL=" + q(orDefaultStr(req.StoragePool, "default")),

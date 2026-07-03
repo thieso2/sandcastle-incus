@@ -23,6 +23,7 @@ type PersonalTenantResult struct {
 	Token               string
 	RemoteName          string
 	IncusRemoteAddress  string
+	TenantPrivateCIDR   string
 	Projects            []string
 	CurrentProject      string
 	DefaultProjectReady bool
@@ -97,6 +98,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		Token:               tok.Token,
 		RemoteName:          tok.RemoteName,
 		IncusRemoteAddress:  sidecarIP,
+		TenantPrivateCIDR:   plan.PrivateCIDR,
 		Projects:            append([]string{}, tok.Projects...),
 		CurrentProject:      naming.DefaultProjectName,
 		DefaultProjectReady: true,

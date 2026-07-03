@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	DefaultRemote                = "local"
-	DefaultStoragePool           = "default"
-	DefaultCIDRPool              = "10.248.0.0/16"
-	DefaultIncusProjectPrefix    = "sc"
-	DefaultInfrastructureProject = "sc-infra"
-	DefaultInfrastructureHost    = ""
-	DefaultLetsEncryptEmail      = ""
-	DefaultInfrastructureTLSMode = "acme"
+	DefaultRemote                 = "local"
+	DefaultStoragePool            = "default"
+	DefaultCIDRPool               = "10.248.0.0/16"
+	DefaultIncusProjectPrefix     = "sc"
+	DefaultInfrastructureProject  = "sc-infra"
+	DefaultInfrastructureHost     = ""
+	DefaultLetsEncryptEmail       = ""
+	DefaultInfrastructureTLSMode  = "acme"
 	DefaultAuthHostname           = ""
 	DefaultBaseImageAlias         = "sandcastle/base:latest"
 	DefaultAIImageAlias           = "sandcastle/ai:latest"
@@ -42,6 +42,7 @@ type Admin struct {
 	AuthAdminGitHubUsers   []string
 	AuthDebugDeviceUser    string
 	AuthTailscaleAuthKey   string
+	AuthTailscaleAPIKey    string
 	AuthToken              string
 	RouteBrokerIncusSocket string
 	AllowedDomainSuffixes  []string
@@ -97,6 +98,7 @@ func adminOverridesFromEnv(env map[string]string) Admin {
 		AuthAdminGitHubUsers:   splitListFrom(env, "SANDCASTLE_AUTH_ADMIN_GITHUB_USERS"),
 		AuthDebugDeviceUser:    strings.TrimSpace(env["SANDCASTLE_AUTH_DEBUG_DEVICE_USER"]),
 		AuthTailscaleAuthKey:   authTailscaleAuthKeyFromEnv(env),
+		AuthTailscaleAPIKey:    strings.TrimSpace(env["SANDCASTLE_TAILSCALE_API_KEY"]),
 		AuthToken:              strings.TrimSpace(env["SANDCASTLE_AUTH_TOKEN"]),
 		RouteBrokerIncusSocket: strings.TrimSpace(env["SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"]),
 		AllowedDomainSuffixes:  splitListFrom(env, "SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES"),
@@ -163,6 +165,9 @@ func MergeAdmin(base Admin, overrides Admin) Admin {
 	}
 	if strings.TrimSpace(overrides.AuthTailscaleAuthKey) != "" {
 		out.AuthTailscaleAuthKey = strings.TrimSpace(overrides.AuthTailscaleAuthKey)
+	}
+	if strings.TrimSpace(overrides.AuthTailscaleAPIKey) != "" {
+		out.AuthTailscaleAPIKey = strings.TrimSpace(overrides.AuthTailscaleAPIKey)
 	}
 	if strings.TrimSpace(overrides.AuthToken) != "" {
 		out.AuthToken = strings.TrimSpace(overrides.AuthToken)

@@ -35,6 +35,7 @@ type DeviceLogin struct {
 	Token              string
 	RemoteName         string
 	IncusRemoteAddress string
+	TenantPrivateCIDR  string
 	AccessibleTenants  []string
 	Projects           []string
 	VerificationURI    string
@@ -60,6 +61,7 @@ type devicePollResponse struct {
 	Token              string          `json:"incus_certificate_add_token,omitempty"`
 	RemoteName         string          `json:"remote_name,omitempty"`
 	IncusRemoteAddress string          `json:"incus_remote_address,omitempty"`
+	TenantPrivateCIDR  string          `json:"tenant_private_cidr,omitempty"`
 	AccessibleTenants  []string        `json:"accessible_tenants,omitempty"`
 	Projects           []string        `json:"projects,omitempty"`
 	CurrentTenant      string          `json:"current_tenant,omitempty"`
@@ -160,6 +162,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		Token:              login.Token,
 		RemoteName:         login.RemoteName,
 		IncusRemoteAddress: login.IncusRemoteAddress,
+		TenantPrivateCIDR:  login.TenantPrivateCIDR,
 		AccessibleTenants:  login.AccessibleTenants,
 		Projects:           login.Projects,
 		CurrentTenant:      currentTenantForDeviceLogin(login),
@@ -348,6 +351,7 @@ func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin,
 	login.Token = result.Token
 	login.RemoteName = result.RemoteName
 	login.IncusRemoteAddress = result.IncusRemoteAddress
+	login.TenantPrivateCIDR = result.TenantPrivateCIDR
 	login.AccessibleTenants = append([]string{}, result.AccessibleTenants...)
 	login.Projects = append([]string{}, result.Projects...)
 	return login, nil

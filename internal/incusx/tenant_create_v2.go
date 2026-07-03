@@ -31,6 +31,11 @@ type CreateV2Options struct {
 	// once it joins (auth-key path only). The client's Incus remote is pointed at
 	// this address:8443 — the sidecar proxies it to the host's Incus (ADR-0017).
 	OnSidecarTailnetIP func(ip string)
+	// TailscaleAPIKey, when set, enables optional route auto-approval: after the
+	// sidecar advertises the tenant's private CIDR, the route is approved via the
+	// Tailscale API so clients can reach tenant machines without a manual admin
+	// step. Empty = leave the route pending manual approval.
+	TailscaleAPIKey string
 }
 
 // CreateTenantV2 executes a CreatePlanV2 against Incus, reproducing the v2 MVP
@@ -95,6 +100,14 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		c.log("sidecar tailnet IP " + sidecarIP + " (Incus Reach)")
 		if opts.OnSidecarTailnetIP != nil {
 			opts.OnSidecarTailnetIP(sidecarIP)
+		}
+		// Optional route auto-approval: approve the sidecar's advertised tenant
+		// CIDR so clients reach tenant machines without a manual admin step.
+		if strings.TrimSpace(opts.TailscaleAPIKey) != "" {
+			c.log("approving tenant route " + plan.PrivateCIDR + " via Tailscale API")
+			if err := ApproveTailscaleRoute(ctx, opts.TailscaleAPIKey, sidecarIP, plan.PrivateCIDR); err != nil {
+				c.log("WARNING: tenant route auto-approval failed (approve it manually): " + err.Error())
+			}
 		}
 	}
 	c.log("done")

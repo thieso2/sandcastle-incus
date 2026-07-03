@@ -206,6 +206,7 @@ func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(co
 		var sidecarIP string
 		err := creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
 			TailscaleAuthKey:   admin.AuthTailscaleAuthKey,
+			TailscaleAPIKey:    admin.AuthTailscaleAPIKey,
 			OnSidecarTailnetIP: func(ip string) { sidecarIP = ip },
 		})
 		return sidecarIP, err
