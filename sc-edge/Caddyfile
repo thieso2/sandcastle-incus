@@ -73,3 +73,32 @@ https://api.example.com:8443 {
 	bind 127.0.0.1
 	reverse_proxy http://10.0.0.21:3000
 }
+
+# =========================================================================
+#  CLOUDFLARE TUNNEL vhosts  (mode 3: no public IP required)
+#
+#  cloudflared dials OUT to Cloudflare; Cloudflare terminates TLS at its edge
+#  and forwards cleartext HTTP down the tunnel. A single wildcard route
+#  (*.your-domain -> http://127.0.0.1:8080, configured once in the Cloudflare
+#  dashboard) delivers ALL tunneled traffic here; Caddy then routes by Host.
+#
+#  Because that wildcard covers every hostname, adding a tunneled host is a
+#  ONE-EDIT change: just add an http://<name>:8080 block below. No cloudflared
+#  or dashboard change is needed (contrast the terminate path, which also needs
+#  an entry in the @terminate `sni` list above).
+#
+#  These listen ONLY on 127.0.0.1:8080 (plain HTTP - Cloudflare already did the
+#  TLS). They never touch the public sockets, so this mode works on a host with
+#  no public IP at all.
+# =========================================================================
+http://tunnelapp.example.com:8080 {
+	bind 127.0.0.1
+	reverse_proxy http://10.0.0.30:8080
+}
+
+# Catch-all: any *.your-domain name that reaches the tunnel but has no vhost
+# above fails cleanly with 404 instead of matching some unrelated block.
+http://:8080 {
+	bind 127.0.0.1
+	respond "no such host" 404
+}

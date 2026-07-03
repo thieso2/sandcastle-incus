@@ -1,5 +1,5 @@
 [Unit]
-Description=caddy-sni-proxy (Caddy edge, layer4 SNI router)
+Description=sc-edge Caddy (routing brain: layer4 SNI router + ACME terminate + tunnel origin)
 Documentation=https://caddyserver.com/docs/
 After=network-online.target
 Wants=network-online.target

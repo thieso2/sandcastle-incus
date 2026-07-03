@@ -1,0 +1,40 @@
+services:
+  caddy:
+    build: .
+    # Or pull a prebuilt image instead of building:
+    #   image: ghcr.io/YOU/sc-edge:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Let's Encrypt contact address (used for expiry notices).
+      ACME_EMAIL: you@example.com
+    volumes:
+      # Persist issued certs so recreates don't re-hit ACME rate limits.
+      - caddy_data:/data
+      - caddy_config:/config
+      # Edit the Caddyfile on the host without rebuilding the image:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+  # ---- Cloudflare tunnel (mode 3): no public IP required -------------------
+  # Dials OUT to Cloudflare; nothing inbound is published. Cloudflare terminates
+  # TLS at its edge and forwards down the tunnel. Set CLOUDFLARE_TUNNEL_TOKEN in
+  # your env/.env; create the tunnel + a wildcard *.domain -> http://127.0.0.1:8080
+  # route once in the Cloudflare dashboard. Omit this service to run public-IP
+  # modes only. On an IP-less host, also drop the caddy `ports:` block above.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    # Share caddy's netns so `*.domain -> 127.0.0.1:8080` reaches Caddy's
+    # bind-127.0.0.1 tunnel listener, exactly as it does inside the CT.
+    network_mode: "service:caddy"
+    depends_on:
+      - caddy
+
+volumes:
+  caddy_data:
+  caddy_config:

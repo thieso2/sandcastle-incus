@@ -48,13 +48,15 @@ for design background see `docs/adr/0016-*` and `CONTEXT.md`.
 
 ## 2. Deploy `sc-edge` — the TLS edge that owns `:80`/`:443`
 
-`sc-edge` is the portable Caddy edge from [`caddy-sni-proxy/`](caddy-sni-proxy/). It runs
-Caddy natively under systemd in an Incus system container, does `http→https` redirect,
-SNI passthrough, and ACME-terminating reverse-proxy. It is the **only** thing that binds
-the public `:80`/`:443`; the auth-app and tenant apps sit behind it on the bridge.
+`sc-edge` is the portable edge appliance from [`sc-edge/`](sc-edge/). It runs Caddy
+natively under systemd in an Incus system container, does `http→https` redirect, SNI
+passthrough, and ACME-terminating reverse-proxy. It is the **only** thing that binds the
+public `:80`/`:443`; the auth-app and tenant apps sit behind it on the bridge. (It can
+also front apps via a Cloudflare tunnel with no public IP — set `CLOUDFLARE_TUNNEL_TOKEN`;
+see [`sc-edge/README.md`](sc-edge/README.md). Not used on this public-IP reference host.)
 
 ```bash
-cd caddy-sni-proxy
+cd sc-edge
 # Back /var/lib/caddy with a host path so issued certs survive CT deletion (avoids
 # hammering Let's Encrypt rate limits on rebuild).
 ACME_EMAIL=you@example.com DATA_HOST_PATH=/srv/caddy-data ./launch.sh sc-edge

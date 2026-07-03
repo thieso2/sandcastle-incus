@@ -1,0 +1,23 @@
+[Unit]
+Description=cloudflared (Cloudflare Tunnel for sc-edge)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# TUNNEL_TOKEN is read from /etc/default/cloudflared (written by launch.sh from
+# $CLOUDFLARE_TUNNEL_TOKEN). The tunnel is remotely-managed: its ingress
+# (wildcard *.domain -> http://127.0.0.1:8080) lives in the Cloudflare dashboard.
+EnvironmentFile=/etc/default/cloudflared
+DynamicUser=yes
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate run
+TimeoutStopSec=5s
+Restart=on-failure
+RestartSec=2s
+# cloudflared only dials outbound; it needs no privileged ports.
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
