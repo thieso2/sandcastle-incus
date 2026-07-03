@@ -11,3 +11,8 @@
 # Local jot push context
 .jot/
 *.log
+
+# Editor swap/temp files
+*.swp
+*.swo
+*~
