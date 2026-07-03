@@ -288,11 +288,13 @@ incus exec big:vm1 $Pd -- sh -c 'cat /workspace/marker; cat /home/dev/hmarker'  
 ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[vm1]} 'echo from-vm >> /workspace/marker'
 incus exec big:ct1 $Pd -- cat /workspace/marker                                   # → from-ct then from-vm
 ```
-**PASS (target):** the VM reads `from-ct` / `from-ct-home` written by the CT, and the
-CT sees the VM's append — `$HOME` and `/workspace` are one shared volume per project.
-🚧 **Not built yet:** the v2 default-project profile mounts only the root disk. Build a
-**per-project storage volume** added to the `default` profile as a `disk` device at
-`/workspace`, with the `dev` user's `$HOME` pointed at it, so every CT/VM in the project shares it.
+**PASS (✅ validated on Incus 7.2):** the VM reads `from-ct` written by the CT, and the
+CT sees the VM's append — `/workspace` is one shared volume per project.
+✅ **Built:** `CreateTenantV2` creates a per-project custom **filesystem** volume
+`workspace` and the `default` profile attaches it as a `disk` device at `/workspace`.
+The same fs volume attaches to a CT **and** a VM simultaneously (incus shares it via
+virtiofs to the VM), so a file written on any machine in the project is visible on the
+others. (`$HOME` sharing is not wired yet — only `/workspace`.)
 
 > ✅ **Auto-registration is now automatic.** A background reconciler in the auth-app
 > registers every running machine (incl. freeform `incus launch`) into the sidecar
@@ -492,3 +494,83 @@ stays truthful and self-healing.
 | Auth-app tailnet key ignored / sidecar `Logged out` | `SANDCASTLE_AUTH_TAILSCALE_AUTHKEY` line in `/etc/sandcastle/auth-app/env` was mangled by repeated `sed` edits (concatenated key + var name) | Rewrite the line cleanly from `.env.sc2`: `sed -i "8s\|.*\|SANDCASTLE_AUTH_TAILSCALE_AUTHKEY='<key>'\|" env`, then restart |
 | `sc login`/`ssh` needs the running fat binary on appliances | Appliances still ran a pre-v1-removal binary | `systemctl stop`, `incus file push bin/linux-amd64/sandcastle …/usr/local/bin/sandcastle-admin`, `systemctl start` on `sc2-broker` **and** `sc2-auth-app` |
 | SSH `Too many authentication failures` reaching a tenant machine | The local ssh-agent offered many keys before the right one; server cut off at 6 | Add `-o IdentitiesOnly=yes -i ~/.ssh/sandcastle_ed25519` |
+
+---
+
+## Appendix — Nested full-stack e2e (client CT drives the tenant via `sc login`)
+
+A self-contained run where **one VM hosts the whole stack** (Incus + sc-edge +
+auth-app + broker + the tenant sidecar + tenant machines) and **one nested
+container is the tenant's client**, connecting with `sc login` and then exercising
+the full tenant workflow. Validated on `sc2nest-vm1` (Debian 13, 4 vCPU / 16 GiB,
+nested KVM) fronted by a Cloudflare tunnel.
+
+### Host: latest Incus (Zabbly), not Debian's LTS
+Debian 13 apt ships Incus `6.0.4` (LTS). For the newest feature release use the
+Zabbly repo — this run used **Incus 7.2**:
+```bash
+sudo mkdir -p /etc/apt/keyrings
+sudo curl -fsSL https://pkgs.zabbly.com/key.asc -o /etc/apt/keyrings/zabbly.asc
+sudo tee /etc/apt/sources.list.d/zabbly-incus-stable.sources >/dev/null <<SRC
+Enabled: yes
+Types: deb
+URIs: https://pkgs.zabbly.com/incus/stable
+Suites: trixie
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/zabbly.asc
+SRC
+sudo apt-get update && sudo apt-get install -y incus
+sudo usermod -aG incus-admin "$USER" && sudo incus admin init --minimal
+```
+Then deploy sc-edge (tunnel-only), auth-app, and broker as in Phases 1–2. The VM's
+own `/dev/kvm` lets the tenant create **nested VMs** (`incus launch … --vm`).
+
+### Client CT: prerequisites
+The nested client container needs three things:
+- **`incus-client`** — `sc login` shells out to `incus remote add` (`apt-get install -y incus-client`).
+- **`tailscale`** with a **`/dev/net/tun`** device — the enrolled Incus remote is the
+  sidecar's *tailnet* IP (ADR-0017), so the client must be on the tenant's tailnet:
+  ```bash
+  incus config device add <client> tun unix-char path=/dev/net/tun
+  incus config set <client> security.nesting=true && incus restart <client>
+  # inside the CT:
+  curl -fsSL https://tailscale.com/install.sh | sh
+  tailscale up --auth-key=$TAILSCALE_AUTH_KEY --accept-routes --hostname=<client>
+  ```
+- the **`sc`** binary (`incus file push bin/linux-amd64/sandcastle <client>/usr/local/bin/sc`).
+
+### The run (from inside the client CT)
+```bash
+sc login https://$PUBIC_URL --simulate-token "$SIMULATE_TOKEN" --as thieso2 --skip-setup
+export INCUS_CONF=~/.config/sandcastle/sandcastle-thieso2/incus
+incus list --project sc2-thieso2-default                     # empty — reaches the sidecar over tailnet
+incus launch images:debian/13/cloud deva --project sc2-thieso2-default        # CT
+incus launch images:debian/13/cloud devb --project sc2-thieso2-default --vm   # nested VM
+# … dig @<sidecar-bridge-ip> deva.thieso2 ; ssh dev@<ip> ; curl http://<ip>:3000 ; /workspace shared …
+incus delete -f deva devb --project sc2-thieso2-default
+```
+
+**PASS (✅ validated):**
+- `sc login` provisions the tenant + sidecar and enrols the remote at
+  `https://<sidecar-tailnet-ip>:8443`; `incus list/launch/delete` of both a **CT and a
+  nested VM** work over that remote.
+- **DNS** auto-registration: `deva.thieso2`/`devb.thieso2` resolve at the sidecar CoreDNS.
+- **SSH** as `dev` and an **HTTP app on :3000** respond on each machine.
+- **Shared `/workspace`** — a file written on the CT is read on the VM and vice-versa.
+
+### ⚠️ The one gating requirement: approve the tenant subnet route
+The client reaches tenant machines (`10.x.x.N`: SSH, HTTP, and CoreDNS at `.3`) **only
+once the sidecar's advertised `/24` subnet route is approved** on the tailnet. Every
+sidecar is tagged **`tag:sandcastle`**, so the clean fix is the `autoApprovers` ACL
+(see Prerequisites) — then the route approves the moment the sidecar advertises it, and
+the client (with `--accept-routes`) reaches every machine. Without approval the sidecar's
+own IP (`.3`) is reachable but machines behind it are not (`No route to host`), and
+`sc login` (without `--skip-setup`) correctly **halts** at the routing check. Alternatives:
+deploy the auth-app with `--tailscale-api-key` (approves each route via the API at
+provisioning) or approve manually in the Tailscale admin console.
+
+> **Co-located caveat:** in this all-in-one-VM topology the machines are also directly
+> reachable from the **VM host** (host routing to the tenant bridge), which is handy for
+> validation; but a *real* remote client depends on the approved subnet route, so that is
+> what this appendix tests.
