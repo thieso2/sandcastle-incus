@@ -145,6 +145,13 @@ func (m TrustManager) CreateToken(ctx context.Context, plan usertrust.UserPlan) 
 	if err != nil {
 		return usertrust.TokenResult{}, err
 	}
+	// A certificate add token can only be minted when the daemon is listening on
+	// the network ("Can't issue token when server isn't listening on network").
+	// A freshly `incus admin init --minimal`'d host only has the unix socket, so
+	// ensure the network listener is on before provisioning issues a token.
+	if err := ensureServerListening(server); err != nil {
+		return usertrust.TokenResult{}, err
+	}
 	op, err := server.CreateCertificateToken(api.CertificatesPost{
 		Token: true,
 		CertificatePut: api.CertificatePut{
@@ -175,6 +182,38 @@ func (m TrustManager) CreateToken(ctx context.Context, plan usertrust.UserPlan) 
 		Projects:        plan.Projects,
 		Token:           token.String(),
 	}, nil
+}
+
+// defaultHostHTTPSAddress is where the host Incus listens for the network API.
+// mTLS + restricted per-tenant certs are the isolation boundary (ADR-0017), so
+// binding all interfaces is intentional; the client's remote URL is pinned to the
+// sidecar's tailnet IP, not to whatever addresses the daemon advertises.
+const defaultHostHTTPSAddress = ":8443"
+
+// ensureServerListening turns on the daemon's network listener if it is off, so
+// CreateCertificateToken can mint enrollment tokens. It is idempotent and a no-op
+// when core.https_address is already set or the server can't be introspected.
+func ensureServerListening(server TrustServer) error {
+	full, ok := server.(incus.InstanceServer)
+	if !ok {
+		return nil
+	}
+	info, etag, err := full.GetServer()
+	if err != nil {
+		return fmt.Errorf("read Incus server config: %w", err)
+	}
+	if strings.TrimSpace(info.Config["core.https_address"]) != "" {
+		return nil
+	}
+	put := info.Writable()
+	if put.Config == nil {
+		put.Config = map[string]string{}
+	}
+	put.Config["core.https_address"] = defaultHostHTTPSAddress
+	if err := full.UpdateServer(put, etag); err != nil {
+		return fmt.Errorf("enable Incus network listener (core.https_address=%s): %w", defaultHostHTTPSAddress, err)
+	}
+	return nil
 }
 
 func (m TrustManager) server() (TrustServer, error) {
