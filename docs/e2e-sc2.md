@@ -20,7 +20,8 @@ starts from a clean slate.
 - **GitHub auth — two modes:**
   - **Simulated (no OAuth app, recommended for e2e):** deploy the auth-app with `--simulate-github-token <secret>`; log in with `sc login <auth-host> --simulate-token <secret> --as <username>`. No `GH_CLIENT_ID`/`GH_CLIENT_SECRET`, no browser, no network to GitHub. **Dev/e2e only.**
   - **Real OAuth app:** `.env.sc2` with `GH_CLIENT_ID`, `GH_CLIENT_SECRET`; the OAuth **callback URL is `https://<auth-host>/oauth/github/callback`** (note `/oauth/…`, not `/login/…`).
-- `.env.sc2` at repo root with: `PUBIC_URL=sc2.thieso2.dev`, `TAILSCALE_AUTH_KEY`, and (real-OAuth only) `GH_CLIENT_ID`/`GH_CLIENT_SECRET`.
+- `.env.sc2` at repo root with: `PUBIC_URL=sc2.thieso2.dev`, `TAILSCALE_AUTH_KEY`, optional `TAILSCALE_API_KEY` (a `tskey-api-…` token), and (real-OAuth only) `GH_CLIENT_ID`/`GH_CLIENT_SECRET`.
+- **Tenant machine reachability (per-tenant tailnet, ADR-0017).** The sidecar advertises the tenant `/24` as a subnet route; a client reaches tenant machines only once that route is **approved** and the client **accepts routes**. Two automations handle this: deploy the auth-app with `--tailscale-api-key "$TAILSCALE_API_KEY"` to **auto-approve** the route at provisioning, and `sc login` enables `--accept-routes` on the client and **verifies the route works, halting with guidance if not**. Without the API key, approve the route manually in the Tailscale admin console.
 - **CIDR pools must not overlap the host's own network.** Pick `/16`s clear of the host IP and of `incusbr0`/other bridges (e.g. broker `10.249.0.0/16`, auth-app `10.250.0.0/16`). The allocator only sees existing v2 tenants, not the host subnet — an overlap fails with `dnsmasq: Address already in use`.
 - Public DNS: `sc2.thieso2.dev` → the host's public IP (`65.21.132.31`). *(On an IP-less host, front the auth-host via a Cloudflare tunnel + `sc-edge` instead — see `docs/handoff-sandcastle-e2e-tunnel.md`.)*
 - `TENANT=e2etest` throughout.
@@ -129,7 +130,9 @@ Stock image is the default (`--base-image images:debian/13`, pulled on demand �
 sc-adm auth-app deploy \
   --auth-hostname "$PUBIC_URL" \
   --simulate-github-token "$SIMULATE_TOKEN" \
-  --admin-github-users thieso2
+  --admin-github-users thieso2 \
+  --tailscale-auth-key "$TAILSCALE_AUTH_KEY" \
+  --tailscale-api-key "$TAILSCALE_API_KEY"      # optional: auto-approve tenant routes
 ```
 
 **Real OAuth app (alternative):**
@@ -252,7 +255,7 @@ for m in ct1 vm1; do
   done
   echo "$m = ${IP[$m]}"
 done
-# register A-records in the sidecar CoreDNS (auto-registration on create is TODO)
+# register A-records in the sidecar CoreDNS (now auto-registered by the auth-app reconciler within ~30s; manual step optional)
 incus exec big:sc2-$TENANT --project sc2-$TENANT -- bash -c "
   Z=/etc/coredns/zones/db.$TENANT
   grep -q '^ct1 ' \$Z || echo 'ct1 IN A ${IP[ct1]}' >> \$Z
@@ -285,8 +288,13 @@ CT sees the VM's append — `$HOME` and `/workspace` are one shared volume per p
 **per-project storage volume** added to the `default` profile as a `disk` device at
 `/workspace`, with the `dev` user's `$HOME` pointed at it, so every CT/VM in the project shares it.
 
-> ⚠️ Auto-registration of machine A-records on create is TODO (added manually above).
-> The plain `d31c34fadc08` image has no cloud-init → no `dev` user / sshd; always use `images:debian/13/cloud` for tenant machines.
+> ✅ **Auto-registration is now automatic.** A background reconciler in the auth-app
+> registers every running machine (incl. freeform `incus launch`) into the sidecar
+> CoreDNS zone as `<name>.<suffix>` (~30s). Manual A-record steps below are no longer
+> required — query CoreDNS by IP to verify (`dig @<sidecar-ip> <name>.<suffix>`). For a
+> client to resolve tenant names *automatically*, add a **Tailscale Split DNS** entry
+> routing the `<suffix>` domain to the sidecar's tailnet IP in the tailnet admin.
+> The plain image has no cloud-init → no `dev` user / sshd; always use `images:debian/13/cloud` for tenant machines.
 
 ---
 
@@ -336,7 +344,7 @@ address the split-DNS will be served on to tailnet clients later.
 
 ```bash
 TSIP=$(incus exec big:sc2-$TENANT --project sc2-$TENANT -- tailscale ip -4 | head -1)
-# register machine A-records + bump SOA serial + reload (auto-registration on create is TODO)
+# register machine A-records + bump SOA serial + reload (now auto-registered by the auth-app reconciler within ~30s; manual step optional)
 incus exec big:sc2-$TENANT --project sc2-$TENANT -- bash -c '
   Z=/etc/coredns/zones/db.e2etest
   grep -q "^'$NAME' " $Z || echo "'$NAME' IN A '$VM_IP'" >> $Z
