@@ -89,6 +89,9 @@ type HTTPRunner struct {
 	MachineSSHAccess MachineSSHAccessRevoker
 	ShareStore       share.Store
 	ShareReconciler  ShareReconciler
+	// DNSReconcile, when set, is invoked periodically to register tenant machine
+	// DNS records (auto-registration of freeform `incus launch` machines).
+	DNSReconcile func(context.Context) error
 }
 
 func PlanServe(request ServeRequest) (ServePlan, error) {
@@ -160,6 +163,9 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	if r.DNSReconcile != nil {
+		go r.runDNSReconcileLoop(ctx)
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -178,6 +184,28 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 		return <-errCh
 	case err := <-errCh:
 		return err
+	}
+}
+
+// runDNSReconcileLoop periodically registers tenant machine DNS records so
+// freeform `incus launch` machines resolve without a manual step. Errors are
+// logged and the loop continues; it stops when ctx is cancelled.
+func (r HTTPRunner) runDNSReconcileLoop(ctx context.Context) {
+	const interval = 30 * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	if err := r.DNSReconcile(ctx); err != nil {
+		log.Printf("auth-app DNS reconcile: %v", err)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.DNSReconcile(ctx); err != nil {
+				log.Printf("auth-app DNS reconcile: %v", err)
+			}
+		}
 	}
 }
 

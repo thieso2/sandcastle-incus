@@ -56,12 +56,24 @@ ns IN A %s
 		}
 		return machines[i].Project < machines[j].Project
 	})
+	seenShort := map[string]bool{}
 	for _, machine := range machines {
-		if machine.Project == "" || machine.Name == "" || machine.PrivateIP == "" {
+		if machine.Name == "" || machine.PrivateIP == "" {
 			continue
 		}
-		record := machine.Name + "." + machine.Project + "." + domain + "."
-		zone += fmt.Sprintf("%s IN A %s\n*.%s IN A %s\n", record, machine.PrivateIP, record, machine.PrivateIP)
+		// Short name <machine>.<suffix> — the canonical v2 tenant machine name.
+		// Emitted once per name (first wins on collision across projects).
+		if !seenShort[machine.Name] {
+			seenShort[machine.Name] = true
+			short := machine.Name + "." + domain + "."
+			zone += fmt.Sprintf("%s IN A %s\n", short, machine.PrivateIP)
+		}
+		// Project-qualified name <machine>.<project>.<suffix> (+ wildcard) when a
+		// project is known (v1 machines carry it; freeform v2 machines may not).
+		if machine.Project != "" {
+			record := machine.Name + "." + machine.Project + "." + domain + "."
+			zone += fmt.Sprintf("%s IN A %s\n*.%s IN A %s\n", record, machine.PrivateIP, record, machine.PrivateIP)
+		}
 	}
 	return []File{
 		{

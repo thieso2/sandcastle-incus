@@ -90,8 +90,10 @@ func ExecuteAdmin(name string, args []string) int {
 			fmt.Fprintf(os.Stderr, "[verbose] route broker unix socket unavailable: %v\n", err)
 		}
 	}
+	var authAppSocketServer incus.InstanceServer
 	if authAppServeArgs(args) {
 		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
+			authAppSocketServer = socketServer
 			authAppTenants = incusx.NewTenantStoreForServer(socketServer)
 			authAppMachines = incusx.NewHostOverrideManagerForServer(socketServer)
 			authAppCreator = incusx.NewTenantCreatorForServer(socketServer).WithVerbose(verbose, os.Stderr)
@@ -151,6 +153,12 @@ func ExecuteAdmin(name string, args []string) int {
 			MachineSSHAccess: authAppSSHKeys,
 			ShareStore:       authAppMetadataUpdater,
 			ShareReconciler:  authAppShareReconciler,
+			DNSReconcile: func(ctx context.Context) error {
+				if authAppSocketServer == nil {
+					return nil // no mounted socket (not the serving appliance) — nothing to reconcile
+				}
+				return incusx.ReconcileV2TenantsDNS(ctx, authAppSocketServer, authAppTenants)
+			},
 			Provisioner: authapp.Provisioner{
 				Admin:   adminConfig,
 				Tenants: authAppTenants,
