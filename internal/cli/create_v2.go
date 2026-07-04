@@ -3,7 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -97,6 +101,72 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 		return err
 	}
 	return writeOutput(config.stdout, opts.output, formatCreateMachineV2(summary, project, result, false), result)
+}
+
+// runConnectV2 implements `sc connect` (alias `c`) for v2 tenants: create the
+// machine if it doesn't exist, start it if it is stopped, wait for sshd, then
+// open an SSH session as the profile login user with the login SSH key.
+func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, command []string) error {
+	project, machineName, err := parseV2MachineReference(reference, summary.Tenant, config.adminConfig.Project)
+	if err != nil {
+		return err
+	}
+	ensured, err := config.tenantCreator.EnsureMachineV2(ctx, incusx.CreateMachineV2Request{
+		IncusProject: summary.V2IncusProjectName(project),
+		Name:         machineName,
+		Image:        v2DefaultMachineImage,
+	})
+	if err != nil {
+		return err
+	}
+	switch {
+	case ensured.Created:
+		fmt.Fprintf(config.stdout, "Machine %s created (project %s).\n", machineName, project)
+	case ensured.Started:
+		fmt.Fprintf(config.stdout, "Machine %s started.\n", machineName)
+	}
+	if ensured.PrivateIP == "" {
+		return fmt.Errorf("machine %s has no IP yet — still booting; retry in a few seconds (watch with: sc list)", machineName)
+	}
+	// A fresh machine needs cloud-init to install and start sshd.
+	sshDeadline := time.Now().Add(120 * time.Second)
+	for !probeSSHPort(ensured.PrivateIP, 3*time.Second) {
+		if !time.Now().Before(sshDeadline) {
+			return fmt.Errorf("machine %s (%s) did not open SSH within 2 minutes — cloud-init may still be running", machineName, ensured.PrivateIP)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	sshKey, err := prepareLoginSSHKey(loginSSHKeyRequest{})
+	if err != nil {
+		return err
+	}
+	privateKeyPath := strings.TrimSuffix(sshKey.PublicKeyPath, ".pub")
+	sshArgs := []string{
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "IdentitiesOnly=yes",
+		"-i", privateKeyPath,
+		ensured.LoginUser + "@" + ensured.PrivateIP,
+	}
+	sshArgs = append(sshArgs, command...)
+	fmt.Fprintf(config.stdout, "Connecting: ssh %s@%s\n", ensured.LoginUser, ensured.PrivateIP)
+	sshCmd := exec.CommandContext(ctx, "ssh", sshArgs...)
+	sshCmd.Stdin = osStdinFor(config)
+	sshCmd.Stdout = config.stdout
+	sshCmd.Stderr = config.stderr
+	return sshCmd.Run()
+}
+
+// osStdinFor hands the real stdin to interactive subprocesses when the command
+// config carries os.Stdin (the normal CLI case); test configs keep their reader.
+func osStdinFor(config commandConfig) io.Reader {
+	if config.stdin != nil {
+		return config.stdin
+	}
+	return os.Stdin
 }
 
 func machineTypeLabel(vm bool) string {

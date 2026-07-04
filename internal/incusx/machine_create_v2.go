@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/lxc/incus/v6/shared/api"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 // CreateMachineV2Request describes a v2 machine launch: a stock cloud image
@@ -69,6 +71,73 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 	result.PrivateIP = waitForV2InstanceIPv4(ctx, project, request.Name, v2MachineIPTimeout(request.VM))
 	return result, nil
 }
+
+// EnsureMachineV2Result reports what EnsureMachineV2 had to do to make the
+// machine reachable: created from scratch, started from stopped, or nothing.
+type EnsureMachineV2Result struct {
+	Name      string `json:"name"`
+	Project   string `json:"incusProject"`
+	Created   bool   `json:"created"`
+	Started   bool   `json:"started"`
+	PrivateIP string `json:"privateIP,omitempty"`
+	LoginUser string `json:"loginUser"`
+}
+
+// EnsureMachineV2 makes the named v2 machine exist and run: creates it from the
+// request image when missing, starts it when stopped, and waits (bounded) for
+// an IPv4 lease. LoginUser is read from the project default profile so callers
+// can open an SSH session as the right user.
+func (c TenantCreator) EnsureMachineV2(ctx context.Context, request CreateMachineV2Request) (EnsureMachineV2Result, error) {
+	server, err := c.resolveV2Server()
+	if err != nil {
+		return EnsureMachineV2Result{}, err
+	}
+	project := server.UseProject(request.IncusProject)
+	result := EnsureMachineV2Result{
+		Name:      request.Name,
+		Project:   request.IncusProject,
+		LoginUser: v2ProfileLoginUser(project),
+	}
+	instance, _, err := project.GetInstance(request.Name)
+	switch {
+	case err == nil && instance.StatusCode == api.Stopped:
+		op, err := project.UpdateInstanceState(request.Name, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
+		if err != nil {
+			return EnsureMachineV2Result{}, fmt.Errorf("start machine %s: %w", request.Name, err)
+		}
+		if err := op.Wait(); err != nil {
+			return EnsureMachineV2Result{}, fmt.Errorf("wait for machine %s start: %w", request.Name, err)
+		}
+		result.Started = true
+		result.PrivateIP = waitForV2InstanceIPv4(ctx, project, request.Name, v2MachineIPTimeout(request.VM))
+	case err == nil:
+		result.PrivateIP = waitForV2InstanceIPv4(ctx, project, request.Name, 20*time.Second)
+	case api.StatusErrorCheck(err, http.StatusNotFound):
+		created, err := c.CreateMachineV2(ctx, request)
+		if err != nil {
+			return EnsureMachineV2Result{}, err
+		}
+		result.Created = true
+		result.PrivateIP = created.PrivateIP
+	default:
+		return EnsureMachineV2Result{}, fmt.Errorf("get machine %s: %w", request.Name, err)
+	}
+	return result, nil
+}
+
+// v2ProfileLoginUser extracts the login username from the project default
+// profile's cloud-init user-data (the first `- name:` entry).
+func v2ProfileLoginUser(project TenantResourceServer) string {
+	profile, _, err := project.GetProfile("default")
+	if err == nil {
+		if match := v2ProfileUserPattern.FindStringSubmatch(profile.Config["cloud-init.user-data"]); match != nil {
+			return match[1]
+		}
+	}
+	return tenant.DefaultV2UnixUser
+}
+
+var v2ProfileUserPattern = regexp.MustCompile(`(?m)^\s*-\s*name:\s*(\S+)`)
 
 // MachineLifecycleV2 applies start/stop/restart/delete to a freeform v2
 // machine. Delete force-stops a running instance first; state changes go

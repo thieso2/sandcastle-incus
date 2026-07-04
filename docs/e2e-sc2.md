@@ -363,12 +363,13 @@ for the v2-topology support (each step below failed at least once before being
 fixed; see the appendix).
 
 ```bash
-sc create lc1                                  # stock cloud image into the app project
+sc c lc1 -- hostname                           # connect CREATES a missing machine, waits for sshd, SSHes
 sc list                                        # lc1 with flat FQDN lc1.<suffix> + live IP
 sc incus exec lc1 -- sh -c '
   su - $LOGIN_USER -c "touch /workspace/ok"    # /workspace writable by the login user
   ls /home/$LOGIN_USER/.ssh/authorized_keys'   # $HOME on the shared volume with the key
-sc stop lc1 && sc start lc1
+sc stop lc1
+sc c lc1 -- hostname                           # connect STARTS a stopped machine, then SSHes
 sc delete lc1 --yes
 sc list                                        # lc1 gone
 ```
@@ -377,6 +378,8 @@ sc list                                        # lc1 gone
   machines with `<name>.<suffix>` FQDNs and live IPs.
 - The profile's login user (your client Unix username) exists in the machine, can
   **write `/workspace`**, and `~/.ssh/authorized_keys` lives on the shared `/home`.
+- `sc c <machine>` creates a missing machine, starts a stopped one, waits for
+  sshd, and lands an SSH session as the profile login user.
 - `sc delete <machine> --yes` deletes the freeform instance (force-stops first);
   start/stop/restart work; `sc incus` targets the right project.
 

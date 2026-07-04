@@ -28,6 +28,10 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := args[0]
 			command := args[1:]
+			// v2 tenants: ensure the freeform machine exists and runs, then SSH.
+			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
+				return runConnectV2(cmd.Context(), config, summary, reference, command)
+			}
 			cache := incusx.NewConnectCache(config.adminConfig.Remote)
 			plan, fromCache, err := planConnectCached(cmd.Context(), config, cache, reference, command, useMosh)
 			if err != nil {
