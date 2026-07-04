@@ -570,6 +570,17 @@ own IP (`.3`) is reachable but machines behind it are not (`No route to host`), 
 deploy the auth-app with `--tailscale-api-key` (approves each route via the API at
 provisioning) or approve manually in the Tailscale admin console.
 
+> **Stale sidecar devices blackhole an approved route.** Each teardown+rebuild (or a
+> re-register) leaves the previous sidecar as a **dead tailnet device with the same
+> hostname**, still advertising the tenant's `/24`. With several duplicates, Tailscale's
+> subnet-router primary election can pick an **offline** one — so the route reads as
+> approved yet the client still gets `No route to host`. `ApproveTailscaleRoute` (the
+> `--tailscale-api-key` path) now **deletes same-hostname stragglers** before approving
+> the live device, keeping exactly one router for the `/24`. If you approve by hand,
+> delete the old `sc2-<tenant>` devices in the admin console (or use an **ephemeral**
+> auth key so they self-remove when offline). Symptom to recognise: the device's
+> `enabledRoutes` shows the `/24` but the node's `Self.PrimaryRoutes` is `null`.
+
 > **Co-located caveat:** in this all-in-one-VM topology the machines are also directly
 > reachable from the **VM host** (host routing to the tenant bridge), which is handy for
 > validation; but a *real* remote client depends on the approved subnet route, so that is
