@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
@@ -76,6 +77,12 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 				}
 				added++
 				fmt.Fprintf(config.stdout, "  %s: → %s\n", name, incusProject)
+			}
+			// Persist the tenant + remote as the local defaults so every other
+			// sc command (list, create, connect, incus, …) resolves this tenant
+			// without SANDCASTLE_TENANT — the login path does the same.
+			if _, _, err := saveRemoteDefaults(scconfig.DefaultConfigPath(), tenant, tenant); err != nil {
+				fmt.Fprintf(config.stderr, "Note: could not save local defaults: %v\n", err)
 			}
 			fmt.Fprintf(config.stdout, "connected tenant %q — config at %s (%d project remote(s))\n", tenant, dir, added)
 			fmt.Fprintf(config.stdout, "use it with:  INCUS_CONF=%s incus list %s:\n", dir, tenant)

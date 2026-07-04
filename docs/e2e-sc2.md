@@ -95,6 +95,17 @@ SNI-passthrough entry. Until then, the phases below run against the **persistent
 sc2 on `big` (edge/broker/auth-app + a throwaway `e2etest` tenant) — same flow, but
 sharing the long-lived appliances. The hermetic harness makes every run disposable.
 
+> ✅ **Second full validation (2026-07-04 evening, `testzone-vm1`):** the whole
+> protocol re-ran from scratch on another fresh isolated VM — including the new
+> **Phase 7c** (`sc c` create/start/SSH lifecycle from the client), the **login
+> tailnet precheck** (verified refusing on the tailscale-less host), the
+> **layered routing diagnosis** (all ✓ on the client node), and **idempotent
+> re-login** (`Already logged in …`). The run caught and fixed three real bugs
+> (shared-volume idmap shift breaking VM sshd, connect-v2 not saving local
+> defaults, `/api/tenants` blind to v2 tenants) — see the appendix. Deliberate
+> deviation: distinct CIDR pools (broker `10.251/16`, auth-app `10.252/16`) so
+> the run's tailnet routes can't contend with the live `igel` deployment.
+
 > ✅ **Pattern validated by hand (2026-07-04, `sc2iso-vm2`):** the full protocol was
 > executed on a fresh, fully isolated Debian 13 VM — own Incus 7.2 (Zabbly), own
 > sc-edge (**Cloudflare-tunnel mode**, `PUBLIC_PORTS=0`, API-created tunnel +
@@ -598,6 +609,10 @@ stays truthful and self-healing.
 | `sc login --force` on a v2 tenant WITH machines → `reconcile User SSH Public Key … Instance not found: default-dev3` | Making v2 tenants visible to `tenant.List` armed the auth-app's v1 per-machine key reconciler, which uses v1 `<project>-<machine>` instance naming | **Fixed:** v2 tenants skip the v1 reconcile/stamp (the key lives in the profile; rotation reaches machines via the shared /home) |
 | `sc delete <machine>` on a v2 tenant → `Sandcastle tenant … not found` even though `sc list` works | `filterTenantProjects` (tenant-filtered store used by lifecycle/plan paths) dropped every non-`kind=tenant` project, so v2 tenants vanished before the v2 branch could run | **Fixed:** the filter keeps `kind=project`/`kind=infra` projects whose `user.sandcastle.tenant` matches; `sc delete/start/stop/restart` now act on v2 freeform instances (Phase 7c) |
 | Login user cannot write `/workspace` (`drwx--x--x root root`) | The shared volume was created with default root ownership; nothing chowned it | **Fixed:** volumes are created with `initial.uid/gid=2000, initial.mode=0775`; pre-existing tenants: one-time `chown 2000:2000 /workspace && chmod 0775 /workspace` from any machine (shared volume → fixes all) |
+| SSH into a **VM** fails `Permission denied (publickey)` while the CT works; VM sees `/home/dev` owned by `1002000` | CT writes to the shared volume through its idmap; without `security.shifted` a VM (virtiofs, no shift) sees raw shifted owners → sshd StrictModes rejects the foreign-owned `~` | **Fixed:** shared volumes are created with `security.shifted=true`; pre-existing tenants: stop machines, `incus storage volume set default home security.shifted=true` (and `workspace`), start, then `chown -R 2000:2000 /home/<user>` once from a VM (raw view) |
+| `sc list`/`sc c` on a connect-v2-enrolled client → `tenant is required` | `connect-v2` never persisted `tenant`/`remote` into `~/.config/sandcastle/config.yml` (only the login path did) | **Fixed:** `connect-v2` saves the tenant + base remote as local defaults |
+| Second `sc login` re-runs the whole device flow instead of `Already logged in` | `/api/tenants` filtered accessibility through the v1 `ListTenantUsers` metadata, which v2 tenants don't have — the saved-token check concluded the tenant was "no longer accessible" | **Fixed:** a v2 personal tenant is accessible to the user whose key names it; also fixes `sc tenant list` for v2 |
+| Tenant CIDR ignores `bootstrap --cidr-pool` when created via `incus exec … tenant create-v2` | The flag lands in the broker **service** env (`/etc/sandcastle/broker/env`), but a direct `incus exec` CLI call doesn't inherit an EnvironmentFile | Source it in the exec: `incus exec sc2-broker … -- sh -c '. /etc/sandcastle/broker/env && export SANDCASTLE_CIDR_POOL && sandcastle-admin tenant create-v2 …'` |
 
 ---
 

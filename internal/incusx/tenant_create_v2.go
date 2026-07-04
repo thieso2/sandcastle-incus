@@ -238,12 +238,17 @@ const (
 // /workspace is owned by the profile login user (UID/GID 2000, ADR-0014) so it
 // is writable out of the box; /home keeps the standard root-owned 0755 (the
 // per-user directory inside it is created by cloud-init with user ownership).
+// security.shifted is REQUIRED on both: a CT writes through its idmap, so
+// without it a VM sharing the volume sees raw shifted owners (e.g. 1002000
+// instead of 2000) — which broke VM sshd (StrictModes rejects a foreign-owned
+// ~). Shifted volumes give every consumer the unshifted UIDs.
 func ensureV2ProjectVolumes(server TenantResourceServer, pool string, tenantName string) error {
-	workspaceConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
+	workspaceConfig := map[string]string{"security.shifted": "true", "initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
 	if err := ensureV2SharedVolume(server, pool, v2WorkspaceVolumeName, "Shared /workspace for Sandcastle v2 tenant "+tenantName, workspaceConfig); err != nil {
 		return err
 	}
-	return ensureV2SharedVolume(server, pool, v2HomeVolumeName, "Shared /home for Sandcastle v2 tenant "+tenantName, nil)
+	homeConfig := map[string]string{"security.shifted": "true"}
+	return ensureV2SharedVolume(server, pool, v2HomeVolumeName, "Shared /home for Sandcastle v2 tenant "+tenantName, homeConfig)
 }
 
 func ensureV2SharedVolume(server TenantResourceServer, pool string, name string, description string, config map[string]string) error {

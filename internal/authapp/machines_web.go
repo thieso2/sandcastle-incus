@@ -101,6 +101,14 @@ func (h handler) accessibleTenantSummaries(r *http.Request, user User) ([]tenant
 	normalized := NormalizeGitHubUsername(user.UserKey)
 	accessible := make([]tenant.Summary, 0, len(summaries))
 	for _, summary := range summaries {
+		// v2 tenants have no v1 tenant-user metadata for ListTenantUsers to
+		// read; a v2 personal tenant belongs to the user whose key names it.
+		if summary.Version == 2 {
+			if summary.Tenant == normalized {
+				accessible = append(accessible, summary)
+			}
+			continue
+		}
 		plan, err := usertrust.PlanTenantUsersForRequest(h.admin, usertrust.TenantAccessRequest{Tenant: summary.Tenant, Personal: summary.Personal})
 		if err != nil {
 			return nil, err
