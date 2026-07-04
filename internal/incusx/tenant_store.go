@@ -128,16 +128,26 @@ func filterTenantProjects(projects []tenant.IncusProject, tenantNames []string) 
 	}
 	output := make([]tenant.IncusProject, 0, len(projects))
 	for _, project := range projects {
-		if !meta.IsManaged(project.Config) || project.Config[meta.KeyKind] != meta.KindTenant {
+		if !meta.IsManaged(project.Config) {
 			continue
 		}
-		tenantConfig, err := meta.ParseTenantConfig(project.Config)
-		if err != nil {
-			output = append(output, project)
-			continue
-		}
-		if _, ok := filter[tenantConfig.Tenant]; ok {
-			output = append(output, project)
+		switch project.Config[meta.KeyKind] {
+		case meta.KindTenant:
+			tenantConfig, err := meta.ParseTenantConfig(project.Config)
+			if err != nil {
+				output = append(output, project)
+				continue
+			}
+			if _, ok := filter[tenantConfig.Tenant]; ok {
+				output = append(output, project)
+			}
+		case meta.KindV2Project, meta.KindInfra:
+			// v2 tenants: the owning tenant is a plain config key. Dropping
+			// these made every tenant-filtered lookup report a v2 tenant as
+			// "not found" instead of reaching the caller's v2 handling.
+			if _, ok := filter[strings.TrimSpace(project.Config[meta.KeyTenant])]; ok {
+				output = append(output, project)
+			}
 		}
 	}
 	return output

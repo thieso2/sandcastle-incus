@@ -352,9 +352,33 @@ active on both.
 > projects (flat FQDN `<machine>.<suffix>`, live DHCP IP; freeform `incus launch`
 > machines included), `sc create dev` launches `images:debian/13/cloud` into the
 > tenant's app project via the default profile (`--vm` for a VM, `--image` to
-> override; prints IP + SSH hint, no auto-connect), and `sc incus`/`sc incus-native`
-> scope to the v2 app project (`sc incus-infra` → the infra project). The e2e can
-> drive Phase 7 through `sc create`/`sc list` as well as raw `incus launch`.
+> override; prints IP + SSH hint, no auto-connect), lifecycle commands
+> (`sc delete/start/stop/restart`) act on the freeform instances, and
+> `sc incus`/`sc incus-native` scope to the v2 app project (`sc incus-infra` → the
+> infra project).
+
+### Phase 7c — `sc` CLI v2 machine lifecycle (from the enrolled client) ✅
+Run the whole machine lifecycle through the `sc` CLI — this is the regression net
+for the v2-topology support (each step below failed at least once before being
+fixed; see the appendix).
+
+```bash
+sc create lc1                                  # stock cloud image into the app project
+sc list                                        # lc1 with flat FQDN lc1.<suffix> + live IP
+sc incus exec lc1 -- sh -c '
+  su - $LOGIN_USER -c "touch /workspace/ok"    # /workspace writable by the login user
+  ls /home/$LOGIN_USER/.ssh/authorized_keys'   # $HOME on the shared volume with the key
+sc stop lc1 && sc start lc1
+sc delete lc1 --yes
+sc list                                        # lc1 gone
+```
+**PASS (✅ validated on `igel` 2026-07-04):**
+- `sc list` resolves the v2 tenant (no `Sandcastle tenant … not found`) and shows
+  machines with `<name>.<suffix>` FQDNs and live IPs.
+- The profile's login user (your client Unix username) exists in the machine, can
+  **write `/workspace`**, and `~/.ssh/authorized_keys` lives on the shared `/home`.
+- `sc delete <machine> --yes` deletes the freeform instance (force-stops first);
+  start/stop/restart work; `sc incus` targets the right project.
 
 ---
 
@@ -568,6 +592,9 @@ stays truthful and self-healing.
 | Client's ping to the tenant gateway succeeds (sub-ms!) yet login's routing check fails | ANOTHER deployment's bridge on the client's LAN path uses the same `/24` — the "reply" came from the local network, not the tenant (the check rejects non-tailnet egress by design) | Delete/renumber the colliding stale bridges (`incus network delete <sc2-…>` on the old host); the diagnosis now prints the answering local address |
 | Making a subnet-resident machine a tailnet node breaks its OLD inbound reachability | Asymmetric routing: callers still reach it via the other router's subnet route, but its replies now leave via its own `tailscale0` and the caller's tailscaled drops them (source not in that node's allowed IPs) | Don't dual-home test clients: a client VM is EITHER reached via someone's subnet route OR is a tailnet node. For the e2e use a dedicated client VM that is a node (see the two-VM note) |
 | `sc list`/`sc create`/`sc incus` on a v2 tenant → `Sandcastle tenant … not found` / `permission for project "sc-<tenant>"` | The v1 command family resolved tenants via `kind=tenant` projects and `sc-<tenant>` naming; v2 tenants have neither | **Fixed:** `tenant.List` surfaces v2 tenants from their `kind=project, version=2` Incus projects; `sc create` launches stock cloud images for v2 (`--image`/`--vm`); `sc incus*` scope to the v2 project names |
+| `sc login --force` on a v2 tenant WITH machines → `reconcile User SSH Public Key … Instance not found: default-dev3` | Making v2 tenants visible to `tenant.List` armed the auth-app's v1 per-machine key reconciler, which uses v1 `<project>-<machine>` instance naming | **Fixed:** v2 tenants skip the v1 reconcile/stamp (the key lives in the profile; rotation reaches machines via the shared /home) |
+| `sc delete <machine>` on a v2 tenant → `Sandcastle tenant … not found` even though `sc list` works | `filterTenantProjects` (tenant-filtered store used by lifecycle/plan paths) dropped every non-`kind=tenant` project, so v2 tenants vanished before the v2 branch could run | **Fixed:** the filter keeps `kind=project`/`kind=infra` projects whose `user.sandcastle.tenant` matches; `sc delete/start/stop/restart` now act on v2 freeform instances (Phase 7c) |
+| Login user cannot write `/workspace` (`drwx--x--x root root`) | The shared volume was created with default root ownership; nothing chowned it | **Fixed:** volumes are created with `initial.uid/gid=2000, initial.mode=0775`; pre-existing tenants: one-time `chown 2000:2000 /workspace && chmod 0775 /workspace` from any machine (shared volume → fixes all) |
 
 ---
 

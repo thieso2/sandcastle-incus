@@ -70,6 +70,51 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 	return result, nil
 }
 
+// MachineLifecycleV2 applies start/stop/restart/delete to a freeform v2
+// machine. Delete force-stops a running instance first; state changes go
+// through the normal instance-state API.
+func (c TenantCreator) MachineLifecycleV2(ctx context.Context, incusProject string, name string, action string) error {
+	server, err := c.resolveV2Server()
+	if err != nil {
+		return err
+	}
+	project := server.UseProject(incusProject)
+	instance, _, err := project.GetInstance(name)
+	if err != nil {
+		if api.StatusErrorCheck(err, http.StatusNotFound) {
+			return fmt.Errorf("machine %q not found in project %s", name, incusProject)
+		}
+		return fmt.Errorf("get machine %s: %w", name, err)
+	}
+	switch action {
+	case "delete":
+		if instance.StatusCode != api.Stopped {
+			if op, err := project.UpdateInstanceState(name, api.InstanceStatePut{Action: "stop", Force: true}, ""); err == nil {
+				_ = op.Wait()
+			}
+		}
+		op, err := project.DeleteInstance(name)
+		if err != nil {
+			return fmt.Errorf("delete machine %s: %w", name, err)
+		}
+		if err := op.Wait(); err != nil {
+			return fmt.Errorf("wait for machine %s deletion: %w", name, err)
+		}
+		return nil
+	case "start", "stop", "restart":
+		op, err := project.UpdateInstanceState(name, api.InstanceStatePut{Action: action, Force: action != "start", Timeout: -1}, "")
+		if err != nil {
+			return fmt.Errorf("%s machine %s: %w", action, name, err)
+		}
+		if err := op.Wait(); err != nil {
+			return fmt.Errorf("wait for machine %s %s: %w", name, action, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported machine action %q", action)
+	}
+}
+
 func v2MachineIPTimeout(vm bool) time.Duration {
 	if vm {
 		return 90 * time.Second // VM firmware + kernel boot before DHCP

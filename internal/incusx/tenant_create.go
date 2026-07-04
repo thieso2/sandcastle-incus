@@ -37,6 +37,7 @@ type TenantResourceServer interface {
 	GetInstance(name string) (*api.Instance, string, error)
 	GetInstanceState(name string) (*api.InstanceState, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
+	DeleteInstance(name string) (incus.Operation, error)
 	UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
@@ -300,6 +301,10 @@ func (s sdkResourceServer) GetInstanceState(name string) (*api.InstanceState, st
 
 func (s sdkResourceServer) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {
 	return s.inner.CreateInstance(instance)
+}
+
+func (s sdkResourceServer) DeleteInstance(name string) (incus.Operation, error) {
+	return s.inner.DeleteInstance(name)
 }
 
 func (s sdkResourceServer) UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error) {

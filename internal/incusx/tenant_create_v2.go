@@ -235,14 +235,18 @@ const (
 )
 
 // ensureV2ProjectVolumes creates the project's shared volumes if missing.
+// /workspace is owned by the profile login user (UID/GID 2000, ADR-0014) so it
+// is writable out of the box; /home keeps the standard root-owned 0755 (the
+// per-user directory inside it is created by cloud-init with user ownership).
 func ensureV2ProjectVolumes(server TenantResourceServer, pool string, tenantName string) error {
-	if err := ensureV2SharedVolume(server, pool, v2WorkspaceVolumeName, "Shared /workspace for Sandcastle v2 tenant "+tenantName); err != nil {
+	workspaceConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
+	if err := ensureV2SharedVolume(server, pool, v2WorkspaceVolumeName, "Shared /workspace for Sandcastle v2 tenant "+tenantName, workspaceConfig); err != nil {
 		return err
 	}
-	return ensureV2SharedVolume(server, pool, v2HomeVolumeName, "Shared /home for Sandcastle v2 tenant "+tenantName)
+	return ensureV2SharedVolume(server, pool, v2HomeVolumeName, "Shared /home for Sandcastle v2 tenant "+tenantName, nil)
 }
 
-func ensureV2SharedVolume(server TenantResourceServer, pool string, name string, description string) error {
+func ensureV2SharedVolume(server TenantResourceServer, pool string, name string, description string, config map[string]string) error {
 	if _, _, err := server.GetStoragePoolVolume(pool, "custom", name); err == nil {
 		return nil
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
@@ -253,6 +257,7 @@ func ensureV2SharedVolume(server TenantResourceServer, pool string, name string,
 		Type: "custom",
 		StorageVolumePut: api.StorageVolumePut{
 			Description: description,
+			Config:      config,
 		},
 	})
 }
