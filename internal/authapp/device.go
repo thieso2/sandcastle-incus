@@ -197,14 +197,21 @@ func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey stri
 	tenantName := NormalizeGitHubUsername(userKey)
 	for _, summary := range summaries {
 		if summary.Tenant == tenantName {
+			// v2 tenants get the key through the default-project profile
+			// (refreshed by provisioning on every login); machines are freeform
+			// instances the v1 per-machine exec below would misname
+			// (<project>-<machine> vs the plain v2 instance name). Rotation
+			// reaches existing machines via the shared /home the next time any
+			// machine's cloud-init writes authorized_keys.
+			if summary.Version == 2 {
+				return nil
+			}
 			if err := h.machineSSHKeys.ReconcileUserSSHKey(ctx, summary, tenantName, publicKey); err != nil {
 				return fmt.Errorf("reconcile User SSH Public Key for Personal Tenant %s: %w", tenantName, err)
 			}
 			return nil
 		}
 	}
-	// v2 tenants bake the SSH key into the default-project profile at create, so
-	// there is no v1 Personal Tenant to reconcile here — nothing to do.
 	return nil
 }
 
@@ -217,8 +224,11 @@ func (h handler) setPersonalTenantSSHKey(ctx context.Context, userKey string, pu
 	}
 	summary, err := h.findPersonalTenant(ctx, userKey)
 	if err != nil {
-		// v2 tenants have no v1 Personal Tenant to stamp — the key is already in
-		// the default-project profile from create. Skip rather than fail.
+		return nil
+	}
+	// v2 tenants have no v1 Personal Tenant metadata to stamp — the key is
+	// already in the default-project profile from create. Skip rather than fail.
+	if summary.Version == 2 {
 		return nil
 	}
 	if err := h.tenantSSHKeys.SetTenantSSHKey(ctx, summary.IncusName, publicKey); err != nil {

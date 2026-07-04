@@ -431,6 +431,9 @@ func parseMachineTargetInTenant(ctx context.Context, admin config.Admin, store t
 	if !ok {
 		return machineTarget{}, fmt.Errorf("Sandcastle tenant %s not found", currentTenant)
 	}
+	if summary.Version == 2 {
+		return machineTarget{}, errV2TenantUnsupported(summary.Tenant)
+	}
 	return machineTarget{
 		Summary:         summary,
 		Project:         projectRef.Project,
@@ -536,10 +539,21 @@ func findTenant(ctx context.Context, store tenant.IncusTenantStore, ref naming.T
 	}
 	for _, summary := range tenants {
 		if summary.Tenant == ref.Tenant {
+			if summary.Version == 2 {
+				return tenant.Summary{}, errV2TenantUnsupported(summary.Tenant)
+			}
 			return summary, nil
 		}
 	}
 	return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.String())
+}
+
+// errV2TenantUnsupported keeps the v1 machine-plan machinery (connect, delete,
+// restart, port, …) from proceeding on a v2 tenant: its freeform instances use
+// plain names, not the v1 <project>-<machine> convention, so v1 plans would
+// target instances that don't exist.
+func errV2TenantUnsupported(tenantName string) error {
+	return fmt.Errorf("tenant %s is a v2 tenant; this command is not v2-aware yet — use `sc create`, `sc list`, or `sc incus` (freeform incus) instead", tenantName)
 }
 
 func tenantHasProject(summary tenant.Summary, projectName string) bool {
