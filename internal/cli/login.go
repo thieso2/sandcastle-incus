@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -153,8 +154,11 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 // ensureTenantRouting makes this client accept the tenant's advertised subnet
 // route (`tailscale set --accept-routes`) and then verifies the tenant subnet is
 // actually reachable — reaching the tenant-bridge gateway's Incus port, which is
-// only routable via the sidecar's approved subnet route. If it is not reachable
-// it HALTS with guidance, because tenant machines would otherwise be unreachable.
+// only routable via the sidecar's approved subnet route. Every layer of the path
+// (tailscale installed → up → accept-routes → route offered by a peer → probe
+// egresses via the tailnet) is checked and reported as it happens, and a failure
+// HALTS login with advice specific to the deepest broken layer, because tenant
+// machines would otherwise be unreachable.
 func ensureTenantRouting(ctx context.Context, stdout io.Writer, cidr string) error {
 	cidr = strings.TrimSpace(cidr)
 	if cidr == "" {
@@ -164,42 +168,255 @@ func ensureTenantRouting(ctx context.Context, stdout io.Writer, cidr string) err
 	if err != nil {
 		return nil // can't derive a target; don't block login on a parse error
 	}
-	// Best-effort: accept subnet routes on this machine's own tailnet. Ignore
-	// errors — the client may not run tailscale, or may already accept routes;
-	// the reachability check below is the real gate.
-	if _, err := exec.LookPath("tailscale"); err == nil {
-		_ = exec.CommandContext(ctx, "tailscale", "set", "--accept-routes=true").Run()
+	fmt.Fprintf(stdout, "Verifying the tenant subnet %s is reachable over the tailnet:\n", cidr)
+	check := func(ok bool, format string, args ...any) {
+		mark := "✓"
+		if !ok {
+			mark = "✗"
+		}
+		fmt.Fprintf(stdout, "  %s %s\n", mark, fmt.Sprintf(format, args...))
 	}
+	fail := func(advice string) error {
+		return fmt.Errorf("tenant subnet %s is not reachable over the tailnet.\n"+
+			"  Tenant machines will be unreachable until this is fixed:\n"+
+			"%s\n"+
+			"  Then re-run `sc login`.", cidr, advice)
+	}
+
+	// 1. Is tailscale present at all?
+	if _, err := exec.LookPath("tailscale"); err != nil {
+		check(false, "tailscale is not installed on this machine")
+		return fail("    • Install Tailscale (https://tailscale.com/download) and join the tailnet\n" +
+			"      the tenant sidecar is on (`tailscale up`). The tenant's Incus remote and\n" +
+			"      machines are only reachable over that tailnet.")
+	}
+
+	// 2. Accept subnet routes (idempotent, best-effort), then read the client state.
+	_ = exec.CommandContext(ctx, "tailscale", "set", "--accept-routes=true").Run()
+	state := readTailscaleClientState(ctx)
+	switch state.BackendState {
+	case "Running":
+		self := strings.Join(state.SelfIPs, ", ")
+		if self == "" {
+			self = "no tailnet IP yet"
+		}
+		check(true, "tailscale is up (this machine is %s)", self)
+	case "":
+		check(false, "tailscale state could not be read — is tailscaled running?")
+		return fail("    • Start the tailscale daemon (`systemctl start tailscaled`) and join the\n" +
+			"      tailnet (`tailscale up`).")
+	default:
+		check(false, "tailscale is installed but %s", describeTailscaleBackendState(state.BackendState))
+		return fail("    • Join the tailnet on this machine: `tailscale up`.")
+	}
+
+	// 3. accept-routes actually on?
+	routeAll, routeAllKnown := readTailscaleRouteAll(ctx)
+	if routeAllKnown {
+		check(routeAll, "accept-routes is %s", onOff(routeAll))
+	}
+
+	// 4. Does any tailnet peer offer the tenant route, and is one elected primary?
+	offered, primary, router := tenantRouteOwner(state, cidr)
+	switch {
+	case primary:
+		online := "online"
+		if !router.Online {
+			online = "OFFLINE"
+		}
+		check(true, "route %s is served by peer %q (%s, %s)", cidr, router.HostName, firstNonEmpty(router.IPs), online)
+	case offered:
+		check(false, "route %s is approved for peer %q but no peer is elected its primary router", cidr, router.HostName)
+	default:
+		check(false, "no tailnet peer offers the route %s", cidr)
+	}
+
+	// 5. The probe is the real gate: a raw TCP connect is not enough, because the
+	// gateway address can be coincidentally routable via the client's own LAN,
+	// which would falsely pass while tenant machines (other hosts in the /24)
+	// stay unreachable. Only a connection whose local endpoint is this machine's
+	// Tailscale address (CGNAT 100.64.0.0/10) proves the packet egressed over the
+	// tenant's approved subnet route.
 	target := net.JoinHostPort(gateway, "8443")
 	deadline := time.Now().Add(20 * time.Second)
+	var lastDialErr error
+	var lastLANAddr string
 	for {
 		conn, err := net.DialTimeout("tcp", target, 4*time.Second)
 		if err == nil {
-			// A raw TCP connect is not enough: the gateway address can be
-			// coincidentally routable via the client's own LAN, which would
-			// falsely pass while tenant machines (other hosts in the /24) stay
-			// unreachable. Only a connection whose local endpoint is this
-			// machine's Tailscale address (CGNAT 100.64.0.0/10) proves the
-			// packet egressed over the tenant's approved subnet route.
 			viaTailnet := connEgressedViaTailnet(conn)
+			local := conn.LocalAddr().String()
 			_ = conn.Close()
 			if viaTailnet {
+				check(true, "probe to %s connected via this machine's tailnet address", target)
 				return nil
 			}
+			lastLANAddr = local
+			lastDialErr = nil
+		} else {
+			lastDialErr = err
 		}
 		if !time.Now().Before(deadline) {
 			break
 		}
 		time.Sleep(2 * time.Second)
 	}
-	fmt.Fprintln(stdout)
-	return fmt.Errorf("tenant subnet %s is not routable from this machine.\n"+
-		"  Tenant machines will be unreachable until the subnet route is set up:\n"+
-		"    • Approve the route the tenant sidecar advertises in your Tailscale admin\n"+
-		"      console (Machines → the sidecar → Edit route settings → approve %s), or\n"+
-		"    • deploy the auth-app with --tailscale-api-key for automatic approval.\n"+
-		"  Also ensure this machine accepts routes (`tailscale set --accept-routes`).\n"+
-		"  Then re-run `sc login`.", cidr, cidr)
+	if lastLANAddr != "" {
+		check(false, "probe to %s was answered via local address %s, NOT the tailnet", target, lastLANAddr)
+	} else {
+		check(false, "probe to %s got no answer within 20s (last error: %v)", target, lastDialErr)
+	}
+
+	// Advice for the deepest broken layer.
+	switch {
+	case routeAllKnown && !routeAll:
+		return fail("    • This machine does not accept subnet routes and enabling them failed.\n" +
+			"      Run `tailscale set --accept-routes` and check `tailscale status` for errors.")
+	case !offered:
+		return fail("    • Approve the route the tenant sidecar advertises in your Tailscale admin\n" +
+			"      console (Machines → the sidecar → Edit route settings → approve " + cidr + "),\n" +
+			"      or deploy the auth-app with --tailscale-api-key for automatic approval.\n" +
+			"      Also check the sidecar device is online in the admin console.")
+	case !primary:
+		return fail("    • The route is approved but no peer won the primary-router election —\n" +
+			"      usually stale duplicate sidecar devices (same hostname, offline) still\n" +
+			"      claiming the route. Delete the old sidecar devices in the Tailscale admin\n" +
+			"      console, keeping only the live one.")
+	case lastLANAddr != "":
+		return fail("    • Traffic to " + cidr + " is short-circuited by an overlapping local\n" +
+			"      network (it left via " + lastLANAddr + " instead of the tailnet). A LAN,\n" +
+			"      bridge, or another deployment on this machine's network path uses the same\n" +
+			"      subnet — remove or renumber the colliding network, or log in from a machine\n" +
+			"      whose only path to " + cidr + " is its own tailscale interface.")
+	default:
+		return fail("    • The route looks healthy but the tenant gateway did not answer. Check the\n" +
+			"      sidecar is running and reachable (its Incus API listens on the gateway\n" +
+			"      address, port 8443), and that no firewall drops tailnet subnet traffic.")
+	}
+}
+
+// tailscaleClientState is the subset of `tailscale status --json` the tenant
+// routing diagnosis needs.
+type tailscaleClientState struct {
+	BackendState string
+	SelfIPs      []string
+	Peers        []tailscalePeerState
+}
+
+type tailscalePeerState struct {
+	HostName      string
+	IPs           []string
+	Online        bool
+	PrimaryRoutes []string
+	AllowedIPs    []string
+}
+
+func readTailscaleClientState(ctx context.Context) tailscaleClientState {
+	out, err := exec.CommandContext(ctx, "tailscale", "status", "--json").Output()
+	if err != nil {
+		return tailscaleClientState{}
+	}
+	return parseTailscaleClientState(out)
+}
+
+func parseTailscaleClientState(statusJSON []byte) tailscaleClientState {
+	var raw struct {
+		BackendState string `json:"BackendState"`
+		Self         *struct {
+			TailscaleIPs []string `json:"TailscaleIPs"`
+		} `json:"Self"`
+		Peer map[string]struct {
+			HostName      string   `json:"HostName"`
+			TailscaleIPs  []string `json:"TailscaleIPs"`
+			Online        bool     `json:"Online"`
+			PrimaryRoutes []string `json:"PrimaryRoutes"`
+			AllowedIPs    []string `json:"AllowedIPs"`
+		} `json:"Peer"`
+	}
+	if json.Unmarshal(statusJSON, &raw) != nil {
+		return tailscaleClientState{}
+	}
+	state := tailscaleClientState{BackendState: raw.BackendState}
+	if raw.Self != nil {
+		state.SelfIPs = raw.Self.TailscaleIPs
+	}
+	for _, peer := range raw.Peer {
+		state.Peers = append(state.Peers, tailscalePeerState{
+			HostName:      peer.HostName,
+			IPs:           peer.TailscaleIPs,
+			Online:        peer.Online,
+			PrimaryRoutes: peer.PrimaryRoutes,
+			AllowedIPs:    peer.AllowedIPs,
+		})
+	}
+	return state
+}
+
+// readTailscaleRouteAll reports whether this client accepts subnet routes
+// (`--accept-routes`, pref RouteAll). The second return is false when the pref
+// could not be read.
+func readTailscaleRouteAll(ctx context.Context) (bool, bool) {
+	out, err := exec.CommandContext(ctx, "tailscale", "debug", "prefs").Output()
+	if err != nil {
+		return false, false
+	}
+	var prefs struct {
+		RouteAll bool `json:"RouteAll"`
+	}
+	if json.Unmarshal(out, &prefs) != nil {
+		return false, false
+	}
+	return prefs.RouteAll, true
+}
+
+// tenantRouteOwner scans the tailnet peers for the tenant subnet route: offered
+// means some peer's AllowedIPs carry the route (advertised + approved), primary
+// means a peer is elected its subnet router. router is the peer that offers the
+// route (the primary one when elected).
+func tenantRouteOwner(state tailscaleClientState, cidr string) (offered bool, primary bool, router tailscalePeerState) {
+	for _, peer := range state.Peers {
+		for _, route := range peer.PrimaryRoutes {
+			if route == cidr {
+				return true, true, peer
+			}
+		}
+	}
+	for _, peer := range state.Peers {
+		for _, route := range peer.AllowedIPs {
+			if route == cidr {
+				offered = true
+				router = peer
+			}
+		}
+	}
+	return offered, false, router
+}
+
+func describeTailscaleBackendState(state string) string {
+	switch state {
+	case "NeedsLogin":
+		return "logged out"
+	case "Stopped":
+		return "stopped"
+	default:
+		return "in state " + state
+	}
+}
+
+func onOff(on bool) string {
+	if on {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func firstNonEmpty(values []string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return "no IP"
 }
 
 // firstHostInCIDR returns the first usable host in a CIDR (the gateway), e.g.
@@ -281,6 +498,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var debugApprove bool
 	var simulateToken string
 	var simulateAs string
+	var force bool
 	command := &cobra.Command{
 		Use:   "login auth-host",
 		Short: "Sign in to Sandcastle through the Auth App",
@@ -294,6 +512,24 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				}
 			}
 			verbosef("auth host=%s", args[0])
+			if !force && tryExistingLogin(cmd.Context(), config, args[0], verbosef) {
+				return nil
+			}
+			// Refuse before the browser dance, not after: a v2 login enrolls a
+			// remote at the sidecar's tailnet IP, so a machine that is not a
+			// tailnet node would complete the whole device flow and then fail
+			// the routing setup anyway. --skip-setup opts out (enroll only).
+			if !skipSetup {
+				precheck := config.loginTailnetPrecheck
+				if precheck == nil {
+					precheck = requireTailnetNode
+				}
+				if err := steps.run("check tailnet membership", func() error {
+					return precheck(cmd.Context())
+				}); err != nil {
+					return err
+				}
+			}
 			var sshKey loginSSHKeyResult
 			if err := steps.run("prepare SSH key", func() error {
 				var err error
@@ -460,9 +696,15 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 								}); err != nil {
 									return err
 								}
-								fmt.Fprintln(config.stdout, formatDNSSetup(setup.DNS))
-								fmt.Fprintln(config.stdout, formatTrustResult(setup.Trust))
-								fmt.Fprintln(config.stdout, formatTailscaleUp(setup.Tailscale))
+								// v2 tenants only run the routing verification (it prints
+								// its own check lines); the DNS/trust/tailscale results
+								// below belong to the v1 setup and would render as empty
+								// fields on a v2 login.
+								if strings.TrimSpace(result.TenantPrivateCIDR) == "" {
+									fmt.Fprintln(config.stdout, formatDNSSetup(setup.DNS))
+									fmt.Fprintln(config.stdout, formatTrustResult(setup.Trust))
+									fmt.Fprintln(config.stdout, formatTailscaleUp(setup.Tailscale))
+								}
 							}
 						}
 					} else {
@@ -486,6 +728,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		},
 	}
 	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts")
+	command.Flags().BoolVar(&force, "force", false, "re-authenticate even when the saved login for this auth host still works")
 	command.Flags().StringVar(&sshPublicKeyPath, "ssh-public-key", "", "SSH public key path to authorize for Machine SSH Access")
 	command.Flags().BoolVar(&skipSetup, "skip-setup", false, "skip automatic DNS and Tailscale setup after enrollment")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key for unattended post-login attachment")
@@ -493,6 +736,105 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&simulateToken, "simulate-token", "", "DEV ONLY: auto-approve via /oauth/github/simulate using this shared secret (requires server --simulate-github-token); no browser/GitHub")
 	command.Flags().StringVar(&simulateAs, "as", "", "GitHub username to log in as when using --simulate-token")
 	return command
+}
+
+// tryExistingLogin makes `sc login` idempotent: when the saved login for this
+// auth host still works — same Auth Hostname, the saved CLI Auth Token is
+// accepted by the auth-app, and the enrolled Incus remote answers — it reports
+// that and skips the browser device flow. Any doubt falls through to a fresh
+// device login (`--force` skips the shortcut entirely).
+func tryExistingLogin(ctx context.Context, config commandConfig, authHost string, verbosef func(string, ...any)) bool {
+	host := normalizeAuthHostname(authHost)
+	saved := normalizeAuthHostname(config.adminConfig.AuthHostname)
+	token := strings.TrimSpace(config.adminConfig.AuthToken)
+	remote := strings.TrimSpace(config.adminConfig.Remote)
+	if host == "" || saved != host || token == "" || remote == "" {
+		verbosef("no reusable login for %s (saved host=%q, credential present=%t, remote=%q)", host, saved, token != "", remote)
+		return false
+	}
+	client := config.authTenants
+	if client == nil {
+		client = authapp.DeviceClient{BaseURL: host, AuthToken: token}
+	}
+	tenants, err := client.ListTenants(ctx)
+	if err != nil {
+		verbosef("saved CLI Auth Token was rejected (%v); starting a fresh device login", err)
+		return false
+	}
+	tenant := strings.TrimSpace(config.adminConfig.Tenant)
+	if tenant != "" && !tenantAccessListed(tenants, tenant) {
+		verbosef("current tenant %q is no longer accessible; starting a fresh device login", tenant)
+		return false
+	}
+	probe := config.loginRemoteProbe
+	if probe == nil {
+		probe = probeLoginRemote
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := probe(probeCtx, remote); err != nil {
+		verbosef("enrolled remote %q did not respond (%v); starting a fresh device login", remote, err)
+		return false
+	}
+	fmt.Fprintf(config.stdout, "Already logged in at %s", host)
+	if tenant != "" {
+		fmt.Fprintf(config.stdout, " (tenant %q)", tenant)
+	}
+	fmt.Fprintf(config.stdout, "; remote %q responds.\nRe-run with --force to re-authenticate.\n", remote)
+	return true
+}
+
+func tenantAccessListed(tenants []authapp.TenantAccessSummary, name string) bool {
+	for _, candidate := range tenants {
+		if candidate.Tenant == name {
+			return true
+		}
+	}
+	return false
+}
+
+// requireTailnetNode refuses a full (non --skip-setup) login on a machine that
+// is not itself a tailnet node: the v2 remote lives at the sidecar's tailnet IP
+// and tenant machines sit behind its subnet route, so login would succeed and
+// then the tenant would be unreachable. Being merely resident in a subnet that
+// some other router advertises is not enough — subnet-to-subnet traffic does
+// not route in a tailnet.
+func requireTailnetNode(ctx context.Context) error {
+	if _, err := exec.LookPath("tailscale"); err != nil {
+		return fmt.Errorf("this machine is not a tailnet node (tailscale is not installed), so the\n" +
+			"tenant's Incus remote and machines would be unreachable after login.\n" +
+			"    • Install Tailscale (https://tailscale.com/download) and run `tailscale up`\n" +
+			"      to join the tailnet the tenant sidecar is on, then re-run `sc login`, or\n" +
+			"    • re-run with --skip-setup to enroll anyway (tenant machines stay\n" +
+			"      unreachable from this machine).")
+	}
+	state := readTailscaleClientState(ctx)
+	if state.BackendState != "Running" {
+		return fmt.Errorf("this machine is not on a tailnet (tailscale is %s), so the tenant's Incus\n"+
+			"remote and machines would be unreachable after login.\n"+
+			"    • Run `tailscale up` to join the tailnet the tenant sidecar is on, then\n"+
+			"      re-run `sc login`, or\n"+
+			"    • re-run with --skip-setup to enroll anyway (tenant machines stay\n"+
+			"      unreachable from this machine).", describeTailscaleBackendState(state.BackendState))
+	}
+	return nil
+}
+
+// probeLoginRemote verifies the enrolled cert-pinned remote still answers by
+// listing its projects over the Incus API.
+func probeLoginRemote(ctx context.Context, remote string) error {
+	incusDir := resolveIncusDir(remote)
+	if incusDir == "" || !remoteExists(incusDir, remote) {
+		return fmt.Errorf("remote %q is not enrolled in the local incus config", remote)
+	}
+	if _, err := exec.LookPath("incus"); err != nil {
+		return err
+	}
+	probe := exec.CommandContext(ctx, "incus", "project", "list", remote+":", "--format", "csv")
+	probe.Env = append(os.Environ(), "INCUS_CONF="+incusDir)
+	probe.Stdout = io.Discard
+	probe.Stderr = io.Discard
+	return probe.Run()
 }
 
 func verifyLoginTailnet(ctx context.Context, config commandConfig, result authapp.DevicePollResult) error {
@@ -532,12 +874,17 @@ func (l verboseStepLogger) run(label string, fn func() error) error {
 		return fn()
 	}
 	start := time.Now()
-	fmt.Fprintf(l.stderr, "[verbose] %s: %s ...", l.prefix, label)
+	// The completion line repeats the step label on its own line: nested steps
+	// (and the check output of the routing verification) interleave between a
+	// step's start and its completion, so a bare " done"/" failed" would be
+	// ambiguous — two nested failures used to print two identical " failed"
+	// lines with no hint which step each belonged to.
+	fmt.Fprintf(l.stderr, "[verbose] %s: %s ...\n", l.prefix, label)
 	if err := fn(); err != nil {
-		fmt.Fprintf(l.stderr, " failed (%s)\n", formatVerboseStepDuration(time.Since(start)))
+		fmt.Fprintf(l.stderr, "[verbose] %s: %s failed (%s)\n", l.prefix, label, formatVerboseStepDuration(time.Since(start)))
 		return err
 	}
-	fmt.Fprintf(l.stderr, " done (%s)\n", formatVerboseStepDuration(time.Since(start)))
+	fmt.Fprintf(l.stderr, "[verbose] %s: %s done (%s)\n", l.prefix, label, formatVerboseStepDuration(time.Since(start)))
 	return nil
 }
 

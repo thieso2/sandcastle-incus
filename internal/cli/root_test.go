@@ -64,6 +64,11 @@ func executeForTestWithConfigAndStderr(t *testing.T, config commandConfig, args 
 	if config.adminConfig.Remote == "" {
 		config.adminConfig = testAdminConfig()
 	}
+	if config.loginTailnetPrecheck == nil {
+		// The real precheck shells out to tailscale, which test environments
+		// don't have; tests exercising the refusal inject their own.
+		config.loginTailnetPrecheck = func(context.Context) error { return nil }
+	}
 	cmd := NewRootCommand(config)
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
@@ -112,6 +117,7 @@ func testAdminConfig() scconfig.Admin {
 
 type fakeAuthDeviceClient struct {
 	start            authapp.DeviceStartResult
+	startCalls       int
 	polls            []authapp.DevicePollResult
 	polledDeviceCode string
 	pollRequests     []authapp.DevicePollRequest
@@ -277,6 +283,7 @@ func (r *fakeLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request lo
 }
 
 func (c *fakeAuthDeviceClient) Start(ctx context.Context) (authapp.DeviceStartResult, error) {
+	c.startCalls++
 	return c.start, nil
 }
 
@@ -4741,7 +4748,6 @@ func TestAdminTenantDeleteRequiresConfirmation(t *testing.T) {
 		t.Fatalf("error = %q, want --yes hint", err.Error())
 	}
 }
-
 
 func TestAdminImageSyncDryRunJSON(t *testing.T) {
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{

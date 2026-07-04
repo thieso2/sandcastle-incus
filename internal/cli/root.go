@@ -41,56 +41,58 @@ const (
 )
 
 type commandConfig struct {
-	name                string
-	stdin               io.Reader
-	stdout              io.Writer
-	stderr              io.Writer
-	stdinIsTerminal     func(io.Reader) bool
-	tenantStore         tenant.IncusTenantStore
-	adminConfig         scconfig.Admin
-	tenantCreator       incusx.TenantCreator
-	tenantDeleter       tenant.Deleter
-	tenantSSHKeyUpdater tenant.SSHKeyUpdater
-	tenantUpdater       tenant.ProjectUpdater
-	tenantUnixUser      tenant.UnixUserUpdater
-	imageManager        images.Manager
-	imageBuilder        images.Builder
-	imageImporter       images.Importer
-	imageUploader       images.Uploader
-	remoteImageBuilder  images.RemoteImageBuilder
-	topologyStore       tenant.TopologyStore
-	trustManager        usertrust.Manager
-	machineCreator      machine.Creator
-	machineStore        machine.Store
-	machineConnector    machine.Connector
-	machineControl      machine.Controller
-	machinePort         machine.PortSetter
-	passwordReconciler  machine.PasswordReconciler
-	knownHosts          machineKnownHostsManager
-	dnsApplier          dns.Applier
-	localDNS            localdns.Manager
-	tailscale           tailscale.Runner
-	hostOverrides       hostoverride.Manager
-	hostMachine         hostoverride.MachineStore
-	hostFiles           hostoverride.HostsManager
-	localTrust          localtrust.Manager
-	routes              route.Manager
-	routeMachine        route.MachineStore
-	routeBroker         routebroker.Runner
-	authApp             authapp.Runner
-	authDevice          authDeviceClient
-	authWorkload        authWorkloadClient
-	authCloudIdentity   authCloudIdentityClient
-	authTenants         authTenantClient
-	authShares          authShareClient
-	shareStore          share.Store
-	shareReconciler     tenantShareReconciler
-	openBrowser         func(string)
-	loginRemote         loginRemoteInstaller
-	loginTailnet        loginTailnetVerifier
-	loginSetup          loginSetupRunner
-	incusRunner         incusRunner
-	gcloudRunner        gcloudRunner
+	name                 string
+	stdin                io.Reader
+	stdout               io.Writer
+	stderr               io.Writer
+	stdinIsTerminal      func(io.Reader) bool
+	tenantStore          tenant.IncusTenantStore
+	adminConfig          scconfig.Admin
+	tenantCreator        incusx.TenantCreator
+	tenantDeleter        tenant.Deleter
+	tenantSSHKeyUpdater  tenant.SSHKeyUpdater
+	tenantUpdater        tenant.ProjectUpdater
+	tenantUnixUser       tenant.UnixUserUpdater
+	imageManager         images.Manager
+	imageBuilder         images.Builder
+	imageImporter        images.Importer
+	imageUploader        images.Uploader
+	remoteImageBuilder   images.RemoteImageBuilder
+	topologyStore        tenant.TopologyStore
+	trustManager         usertrust.Manager
+	machineCreator       machine.Creator
+	machineStore         machine.Store
+	machineConnector     machine.Connector
+	machineControl       machine.Controller
+	machinePort          machine.PortSetter
+	passwordReconciler   machine.PasswordReconciler
+	knownHosts           machineKnownHostsManager
+	dnsApplier           dns.Applier
+	localDNS             localdns.Manager
+	tailscale            tailscale.Runner
+	hostOverrides        hostoverride.Manager
+	hostMachine          hostoverride.MachineStore
+	hostFiles            hostoverride.HostsManager
+	localTrust           localtrust.Manager
+	routes               route.Manager
+	routeMachine         route.MachineStore
+	routeBroker          routebroker.Runner
+	authApp              authapp.Runner
+	authDevice           authDeviceClient
+	authWorkload         authWorkloadClient
+	authCloudIdentity    authCloudIdentityClient
+	authTenants          authTenantClient
+	authShares           authShareClient
+	shareStore           share.Store
+	shareReconciler      tenantShareReconciler
+	openBrowser          func(string)
+	loginRemote          loginRemoteInstaller
+	loginTailnet         loginTailnetVerifier
+	loginSetup           loginSetupRunner
+	loginRemoteProbe     func(context.Context, string) error
+	loginTailnetPrecheck func(context.Context) error
+	incusRunner          incusRunner
+	gcloudRunner         gcloudRunner
 }
 
 type tenantShareReconciler interface {
