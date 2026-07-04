@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 )
 
@@ -100,7 +99,7 @@ func (m ImageManager) server() (ImageServer, error) {
 	if m.Server != nil {
 		return m.Server, nil
 	}
-	loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+	loaded, err := LoadCLIConfig(m.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load Incus config: %w", err)
 	}

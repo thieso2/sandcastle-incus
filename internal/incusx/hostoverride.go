@@ -10,7 +10,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/caddy"
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
@@ -158,7 +157,7 @@ func instanceGlobalIPv4(instance api.InstanceFull) string {
 func (m HostOverrideManager) resolveServer() (HostOverrideServer, error) {
 	server := m.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+		loaded, err := LoadCLIConfig(m.ConfigPath)
 		if err != nil {
 			return nil, fmt.Errorf("load Incus config: %w", err)
 		}
@@ -281,7 +280,7 @@ func instancePrivateIP(instance api.Instance) string {
 func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan) error {
 	server := m.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+		loaded, err := LoadCLIConfig(m.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("load Incus config: %w", err)
 		}
@@ -308,7 +307,7 @@ func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan)
 func (m HostOverrideManager) Delete(ctx context.Context, plan hostoverride.DeletePlan) error {
 	server := m.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+		loaded, err := LoadCLIConfig(m.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("load Incus config: %w", err)
 		}

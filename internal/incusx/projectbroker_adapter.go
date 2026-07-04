@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
@@ -129,7 +128,7 @@ func NewAdminAuthorizer(remote string) AdminAuthorizer {
 func (a AdminAuthorizer) IsAdmin(ctx context.Context, fingerprint string) (bool, error) {
 	server := a.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(a.ConfigPath)
+		loaded, err := LoadCLIConfig(a.ConfigPath)
 		if err != nil {
 			return false, fmt.Errorf("load Incus config: %w", err)
 		}

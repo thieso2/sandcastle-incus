@@ -10,7 +10,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -194,7 +193,7 @@ func (m TenantSSHKeyManager) server() (TenantMetadataUpdateServer, error) {
 	if server != nil {
 		return server, nil
 	}
-	loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+	loaded, err := LoadCLIConfig(m.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load Incus config: %w", err)
 	}

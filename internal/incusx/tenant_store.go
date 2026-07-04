@@ -13,7 +13,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
@@ -73,7 +72,7 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 	server := s.Server
 	metadata := s.Metadata
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(s.ConfigPath)
+		loaded, err := LoadCLIConfig(s.ConfigPath)
 		if err != nil {
 			return nil, fmt.Errorf("load Incus config: %w", err)
 		}

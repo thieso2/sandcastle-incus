@@ -12,7 +12,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
@@ -44,7 +43,7 @@ func NewMachineController(remote string) MachineController {
 func (c MachineController) ApplyLifecycle(ctx context.Context, plan machine.LifecyclePlan) error {
 	server := c.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
+		loaded, err := LoadCLIConfig(c.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("load Incus config: %w", err)
 		}

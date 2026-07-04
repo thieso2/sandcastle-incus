@@ -7,7 +7,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 )
 
 type SharedRemote struct {
@@ -36,7 +35,7 @@ func (r *SharedRemote) instanceServer() (incus.InstanceServer, error) {
 	if r.server != nil {
 		return r.server, nil
 	}
-	loaded, err := cliconfig.LoadConfig(r.ConfigPath)
+	loaded, err := LoadCLIConfig(r.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load Incus config: %w", err)
 	}

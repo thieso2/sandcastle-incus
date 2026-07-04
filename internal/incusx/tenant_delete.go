@@ -8,7 +8,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -61,7 +60,7 @@ func (d TenantDeleter) log(msg string) {
 func (d TenantDeleter) DeleteTenant(ctx context.Context, plan tenant.DeletePlan) error {
 	server := d.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(d.ConfigPath)
+		loaded, err := LoadCLIConfig(d.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("load Incus config: %w", err)
 		}

@@ -9,7 +9,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	cliconfig "github.com/lxc/incus/v6/shared/cliconfig"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -122,7 +121,7 @@ func (c TenantCreator) resolveV2Server() (TenantCreateServer, error) {
 	if c.Server != nil {
 		return c.Server, nil
 	}
-	loaded, err := cliconfig.LoadConfig(c.ConfigPath)
+	loaded, err := LoadCLIConfig(c.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load Incus config: %w", err)
 	}

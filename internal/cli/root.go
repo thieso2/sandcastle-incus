@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
@@ -360,7 +359,7 @@ func detectAdminRemote(userRemote string, verbose bool) string {
 	}
 
 	// Load global config to know which remotes actually exist (cert files can be stale).
-	globalCfg, err := cliconfig.LoadConfig("")
+	globalCfg, err := incusx.LoadCLIConfig("")
 	if err != nil {
 		if verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: cannot load global incus config: %v\n", err)
@@ -407,7 +406,7 @@ func detectAdminRemote(userRemote string, verbose bool) string {
 // detectAdminRemoteByAddr matches the per-remote user config's server against global config
 // remotes using DNS resolution so hostname vs IP differences don't cause mismatches.
 func detectAdminRemoteByAddr(userRemote string, userDir string, verbose bool) string {
-	userCfg, err := cliconfig.LoadConfig(filepath.Join(userDir, "config.yml"))
+	userCfg, err := incusx.LoadCLIConfig(filepath.Join(userDir, "config.yml"))
 	if err != nil {
 		if verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: cannot load user config from %s: %v\n", userDir, err)
@@ -427,7 +426,7 @@ func detectAdminRemoteByAddr(userRemote string, userDir string, verbose bool) st
 		fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: user remote %s addr=%s resolved=%v\n", userRemote, userRemoteInfo.Addr, userIPs)
 	}
 
-	globalCfg, err := cliconfig.LoadConfig("")
+	globalCfg, err := incusx.LoadCLIConfig("")
 	if err != nil {
 		return ""
 	}

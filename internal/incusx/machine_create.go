@@ -16,7 +16,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -87,7 +86,7 @@ func (c MachineCreator) runCommandWithExpectedError(label string, expected func(
 func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePlan) error {
 	server := c.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(c.ConfigPath)
+		loaded, err := LoadCLIConfig(c.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("load Incus config: %w", err)
 		}

@@ -29,6 +29,7 @@ type CreateMachineV2Result struct {
 	Project   string `json:"incusProject"`
 	Image     string `json:"image"`
 	PrivateIP string `json:"privateIP,omitempty"`
+	LoginUser string `json:"loginUser,omitempty"`
 }
 
 // CreateMachineV2 launches the instance and waits (bounded) for it to lease an
@@ -50,10 +51,11 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 		instanceType = api.InstanceTypeVM
 	}
 	result := CreateMachineV2Result{
-		Name:    request.Name,
-		Type:    string(instanceType),
-		Project: request.IncusProject,
-		Image:   request.Image,
+		Name:      request.Name,
+		Type:      string(instanceType),
+		Project:   request.IncusProject,
+		Image:     request.Image,
+		LoginUser: v2ProfileLoginUser(project),
 	}
 	c.log("launching " + result.Type + " " + request.Name + " from " + request.Image + " into " + request.IncusProject)
 	op, err := project.CreateInstance(api.InstancesPost{

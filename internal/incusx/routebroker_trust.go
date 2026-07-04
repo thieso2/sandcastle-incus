@@ -7,7 +7,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 )
@@ -33,7 +32,7 @@ func NewRouteBrokerTrustMapperForServer(server incus.InstanceServer) RouteBroker
 func (m RouteBrokerTrustMapper) PrincipalForFingerprint(ctx context.Context, fingerprint string) (routebroker.Principal, error) {
 	server := m.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+		loaded, err := LoadCLIConfig(m.ConfigPath)
 		if err != nil {
 			return routebroker.Principal{}, fmt.Errorf("load Incus config: %w", err)
 		}

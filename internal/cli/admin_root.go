@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
@@ -37,7 +36,7 @@ func ExecuteAdmin(name string, args []string) int {
 		}
 	}
 	if adminRemote == "" && !explicitRemote {
-		if globalCfg, err := cliconfig.LoadConfig(""); err == nil {
+		if globalCfg, err := incusx.LoadCLIConfig(""); err == nil {
 			adminRemote = globalCfg.DefaultRemote
 			if verbose && adminRemote != "" {
 				fmt.Fprintf(os.Stderr, "[verbose] admin remote: using global incus default %q\n", adminRemote)

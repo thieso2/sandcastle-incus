@@ -104,8 +104,8 @@ func TestTopologyStoreGetTopology(t *testing.T) {
 		},
 	}
 	infraResource := &fakeTopologyResource{
-		networks:  map[string]*api.Network{},
-		volumes:   map[string]*api.StorageVolume{},
+		networks: map[string]*api.Network{},
+		volumes:  map[string]*api.StorageVolume{},
 		instances: map[string]*api.Instance{
 			"sc-alice-myproject": {Name: "sc-alice-myproject", Status: "Stopped", StatusCode: api.Stopped},
 			tenant.DNSName:       {Name: tenant.DNSName, Status: "Running", StatusCode: api.Running},

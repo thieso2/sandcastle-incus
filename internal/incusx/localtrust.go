@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -114,7 +113,7 @@ func (m LocalTrustManager) prepareCA(ctx context.Context, plan localtrust.Plan) 
 func (m LocalTrustManager) readCA(plan localtrust.Plan) ([]byte, error) {
 	server := m.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+		loaded, err := LoadCLIConfig(m.ConfigPath)
 		if err != nil {
 			return nil, fmt.Errorf("load Incus config: %w", err)
 		}
@@ -192,7 +191,7 @@ func (m LocalTrustManager) localTrustServer() (LocalTrustServer, error) {
 	if m.Server != nil {
 		return m.Server, nil
 	}
-	loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+	loaded, err := LoadCLIConfig(m.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load Incus config: %w", err)
 	}

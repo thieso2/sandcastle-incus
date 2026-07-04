@@ -7,7 +7,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -116,7 +115,7 @@ func (r MachinePasswordReconciler) server() (MachineSSHKeyServer, error) {
 	if r.Server != nil {
 		return r.Server, nil
 	}
-	loaded, err := cliconfig.LoadConfig(r.ConfigPath)
+	loaded, err := LoadCLIConfig(r.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load Incus config: %w", err)
 	}

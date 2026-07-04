@@ -188,9 +188,13 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 		fmt.Fprintf(&builder, "DNS: %s (auto-registers after boot)", fqdn)
 		return builder.String()
 	}
+	loginUser := result.LoginUser
+	if loginUser == "" {
+		loginUser = tenant.DefaultV2UnixUser
+	}
 	if result.PrivateIP != "" {
 		fmt.Fprintf(&builder, "IP: %s   DNS: %s (auto-registers in ~30s)\n", result.PrivateIP, fqdn)
-		fmt.Fprintf(&builder, "SSH: ssh dev@%s   (cloud-init may still be installing sshd)", result.PrivateIP)
+		fmt.Fprintf(&builder, "SSH: ssh %s@%s   (cloud-init may still be installing sshd)", loginUser, result.PrivateIP)
 	} else {
 		fmt.Fprintf(&builder, "Still booting — no IP leased yet. Watch it with: sc list\n")
 		fmt.Fprintf(&builder, "DNS: %s (auto-registers after boot)", fqdn)

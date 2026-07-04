@@ -9,7 +9,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/caddy"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -406,7 +405,7 @@ func (m RouteManager) server() (RouteServer, error) {
 	if m.Server != nil {
 		return m.Server, nil
 	}
-	loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+	loaded, err := LoadCLIConfig(m.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load Incus config: %w", err)
 	}

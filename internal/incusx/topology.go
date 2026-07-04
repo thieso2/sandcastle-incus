@@ -11,7 +11,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -42,7 +41,7 @@ func NewTopologyStore(remote string) TopologyStore {
 func (s TopologyStore) GetTopology(ctx context.Context, request tenant.TopologyRequest) (tenant.Topology, error) {
 	server := s.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(s.ConfigPath)
+		loaded, err := LoadCLIConfig(s.ConfigPath)
 		if err != nil {
 			return tenant.Topology{}, fmt.Errorf("load Incus config: %w", err)
 		}

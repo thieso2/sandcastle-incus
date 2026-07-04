@@ -9,7 +9,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 )
@@ -38,7 +37,7 @@ func NewMachinePortSetter(remote string) MachinePortSetter {
 func (s MachinePortSetter) SetAppPort(ctx context.Context, plan machine.PortSetPlan) error {
 	server := s.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(s.ConfigPath)
+		loaded, err := LoadCLIConfig(s.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("load Incus config: %w", err)
 		}

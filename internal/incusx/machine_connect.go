@@ -14,7 +14,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"golang.org/x/term"
 )
@@ -492,7 +491,7 @@ func (r LocalMoshRunner) Run(ctx context.Context, session machine.ConnectSession
 func (e MachineConnector) connectUnmanagedMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
 	server := e.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(e.ConfigPath)
+		loaded, err := LoadCLIConfig(e.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("load Incus config: %w", err)
 		}

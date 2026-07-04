@@ -585,7 +585,7 @@ stays truthful and self-healing.
 |---|---|---|
 | Appliance services won't start (`systemctl` "not booted with systemd") | Launched from an **OCI** image (app container, no systemd PID1) | Use a **CONTAINER-type systemd** image (`d31c34fadc08` / `images:debian/13`) |
 | Caddy re-issues certs / ignores copied ones | Under systemd Caddy has no `$HOME` → wrong storage dir | Pin `storage file_system /root/.local/share/caddy` in the Caddyfile |
-| `sc-adm … ` against `big` → "no such host" with a concatenated address | The wrapper mangles the multi-address remote string | Drive via `incus` + broker `exec` directly (wrapper fix pending) |
+| `sc`/`sc-adm` against a multi-address remote → `lookup <addr>,https: no such host` with a concatenated address | **Solved (2026-07-04):** newer incus CLIs store a multi-address token enrollment as a comma-joined `addr` plus `last_working_address`; the vendored incus SDK's `cliconfig` predates that format and treats the joined string as one URL — the `incus` binary works while every SDK-based `sc` call fails | **Fixed:** `incusx.LoadCLIConfig` (used by every SDK connection) normalizes multi-address remotes to `last_working_address` (else the first address) |
 | `incus file push` → `text file busy` | Overwriting the binary the appliance is running | `systemctl stop` the service, push, `start` |
 | `incus launch big:<fp>` in the tenant project → "Image not found" | Tenant `default` project has its own image store (`features.images=true`) | `incus image copy … --target-project sc2-<tenant>-default` first |
 | Sidecar has no CoreDNS/Tailscale | Neither is in Debian apt | CoreDNS **binary** download; Tailscale **official apt repo** (`installV2SidecarPackages`) |

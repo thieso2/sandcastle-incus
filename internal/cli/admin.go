@@ -136,6 +136,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 	var tailscaleAuthKey string
 	var sidecarImage string
 	var cidrPool string
+	var unixUser string
 	var broker, brokerCert, brokerKey string
 	command := &cobra.Command{
 		Use:   "create-v2 tenant",
@@ -180,6 +181,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			plan, err := tenant.PlanCreateV2(admin, tenant.CreateRequest{
 				Reference:     args[0],
 				SSHPublicKey:  sshKey,
+				UnixUser:      unixUser,
 				OccupiedCIDRs: occupied,
 				PreferredCIDR: ownCIDR,
 			})
@@ -225,6 +227,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-authkey", "", "the tenant's Tailscale auth key (joins the sidecar to the tenant's tailnet)")
 	command.Flags().StringVar(&sidecarImage, "sidecar-image", "", "system-container base image (alias or fingerprint) for the sidecar; defaults to the configured base")
 	command.Flags().StringVar(&cidrPool, "cidr-pool", "10.249.0.0/16", "CIDR pool to allocate the tenant's /24 from (must not overlap v1)")
+	command.Flags().StringVar(&unixUser, "unix-user", "", "login user baked into the default-project profile (default \"dev\"); matches the login path's client username")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the v2 plan without mutating Incus")
 	command.Flags().StringVar(&broker, "broker", "", "route through the Sandcastle Broker admin API (e.g. https://big.thieso2.dev:9443) instead of direct Incus")
 	command.Flags().StringVar(&brokerCert, "broker-cert", "", "admin client cert for the broker (default: admin incus config)")

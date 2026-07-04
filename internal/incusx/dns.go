@@ -8,7 +8,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/lxc/incus/v6/shared/cliconfig"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -38,7 +37,7 @@ func NewDNSManager(remote string) DNSManager {
 func (m DNSManager) Apply(ctx context.Context, summary dns.Tenant) (dns.ApplyResult, error) {
 	server := m.Server
 	if server == nil {
-		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+		loaded, err := LoadCLIConfig(m.ConfigPath)
 		if err != nil {
 			return dns.ApplyResult{}, fmt.Errorf("load Incus config: %w", err)
 		}
