@@ -69,6 +69,13 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, tenantName string, p
 	if profilePlan.DefaultProfileUser == "" {
 		profilePlan.DefaultProfileUser = tenant.DefaultV2UnixUser
 	}
+	// The profile below references the project's shared volumes, so they must
+	// exist first (previously only tenant create made them — a fresh app
+	// project's profile pointed at volumes that were never created).
+	c.log("ensure shared /workspace + /home volumes in " + incusProject)
+	if err := ensureV2ProjectVolumes(server.UseProject(incusProject), profilePlan.StoragePool, tenantName); err != nil {
+		return CreateProjectV2Result{}, err
+	}
 	c.log("ensure app default profile " + incusProject)
 	if err := ensureV2AppProfile(server.UseProject(incusProject), profilePlan); err != nil {
 		return CreateProjectV2Result{}, err

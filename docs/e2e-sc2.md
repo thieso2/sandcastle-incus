@@ -131,6 +131,11 @@ for p in sc2-$TENANT-default sc2-$TENANT; do
     [ -n "$n" ] && incus delete -f big:$n --project $p 2>/dev/null; done
   incus image list big: --project $p --format csv -c f 2>/dev/null | while read -r fp; do
     [ -n "$fp" ] && incus image delete big:$fp --project $p 2>/dev/null; done
+  # shared home/workspace volumes: detach from the default profile FIRST, then delete
+  for v in home workspace; do
+    incus profile device remove big:default $v --project $p 2>/dev/null
+    incus storage volume delete big:default $v --project $p 2>/dev/null
+  done
   incus profile list big: --project $p --format csv -c n 2>/dev/null | while read -r pr; do
     [ -n "$pr" ] && [ "$pr" != "default" ] && incus profile delete big:$pr --project $p 2>/dev/null; done
   incus project delete big:$p 2>/dev/null || true
@@ -257,9 +262,20 @@ export INCUS_CONF=~/.config/incus-admin
 ```bash
 incus profile show big:default --project sc2-$TENANT-default
 ```
-**PASS (✅ validated):** `cloud-init.user-data` contains user `dev` with
+**PASS (✅ validated):** `cloud-init.user-data` contains the login user with
 `ssh_authorized_keys: [ <your key> ]`, installs `openssh-server`, and
-`runcmd: [systemctl, enable, --now, ssh]`.
+`runcmd: [systemctl, enable, --now, ssh]`; devices include the shared
+**`home`** (→ `/home`) and **`workspace`** (→ `/workspace`) volumes.
+
+> **Login user + key provenance.** `sc login` prepares the SSH key itself —
+> it uses `~/.ssh/id_ed25519.pub` when present, otherwise generates
+> `~/.ssh/sandcastle_ed25519` — and uploads it during the device poll; the
+> auth-app stores it on the user and bakes it into this profile on every
+> (re-)login, so rotating the key is just `sc login --force`. The profile's
+> login **username** is the client's Unix user from device login (`$USER`),
+> falling back to the deployment's `--default-unix-user`, then `dev`
+> (`root` and invalid names are skipped, not errors). Broker-created tenants
+> (`tenant create-v2`) take `--ssh-key` explicitly and default to `dev`.
 
 ---
 
@@ -300,9 +316,9 @@ ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[ct1]} 'echo OK $(whoami)@$(hostname) $
 ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[vm1]} 'echo OK $(whoami)@$(hostname) $(uname -r)'   # OK dev@vm1 6.12.x (VM kernel)
 ```
 
-**Shared `$HOME` + `/workspace` across the project (CT ↔ VM) 🚧** — machines in the
-same project share `$HOME` and `/workspace` **by default** (a per-project storage
-volume), so a file written on the CT is visible on the VM and vice-versa:
+**Shared `$HOME` + `/workspace` across the project (CT ↔ VM) ✅** — machines in the
+same project share `$HOME` and `/workspace` **by default** (per-project storage
+volumes), so a file written on the CT is visible on the VM and vice-versa:
 ```bash
 # write on the CT, read on the VM (and the reverse) — same project, shared volume
 incus exec big:ct1 $Pd -- sh -c 'echo from-ct > /workspace/marker; echo from-ct-home > /home/dev/hmarker'
@@ -312,11 +328,16 @@ incus exec big:ct1 $Pd -- cat /workspace/marker                                 
 ```
 **PASS (✅ validated on Incus 7.2):** the VM reads `from-ct` written by the CT, and the
 CT sees the VM's append — `/workspace` is one shared volume per project.
-✅ **Built:** `CreateTenantV2` creates a per-project custom **filesystem** volume
-`workspace` and the `default` profile attaches it as a `disk` device at `/workspace`.
-The same fs volume attaches to a CT **and** a VM simultaneously (incus shares it via
-virtiofs to the VM), so a file written on any machine in the project is visible on the
-others. (`$HOME` sharing is not wired yet — only `/workspace`.)
+✅ **Built:** `CreateTenantV2` (and `CreateProjectV2` for later app projects) creates
+two per-project custom **filesystem** volumes — `workspace` (→ `/workspace`) and
+`home` (→ `/home`) — and the `default` profile attaches both as `disk` devices. The
+same fs volume attaches to a CT **and** a VM simultaneously (incus shares it via
+virtiofs to the VM), so files written on any machine in the project are visible on the
+others — including the login user's whole home directory (cloud-init creates it with
+the authorized key on the first machine; every later machine sees the same `$HOME`).
+Validated 2026-07-04 on `igel` (tenant `hometest`): a CT-written `/home/dev/marker`
+read+appended on a VM and back, `authorized_keys` living on the shared volume, `ssh`
+active on both.
 
 > ✅ **Auto-registration is now automatic.** A background reconciler in the auth-app
 > registers every running machine (incl. freeform `incus launch`) into the sidecar
@@ -511,7 +532,7 @@ tenant-CA trust), which stays ⚠️ pending the unbuilt per-tenant tenant-CA ce
 1. **Machine DNS auto-registration** (Phases 7/8) — write the A-record into `db.e2etest` on machine create (done manually in the e2e today).
 2. **Per-tenant tenant-CA cert path** (Phase 8b) — issue a tenant CA + leaf so the *private* HTTPS path exists; then `sc trust install` (Linux/macOS) makes it trusted. (The *public* sc-edge LE path in Phase 7 already works with no CA install.)
 3. **Split-DNS over tailscale** (Phase 8) — serve the tenant zone to tailnet clients on the sidecar tailscale IP.
-4. **Shared `$HOME` + `/workspace`** (Phase 7) — per-project storage volume mounted into the default profile so CT/VM in a project share state.
+4. ~~**Shared `$HOME` + `/workspace`** (Phase 7)~~ — ✅ done: both per-project volumes are created and attached in the default profile (tenant + later app projects).
 5. **Deploy-command polish** — local-image default; fix the multi-address remote mangling so Phases 1/3 run via the CLI, not by-hand. (CIDR allocation across v1+v2 tenants and idempotent re-provision are now fixed — see the appendix.)
 
 Phases 0–9 are validated green today; the items above are refinements, not blockers.

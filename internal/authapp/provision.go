@@ -51,7 +51,7 @@ type Provisioner struct {
 // ensurePersonalTenantV2 provisions (or re-ensures) the caller's v2 tenant via
 // V2Create and mints a restricted enrollment token scoped to its default
 // project. The SSH key is applied separately by the device flow after approval.
-func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string) (PersonalTenantResult, error) {
+func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string) (PersonalTenantResult, error) {
 	if p.Trust == nil {
 		return PersonalTenantResult{}, fmt.Errorf("trust manager is not configured")
 	}
@@ -69,6 +69,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	plan, err := tenant.PlanCreateV2(p.Admin, tenant.CreateRequest{
 		Reference:     userKey,
 		SSHPublicKey:  strings.TrimSpace(sshPublicKey),
+		UnixUser:      unixUser,
 		OccupiedCIDRs: occupied,
 		PreferredCIDR: ownCIDR,
 	})
@@ -118,7 +119,25 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 	if p.V2Create == nil {
 		return PersonalTenantResult{}, fmt.Errorf("v2 provisioning is not configured")
 	}
-	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey)
+	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user))
+}
+
+// profileUnixUser picks the login user baked into the tenant's default profile:
+// the client's Unix username from device login when it is usable, else the
+// deployment default, else the built-in "dev". root and invalid names fall
+// through rather than failing the login — a root-driven CI client must not
+// produce a root profile user or block provisioning.
+func (p Provisioner) profileUnixUser(user User) string {
+	for _, candidate := range []string{strings.TrimSpace(user.LocalUnixUser), strings.TrimSpace(p.DefaultUnixUser)} {
+		if candidate == "" || candidate == "root" {
+			continue
+		}
+		if err := naming.ValidateUnixUsername(candidate); err != nil {
+			continue
+		}
+		return candidate
+	}
+	return tenant.DefaultV2UnixUser
 }
 
 func (r PersonalTenantResult) normalizedMessage() string {
