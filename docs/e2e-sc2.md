@@ -95,6 +95,28 @@ SNI-passthrough entry. Until then, the phases below run against the **persistent
 sc2 on `big` (edge/broker/auth-app + a throwaway `e2etest` tenant) — same flow, but
 sharing the long-lived appliances. The hermetic harness makes every run disposable.
 
+> ✅ **Pattern validated by hand (2026-07-04, `sc2iso-vm2`):** the full protocol was
+> executed on a fresh, fully isolated Debian 13 VM — own Incus 7.2 (Zabbly), own
+> sc-edge (**Cloudflare-tunnel mode**, `PUBLIC_PORTS=0`, API-created tunnel +
+> first-level hostname `sc2iso2-<rand>.thieso2.dev`), own auth-app + broker, a
+> nested client CT driving everything. All phases green except 8b (unchanged ⚠️).
+> In tunnel mode Cloudflare's edge serves a real LE cert, so the Phase 2/7b issuer
+> checks pass verbatim; the inner Caddyfile is plain `http://<host>:8080` vhosts.
+> What remains 🚧 is only the *automation* of this setup.
+
+> ⚠️ **The real e2e needs TWO VMs, and BOTH must be genuine tailscale nodes.**
+> `sc login` now refuses to start the device flow on a machine that is not itself
+> a tailnet node (see Phase 9 notes), because in a tailnet **subnet-to-subnet does
+> not route**: a machine that is merely *resident* in a subnet some other router
+> advertises (e.g. a VM on `big` reached via big's subnet routes) can never reach
+> the tenant `/24` behind the sidecar's route — and making such a machine a node
+> breaks its old inbound path (asymmetric routing: replies leave via its own
+> tailscale0 and get dropped by the caller). So the harness topology is:
+> **VM 1 = the sc2 host** (Incus + edge + auth-app + broker; the *sidecar* is its
+> tailnet presence) and **VM 2 = the client**, a clean machine whose ONLY sandcastle
+> path is its own `tailscale up --accept-routes` membership — not a machine that
+> other infrastructure already routes to by subnet.
+
 ---
 
 ## Phase 0 — Teardown (idempotent reset) ✅
@@ -211,7 +233,7 @@ Wipe the local config and regenerate it from the token.
 
 ```bash
 rm -rf ~/.config/sandcastle/$TENANT
-./bin/sc connect-v2 $TENANT --token "$TOKEN"
+./bin/sc connect-v2 $TENANT --token "$TOKEN"       # NB: add --incus-endpoint https://<host>:8443 when the Incus host is not big
 DIR=~/.config/sandcastle/$TENANT/incus
 ls "$DIR"                                   # client.crt client.key config.yml servercerts/
 INCUS_CONF="$DIR" incus remote list | grep $TENANT
@@ -303,6 +325,15 @@ others. (`$HOME` sharing is not wired yet — only `/workspace`.)
 > client to resolve tenant names *automatically*, add a **Tailscale Split DNS** entry
 > routing the `<suffix>` domain to the sidecar's tailnet IP in the tailnet admin.
 > The plain image has no cloud-init → no `dev` user / sshd; always use `images:debian/13/cloud` for tenant machines.
+
+> ✅ **The `sc` CLI now speaks the v2 topology (2026-07-04, validated on `igel`).**
+> From an enrolled client, `sc list` shows every instance across the tenant's v2
+> projects (flat FQDN `<machine>.<suffix>`, live DHCP IP; freeform `incus launch`
+> machines included), `sc create dev` launches `images:debian/13/cloud` into the
+> tenant's app project via the default profile (`--vm` for a VM, `--image` to
+> override; prints IP + SSH hint, no auto-connect), and `sc incus`/`sc incus-native`
+> scope to the v2 app project (`sc incus-infra` → the infra project). The e2e can
+> drive Phase 7 through `sc create`/`sc list` as well as raw `incus launch`.
 
 ---
 
@@ -399,6 +430,21 @@ Two short-circuits bypass the GitHub browser step for CI. **Prefer the simulated
 path** (Phase 9a): it needs no real OAuth app at all, is token-gated, and works for any
 username. The older `--debug-device-user` hack (Phase 9b) is single-user and untoken.
 
+> **`sc login` behavior (2026-07-04, validated live on the `igel` real deployment):**
+> - **Idempotent.** With a saved CLI Auth Token for the same auth host that the
+>   auth-app still accepts (`GET /api/tenants`) and an enrolled remote that
+>   responds, `sc login` prints `Already logged in at …` and exits — no browser,
+>   no new device code. `--force` re-authenticates.
+> - **Tailnet precheck.** Unless `--skip-setup` is given, login REFUSES to start
+>   the device flow when the machine is not a tailnet node (tailscale missing,
+>   logged out, or stopped) — e2e clients must `tailscale up --accept-routes`
+>   **before** `sc login`, or pass `--skip-setup`.
+> - **Layered routing diagnosis.** The post-login verification prints one ✓/✗
+>   line per layer (tailscale up → accept-routes → route offered/primary → probe
+>   egresses via the client's own tailnet address) and halts with advice specific
+>   to the first broken layer — including the "answered via local address …, NOT
+>   the tailnet" case that catches overlapping local networks.
+
 ### Phase 9a — Simulated GitHub (recommended) ✅
 If the auth-app was deployed with `--simulate-github-token` (Phase 1), one command does
 the whole device login offline — no browser, no GitHub, no OAuth app:
@@ -494,6 +540,13 @@ stays truthful and self-healing.
 | Auth-app tailnet key ignored / sidecar `Logged out` | `SANDCASTLE_AUTH_TAILSCALE_AUTHKEY` line in `/etc/sandcastle/auth-app/env` was mangled by repeated `sed` edits (concatenated key + var name) | Rewrite the line cleanly from `.env.sc2`: `sed -i "8s\|.*\|SANDCASTLE_AUTH_TAILSCALE_AUTHKEY='<key>'\|" env`, then restart |
 | `sc login`/`ssh` needs the running fat binary on appliances | Appliances still ran a pre-v1-removal binary | `systemctl stop`, `incus file push bin/linux-amd64/sandcastle …/usr/local/bin/sandcastle-admin`, `systemctl start` on `sc2-broker` **and** `sc2-auth-app` |
 | SSH `Too many authentication failures` reaching a tenant machine | The local ssh-agent offered many keys before the right one; server cut off at 6 | Add `-o IdentitiesOnly=yes -i ~/.ssh/sandcastle_ed25519` |
+| `connect-v2` enrolls the base remote but project remote fails with `Error: EOF` | `--incus-endpoint` **defaults to `https://big.thieso2.dev:8443`** — wrong/unreachable on any other Incus host | Re-run `sc connect-v2 <tenant> --incus-endpoint https://<host>:8443` (idempotent, no token needed on re-run) |
+| `incus config device add <ct> tun unix-char …` on a RUNNING client CT → `Failed to add mount for device inside container` | tun unix-char hot-plug into a live CT fails (Incus 7.2) | `incus stop <ct>` → `device add` → `start` (cold-add works) |
+| `dig @127.0.0.1 …` in the sidecar silently empty | stock Debian sidecar has no `dig` (dnsutils not installed by provisioning) | `apt-get install -y dnsutils` in the sidecar before DNS PASS checks (Phase 8 already does; Phase 7 checks need it too) |
+| Two LIVE sidecars (different hosts/runs) both hold `enabledRoutes` for the SAME `/24` (e.g. both auth-app stacks allocate `10.250.0.0/24` first) | Every deployment uses the same default CIDR pools, and prune-on-approve only removes *same-hostname* stragglers — a sibling environment's online router survives | Verify your sidecar owns `Self.PrimaryRoutes` after provisioning; for parallel test envs use distinct pools per host, ephemeral tailnet keys, or tear down the sibling before the run |
+| Client's ping to the tenant gateway succeeds (sub-ms!) yet login's routing check fails | ANOTHER deployment's bridge on the client's LAN path uses the same `/24` — the "reply" came from the local network, not the tenant (the check rejects non-tailnet egress by design) | Delete/renumber the colliding stale bridges (`incus network delete <sc2-…>` on the old host); the diagnosis now prints the answering local address |
+| Making a subnet-resident machine a tailnet node breaks its OLD inbound reachability | Asymmetric routing: callers still reach it via the other router's subnet route, but its replies now leave via its own `tailscale0` and the caller's tailscaled drops them (source not in that node's allowed IPs) | Don't dual-home test clients: a client VM is EITHER reached via someone's subnet route OR is a tailnet node. For the e2e use a dedicated client VM that is a node (see the two-VM note) |
+| `sc list`/`sc create`/`sc incus` on a v2 tenant → `Sandcastle tenant … not found` / `permission for project "sc-<tenant>"` | The v1 command family resolved tenants via `kind=tenant` projects and `sc-<tenant>` naming; v2 tenants have neither | **Fixed:** `tenant.List` surfaces v2 tenants from their `kind=project, version=2` Incus projects; `sc create` launches stock cloud images for v2 (`--image`/`--vm`); `sc incus*` scope to the v2 project names |
 
 ---
 

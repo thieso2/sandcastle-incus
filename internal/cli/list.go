@@ -252,6 +252,11 @@ func machineFQDN(tenant tenant.Summary, machine meta.Machine) string {
 	if machine.Name == "" || machine.Project == "" || suffix == "" {
 		return "-"
 	}
+	// v2 DNS is flat: the sidecar CoreDNS registers <machine>.<suffix> across
+	// all of the tenant's projects (ADR-0016), with no project label.
+	if tenant.Version == 2 {
+		return machine.Name + "." + suffix
+	}
 	return machine.Name + "." + machine.Project + "." + suffix
 }
 

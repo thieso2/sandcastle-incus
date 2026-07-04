@@ -67,10 +67,10 @@ func TestAllocatedCIDRsSpansV1AndV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := MemoryStore{Projects: []IncusProject{
-		{Name: "default", Config: map[string]string{}},                                                       // unmanaged
-		{Name: "sc-acme", Config: v1Config},                                                                  // v1 tenant
+		{Name: "default", Config: map[string]string{}}, // unmanaged
+		{Name: "sc-acme", Config: v1Config},            // v1 tenant
 		{Name: "sc2-zeus", Config: map[string]string{meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyV2CIDR: "10.249.1.0/24"}}, // v2 infra
-		{Name: "sc2-zeus-default", Config: map[string]string{meta.KeyKind: "project", meta.KeyVersion: "2"}}, // v2 app project: no CIDR
+		{Name: "sc2-zeus-default", Config: map[string]string{meta.KeyKind: "project", meta.KeyVersion: "2"}},                               // v2 app project: no CIDR
 	}}
 
 	cidrs, err := AllocatedCIDRs(context.Background(), store)
@@ -138,5 +138,49 @@ func TestOccupiedCIDRs(t *testing.T) {
 	}
 	if cidrs[0] != "10.248.0.0/24" || cidrs[1] != "10.248.1.0/24" {
 		t.Fatalf("cidrs = %#v", cidrs)
+	}
+}
+
+func TestListSurfacesV2Tenants(t *testing.T) {
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "sc2-acme", Config: map[string]string{
+			meta.KeyKind: meta.KindInfra, meta.KeyTenant: "acme", meta.KeyVersion: "2", meta.KeyV2CIDR: "10.250.0.0/24",
+		}},
+		{Name: "sc2-acme-default", Config: map[string]string{
+			meta.KeyKind: meta.KindV2Project, meta.KeyTenant: "acme", meta.KeyVersion: "2",
+		}},
+		{Name: "sc2-acme-web", Config: map[string]string{
+			meta.KeyKind: meta.KindV2Project, meta.KeyTenant: "acme", meta.KeyVersion: "2",
+		}},
+		{Name: "unrelated", Config: map[string]string{}},
+	}}
+	summaries, err := List(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("len(summaries) = %d, want 1: %#v", len(summaries), summaries)
+	}
+	summary := summaries[0]
+	if summary.Tenant != "acme" || summary.Version != 2 {
+		t.Fatalf("summary = %+v", summary)
+	}
+	if summary.IncusName != "sc2-acme-default" {
+		t.Fatalf("IncusName = %q, want sc2-acme-default", summary.IncusName)
+	}
+	if summary.InfraProject != "sc2-acme" {
+		t.Fatalf("InfraProject = %q", summary.InfraProject)
+	}
+	if summary.DNSSuffix != "acme" {
+		t.Fatalf("DNSSuffix = %q", summary.DNSSuffix)
+	}
+	if len(summary.Projects) != 2 || summary.Projects[0].Name != "default" || summary.Projects[1].Name != "web" {
+		t.Fatalf("Projects = %#v", summary.Projects)
+	}
+	if got := summary.V2IncusProjectName("web"); got != "sc2-acme-web" {
+		t.Fatalf("V2IncusProjectName(web) = %q", got)
+	}
+	if got := summary.V2IncusProjectName(""); got != "sc2-acme-default" {
+		t.Fatalf("V2IncusProjectName(\"\") = %q", got)
 	}
 }

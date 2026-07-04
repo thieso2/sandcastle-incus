@@ -25,6 +25,7 @@ type Summary struct {
 	IncusName       string                    `json:"incusName"`
 	InfraProject    string                    `json:"infraProject"`
 	Tenant          string                    `json:"tenant"`
+	Version         int                       `json:"version,omitempty"`
 	Personal        bool                      `json:"personal,omitempty"`
 	UnixUser        string                    `json:"unixUser,omitempty"`
 	DNSSuffix       string                    `json:"dnsSuffix,omitempty"`
@@ -60,6 +61,7 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 			IncusName:       incusProject.Name,
 			InfraProject:    naming.TenantInfraIncusProjectName(incusProject.Name),
 			Tenant:          tenant.Tenant,
+			Version:         1,
 			Personal:        tenant.Personal,
 			UnixUser:        tenant.UnixUser,
 			DNSSuffix:       tenant.Tenant,
@@ -74,10 +76,77 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 			StorageShares:   append([]meta.TenantStorageShare{}, tenant.StorageShares...),
 		})
 	}
+	summaries = append(summaries, v2Summaries(projects)...)
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Tenant < summaries[j].Tenant
 	})
 	return summaries, nil
+}
+
+// v2Summaries builds tenant summaries from v2 per-project Incus projects
+// (<prefix>-<tenant>-<project>, kind=project version=2). This is the view a
+// tenant's restricted certificate has of its own namespace — the kind=infra
+// project (sidecar, CIDR) is usually not visible to it, so the summary is
+// assembled from the app projects alone: DNS suffix defaults to the tenant
+// name (the v2 default) and the CIDR stays empty.
+func v2Summaries(projects []IncusProject) []Summary {
+	byTenant := map[string]*Summary{}
+	order := []string{}
+	for _, incusProject := range projects {
+		if !meta.IsManaged(incusProject.Config) {
+			continue
+		}
+		if incusProject.Config[meta.KeyKind] != meta.KindV2Project || incusProject.Config[meta.KeyVersion] != "2" {
+			continue
+		}
+		tenantName := strings.TrimSpace(incusProject.Config[meta.KeyTenant])
+		if tenantName == "" {
+			continue
+		}
+		marker := "-" + tenantName + "-"
+		idx := strings.Index(incusProject.Name, marker)
+		if idx <= 0 {
+			continue
+		}
+		shortName := incusProject.Name[idx+len(marker):]
+		if shortName == "" {
+			continue
+		}
+		summary, seen := byTenant[tenantName]
+		if !seen {
+			summary = &Summary{
+				Tenant:       tenantName,
+				Version:      2,
+				InfraProject: incusProject.Name[:idx+len("-"+tenantName)],
+				DNSSuffix:    tenantName,
+				Status:       "managed",
+			}
+			byTenant[tenantName] = summary
+			order = append(order, tenantName)
+		}
+		if shortName == naming.DefaultProjectName || summary.IncusName == "" {
+			summary.IncusName = incusProject.Name
+		}
+		summary.Projects = append(summary.Projects, meta.Project{Name: shortName})
+	}
+	summaries := make([]Summary, 0, len(order))
+	for _, tenantName := range order {
+		summary := byTenant[tenantName]
+		sort.Slice(summary.Projects, func(i, j int) bool { return summary.Projects[i].Name < summary.Projects[j].Name })
+		summaries = append(summaries, *summary)
+	}
+	return summaries
+}
+
+// V2IncusProjectName maps a v2 tenant summary and a short project name to the
+// full Incus project name, reusing the prefix baked into the summary's
+// InfraProject (<prefix>-<tenant>).
+func (s Summary) V2IncusProjectName(project string) string {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		project = naming.DefaultProjectName
+	}
+	return s.InfraProject + "-" + project
 }
 
 // AllocatedCIDRs returns every tenant private CIDR currently allocated on the

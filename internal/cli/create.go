@@ -21,11 +21,37 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var authHostname string
 	var maxPolls int
 	var debugApprove bool
+	var image string
+	var vm bool
 	command := &cobra.Command{
 		Use:   "create [tenant/][project:]machine",
 		Short: "Create a Sandcastle container machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// v2 tenants launch freeform machines (stock cloud image + the
+			// project default profile); the whole v1 plan below is v1-only.
+			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
+				for flagName, set := range map[string]bool{
+					"template": template != "", "app-port": appPort != 0,
+					"home-dir": homeDir != "", "workspace-dir": workspaceDir != "",
+					"container-tools": containerTools, "cloud-identity": cloudIdentity != "",
+				} {
+					if set {
+						return fmt.Errorf("--%s is not supported for v2 tenants", flagName)
+					}
+				}
+				return runCreateMachineV2(cmd.Context(), config, opts, summary, args[0], createV2Options{
+					Image:  image,
+					VM:     vm,
+					DryRun: dryRun,
+				})
+			}
+			if vm {
+				return fmt.Errorf("--vm is only supported for v2 tenants")
+			}
+			if image != "" {
+				return fmt.Errorf("--image is only supported for v2 tenants (v1 uses --template)")
+			}
 			createTenantStore := tenantStoreWithSSHKeyMetadata(config.tenantStore)
 			plan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, createTenantStore, config.machineStore, machine.CreateRequest{
 				Reference:      args[0],
@@ -116,6 +142,8 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().BoolVar(&shareHome, "share-home", false, "deprecated no-op; project home storage is shared by default")
 	command.Flags().BoolVar(&containerTools, "container-tools", false, "enable nested container tooling for this machine")
 	command.Flags().StringVar(&cloudIdentity, "cloud-identity", "", "Cloud Identity Config name to inject, for example gcp")
+	command.Flags().StringVar(&image, "image", "", "v2 only: image to launch (default "+v2DefaultMachineImage+")")
+	command.Flags().BoolVar(&vm, "vm", false, "v2 only: launch a virtual machine instead of a container")
 	command.Flags().StringVar(&authHostname, "auth-hostname", "", "public Auth Hostname (overrides config auth.hostname)")
 	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts when enabling workload identity")
 	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve workload identity device login (requires server --debug-device-user)")

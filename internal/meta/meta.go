@@ -20,17 +20,18 @@ const (
 	// KeyV2CIDR is where v2 stores a tenant's private /24, on the kind=infra
 	// project (v1 keeps it in the tenant metadata under KeyPrivateCIDR). Must
 	// match incusx's keyV2CIDR.
-	KeyV2CIDR = Prefix + "v2.cidr"
-	KeyAppPort     = Prefix + "app_port"
-	KeyLinuxUser   = Prefix + "linux_user"
-	KeyCreatedBy   = Prefix + "created_by"
-	KeyState       = Prefix + "state"
+	KeyV2CIDR    = Prefix + "v2.cidr"
+	KeyAppPort   = Prefix + "app_port"
+	KeyLinuxUser = Prefix + "linux_user"
+	KeyCreatedBy = Prefix + "created_by"
+	KeyState     = Prefix + "state"
 
-	KindTenant  = "tenant"
-	KindMachine = "machine"
-	KindRoute   = "route"
-	KindSidecar = "sidecar"
-	KindInfra   = "infra" // v2 per-tenant infra project (holds the sidecar + CIDR)
+	KindTenant    = "tenant"
+	KindMachine   = "machine"
+	KindRoute     = "route"
+	KindSidecar   = "sidecar"
+	KindInfra     = "infra"   // v2 per-tenant infra project (holds the sidecar + CIDR)
+	KindV2Project = "project" // v2 per-project Incus project (app machines)
 
 	Version = 1
 

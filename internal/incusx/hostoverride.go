@@ -15,6 +15,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -24,6 +25,7 @@ type HostOverrideServer interface {
 
 type HostOverrideResourceServer interface {
 	GetInstances(instanceType api.InstanceType) ([]api.Instance, error)
+	GetInstancesFull(instanceType api.InstanceType) ([]api.InstanceFull, error)
 	GetInstance(name string) (*api.Instance, string, error)
 	UpdateInstance(name string, instance api.InstancePut, ETag string) (incus.Operation, error)
 	CreateInstanceFile(instanceName string, path string, args incus.InstanceFileArgs) error
@@ -71,6 +73,9 @@ func (m HostOverrideManager) FindMachine(ctx context.Context, summary tenant.Sum
 }
 
 func (m HostOverrideManager) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
+	if summary.Version == 2 {
+		return m.listV2Machines(summary)
+	}
 	instances, err := m.listTenantInstances(summary)
 	if err != nil {
 		return nil, err
@@ -80,11 +85,101 @@ func (m HostOverrideManager) ListMachines(ctx context.Context, summary tenant.Su
 }
 
 func (m HostOverrideManager) ListMachinesAndUnmanaged(ctx context.Context, summary tenant.Summary) ([]meta.Machine, []machine.UnmanagedMachine, error) {
+	if summary.Version == 2 {
+		machines, err := m.listV2Machines(summary)
+		return machines, nil, err
+	}
 	instances, err := m.listTenantInstances(summary)
 	if err != nil {
 		return nil, nil, err
 	}
 	return splitTenantInstances(summary, instances)
+}
+
+// listV2Machines lists every instance across a v2 tenant's app projects. In v2
+// machines are freeform incus instances (CTs and VMs, no Sandcastle metadata),
+// so all of them are first-class machines — there is no unmanaged bucket.
+func (m HostOverrideManager) listV2Machines(summary tenant.Summary) ([]meta.Machine, error) {
+	server, err := m.resolveServer()
+	if err != nil {
+		return nil, err
+	}
+	projects := summary.Projects
+	if len(projects) == 0 {
+		projects = []meta.Project{{Name: naming.DefaultProjectName}}
+	}
+	machines := []meta.Machine{}
+	for _, project := range projects {
+		projectServer := server.UseProject(summary.V2IncusProjectName(project.Name))
+		instances, err := projectServer.GetInstancesFull(api.InstanceTypeAny)
+		if err != nil {
+			return nil, fmt.Errorf("list project %s instances: %w", project.Name, err)
+		}
+		for _, instance := range instances {
+			if meta.IsManaged(instance.Config) && instance.Config[meta.KeyKind] == meta.KindSidecar {
+				continue
+			}
+			machines = append(machines, meta.Machine{
+				Tenant:    summary.Tenant,
+				Project:   project.Name,
+				Name:      instance.Name,
+				Type:      string(instance.Type),
+				PrivateIP: instanceGlobalIPv4(instance),
+				CreatedAt: formatInstanceCreatedAt(instance.CreatedAt),
+				Running:   instance.IsActive(),
+			})
+		}
+	}
+	return machines, nil
+}
+
+// instanceGlobalIPv4 returns the instance's first global (non-loopback,
+// non-link-local) IPv4 from live state — freeform v2 machines lease via DHCP,
+// so there is no static ip device to read.
+func instanceGlobalIPv4(instance api.InstanceFull) string {
+	if instance.State == nil {
+		return ""
+	}
+	for name, iface := range instance.State.Network {
+		if name == "lo" || iface.Type == "loopback" {
+			continue
+		}
+		for _, address := range iface.Addresses {
+			if address.Family == "inet" && address.Scope == "global" {
+				return address.Address
+			}
+		}
+	}
+	return ""
+}
+
+// resolveServer returns the connected server the manager should use (the
+// injected one for tests, otherwise a fresh SDK connection to the remote).
+func (m HostOverrideManager) resolveServer() (HostOverrideServer, error) {
+	server := m.Server
+	if server == nil {
+		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("load Incus config: %w", err)
+		}
+		remote := m.Remote
+		if remote == "" {
+			remote = loaded.DefaultRemote
+		}
+		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
+			return loaded.GetInstanceServer(remote)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+		}
+		server = sdkHostOverrideServer{inner: instanceServer, Log: m.Log}
+	}
+	if connector, ok := server.(interface{ ensureConnected() error }); ok {
+		if err := connector.ensureConnected(); err != nil {
+			return nil, err
+		}
+	}
+	return server, nil
 }
 
 func splitTenantInstances(summary tenant.Summary, instances []api.Instance) ([]meta.Machine, []machine.UnmanagedMachine, error) {
@@ -150,28 +245,9 @@ func (m HostOverrideManager) ListUnmanagedMachines(ctx context.Context, summary 
 }
 
 func (m HostOverrideManager) listTenantInstances(summary tenant.Summary) ([]api.Instance, error) {
-	server := m.Server
-	if server == nil {
-		loaded, err := cliconfig.LoadConfig(m.ConfigPath)
-		if err != nil {
-			return nil, fmt.Errorf("load Incus config: %w", err)
-		}
-		remote := m.Remote
-		if remote == "" {
-			remote = loaded.DefaultRemote
-		}
-		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
-			return loaded.GetInstanceServer(remote)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
-		}
-		server = sdkHostOverrideServer{inner: instanceServer, Log: m.Log}
-	}
-	if connector, ok := server.(interface{ ensureConnected() error }); ok {
-		if err := connector.ensureConnected(); err != nil {
-			return nil, err
-		}
+	server, err := m.resolveServer()
+	if err != nil {
+		return nil, err
 	}
 	projectServer := server.UseProject(summary.IncusName)
 	instances, err := projectServer.GetInstances(api.InstanceTypeContainer)
@@ -316,6 +392,12 @@ type sdkHostOverrideResourceServer struct {
 func (s sdkHostOverrideResourceServer) GetInstances(instanceType api.InstanceType) ([]api.Instance, error) {
 	return logIncusAPICall(s.Log, "GetInstances project="+s.projectName+" type="+string(instanceType), func() ([]api.Instance, error) {
 		return s.inner.GetInstances(instanceType)
+	})
+}
+
+func (s sdkHostOverrideResourceServer) GetInstancesFull(instanceType api.InstanceType) ([]api.InstanceFull, error) {
+	return logIncusAPICall(s.Log, "GetInstancesFull project="+s.projectName+" type="+string(instanceType), func() ([]api.InstanceFull, error) {
+		return s.inner.GetInstancesFull(instanceType)
 	})
 }
 

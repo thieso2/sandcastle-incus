@@ -126,6 +126,14 @@ func (s sharedHostOverrideResourceServer) GetInstances(instanceType api.Instance
 	return resource.GetInstances(instanceType)
 }
 
+func (s sharedHostOverrideResourceServer) GetInstancesFull(instanceType api.InstanceType) ([]api.InstanceFull, error) {
+	resource, err := s.resource()
+	if err != nil {
+		return nil, err
+	}
+	return resource.GetInstancesFull(instanceType)
+}
+
 func (s sharedHostOverrideResourceServer) GetInstance(name string) (*api.Instance, string, error) {
 	resource, err := s.resource()
 	if err != nil {

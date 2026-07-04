@@ -35,6 +35,7 @@ type TenantResourceServer interface {
 	CreateProfile(profile api.ProfilesPost) error
 	UpdateProfile(name string, profile api.ProfilePut, ETag string) error
 	GetInstance(name string) (*api.Instance, string, error)
+	GetInstanceState(name string) (*api.InstanceState, string, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error)
 	UpdateInstanceState(name string, state api.InstanceStatePut, ETag string) (incus.Operation, error)
@@ -76,18 +77,6 @@ func (c TenantCreator) log(msg string) {
 
 // EnsureAuxProjects creates the infra/native Incus projects and their sidecar instances for
 // mainProjectName if missing. It is a recovery path for tenants in an incomplete state.
-
-
-
-
-
-
-
-
-
-
-
-
 
 type coreDNSRestarter interface {
 	ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error)
@@ -186,9 +175,6 @@ func configureSidecarNetwork(server TenantResourceServer, sidecar tenant.Sidecar
 	return nil
 }
 
-
-
-
 func ensureExactProfile(server TenantResourceServer, name string, profilePut api.ProfilePut) error {
 	_, etag, err := server.GetProfile(name)
 	if err == nil {
@@ -202,16 +188,6 @@ func ensureExactProfile(server TenantResourceServer, name string, profilePut api
 		ProfilePut: profilePut,
 	})
 }
-
-
-
-
-
-
-
-
-
-
 
 func gatewayCIDR(projectCIDR string) string {
 	prefix, err := netip.ParsePrefix(projectCIDR)
@@ -232,7 +208,6 @@ func gatewayIPFromCIDR(cidr string) (string, error) {
 	base[3] = 1
 	return netip.AddrFrom4(base).String(), nil
 }
-
 
 type sdkTenantCreateServer struct {
 	inner incus.InstanceServer
@@ -317,6 +292,10 @@ func (s sdkResourceServer) UpdateProfile(name string, profile api.ProfilePut, et
 
 func (s sdkResourceServer) GetInstance(name string) (*api.Instance, string, error) {
 	return s.inner.GetInstance(name)
+}
+
+func (s sdkResourceServer) GetInstanceState(name string) (*api.InstanceState, string, error) {
+	return s.inner.GetInstanceState(name)
 }
 
 func (s sdkResourceServer) CreateInstance(instance api.InstancesPost) (incus.Operation, error) {

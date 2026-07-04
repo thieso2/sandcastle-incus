@@ -36,6 +36,14 @@ func (r *fakeHostOverrideResource) GetInstances(instanceType api.InstanceType) (
 	return r.instances, nil
 }
 
+func (r *fakeHostOverrideResource) GetInstancesFull(instanceType api.InstanceType) ([]api.InstanceFull, error) {
+	full := make([]api.InstanceFull, 0, len(r.instances))
+	for _, instance := range r.instances {
+		full = append(full, api.InstanceFull{Instance: instance})
+	}
+	return full, nil
+}
+
 func (r *fakeHostOverrideResource) GetInstance(name string) (*api.Instance, string, error) {
 	return r.instance, "etag", nil
 }

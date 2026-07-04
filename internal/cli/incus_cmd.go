@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type incusRunner func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
@@ -34,6 +35,11 @@ func newIncusCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// v2 tenants use per-project Incus projects (sc2-<tenant>-<project>),
+			// not the v1 sc-<tenant> project the name derivation above assumes.
+			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
+				projectName = summary.V2IncusProjectName(config.adminConfig.Project)
+			}
 			env := append(os.Environ(), "INCUS_CONF="+incusDir)
 			envOverrides := []string{"INCUS_CONF=" + incusDir}
 			if projectName != "" {
@@ -55,7 +61,10 @@ func newIncusNativeCommand(config commandConfig, _ *rootOptions) *cobra.Command 
 		Short:              "Run incus scoped to the tenant's native (freeform) Incus project",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runIncusWithProject(cmd, config, args, naming.TenantNativeIncusProjectName)
+			// v2 has no separate native project — freeform IS the model, so
+			// this scopes to the tenant's app project like plain `sc incus`.
+			return runIncusWithProject(cmd, config, args, naming.TenantNativeIncusProjectName,
+				func(summary tenant.Summary) string { return summary.V2IncusProjectName(config.adminConfig.Project) })
 		},
 	}
 }
@@ -66,12 +75,13 @@ func newIncusInfraCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 		Short:              "Run incus scoped to the tenant's infra (sidecars) Incus project",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runIncusWithProject(cmd, config, args, naming.TenantInfraIncusProjectName)
+			return runIncusWithProject(cmd, config, args, naming.TenantInfraIncusProjectName,
+				func(summary tenant.Summary) string { return summary.InfraProject })
 		},
 	}
 }
 
-func runIncusWithProject(cmd *cobra.Command, config commandConfig, args []string, projectNameFn func(string) string) error {
+func runIncusWithProject(cmd *cobra.Command, config commandConfig, args []string, projectNameFn func(string) string, v2ProjectFn func(tenant.Summary) string) error {
 	incusDir := resolveIncusDir(config.adminConfig.Remote)
 	if incusDir == "" {
 		return fmt.Errorf("no Sandcastle-managed Incus config found for remote %q; add one with: sc remote add", config.adminConfig.Remote)
@@ -86,7 +96,11 @@ func runIncusWithProject(cmd *cobra.Command, config commandConfig, args []string
 	}
 	envOverrides := []string{"INCUS_CONF=" + incusDir}
 	env := append(os.Environ(), "INCUS_CONF="+incusDir)
-	if mainProject != "" {
+	if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
+		projectName := v2ProjectFn(summary)
+		env = append(env, "INCUS_PROJECT="+projectName)
+		envOverrides = append(envOverrides, "INCUS_PROJECT="+projectName)
+	} else if mainProject != "" {
 		projectName := projectNameFn(mainProject)
 		env = append(env, "INCUS_PROJECT="+projectName)
 		envOverrides = append(envOverrides, "INCUS_PROJECT="+projectName)
