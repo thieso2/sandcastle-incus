@@ -284,6 +284,7 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminProjectCommand(config, opts))
 	root.AddCommand(newAdminBootstrapCommand(config))
 	root.AddCommand(newAdminInstallCommand(config))
+	root.AddCommand(newAdminInstallIncusCommand(config))
 	root.AddCommand(newAdminRouteBrokerCommand(config))
 	root.AddCommand(newAdminAuthAppCommand(config))
 	root.AddCommand(newAdminMachineWorkloadCommand(config, opts))

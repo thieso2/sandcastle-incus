@@ -169,6 +169,11 @@ rm -rf ~/.config/sandcastle/$TENANT
 The sc2 web API. No host port (fronted by `sc-edge`). Copies the fat binary in.
 Stock image is the default (`--base-image images:debian/13`, pulled on demand — no `--base-image` needed).
 
+> ✅ **Host prep is one command too (2026-07-05):** `sudo sc-adm install-incus`
+> installs the latest Incus from the Zabbly stable repo on any Debian-based
+> host (repo + apt + `incus admin init --minimal` + incus-admin group),
+> idempotently — replaces the hand-rolled Zabbly setup script.
+
 > ✅ **One-command install (2026-07-05).** `sc-adm install` now deploys the
 > auth-app AND the broker in one shot with a shared `--cidr-pool` (optional,
 > default `10.248.0.0/16` — keep pools distinct across installations sharing a
