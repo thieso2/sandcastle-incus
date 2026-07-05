@@ -186,9 +186,10 @@ func ensureTenantRouting(ctx context.Context, stdout io.Writer, cidr string) err
 	// 1. Is tailscale present at all?
 	if _, err := exec.LookPath("tailscale"); err != nil {
 		check(false, "tailscale is not installed on this machine")
-		return fail("    • Install Tailscale (https://tailscale.com/download) and join the tailnet\n" +
-			"      the tenant sidecar is on (`tailscale up`). The tenant's Incus remote and\n" +
-			"      machines are only reachable over that tailnet.")
+		return fail("    • Install Tailscale:\n" +
+			"          curl -fsSL https://tailscale.com/install.sh | sh\n" +
+			"      then join the tailnet the tenant sidecar is on (`tailscale up`).\n" +
+			"      The tenant's Incus remote and machines are only reachable over that tailnet.")
 	}
 
 	// 2. Accept subnet routes (idempotent, best-effort), then read the client state.
@@ -855,8 +856,10 @@ func requireTailnetNode(ctx context.Context) error {
 	if _, err := exec.LookPath("tailscale"); err != nil {
 		return fmt.Errorf("this machine is not a tailnet node (tailscale is not installed), so the\n" +
 			"tenant's Incus remote and machines would be unreachable after login.\n" +
-			"    • Install Tailscale (https://tailscale.com/download) and run `tailscale up`\n" +
-			"      to join the tailnet the tenant sidecar is on, then re-run `sc login`, or\n" +
+			"    • Install Tailscale:\n" +
+			"          curl -fsSL https://tailscale.com/install.sh | sh\n" +
+			"      then run `tailscale up` to join the tailnet the tenant sidecar is on\n" +
+			"      and re-run `sc login`, or\n" +
 			"    • re-run with --skip-setup to enroll anyway (tenant machines stay\n" +
 			"      unreachable from this machine).")
 	}
