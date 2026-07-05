@@ -54,6 +54,13 @@ type BootstrapAuthAppRequest struct {
 	DebugDeviceUser     string   // enable debug device approval as this user (optional)
 	SimulateGitHubToken string   // DEV ONLY: enable simulated-GitHub auth gated by this token (optional)
 
+	// Integrated ingress (see authapp_ingress.go): "none" (default, BYO edge),
+	// "acme" (host :80/:443 + Let's Encrypt), or "cloudflare" (outbound tunnel,
+	// no inbound ports; TunnelToken required).
+	IngressMode string
+	ACMEEmail   string
+	TunnelToken string
+
 	// Provisioning config baked into the appliance env (the Auth App provisions
 	// tenants on device login).
 	CIDRPool      string
@@ -97,23 +104,56 @@ func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAp
 		{AuthAppEnvPath, []byte(authAppEnv(req)), 0o600},
 		{AuthAppUnitPath, []byte(authAppUnit()), 0o644},
 	}
+	mode := strings.TrimSpace(req.IngressMode)
+	units := []string{"sandcastle-auth-app.service"}
+	if mode == IngressACME || mode == IngressCloudflare {
+		c.log("fetch ingress binaries on the host (caddy" + map[bool]string{true: " + cloudflared", false: ""}[mode == IngressCloudflare] + ")")
+		caddy, cloudflared, err := fetchIngressBinaries(mode)
+		if err != nil {
+			return err
+		}
+		files = append(files,
+			applianceFile{authAppCaddyBinary, caddy, 0o755},
+			applianceFile{authAppCaddyfilePath, []byte(authAppCaddyfile(mode, req.Hostname, req.ACMEEmail)), 0o644},
+			applianceFile{authAppCaddyUnitPath, []byte(authAppCaddyUnit()), 0o644},
+		)
+		units = append(units, "caddy.service")
+		if mode == IngressCloudflare {
+			if strings.TrimSpace(req.TunnelToken) == "" {
+				return fmt.Errorf("cloudflare ingress requires a tunnel token")
+			}
+			files = append(files,
+				applianceFile{authAppCloudflaredBinary, cloudflared, 0o755},
+				applianceFile{authAppTunnelEnvPath, []byte("TUNNEL_TOKEN=" + strings.TrimSpace(req.TunnelToken) + "\n"), 0o600},
+				applianceFile{authAppTunnelUnitPath, []byte(authAppTunnelUnit()), 0o644},
+			)
+			units = append(units, "cloudflared.service")
+		}
+	}
 	for _, f := range files {
 		if err := writeApplianceFile(psrv, instance, f); err != nil {
 			return err
 		}
 	}
 
-	c.log("start auth-app service")
+	c.log("start services: " + strings.Join(units, " "))
 	start := applianceStartScript([]string{
 		"install -d -m 0755 /etc/sandcastle",
 		"install -d -m 0700 /etc/sandcastle/auth-app",
 		"install -d -m 0700 /var/lib/sandcastle/auth",
-	}, "sandcastle-auth-app.service")
+	}, units...)
 	if err := execSidecar(psrv, instance, start); err != nil {
-		return fmt.Errorf("start auth-app service: %w", err)
+		return fmt.Errorf("start auth-app services: %w", err)
 	}
-	c.log("done — auth-app " + instance + " on " + AuthAppListen +
-		" (front it at https://" + req.Hostname + " via sc-edge)")
+	switch mode {
+	case IngressACME:
+		c.log("done — auth-app " + instance + " terminating https://" + req.Hostname + " on host :80/:443 (Let's Encrypt)")
+	case IngressCloudflare:
+		c.log("done — auth-app " + instance + " serving https://" + req.Hostname + " via Cloudflare tunnel (no inbound ports)")
+	default:
+		c.log("done — auth-app " + instance + " on " + AuthAppListen +
+			" (front it at https://" + req.Hostname + " via sc-edge)")
+	}
 	return nil
 }
 
@@ -152,13 +192,7 @@ func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequ
 				"security.privileged": "true",
 				meta.KeyKind:          "auth-app",
 			},
-			Devices: api.DevicesMap{
-				"root": {"type": "disk", "pool": req.StoragePool, "path": "/"},
-				"eth0": {"type": "nic", "nictype": "bridged", "parent": req.Bridge},
-				// mount the host admin socket → the Auth App provisions with full rights
-				"incus-socket": {"type": "disk", "source": AuthAppIncusSocket, "path": AuthAppIncusSocket},
-				// No host proxy device: reached over the bridge via sc-edge.
-			},
+			Devices:  authAppDevices(req),
 			Profiles: []string{},
 		},
 	})
@@ -169,6 +203,23 @@ func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequ
 		return fmt.Errorf("wait for auth-app appliance: %w", err)
 	}
 	return nil
+}
+
+// authAppDevices builds the appliance's device map; ACME ingress additionally
+// publishes the host's :80/:443 into the container so caddy can terminate TLS
+// and answer HTTP-01 challenges.
+func authAppDevices(req BootstrapAuthAppRequest) api.DevicesMap {
+	devices := api.DevicesMap{
+		"root": {"type": "disk", "pool": req.StoragePool, "path": "/"},
+		"eth0": {"type": "nic", "nictype": "bridged", "parent": req.Bridge},
+		// mount the host admin socket → the Auth App provisions with full rights
+		"incus-socket": {"type": "disk", "source": AuthAppIncusSocket, "path": AuthAppIncusSocket},
+	}
+	if strings.TrimSpace(req.IngressMode) == IngressACME {
+		devices["http"] = map[string]string{"type": "proxy", "listen": "tcp:0.0.0.0:80", "connect": "tcp:127.0.0.1:80"}
+		devices["https"] = map[string]string{"type": "proxy", "listen": "tcp:0.0.0.0:443", "connect": "tcp:127.0.0.1:443"}
+	}
+	return devices
 }
 
 type applianceFile struct {

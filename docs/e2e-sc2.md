@@ -181,6 +181,13 @@ Stock image is the default (`--base-image images:debian/13`, pulled on demand �
 >   --simulate-github-token "$SIMULATE_TOKEN" --admin-github-users thieso2 \
 >   --tailscale-api-key "$TAILSCALE_API_KEY" --cidr-pool 10.252.0.0/16
 > ```
+> `--ingress cloudflare|acme|none` builds the public edge INTO the auth-app
+> appliance (caddy + cloudflared inside the same container, proxying
+> localhost:9444): `--cloudflare-api-token` creates the tunnel + DNS fully
+> automatically (validated live 2026-07-05 — healthz 200 over an
+> installer-created tunnel); `--cloudflare-tunnel-token` uses a
+> dashboard-created tunnel; `acme` binds host :80/:443 with Let's Encrypt.
+> The standalone sc-edge recipe is no longer needed for the auth hostname.
 > Tailscale keys are now **optional on the server**: the tenant brings their own
 > at login (`sc login --tailscale-auth-key tskey-…`), or logs in with no key and
 > gets the sidecar's interactive `login.tailscale.com` URL — login prints it and

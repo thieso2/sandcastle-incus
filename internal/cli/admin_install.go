@@ -36,6 +36,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 		hostname, githubClientID, githubClientSecret, adminUsers     string
 		defaultUnixUser, tailscaleAuthKey, tailscaleAPIKey           string
 		simulateGitHubToken, tlsMode, brokerPort                     string
+		ingressMode, acmeEmail, tunnelToken, cloudflareAPIToken      string
 	)
 	command := &cobra.Command{
 		Use:   "install",
@@ -87,6 +88,32 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				return fmt.Errorf("github-client-id and github-client-secret are required (or use --simulate-github-token for dev)")
 			}
 
+			// Ingress: resolve the tunnel token (cloudflare mode) and preflight
+			// the host ports (acme mode) before any appliance work.
+			ingressMode = strings.TrimSpace(ingressMode)
+			switch ingressMode {
+			case "", incusx.IngressNone:
+				ingressMode = incusx.IngressNone
+			case incusx.IngressACME:
+				if busy := hostPortsBusy(80, 443); len(busy) > 0 {
+					return fmt.Errorf("acme ingress needs the host ports %v, but they are already in use", busy)
+				}
+			case incusx.IngressCloudflare:
+				if strings.TrimSpace(tunnelToken) == "" && strings.TrimSpace(cloudflareAPIToken) == "" {
+					return fmt.Errorf("cloudflare ingress needs --cloudflare-tunnel-token (dashboard-created tunnel) or --cloudflare-api-token (fully automated)")
+				}
+				if strings.TrimSpace(tunnelToken) == "" {
+					fmt.Fprintf(config.stdout, "[0/2] creating Cloudflare tunnel + DNS for %s via the API...\n", hostname)
+					token, err := ensureCloudflareTunnel(cmd.Context(), cloudflareAPIToken, hostname)
+					if err != nil {
+						return fmt.Errorf("cloudflare tunnel setup: %w", err)
+					}
+					tunnelToken = token
+				}
+			default:
+				return fmt.Errorf("unknown --ingress %q (none, acme, cloudflare)", ingressMode)
+			}
+
 			fmt.Fprintf(config.stdout, "[1/2] deploying auth-app appliance %s...\n", authAppInstance)
 			if err := creator.BootstrapAuthApp(cmd.Context(), incusx.BootstrapAuthAppRequest{
 				Project:             "infrastructure",
@@ -106,6 +133,9 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				CIDRPool:            cidrPool,
 				ProjectPrefix:       prefix,
 				TLSMode:             tlsMode,
+				IngressMode:         ingressMode,
+				ACMEEmail:           acmeEmail,
+				TunnelToken:         tunnelToken,
 			}); err != nil {
 				return fmt.Errorf("auth-app deploy: %w", err)
 			}
@@ -127,8 +157,18 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 			fmt.Fprintf(config.stdout, "  auth-app: %s (project infrastructure), serving :9444 internally\n", authAppInstance)
 			fmt.Fprintf(config.stdout, "  broker:   %s (project %s), :%s\n", brokerName, brokerName, brokerPort)
 			fmt.Fprintf(config.stdout, "  tenant CIDR pool: %s (shared; the allocator avoids other tenants' /24s)\n", cidrPool)
-			fmt.Fprintf(config.stdout, "Next: front https://%s via sc-edge (reverse_proxy to the auth-app IP :9444),\n", hostname)
-			fmt.Fprintln(config.stdout, "then users run: sc login https://"+hostname)
+			switch ingressMode {
+			case incusx.IngressACME:
+				fmt.Fprintf(config.stdout, "  ingress: Let's Encrypt on host :80/:443 for https://%s\n", hostname)
+				fmt.Fprintf(config.stdout, "  (DNS: make sure an A record points %s at this host's public IP)\n", hostname)
+				fmt.Fprintln(config.stdout, "Users run: sc login https://"+hostname)
+			case incusx.IngressCloudflare:
+				fmt.Fprintf(config.stdout, "  ingress: Cloudflare tunnel for https://%s (no inbound ports)\n", hostname)
+				fmt.Fprintln(config.stdout, "Users run: sc login https://"+hostname)
+			default:
+				fmt.Fprintf(config.stdout, "Next: front https://%s via sc-edge (reverse_proxy to the auth-app IP :9444),\n", hostname)
+				fmt.Fprintln(config.stdout, "then users run: sc login https://"+hostname)
+			}
 			return nil
 		},
 	}
@@ -148,6 +188,10 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&storagePool, "storage-pool", "default", "storage pool for the appliance root disks")
 	command.Flags().StringVar(&tlsMode, "infra-tls-mode", "acme", "infrastructure TLS mode")
 	command.Flags().StringVar(&brokerPort, "broker-port", "9443", "host port the broker listens on")
+	command.Flags().StringVar(&ingressMode, "ingress", "none", "public ingress for the Auth Hostname: none (BYO edge), acme (host :80/:443 + Let's Encrypt), or cloudflare (outbound tunnel, no inbound ports)")
+	command.Flags().StringVar(&acmeEmail, "acme-email", "", "Let's Encrypt contact email (acme ingress)")
+	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a dashboard-created Cloudflare tunnel routing the hostname to http://localhost:8080 (cloudflare ingress)")
+	command.Flags().StringVar(&cloudflareAPIToken, "cloudflare-api-token", "", "Cloudflare API token (Tunnel:Edit + DNS:Edit + Zone:Read): install creates the tunnel, ingress rule, and proxied DNS record itself (cloudflare ingress)")
 	return command
 }
 
@@ -182,6 +226,21 @@ func detectInstance(config commandConfig, project string, instance string) strin
 		return "auth-app instance " + instance + " (project " + project + ")"
 	}
 	return ""
+}
+
+// hostPortsBusy reports which of the given TCP ports are already bound on the
+// host (acme ingress needs :80/:443 for caddy).
+func hostPortsBusy(ports ...int) []int {
+	busy := []int{}
+	for _, port := range ports {
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			busy = append(busy, port)
+			continue
+		}
+		_ = listener.Close()
+	}
+	return busy
 }
 
 // cidrPoolOverlapsHost warns when a host interface address falls inside the
