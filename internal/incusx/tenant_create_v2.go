@@ -450,6 +450,17 @@ const sidecarTailnetTag = "tag:sandcastle"
 
 func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKey string) (string, string, error) {
 	base := "--advertise-routes=" + plan.PrivateCIDR + " --hostname=" + plan.SidecarInstance + " --accept-dns=false --advertise-tags=" + sidecarTailnetTag
+	gateway, err := gatewayIPFromCIDR(plan.PrivateCIDR)
+	if err != nil {
+		return "", "", err
+	}
+	// finish = the Incus Reach (ADR-0017): proxy the host's Incus API onto the
+	// tenant tailnet (raw TCP, so the host cert is pinned) and emit the
+	// sidecar's tailnet IPv4 for the caller. Shared by both branches so a
+	// BYO-tailnet interactive join completes the Reach on the next
+	// provisioning pass (login re-polls until this reports an IP).
+	finish := "tailscale serve --bg --tcp=8443 tcp://" + gateway + ":8443\n" +
+		"printf 'TSIP=%s\\n' \"$(tailscale ip -4 | head -1)\""
 	if authKey == "" {
 		const log = "/var/lib/sandcastle-tsup.log"
 		script := strings.Join([]string{
@@ -457,8 +468,9 @@ func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKe
 			"systemctl unmask tailscaled.service 2>/dev/null || true",
 			"systemctl enable --now tailscaled.service",
 			"for i in $(seq 1 30); do tailscale status >/dev/null 2>&1 && break; sleep 1; done",
-			// Idempotent re-create: if already authenticated, nothing to show.
-			"if tailscale ip -4 >/dev/null 2>&1; then exit 0; fi",
+			// Already authenticated (the user completed the interactive login,
+			// or an earlier run joined): finish the Reach and report the IP.
+			"if tailscale ip -4 >/dev/null 2>&1; then\n" + finish + "\nexit 0\nfi",
 			// `tailscale up` blocks until the user authenticates, so run it as a
 			// detached transient unit and read the login URL it prints to a file.
 			"printf '#!/bin/sh\\nexec tailscale up " + base + " > " + log + " 2>&1\\n' > /usr/local/bin/sandcastle-tsup.sh",
@@ -473,11 +485,7 @@ func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKe
 		if err != nil {
 			return "", "", fmt.Errorf("tailscale up (interactive): %w", err)
 		}
-		return parseTailscaleLoginURL(out), "", nil
-	}
-	gateway, err := gatewayIPFromCIDR(plan.PrivateCIDR)
-	if err != nil {
-		return "", "", err
+		return parseTailscaleLoginURL(out), parseTailnetIP(out), nil
 	}
 	upCmd := "tailscale up --auth-key='" + authKey + "' " + base + " --timeout=60s"
 	up := strings.Join([]string{

@@ -114,7 +114,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&githubClientSecret, "github-client-secret", "", "GitHub OAuth client secret; prompted if empty")
 	command.Flags().StringVar(&adminUsers, "admin-github-users", "", "comma-separated admin GitHub usernames; prompted if empty")
 	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix login for provisioned machines")
-	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key handed to approved device logins")
+	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "OPTIONAL default Tailscale auth key for tenants that don't bring their own; tenants normally supply theirs via `sc login --tailscale-auth-key` (BYO tailnet) or the interactive join URL")
 	command.Flags().StringVar(&tailscaleAPIKey, "tailscale-api-key", "", "Tailscale API key (tskey-api-…) for optional tenant route auto-approval")
 	command.Flags().StringVar(&debugDeviceUser, "debug-device-user", "", "enable debug device approval as this allowlisted user")
 	command.Flags().StringVar(&simulateGitHubToken, "simulate-github-token", "", "DEV ONLY: run the appliance in simulated-GitHub mode gated by this shared secret (no real OAuth app; github-client-id/secret become optional)")

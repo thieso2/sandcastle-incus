@@ -12,7 +12,15 @@ import (
 )
 
 type PersonalTenantProvisioner interface {
-	EnsurePersonalTenant(context.Context, User) (PersonalTenantResult, error)
+	EnsurePersonalTenant(context.Context, User, ProvisionOptions) (PersonalTenantResult, error)
+}
+
+// ProvisionOptions carries the tenant's own inputs into provisioning. The
+// Tailscale auth key is the TENANT's (BYO tailnet, ADR-0017): the sidecar joins
+// the tenant's tailnet, so the key travels with the login, not the service
+// config (which may hold at most an optional default).
+type ProvisionOptions struct {
+	TailscaleAuthKey string
 }
 
 type PersonalTenantResult struct {
@@ -28,11 +36,23 @@ type PersonalTenantResult struct {
 	CurrentProject      string
 	DefaultProjectReady bool
 	TenantTailnetReady  bool
-	Message             string
+	// TailscaleLoginURL is the sidecar's interactive tailnet-join URL when no
+	// auth key was available — the client prints it and re-polls until the
+	// sidecar has a tailnet IP.
+	TailscaleLoginURL string
+	Message           string
 }
 
 type TrustTokenCreator interface {
 	CreateToken(context.Context, usertrust.UserPlan) (usertrust.TokenResult, error)
+}
+
+// V2CreateResult is what the v2 provisioning closure reports back: the
+// sidecar's tailnet IP once joined (the client's Incus Reach address), or the
+// interactive login URL while the tenant hasn't joined it to a tailnet yet.
+type V2CreateResult struct {
+	SidecarTailnetIP  string
+	TailscaleLoginURL string
 }
 
 type Provisioner struct {
@@ -44,14 +64,15 @@ type Provisioner struct {
 	// V2Create, when set, routes login provisioning through the v2 flow
 	// (default project + sidecar) instead of the v1 Personal Tenant path.
 	// The caller supplies the closure so this package need not import incusx.
-	// It returns the sidecar's tailnet IP (the client's Incus Reach address).
-	V2Create func(context.Context, tenant.CreatePlanV2) (string, error)
+	// The tailscaleAuthKey is the tenant's own key (may be empty → interactive
+	// join, login URL returned in the result).
+	V2Create func(ctx context.Context, plan tenant.CreatePlanV2, tailscaleAuthKey string) (V2CreateResult, error)
 }
 
 // ensurePersonalTenantV2 provisions (or re-ensures) the caller's v2 tenant via
 // V2Create and mints a restricted enrollment token scoped to its default
 // project. The SSH key is applied separately by the device flow after approval.
-func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string) (PersonalTenantResult, error) {
+func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string, tailscaleAuthKey string) (PersonalTenantResult, error) {
 	if p.Trust == nil {
 		return PersonalTenantResult{}, fmt.Errorf("trust manager is not configured")
 	}
@@ -76,7 +97,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
-	sidecarIP, err := p.V2Create(ctx, plan)
+	created, err := p.V2Create(ctx, plan, strings.TrimSpace(tailscaleAuthKey))
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
@@ -91,6 +112,10 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
+	message := "v2 tenant " + plan.Tenant + " is ready."
+	if created.SidecarTailnetIP == "" {
+		message = "v2 tenant " + plan.Tenant + " is provisioned; its sidecar is waiting to join your tailnet."
+	}
 	return PersonalTenantResult{
 		UserKey:             userKey,
 		Tenant:              plan.Tenant,
@@ -98,17 +123,18 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		AccessibleTenants:   []string{plan.Tenant},
 		Token:               tok.Token,
 		RemoteName:          tok.RemoteName,
-		IncusRemoteAddress:  sidecarIP,
+		IncusRemoteAddress:  created.SidecarTailnetIP,
 		TenantPrivateCIDR:   plan.PrivateCIDR,
 		Projects:            append([]string{}, tok.Projects...),
 		CurrentProject:      naming.DefaultProjectName,
 		DefaultProjectReady: true,
-		TenantTailnetReady:  true,
-		Message:             "v2 tenant " + plan.Tenant + " is ready.",
+		TenantTailnetReady:  created.SidecarTailnetIP != "",
+		TailscaleLoginURL:   created.TailscaleLoginURL,
+		Message:             message,
 	}, nil
 }
 
-func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (PersonalTenantResult, error) {
+func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User, options ProvisionOptions) (PersonalTenantResult, error) {
 	userKey := NormalizeGitHubUsername(user.UserKey)
 	if userKey == "" {
 		userKey = NormalizeGitHubUsername(user.GitHubUsernameNormalized)
@@ -119,7 +145,7 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User) (Perso
 	if p.V2Create == nil {
 		return PersonalTenantResult{}, fmt.Errorf("v2 provisioning is not configured")
 	}
-	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user))
+	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user), options.TailscaleAuthKey)
 }
 
 // profileUnixUser picks the login user baked into the tenant's default profile:

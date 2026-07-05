@@ -169,6 +169,25 @@ rm -rf ~/.config/sandcastle/$TENANT
 The sc2 web API. No host port (fronted by `sc-edge`). Copies the fat binary in.
 Stock image is the default (`--base-image images:debian/13`, pulled on demand — no `--base-image` needed).
 
+> ✅ **One-command install (2026-07-05).** `sc-adm install` now deploys the
+> auth-app AND the broker in one shot with a shared `--cidr-pool` (optional,
+> default `10.248.0.0/16` — keep pools distinct across installations sharing a
+> tailnet) and a `--prefix` (default `sc`) that scopes the whole installation.
+> It **refuses to run when an installation under the same prefix already
+> exists** (listing what it found) and warns when the pool overlaps a host
+> address. Phases 1+3-broker collapse to:
+> ```bash
+> sc-adm install --auth-hostname "$PUBIC_URL" \
+>   --simulate-github-token "$SIMULATE_TOKEN" --admin-github-users thieso2 \
+>   --tailscale-api-key "$TAILSCALE_API_KEY" --cidr-pool 10.252.0.0/16
+> ```
+> Tailscale keys are now **optional on the server**: the tenant brings their own
+> at login (`sc login --tailscale-auth-key tskey-…`), or logs in with no key and
+> gets the sidecar's interactive `login.tailscale.com` URL — login prints it and
+> **waits** for the join, then finishes enrollment automatically. The old
+> separate `auth-app deploy` + `bootstrap` commands still exist for piecewise
+> installs.
+
 **Simulated GitHub (recommended for e2e — no OAuth app):**
 ```bash
 sc-adm auth-app deploy \

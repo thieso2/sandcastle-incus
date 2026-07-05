@@ -197,3 +197,59 @@ func TestLoginDifferentHostSkipsShortcut(t *testing.T) {
 		t.Fatalf("device flow started %d times, want 1", device.startCalls)
 	}
 }
+
+func TestLoginWaitsForSidecarTailnetJoin(t *testing.T) {
+	useLoginHomeForTest(t)
+	installer := &fakeLoginRemoteInstaller{}
+	device := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{
+			{
+				Status:            authapp.DeviceStatusApproved,
+				UserKey:           "octocat",
+				Token:             "token",
+				RemoteName:        "sandcastle-octocat",
+				TenantPrivateCIDR: "10.250.0.0/24",
+				TailscaleLoginURL: "https://login.tailscale.com/a/abc123",
+				AccessibleTenants: []string{"octocat"},
+			},
+			{
+				Status:             authapp.DeviceStatusApproved,
+				UserKey:            "octocat",
+				Token:              "token2",
+				RemoteName:         "sandcastle-octocat",
+				TenantPrivateCIDR:  "10.250.0.0/24",
+				IncusRemoteAddress: "100.90.124.119",
+				AccessibleTenants:  []string{"octocat"},
+			},
+		},
+	}
+	setup := &fakeLoginSetupRunner{}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  device,
+		loginRemote: installer,
+		loginSetup:  setup,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"https://login.tailscale.com/a/abc123",
+		"Waiting for the sidecar to join the tailnet...",
+		`Remote "sandcastle-octocat" enrolled.`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Count(stdout, "Approved as octocat.") != 1 {
+		t.Fatalf("approval should print once:\n%s", stdout)
+	}
+	if len(device.pollRequests) < 2 || !device.pollRequests[1].AwaitingTailnet {
+		t.Fatalf("second poll should set AwaitingTailnet: %#v", device.pollRequests)
+	}
+	if len(installer.requests) != 1 || installer.requests[0].IncusAddress != "100.90.124.119" {
+		t.Fatalf("installer requests = %#v", installer.requests)
+	}
+}

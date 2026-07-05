@@ -40,6 +40,22 @@ type BootstrapV2Request struct {
 	CIDRPool     string // v2 CIDR pool (e.g. 10.249.0.0/16)
 	SidecarImage string // system-container base for tenant sidecars
 	PublicPort   string // host port to expose (default 9443)
+	Project      string // Incus project for the appliance (default BrokerProjectName)
+	Instance     string // appliance instance name (default BrokerInstanceName)
+}
+
+func (r BootstrapV2Request) project() string {
+	if strings.TrimSpace(r.Project) != "" {
+		return strings.TrimSpace(r.Project)
+	}
+	return BrokerProjectName
+}
+
+func (r BootstrapV2Request) instance() string {
+	if strings.TrimSpace(r.Instance) != "" {
+		return strings.TrimSpace(r.Instance)
+	}
+	return BrokerInstanceName
 }
 
 // BootstrapV2 deploys the broker as an appliance and starts it.
@@ -60,18 +76,18 @@ func (c TenantCreator) BootstrapV2(ctx context.Context, req BootstrapV2Request) 
 		port = "9443"
 	}
 
-	c.log("ensure broker project " + BrokerProjectName)
+	c.log("ensure broker project " + req.project())
 	if err := ensureBrokerProject(server); err != nil {
 		return err
 	}
-	psrv := server.UseProject(BrokerProjectName)
+	psrv := server.UseProject(req.project())
 
-	c.log("launch broker appliance " + BrokerInstanceName)
+	c.log("launch broker appliance " + req.instance())
 	if err := ensureBrokerInstance(psrv, req, port); err != nil {
 		return err
 	}
 
-	tls, err := certs.GenerateSelfSignedServer("Sandcastle broker", []string{req.Hostname, BrokerInstanceName, "localhost"}, time.Now().UTC())
+	tls, err := certs.GenerateSelfSignedServer("Sandcastle broker", []string{req.Hostname, req.instance(), "localhost"}, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("generate broker TLS: %w", err)
 	}
@@ -94,7 +110,7 @@ func (c TenantCreator) BootstrapV2(ctx context.Context, req BootstrapV2Request) 
 	start := applianceStartScript([]string{
 		"install -d -m 0700 /etc/sandcastle/broker",
 	}, "sandcastle-broker.service")
-	if err := execSidecar(psrv, BrokerInstanceName, start); err != nil {
+	if err := execSidecar(psrv, req.instance(), start); err != nil {
 		return fmt.Errorf("start broker service: %w", err)
 	}
 	c.log("done — broker on :" + port)

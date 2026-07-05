@@ -208,15 +208,23 @@ func authAppServeArgs(args []string) bool {
 // authAppV2Create returns the login-provisioning closure. The closure creates
 // the tenant's default project + sidecar directly over the mounted host socket;
 // the sidecar image comes from the plan (SANDCASTLE_BASE_IMAGE).
-func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(context.Context, tenant.CreatePlanV2) (string, error) {
-	return func(ctx context.Context, plan tenant.CreatePlanV2) (string, error) {
-		var sidecarIP string
+func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(context.Context, tenant.CreatePlanV2, string) (authapp.V2CreateResult, error) {
+	return func(ctx context.Context, plan tenant.CreatePlanV2, tailscaleAuthKey string) (authapp.V2CreateResult, error) {
+		// The tenant's own key wins (BYO tailnet); the service-level key is an
+		// optional default for single-user deployments. Both empty is fine —
+		// the sidecar starts an interactive join and the login URL flows back.
+		key := strings.TrimSpace(tailscaleAuthKey)
+		if key == "" {
+			key = strings.TrimSpace(admin.AuthTailscaleAuthKey)
+		}
+		var result authapp.V2CreateResult
 		err := creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
-			TailscaleAuthKey:   admin.AuthTailscaleAuthKey,
-			TailscaleAPIKey:    admin.AuthTailscaleAPIKey,
-			OnSidecarTailnetIP: func(ip string) { sidecarIP = ip },
+			TailscaleAuthKey:    key,
+			TailscaleAPIKey:     admin.AuthTailscaleAPIKey,
+			OnSidecarTailnetIP:  func(ip string) { result.SidecarTailnetIP = ip },
+			OnTailscaleLoginURL: func(url string) { result.TailscaleLoginURL = url },
 		})
-		return sidecarIP, err
+		return result, err
 	}
 }
 
@@ -275,6 +283,7 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminTLDCommand(config, opts))
 	root.AddCommand(newAdminProjectCommand(config, opts))
 	root.AddCommand(newAdminBootstrapCommand(config))
+	root.AddCommand(newAdminInstallCommand(config))
 	root.AddCommand(newAdminRouteBrokerCommand(config))
 	root.AddCommand(newAdminAuthAppCommand(config))
 	root.AddCommand(newAdminMachineWorkloadCommand(config, opts))

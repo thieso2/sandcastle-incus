@@ -1060,7 +1060,7 @@ type fakePersonalTenantProvisioner struct {
 	users    []User
 }
 
-func (p *fakePersonalTenantProvisioner) EnsurePersonalTenant(ctx context.Context, user User) (PersonalTenantResult, error) {
+func (p *fakePersonalTenantProvisioner) EnsurePersonalTenant(ctx context.Context, user User, options ProvisionOptions) (PersonalTenantResult, error) {
 	p.calls++
 	p.users = append(p.users, user)
 	if p.calls <= p.failures {

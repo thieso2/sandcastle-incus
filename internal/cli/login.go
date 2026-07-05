@@ -604,12 +604,17 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			}
 			verbosef("device start: interval=%ds expires_in=%ds", interval, start.ExpiresIn)
 			lastMessage := strings.TrimSpace(start.Message)
+			awaitingTailnet := false
+			approvedAnnounced := false
+			tailnetJoinPrinted := false
 			for attempt := 0; attempt < maxPolls; attempt++ {
 				var result authapp.DevicePollResult
 				var pollErr error
 				result, pollErr = client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
-					SSHPublicKey:  sshKey.PublicKey,
-					LocalUnixUser: defaultLocalUnixUsername(),
+					SSHPublicKey:     sshKey.PublicKey,
+					LocalUnixUser:    defaultLocalUnixUsername(),
+					TailscaleAuthKey: strings.TrimSpace(tailscaleAuthKey),
+					AwaitingTailnet:  awaitingTailnet,
 				})
 				if pollErr != nil {
 					return pollErr
@@ -650,13 +655,40 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					case <-time.After(time.Duration(interval) * time.Second):
 					}
 				case authapp.DeviceStatusApproved:
-					if result.UserKey != "" {
-						fmt.Fprintf(config.stdout, "Approved as %s.\n", result.UserKey)
-					} else {
-						fmt.Fprintln(config.stdout, "Approved.")
+					if !approvedAnnounced {
+						if result.UserKey != "" {
+							fmt.Fprintf(config.stdout, "Approved as %s.\n", result.UserKey)
+						} else {
+							fmt.Fprintln(config.stdout, "Approved.")
+						}
+						approvedAnnounced = true
 					}
 					if err := saveAuthDefaults(args[0], result.CLIAuthToken); err != nil {
 						return err
+					}
+					// BYO tailnet: the tenant supplies the sidecar's tailscale key.
+					// Without one the sidecar starts an interactive join — print its
+					// login URL and keep polling until it has a tailnet address (the
+					// server re-ensures provisioning on each awaiting poll).
+					if !skipSetup && result.Token != "" && strings.TrimSpace(result.TenantPrivateCIDR) != "" && strings.TrimSpace(result.IncusRemoteAddress) == "" {
+						if !tailnetJoinPrinted {
+							if url := strings.TrimSpace(result.TailscaleLoginURL); url != "" {
+								fmt.Fprintf(config.stdout, "\nYour tenant sidecar is not on a tailnet yet.\n"+
+									"  1. Open  %s\n"+
+									"     and log in — that joins the sidecar to YOUR tailnet.\n"+
+									"  2. Approve its advertised subnet route (unless a tag autoApprover covers it).\n"+
+									"  (tip: `sc login --tailscale-auth-key tskey-...` does this unattended)\n", url)
+							}
+							fmt.Fprintln(config.stdout, "Waiting for the sidecar to join the tailnet...")
+							tailnetJoinPrinted = true
+						}
+						awaitingTailnet = true
+						select {
+						case <-cmd.Context().Done():
+							return cmd.Context().Err()
+						case <-time.After(5 * time.Second):
+						}
+						continue
 					}
 					if result.Token != "" {
 						tenant := defaultLoginTenant(result.AccessibleTenants)

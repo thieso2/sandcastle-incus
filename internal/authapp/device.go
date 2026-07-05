@@ -35,6 +35,7 @@ type DeviceLogin struct {
 	Token              string
 	RemoteName         string
 	IncusRemoteAddress string
+	TailscaleLoginURL  string
 	TenantPrivateCIDR  string
 	AccessibleTenants  []string
 	Projects           []string
@@ -61,6 +62,7 @@ type devicePollResponse struct {
 	Token              string          `json:"incus_certificate_add_token,omitempty"`
 	RemoteName         string          `json:"remote_name,omitempty"`
 	IncusRemoteAddress string          `json:"incus_remote_address,omitempty"`
+	TailscaleLoginURL  string          `json:"tailscale_login_url,omitempty"`
 	TenantPrivateCIDR  string          `json:"tenant_private_cidr,omitempty"`
 	AccessibleTenants  []string        `json:"accessible_tenants,omitempty"`
 	Projects           []string        `json:"projects,omitempty"`
@@ -101,9 +103,15 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		DeviceCode    string `json:"device_code"`
-		SSHPublicKey  string `json:"ssh_public_key"`
-		LocalUnixUser string `json:"local_unix_user"`
+		DeviceCode       string `json:"device_code"`
+		SSHPublicKey     string `json:"ssh_public_key"`
+		LocalUnixUser    string `json:"local_unix_user"`
+		TailscaleAuthKey string `json:"tailscale_auth_key"`
+		// AwaitingTailnet is set by a client that already holds an enrollment
+		// token but no sidecar tailnet address (BYO interactive join): the
+		// server re-runs the idempotent provisioning so the sidecar's join is
+		// noticed and the Incus Reach completed.
+		AwaitingTailnet bool `json:"awaiting_tailnet"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -114,8 +122,8 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if login.Status == DeviceStatusApproved && login.ProvisionedAt == "" && h.provisioner != nil {
-		login, err = h.provisionPersonalTenant(r.Context(), login, request.LocalUnixUser, request.SSHPublicKey)
+	if login.Status == DeviceStatusApproved && h.provisioner != nil && (login.ProvisionedAt == "" || request.AwaitingTailnet) {
+		login, err = h.provisionPersonalTenant(r.Context(), login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey)
 		if err != nil {
 			login.Status = DeviceStatusPending
 		}
@@ -162,6 +170,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		Token:              login.Token,
 		RemoteName:         login.RemoteName,
 		IncusRemoteAddress: login.IncusRemoteAddress,
+		TailscaleLoginURL:  login.TailscaleLoginURL,
 		TenantPrivateCIDR:  login.TenantPrivateCIDR,
 		AccessibleTenants:  login.AccessibleTenants,
 		Projects:           login.Projects,
@@ -332,7 +341,7 @@ func nextCommandForDeviceLogin(login DeviceLogin) string {
 	return ""
 }
 
-func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string, sshPublicKey string) (DeviceLogin, error) {
+func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string, sshPublicKey string, tailscaleAuthKey string) (DeviceLogin, error) {
 	user, err := FindUser(ctx, h.db, login.UserKey)
 	if err != nil {
 		return DeviceLogin{}, err
@@ -342,7 +351,7 @@ func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin,
 	if _, err := h.db.ExecContext(ctx, "UPDATE device_logins SET message = ? WHERE device_code = ? AND provisioned_at = ''", "Provisioning Personal Tenant for "+user.UserKey+".", login.DeviceCode); err != nil {
 		return DeviceLogin{}, err
 	}
-	result, err := h.provisioner.EnsurePersonalTenant(ctx, user)
+	result, err := h.provisioner.EnsurePersonalTenant(ctx, user, ProvisionOptions{TailscaleAuthKey: tailscaleAuthKey})
 	if err != nil {
 		message := "Personal Tenant provisioning failed: " + err.Error()
 		_, _ = h.db.ExecContext(ctx, "UPDATE device_logins SET message = ? WHERE device_code = ? AND provisioned_at = ''", message, login.DeviceCode)
@@ -361,6 +370,7 @@ func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin,
 	login.Token = result.Token
 	login.RemoteName = result.RemoteName
 	login.IncusRemoteAddress = result.IncusRemoteAddress
+	login.TailscaleLoginURL = result.TailscaleLoginURL
 	login.TenantPrivateCIDR = result.TenantPrivateCIDR
 	login.AccessibleTenants = append([]string{}, result.AccessibleTenants...)
 	login.Projects = append([]string{}, result.Projects...)

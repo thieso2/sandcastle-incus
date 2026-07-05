@@ -41,6 +41,7 @@ type DevicePollResult struct {
 	Token              string
 	RemoteName         string
 	IncusRemoteAddress string
+	TailscaleLoginURL  string
 	TenantPrivateCIDR  string
 	AccessibleTenants  []string
 	Projects           []string
@@ -57,6 +58,12 @@ type DevicePollResult struct {
 type DevicePollRequest struct {
 	SSHPublicKey  string
 	LocalUnixUser string
+	// TailscaleAuthKey is the tenant's own tailnet key (BYO tailnet) used to
+	// join the sidecar during provisioning; empty means interactive join.
+	TailscaleAuthKey string
+	// AwaitingTailnet re-runs the idempotent provisioning so an interactive
+	// tailnet join is noticed (the client polls with this while waiting).
+	AwaitingTailnet bool
 }
 
 func (c DeviceClient) Start(ctx context.Context) (DeviceStartResult, error) {
@@ -88,10 +95,12 @@ func (c DeviceClient) Start(ctx context.Context) (DeviceStartResult, error) {
 }
 
 func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePollRequest) (DevicePollResult, error) {
-	body, _ := json.Marshal(map[string]string{
-		"device_code":     deviceCode,
-		"ssh_public_key":  poll.SSHPublicKey,
-		"local_unix_user": poll.LocalUnixUser,
+	body, _ := json.Marshal(map[string]any{
+		"device_code":        deviceCode,
+		"ssh_public_key":     poll.SSHPublicKey,
+		"local_unix_user":    poll.LocalUnixUser,
+		"tailscale_auth_key": poll.TailscaleAuthKey,
+		"awaiting_tailnet":   poll.AwaitingTailnet,
 	})
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/device/poll"), bytes.NewReader(body))
 	if err != nil {
@@ -123,6 +132,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		Token:              payload.Token,
 		RemoteName:         payload.RemoteName,
 		IncusRemoteAddress: payload.IncusRemoteAddress,
+		TailscaleLoginURL:  payload.TailscaleLoginURL,
 		TenantPrivateCIDR:  payload.TenantPrivateCIDR,
 		AccessibleTenants:  append([]string{}, payload.AccessibleTenants...),
 		Projects:           append([]string{}, payload.Projects...),

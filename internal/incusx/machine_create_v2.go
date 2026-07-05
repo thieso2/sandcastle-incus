@@ -218,3 +218,14 @@ func waitForV2InstanceIPv4(ctx context.Context, project TenantResourceServer, na
 		}
 	}
 }
+
+// InstanceExists reports whether an instance exists in the given project —
+// used by install preflights; connection or lookup errors read as "absent".
+func (c TenantCreator) InstanceExists(project string, name string) bool {
+	server, err := c.resolveV2Server()
+	if err != nil {
+		return false
+	}
+	_, _, err = server.UseProject(project).GetInstance(name)
+	return err == nil
+}
