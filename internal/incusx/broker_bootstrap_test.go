@@ -15,6 +15,11 @@ func TestBrokerUnitRunsBrokerServe(t *testing.T) {
 	if !strings.Contains(u, "EnvironmentFile="+BrokerEnvPath) {
 		t.Fatalf("unit missing env file: %q", u)
 	}
+	// Empty sidecar image must NOT render a dangling flag (crash-loops the
+	// broker with "flag needs an argument").
+	if strings.Contains(brokerUnit(""), "--sidecar-image") {
+		t.Fatalf("empty sidecar image must omit the flag: %q", brokerUnit(""))
+	}
 }
 
 func TestBrokerEnvUsesLocalSocket(t *testing.T) {

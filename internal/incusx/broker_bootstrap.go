@@ -212,10 +212,17 @@ func brokerEnv(req BootstrapV2Request) string {
 }
 
 func brokerUnit(sidecarImage string) string {
+	execStart := BrokerBinaryPath + " project broker-serve --listen " + BrokerListenInternal +
+		" --cert " + BrokerCertPath + " --key " + BrokerKeyPath
+	// Only append --sidecar-image when a value is set; a bare "--sidecar-image"
+	// with no argument crash-loops the broker at startup ("flag needs an
+	// argument"). Empty means broker-serve falls back to its own default.
+	if strings.TrimSpace(sidecarImage) != "" {
+		execStart += " --sidecar-image " + strings.TrimSpace(sidecarImage)
+	}
 	return "[Unit]\nDescription=Sandcastle broker\nAfter=network-online.target\nWants=network-online.target\n\n" +
 		"[Service]\nEnvironmentFile=" + BrokerEnvPath + "\n" +
-		"ExecStart=" + BrokerBinaryPath + " project broker-serve --listen " + BrokerListenInternal +
-		" --cert " + BrokerCertPath + " --key " + BrokerKeyPath + " --sidecar-image " + sidecarImage + "\n" +
+		"ExecStart=" + execStart + "\n" +
 		"Restart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n"
 }
 

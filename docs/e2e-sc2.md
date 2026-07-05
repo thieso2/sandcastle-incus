@@ -425,6 +425,30 @@ sc list                                        # lc1 gone
 - `sc delete <machine> --yes` deletes the freeform instance (force-stops first);
   start/stop/restart work; `sc incus` targets the right project.
 
+### Phase 7d — second project via broker self-service
+A tenant creates additional projects THEMSELVES through the broker's tenant
+plane, authenticated by their enrolled client certificate. The broker scaffolds
+the project (bridge wiring, default profile with the tenant's user + key, its
+own shared `home`/`workspace` volumes) **and extends the tenant's restricted
+certificate** to cover it — the admin shortcut (`sc-adm project create-v2`)
+scaffolds only.
+
+```bash
+DIR=~/.config/sandcastle/sandcastle-$TENANT/incus   # the enrolled remote's config
+# the broker's host :9443 is reached at the TENANT GATEWAY over the subnet route
+sc project create-v2 web --broker https://<gateway>:9443 \
+  --cert "$DIR/client.crt" --key "$DIR/client.key"
+
+sc list                        # summary now lists project "web"
+sc c web:dev1 -- hostname      # machine lifecycle scoped by project prefix
+sc delete web:dev1 --yes
+```
+**PASS:**
+- `sc project create-v2` returns the new project + writes the per-project
+  remote (`<tenant>-web`).
+- `sc list`/`sc c web:dev1` work over the SAME certificate (extension applied,
+  no re-login) — machines in `web` use that project's own shared volumes.
+
 ---
 
 ## Phase 7b — Expose a machine on `sc-edge` (public HTTPS) ✅
