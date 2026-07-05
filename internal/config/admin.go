@@ -9,17 +9,21 @@ import (
 )
 
 const (
-	DefaultRemote                 = "local"
-	DefaultStoragePool            = "default"
-	DefaultCIDRPool               = "10.248.0.0/16"
-	DefaultIncusProjectPrefix     = "sc"
-	DefaultInfrastructureProject  = "sc-infra"
-	DefaultInfrastructureHost     = ""
-	DefaultLetsEncryptEmail       = ""
-	DefaultInfrastructureTLSMode  = "acme"
-	DefaultAuthHostname           = ""
-	DefaultBaseImageAlias         = "sandcastle/base:latest"
-	DefaultAIImageAlias           = "sandcastle/ai:latest"
+	DefaultRemote                = "local"
+	DefaultStoragePool           = "default"
+	DefaultCIDRPool              = "10.248.0.0/16"
+	DefaultIncusProjectPrefix    = "sc"
+	DefaultInfrastructureProject = "sc-infra"
+	DefaultInfrastructureHost    = ""
+	DefaultLetsEncryptEmail      = ""
+	DefaultInfrastructureTLSMode = "acme"
+	DefaultAuthHostname          = ""
+	// Sandcastle requires NO prebuilt images: base and AI both default to the
+	// stock upstream image, pulled on demand from the public images: remote.
+	// (Set SANDCASTLE_BASE_IMAGE / SANDCASTLE_AI_IMAGE or --*-image to override
+	// with a custom image if you have one.)
+	DefaultBaseImageAlias         = "images:debian/13"
+	DefaultAIImageAlias           = "images:debian/13"
 	DefaultRouteBrokerIncusSocket = "/var/lib/incus/unix.socket"
 )
 

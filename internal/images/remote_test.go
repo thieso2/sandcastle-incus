@@ -10,6 +10,9 @@ import (
 func testAdmin() config.Admin {
 	admin := config.AdminDefaults()
 	admin.Remote = "big"
+	// The remote-build feature produces the custom Sandcastle images; the
+	// package defaults are stock upstream images (no prebuilt image required).
+	admin.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest"}
 	return admin
 }
 

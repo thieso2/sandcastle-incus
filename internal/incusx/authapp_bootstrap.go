@@ -262,7 +262,7 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_INFRA_PROJECT=" + q(orDefaultStr(req.InfraProject, "sc-infra")),
 		"SANDCASTLE_INFRA_TLS_MODE=" + q(orDefaultStr(req.TLSMode, "acme")),
 		"SANDCASTLE_BASE_IMAGE=" + q(orDefaultStr(req.BaseImageRef, DefaultApplianceImage)),
-		"SANDCASTLE_AI_IMAGE=" + q(orDefaultStr(req.AIImageRef, "sandcastle/ai:latest")),
+		"SANDCASTLE_AI_IMAGE=" + q(orDefaultStr(req.AIImageRef, DefaultApplianceImage)),
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

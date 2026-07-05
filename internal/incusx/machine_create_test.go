@@ -442,6 +442,9 @@ func machinePlanForTest(t *testing.T) machine.CreatePlan {
 	}
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
+	// v1 machine templates resolve to the custom Sandcastle images (stock is the
+	// default now that no prebuilt image is required).
+	admin.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest"}
 	plan, err := machine.PlanCreate(context.Background(), admin, tenant.MemoryStore{Projects: []tenant.IncusProject{{
 		Name:   "sc-acme",
 		Config: projectConfig,

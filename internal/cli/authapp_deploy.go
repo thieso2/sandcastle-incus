@@ -123,7 +123,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&infraProject, "infra-project", "sc-infra", "infrastructure project used for provisioning")
 	command.Flags().StringVar(&tlsMode, "infra-tls-mode", "acme", "infrastructure TLS mode")
 	command.Flags().StringVar(&tenantBaseImage, "tenant-base-image", incusx.DefaultApplianceImage, "stock base image for tenant sidecars (pulled from the images: remote)")
-	command.Flags().StringVar(&tenantAIImage, "tenant-ai-image", "sandcastle/ai:latest", "AI image tenants can use")
+	command.Flags().StringVar(&tenantAIImage, "tenant-ai-image", "images:debian/13", "AI image tenants can use (default: stock; set a custom image if you built one)")
 	return command
 }
 

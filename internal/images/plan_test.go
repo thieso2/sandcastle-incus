@@ -8,15 +8,25 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 )
 
+// customImageAdmin returns admin config whose base/AI images are the custom
+// Sandcastle aliases the build/sync/import feature is meant to produce. The
+// package defaults are stock upstream images (no prebuilt image required), so
+// these tests set the custom names explicitly.
+func customImageAdmin() config.Admin {
+	cfg := config.LoadAdminFromEnv()
+	cfg.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest"}
+	return cfg
+}
+
 func TestPlanSyncBaseImage(t *testing.T) {
-	plan, err := PlanSync(config.LoadAdminFromEnv(), SyncRequest{SourceRef: "sandcastle/base:debian-13"})
+	plan, err := PlanSync(customImageAdmin(), SyncRequest{SourceRef: "sandcastle/base:debian-13"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Template != "base" {
 		t.Fatalf("Template = %q", plan.Template)
 	}
-	if plan.Alias != config.DefaultBaseImageAlias {
+	if plan.Alias != "sandcastle/base:latest" {
 		t.Fatalf("Alias = %q", plan.Alias)
 	}
 	if !strings.Contains(plan.Description, "debian-13") {
@@ -25,20 +35,20 @@ func TestPlanSyncBaseImage(t *testing.T) {
 }
 
 func TestPlanSyncAIImage(t *testing.T) {
-	plan, err := PlanSync(config.LoadAdminFromEnv(), SyncRequest{SourceRef: "sandcastle/ai:debian-13"})
+	plan, err := PlanSync(customImageAdmin(), SyncRequest{SourceRef: "sandcastle/ai:debian-13"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Template != "ai" {
 		t.Fatalf("Template = %q", plan.Template)
 	}
-	if plan.Alias != config.DefaultAIImageAlias {
+	if plan.Alias != "sandcastle/ai:latest" {
 		t.Fatalf("Alias = %q", plan.Alias)
 	}
 }
 
 func TestPlanSyncRejectsUnknownImage(t *testing.T) {
-	_, err := PlanSync(config.LoadAdminFromEnv(), SyncRequest{SourceRef: "other/image:latest"})
+	_, err := PlanSync(customImageAdmin(), SyncRequest{SourceRef: "other/image:latest"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -48,7 +58,7 @@ func TestPlanSyncRejectsUnknownImage(t *testing.T) {
 }
 
 func TestPlanBuildBaseImage(t *testing.T) {
-	plan, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{Template: "base", Tag: "sandcastle/base:debian-13"})
+	plan, err := PlanBuild(customImageAdmin(), BuildRequest{Template: "base", Tag: "sandcastle/base:debian-13"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +85,7 @@ func TestPlanBuildBaseImage(t *testing.T) {
 func TestPlanBuildAllowsDockerOrPodmanTools(t *testing.T) {
 	for _, tool := range []string{"docker", "podman", "/usr/local/bin/podman"} {
 		t.Run(tool, func(t *testing.T) {
-			plan, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
+			plan, err := PlanBuild(customImageAdmin(), BuildRequest{
 				Template: "base",
 				Tag:      "sandcastle/base:test",
 				Tool:     tool,
@@ -91,7 +101,7 @@ func TestPlanBuildAllowsDockerOrPodmanTools(t *testing.T) {
 }
 
 func TestPlanBuildAddsPlatformWhenRequested(t *testing.T) {
-	plan, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
+	plan, err := PlanBuild(customImageAdmin(), BuildRequest{
 		Template: "base",
 		Tag:      "sandcastle/base:test",
 		Platform: "linux/amd64",
@@ -115,7 +125,7 @@ func TestPlanBuildAddsPlatformWhenRequested(t *testing.T) {
 }
 
 func TestPlanBuildRejectsUnsupportedTool(t *testing.T) {
-	_, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
+	_, err := PlanBuild(customImageAdmin(), BuildRequest{
 		Template: "base",
 		Tag:      "sandcastle/base:test",
 		Tool:     "sh",
@@ -129,7 +139,7 @@ func TestPlanBuildRejectsUnsupportedTool(t *testing.T) {
 }
 
 func TestPlanBuildAIImageRequiresPinnedToolVersions(t *testing.T) {
-	_, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{Template: "ai"})
+	_, err := PlanBuild(customImageAdmin(), BuildRequest{Template: "ai"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -139,7 +149,7 @@ func TestPlanBuildAIImageRequiresPinnedToolVersions(t *testing.T) {
 }
 
 func TestPlanBuildAIImage(t *testing.T) {
-	plan, err := PlanBuild(config.LoadAdminFromEnv(), BuildRequest{
+	plan, err := PlanBuild(customImageAdmin(), BuildRequest{
 		Template:      "ai",
 		Tag:           "sandcastle/ai:debian-13",
 		Tool:          "podman",
@@ -185,14 +195,14 @@ func TestLocalBuilderRunsPlannedCommand(t *testing.T) {
 }
 
 func TestPlanImportBaseImage(t *testing.T) {
-	plan, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+	plan, err := PlanImport(customImageAdmin(), ImportRequest{
 		Template:  "base",
 		SourceRef: "oci:sandcastle/base:debian-13",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Alias != config.DefaultBaseImageAlias {
+	if plan.Alias != "sandcastle/base:latest" {
 		t.Fatalf("Alias = %q", plan.Alias)
 	}
 	if strings.Join(plan.Command, " ") != "incus image copy oci:sandcastle/base:debian-13 local: --alias sandcastle/base:latest --copy-aliases --reuse" {
@@ -201,7 +211,7 @@ func TestPlanImportBaseImage(t *testing.T) {
 }
 
 func TestPlanImportAllowsIncusExecutablePath(t *testing.T) {
-	plan, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+	plan, err := PlanImport(customImageAdmin(), ImportRequest{
 		Template:  "base",
 		SourceRef: "oci:sandcastle/base:debian-13",
 		Tool:      "/usr/local/bin/incus",
@@ -215,7 +225,7 @@ func TestPlanImportAllowsIncusExecutablePath(t *testing.T) {
 }
 
 func TestPlanImportRejectsUnsupportedTool(t *testing.T) {
-	_, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+	_, err := PlanImport(customImageAdmin(), ImportRequest{
 		Template:  "base",
 		SourceRef: "oci:sandcastle/base:debian-13",
 		Tool:      "docker",
@@ -229,7 +239,7 @@ func TestPlanImportRejectsUnsupportedTool(t *testing.T) {
 }
 
 func TestPlanImportAIImage(t *testing.T) {
-	plan, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+	plan, err := PlanImport(customImageAdmin(), ImportRequest{
 		Template:  "ai",
 		SourceRef: "oci:sandcastle/ai:debian-13",
 		Tool:      "incus",
@@ -237,13 +247,13 @@ func TestPlanImportAIImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Alias != config.DefaultAIImageAlias {
+	if plan.Alias != "sandcastle/ai:latest" {
 		t.Fatalf("Alias = %q", plan.Alias)
 	}
 }
 
 func TestPlanImportRejectsUnknownTemplate(t *testing.T) {
-	_, err := PlanImport(config.LoadAdminFromEnv(), ImportRequest{
+	_, err := PlanImport(customImageAdmin(), ImportRequest{
 		Template:  "unknown",
 		SourceRef: "oci:sandcastle/base:debian-13",
 	})
@@ -274,7 +284,7 @@ func TestLocalImporterRunsPlannedCommand(t *testing.T) {
 }
 
 func TestPlanUploadBuiltDockerImage(t *testing.T) {
-	plan, err := PlanUpload(config.LoadAdminFromEnv(), UploadRequest{
+	plan, err := PlanUpload(customImageAdmin(), UploadRequest{
 		Template:  "base",
 		SourceRef: "sandcastle/base:latest",
 		Alias:     "sandcastle/base:latest",

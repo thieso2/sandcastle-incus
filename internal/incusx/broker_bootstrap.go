@@ -206,7 +206,7 @@ func brokerEnv(req BootstrapV2Request) string {
 		"SANDCASTLE_INCUS_PROJECT_PREFIX=sc2",
 		"SANDCASTLE_INFRASTRUCTURE_PROJECT=" + BrokerProjectName,
 		"SANDCASTLE_BASE_IMAGE=" + DefaultApplianceImage,
-		"SANDCASTLE_AI_IMAGE=sandcastle/ai:latest",
+		"SANDCASTLE_AI_IMAGE=" + DefaultApplianceImage,
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

@@ -4752,10 +4752,16 @@ func TestAdminTenantDeleteRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func imageSyncAdminConfig() scconfig.Admin {
+	cfg := scconfig.LoadAdminFromEnv()
+	cfg.Images = scconfig.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest"}
+	return cfg
+}
+
 func TestAdminImageSyncDryRunJSON(t *testing.T) {
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:        "sandcastle-admin",
-		adminConfig: scconfig.LoadAdminFromEnv(),
+		adminConfig: imageSyncAdminConfig(),
 	}, "--output", "json", "image", "sync", "sandcastle/base:debian-13", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -4767,7 +4773,7 @@ func TestAdminImageSyncDryRunJSON(t *testing.T) {
 	if payload.Template != "base" {
 		t.Fatalf("Template = %q", payload.Template)
 	}
-	if payload.Alias != scconfig.DefaultBaseImageAlias {
+	if payload.Alias != "sandcastle/base:latest" {
 		t.Fatalf("Alias = %q", payload.Alias)
 	}
 }
@@ -4859,7 +4865,7 @@ func TestAdminImageSyncCallsExecutor(t *testing.T) {
 	manager := &fakeImageManager{result: images.SyncResult{Fingerprint: "abc123", Action: "created"}}
 	_, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:         "sandcastle-admin",
-		adminConfig:  scconfig.LoadAdminFromEnv(),
+		adminConfig:  imageSyncAdminConfig(),
 		imageManager: manager,
 	}, "image", "sync", "sandcastle/ai:debian-13")
 	if err != nil {
@@ -4868,7 +4874,7 @@ func TestAdminImageSyncCallsExecutor(t *testing.T) {
 	if !manager.called {
 		t.Fatal("expected image manager to be called")
 	}
-	if manager.plan.Alias != scconfig.DefaultAIImageAlias {
+	if manager.plan.Alias != "sandcastle/ai:latest" {
 		t.Fatalf("Alias = %q", manager.plan.Alias)
 	}
 }
