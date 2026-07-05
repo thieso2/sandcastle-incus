@@ -73,7 +73,7 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, tenantName string, p
 	// exist first (previously only tenant create made them — a fresh app
 	// project's profile pointed at volumes that were never created).
 	c.log("ensure shared /workspace + /home volumes in " + incusProject)
-	if err := ensureV2ProjectVolumes(server.UseProject(incusProject), profilePlan.StoragePool, tenantName); err != nil {
+	if err := ensureV2ProjectVolumes(server.UseProject(incusProject), profilePlan.StoragePool, tenantName, server.SupportsIdmappedMounts()); err != nil {
 		return CreateProjectV2Result{}, err
 	}
 	c.log("ensure app default profile " + incusProject)

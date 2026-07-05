@@ -64,8 +64,14 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	if err := ensureV2Project(server, plan.DefaultProject, "Sandcastle v2 project default for "+plan.Tenant, "project", plan.Tenant, true, nil); err != nil {
 		return err
 	}
+	shifted := server.SupportsIdmappedMounts()
+	if !shifted {
+		c.log("WARNING: this host's kernel offers no idmapped mounts (container-hosted incus?) — " +
+			"shared volumes are created WITHOUT security.shifted; CT<->CT sharing works, but VM " +
+			"machines would see shifted file owners (VMs are typically unavailable on such hosts anyway)")
+	}
 	c.log("ensure shared /workspace + /home volumes in " + plan.DefaultProject)
-	if err := ensureV2ProjectVolumes(server.UseProject(plan.DefaultProject), plan.StoragePool, plan.Tenant); err != nil {
+	if err := ensureV2ProjectVolumes(server.UseProject(plan.DefaultProject), plan.StoragePool, plan.Tenant, shifted); err != nil {
 		return err
 	}
 	c.log("ensure app default profile " + plan.DefaultProject)
@@ -241,12 +247,19 @@ const (
 // without it a VM sharing the volume sees raw shifted owners (e.g. 1002000
 // instead of 2000) — which broke VM sshd (StrictModes rejects a foreign-owned
 // ~). Shifted volumes give every consumer the unshifted UIDs.
-func ensureV2ProjectVolumes(server TenantResourceServer, pool string, tenantName string) error {
-	workspaceConfig := map[string]string{"security.shifted": "true", "initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
+func ensureV2ProjectVolumes(server TenantResourceServer, pool string, tenantName string, shifted bool) error {
+	workspaceConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
+	homeConfig := map[string]string{}
+	if shifted {
+		// Requires kernel idmapped-mount support on the incus host; a
+		// container-hosted daemon lacks it and volume attachment would fail
+		// with "idmapping abilities are required but aren't supported".
+		workspaceConfig["security.shifted"] = "true"
+		homeConfig["security.shifted"] = "true"
+	}
 	if err := ensureV2SharedVolume(server, pool, v2WorkspaceVolumeName, "Shared /workspace for Sandcastle v2 tenant "+tenantName, workspaceConfig); err != nil {
 		return err
 	}
-	homeConfig := map[string]string{"security.shifted": "true"}
 	return ensureV2SharedVolume(server, pool, v2HomeVolumeName, "Shared /home for Sandcastle v2 tenant "+tenantName, homeConfig)
 }
 

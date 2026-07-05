@@ -21,6 +21,7 @@ type TenantCreateServer interface {
 	CreateStoragePool(pool api.StoragePoolsPost) error
 	GetImage(ref string) (*api.Image, string, error)
 	GetImageAlias(name string) (*api.ImageAliasesEntry, string, error)
+	SupportsIdmappedMounts() bool
 	imageServer() incus.ImageServer
 }
 
@@ -208,6 +209,18 @@ func gatewayIPFromCIDR(cidr string) (string, error) {
 	base := prefix.Masked().Addr().As4()
 	base[3] = 1
 	return netip.AddrFrom4(base).String(), nil
+}
+
+// SupportsIdmappedMounts reports whether the daemon's kernel offers idmapped
+// mounts — required for security.shifted volumes. A container-hosted incus
+// (nested CT) does not get the capability and shifted volume attachment fails
+// with "idmapping abilities are required but aren't supported on system".
+func (s sdkTenantCreateServer) SupportsIdmappedMounts() bool {
+	server, _, err := s.inner.GetServer()
+	if err != nil || server == nil {
+		return false
+	}
+	return server.Environment.KernelFeatures["idmapped_mounts"] == "true"
 }
 
 type sdkTenantCreateServer struct {
