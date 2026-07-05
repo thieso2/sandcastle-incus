@@ -515,10 +515,25 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if !force && tryExistingLogin(cmd.Context(), config, args[0], verbosef) {
 				return nil
 			}
-			// Refuse before the browser dance, not after: a v2 login enrolls a
-			// remote at the sidecar's tailnet IP, so a machine that is not a
-			// tailnet node would complete the whole device flow and then fail
-			// the routing setup anyway. --skip-setup opts out (enroll only).
+			// Preflights refuse before the browser dance, not after — every one
+			// of these used to fail only once the user had already approved in
+			// the browser and waited out provisioning.
+			// 1. Enrollment shells out to `incus remote add`, so the incus
+			//    client must exist regardless of --skip-setup. (Skipped when a
+			//    remote installer is injected — tests don't shell out.)
+			if config.loginRemote == nil {
+				if _, err := exec.LookPath("incus"); err != nil {
+					return fmt.Errorf("the incus client is required: sc login enrolls the tenant remote via\n" +
+						"`incus remote add`, and no `incus` binary is on PATH.\n" +
+						"    • Debian/Ubuntu: apt-get install incus-client\n" +
+						"    • macOS: brew install incus\n" +
+						"  Then re-run `sc login`.")
+				}
+			}
+			// 2. A v2 login enrolls a remote at the sidecar's tailnet IP, so a
+			//    machine that is not a tailnet node would complete the whole
+			//    device flow and then fail the routing setup anyway.
+			//    --skip-setup opts out (enroll only).
 			if !skipSetup {
 				precheck := config.loginTailnetPrecheck
 				if precheck == nil {
@@ -558,6 +573,10 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(config.stdout, "Open: %s\nCode: %s\n", start.VerificationURI, start.UserCode)
+			// The poll that observes the browser approval also provisions the
+			// tenant server-side before returning, so the first status change
+			// can take a minute or two — say so instead of sitting silent.
+			fmt.Fprintln(config.stdout, "(after you approve, provisioning your tenant can take 1-2 minutes on first login)")
 			if strings.TrimSpace(simulateToken) != "" {
 				asUser := strings.TrimSpace(simulateAs)
 				if asUser == "" {
@@ -649,6 +668,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 						if installer == nil {
 							installer = incusLoginRemoteInstaller{stdin: config.stdin, stdout: config.stdout, stderr: config.stderr}
 						}
+						fmt.Fprintf(config.stdout, "Enrolling Incus remote %q (this generates a client certificate)...\n", remoteName)
 						var installed loginRemoteInstallResult
 						if err := steps.run("enroll Incus remote", func() error {
 							var err error
