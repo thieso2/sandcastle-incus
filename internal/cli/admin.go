@@ -139,8 +139,8 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 	var unixUser string
 	var broker, brokerCert, brokerKey string
 	command := &cobra.Command{
-		Use:   "create-v2 tenant",
-		Short: "Create a v2 MVP tenant (native incus access, flat DNS; ADR-0016)",
+		Use:   "create tenant",
+		Short: "Create a Sandcastle tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Broker plane: route the create through the broker's admin API
@@ -161,7 +161,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				fmt.Fprintf(config.stdout, "Tenant: %s\nInfra project: %s\nDefault project: %s\nBridge: %s\nDNS suffix: %s\n",
 					result.Tenant, result.InfraProject, result.DefaultProject, result.Bridge, result.DNSSuffix)
 				if result.Token != "" {
-					fmt.Fprintf(config.stdout, "\nEnrollment:\n  sc connect-v2 %s --token %s\n", result.Tenant, result.Token)
+					fmt.Fprintf(config.stdout, "\nEnrollment:\n  sc enroll %s --token %s\n", result.Tenant, result.Token)
 				}
 				printTailscaleLoginURL(config.stdout, result.TailscaleLoginURL)
 				return nil
@@ -237,8 +237,8 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 
 func newAdminProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
-		Use:   "create-v2 tenant project",
-		Short: "Create a v2 app project for a tenant (broker scaffolding; ADR-0016)",
+		Use:   "create tenant project",
+		Short: "Create a project for a tenant (broker scaffolding)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			creator := config.tenantCreator

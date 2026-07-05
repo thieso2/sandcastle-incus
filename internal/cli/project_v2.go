@@ -30,8 +30,8 @@ func newProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.C
 	var writeRemote bool
 	var incusEndpoint, incusConf, remoteName string
 	command := &cobra.Command{
-		Use:   "create-v2 name",
-		Short: "Create a project via the Sandcastle Broker (v2 self-service)",
+		Use:   "create name",
+		Short: "Create a project in the current tenant (self-service via the broker)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project := strings.TrimSpace(args[0])

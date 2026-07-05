@@ -101,7 +101,7 @@ sharing the long-lived appliances. The hermetic harness makes every run disposab
 > tailnet precheck** (verified refusing on the tailscale-less host), the
 > **layered routing diagnosis** (all ✓ on the client node), and **idempotent
 > re-login** (`Already logged in …`). The run caught and fixed three real bugs
-> (shared-volume idmap shift breaking VM sshd, connect-v2 not saving local
+> (shared-volume idmap shift breaking VM sshd, enroll not saving local
 > defaults, `/api/tenants` blind to v2 tenants) — see the appendix. Deliberate
 > deviation: distinct CIDR pools (broker `10.251/16`, auth-app `10.252/16`) so
 > the run's tailnet routes can't contend with the live `igel` deployment.
@@ -262,7 +262,7 @@ incus exec big:sc2-broker --project sc2-broker -- systemctl start sandcastle-bro
 
 # create the tenant; capture the enrollment token
 OUT=$(incus exec big:sc2-broker --project sc2-broker -- \
-  /usr/local/bin/sandcastle-admin tenant create-v2 $TENANT \
+  /usr/local/bin/sandcastle-admin tenant create $TENANT \
   --sidecar-image $IMAGE --ssh-key "$SSHKEY" --tailscale-authkey "$TAILSCALE_AUTH_KEY")
 TOKEN=$(echo "$OUT" | grep -oE 'token=[A-Za-z0-9+/=]+' | head -1 | cut -d= -f2-)
 echo "token len: ${#TOKEN}"
@@ -280,7 +280,7 @@ Wipe the local config and regenerate it from the token.
 
 ```bash
 rm -rf ~/.config/sandcastle/$TENANT
-./bin/sc connect-v2 $TENANT --token "$TOKEN"       # NB: add --incus-endpoint https://<host>:8443 when the Incus host is not big
+./bin/sc enroll $TENANT --token "$TOKEN"       # NB: add --incus-endpoint https://<host>:8443 when the Incus host is not big
 DIR=~/.config/sandcastle/$TENANT/incus
 ls "$DIR"                                   # client.crt client.key config.yml servercerts/
 INCUS_CONF="$DIR" incus remote list | grep $TENANT
@@ -317,7 +317,7 @@ incus profile show big:default --project sc2-$TENANT-default
 > login **username** is the client's Unix user from device login (`$USER`),
 > falling back to the deployment's `--default-unix-user`, then `dev`
 > (`root` and invalid names are skipped, not errors). Broker-created tenants
-> (`tenant create-v2`) take `--ssh-key` explicitly and default to `dev`.
+> (`tenant create`) take `--ssh-key` explicitly and default to `dev`.
 
 ---
 
@@ -430,13 +430,13 @@ A tenant creates additional projects THEMSELVES through the broker's tenant
 plane, authenticated by their enrolled client certificate. The broker scaffolds
 the project (bridge wiring, default profile with the tenant's user + key, its
 own shared `home`/`workspace` volumes) **and extends the tenant's restricted
-certificate** to cover it — the admin shortcut (`sc-adm project create-v2`)
+certificate** to cover it — the admin shortcut (`sc-adm project create`)
 scaffolds only.
 
 ```bash
 DIR=~/.config/sandcastle/sandcastle-$TENANT/incus   # the enrolled remote's config
 # the broker's host :9443 is reached at the TENANT GATEWAY over the subnet route
-sc project create-v2 web --broker https://<gateway>:9443 \
+sc project create web --broker https://<gateway>:9443 \
   --cert "$DIR/client.crt" --key "$DIR/client.key"
 
 sc list                        # summary now lists project "web"
@@ -444,7 +444,7 @@ sc c web:dev1 -- hostname      # machine lifecycle scoped by project prefix
 sc delete web:dev1 --yes
 ```
 **PASS:**
-- `sc project create-v2` returns the new project + writes the per-project
+- `sc project create` returns the new project + writes the per-project
   remote (`<tenant>-web`).
 - `sc list`/`sc c web:dev1` work over the SAME certificate (extension applied,
   no re-login) — machines in `web` use that project's own shared volumes.
@@ -648,13 +648,13 @@ stays truthful and self-healing.
 | `:3000` server won't start / `setsid` hangs `incus exec` | Minimal image lacks `python3`; detached process blocks the exec stream | `apt-get install python3`; start via `systemd-run --unit=app --collect` |
 | Machine name doesn't resolve in CoreDNS | No A-record auto-registration on machine create yet | Add the record to `db.e2etest` + bump SOA + `systemctl restart coredns` (auto-reg TODO) |
 | Tenant machine SSH refused / no `dev` user | Plain image has no cloud-init → profile user-data never applied | Launch tenant machines from `images:debian/13/cloud` (has cloud-init) |
-| `create-v2` / appliance deploy → `Image not provided for instance creation` | Historic: the launch code only resolved *local* aliases/fingerprints, so a stock `images:debian/13` ref wasn't pulled | **Fixed:** `imageInstanceSource` now turns an `images:…`/`ubuntu:…` ref into a simplestreams **pull** — stock images work with no pre-caching. (Bare alias/fingerprint still means a local image; the Incus server needs outbound access to `images.linuxcontainers.org`.) |
+| `create` / appliance deploy → `Image not provided for instance creation` | Historic: the launch code only resolved *local* aliases/fingerprints, so a stock `images:debian/13` ref wasn't pulled | **Fixed:** `imageInstanceSource` now turns an `images:…`/`ubuntu:…` ref into a simplestreams **pull** — stock images work with no pre-caching. (Bare alias/fingerprint still means a local image; the Incus server needs outbound access to `images.linuxcontainers.org`.) |
 | Second v2 tenant → `dnsmasq: failed to create listening socket for <gw>: Address already in use` | Occupancy was `tenant.List`+`OccupiedCIDRs`, which only surfaces v1 `kind=tenant` projects; v2 tenants (`kind=infra`) were invisible, so the allocator re-picked the pool's first `/24` | **Fixed:** `tenant.CIDRAllocationInputs` scans v1+v2 projects for occupancy; also point pools clear of v1 (`10.248.x`) as defense-in-depth |
 | Re-provision/login of an existing tenant → `Device IP address … not within network … subnet` | The v2-aware occupancy fix counted the tenant's OWN `/24` as occupied and allocated a fresh one that didn't match the existing bridge | **Fixed:** `CreateRequest.PreferredCIDR` reuses the tenant's existing `/24` (idempotent) |
 | Auth-app tailnet key ignored / sidecar `Logged out` | `SANDCASTLE_AUTH_TAILSCALE_AUTHKEY` line in `/etc/sandcastle/auth-app/env` was mangled by repeated `sed` edits (concatenated key + var name) | Rewrite the line cleanly from `.env.sc2`: `sed -i "8s\|.*\|SANDCASTLE_AUTH_TAILSCALE_AUTHKEY='<key>'\|" env`, then restart |
 | `sc login`/`ssh` needs the running fat binary on appliances | Appliances still ran a pre-v1-removal binary | `systemctl stop`, `incus file push bin/linux-amd64/sandcastle …/usr/local/bin/sandcastle-admin`, `systemctl start` on `sc2-broker` **and** `sc2-auth-app` |
 | SSH `Too many authentication failures` reaching a tenant machine | The local ssh-agent offered many keys before the right one; server cut off at 6 | Add `-o IdentitiesOnly=yes -i ~/.ssh/sandcastle_ed25519` |
-| `connect-v2` enrolls the base remote but project remote fails with `Error: EOF` | `--incus-endpoint` **defaults to `https://big.thieso2.dev:8443`** — wrong/unreachable on any other Incus host | Re-run `sc connect-v2 <tenant> --incus-endpoint https://<host>:8443` (idempotent, no token needed on re-run) |
+| `enroll` enrolls the base remote but project remote fails with `Error: EOF` | `--incus-endpoint` **defaults to `https://big.thieso2.dev:8443`** — wrong/unreachable on any other Incus host | Re-run `sc enroll <tenant> --incus-endpoint https://<host>:8443` (idempotent, no token needed on re-run) |
 | `incus config device add <ct> tun unix-char …` on a RUNNING client CT → `Failed to add mount for device inside container` | tun unix-char hot-plug into a live CT fails (Incus 7.2) | `incus stop <ct>` → `device add` → `start` (cold-add works) |
 | `dig @127.0.0.1 …` in the sidecar silently empty | stock Debian sidecar has no `dig` (dnsutils not installed by provisioning) | `apt-get install -y dnsutils` in the sidecar before DNS PASS checks (Phase 8 already does; Phase 7 checks need it too) |
 | Two LIVE sidecars (different hosts/runs) both hold `enabledRoutes` for the SAME `/24` (e.g. both auth-app stacks allocate `10.250.0.0/24` first) | Every deployment uses the same default CIDR pools, and prune-on-approve only removes *same-hostname* stragglers — a sibling environment's online router survives | Verify your sidecar owns `Self.PrimaryRoutes` after provisioning; for parallel test envs use distinct pools per host, ephemeral tailnet keys, or tear down the sibling before the run |
@@ -665,9 +665,9 @@ stays truthful and self-healing.
 | `sc delete <machine>` on a v2 tenant → `Sandcastle tenant … not found` even though `sc list` works | `filterTenantProjects` (tenant-filtered store used by lifecycle/plan paths) dropped every non-`kind=tenant` project, so v2 tenants vanished before the v2 branch could run | **Fixed:** the filter keeps `kind=project`/`kind=infra` projects whose `user.sandcastle.tenant` matches; `sc delete/start/stop/restart` now act on v2 freeform instances (Phase 7c) |
 | Login user cannot write `/workspace` (`drwx--x--x root root`) | The shared volume was created with default root ownership; nothing chowned it | **Fixed:** volumes are created with `initial.uid/gid=2000, initial.mode=0775`; pre-existing tenants: one-time `chown 2000:2000 /workspace && chmod 0775 /workspace` from any machine (shared volume → fixes all) |
 | SSH into a **VM** fails `Permission denied (publickey)` while the CT works; VM sees `/home/dev` owned by `1002000` | CT writes to the shared volume through its idmap; without `security.shifted` a VM (virtiofs, no shift) sees raw shifted owners → sshd StrictModes rejects the foreign-owned `~` | **Fixed:** shared volumes are created with `security.shifted=true`; pre-existing tenants: stop machines, `incus storage volume set default home security.shifted=true` (and `workspace`), start, then `chown -R 2000:2000 /home/<user>` once from a VM (raw view) |
-| `sc list`/`sc c` on a connect-v2-enrolled client → `tenant is required` | `connect-v2` never persisted `tenant`/`remote` into `~/.config/sandcastle/config.yml` (only the login path did) | **Fixed:** `connect-v2` saves the tenant + base remote as local defaults |
+| `sc list`/`sc c` on a enroll-enrolled client → `tenant is required` | `enroll` never persisted `tenant`/`remote` into `~/.config/sandcastle/config.yml` (only the login path did) | **Fixed:** `enroll` saves the tenant + base remote as local defaults |
 | Second `sc login` re-runs the whole device flow instead of `Already logged in` | `/api/tenants` filtered accessibility through the v1 `ListTenantUsers` metadata, which v2 tenants don't have — the saved-token check concluded the tenant was "no longer accessible" | **Fixed:** a v2 personal tenant is accessible to the user whose key names it; also fixes `sc tenant list` for v2 |
-| Tenant CIDR ignores `bootstrap --cidr-pool` when created via `incus exec … tenant create-v2` | The flag lands in the broker **service** env (`/etc/sandcastle/broker/env`), but a direct `incus exec` CLI call doesn't inherit an EnvironmentFile | Source it in the exec: `incus exec sc2-broker … -- sh -c '. /etc/sandcastle/broker/env && export SANDCASTLE_CIDR_POOL && sandcastle-admin tenant create-v2 …'` |
+| Tenant CIDR ignores `bootstrap --cidr-pool` when created via `incus exec … tenant create` | The flag lands in the broker **service** env (`/etc/sandcastle/broker/env`), but a direct `incus exec` CLI call doesn't inherit an EnvironmentFile | Source it in the exec: `incus exec sc2-broker … -- sh -c '. /etc/sandcastle/broker/env && export SANDCASTLE_CIDR_POOL && sandcastle-admin tenant create …'` |
 
 ---
 

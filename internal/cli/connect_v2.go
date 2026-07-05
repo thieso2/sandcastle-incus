@@ -23,8 +23,8 @@ import (
 func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command {
 	var token, endpoint, configDir string
 	command := &cobra.Command{
-		Use:   "connect-v2 tenant",
-		Short: "Regenerate a tenant's local incus config (enroll + per-project remotes)",
+		Use:   "enroll tenant",
+		Short: "Enroll a tenant locally from a token (regenerates local incus config + per-project remotes)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tenant := strings.TrimSpace(args[0])
@@ -49,7 +49,7 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 			// 1. Enroll the base remote from the token (only if not already enrolled).
 			if !remoteExists(dir, tenant) {
 				if strings.TrimSpace(token) == "" {
-					return fmt.Errorf("tenant %q is not enrolled here; pass --token from `sc-adm tenant create-v2`", tenant)
+					return fmt.Errorf("tenant %q is not enrolled here; pass --token from `sc-adm tenant create`", tenant)
 				}
 				if err := runIncus(cmd.Context(), dir, "remote", "add", tenant, strings.TrimSpace(token)); err != nil {
 					return fmt.Errorf("enroll tenant remote: %w", err)
@@ -89,7 +89,7 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 			return nil
 		},
 	}
-	command.Flags().StringVar(&token, "token", "", "enrollment token from `sc-adm tenant create-v2` (first connect only)")
+	command.Flags().StringVar(&token, "token", "", "enrollment token from `sc-adm tenant create` (first enroll only)")
 	command.Flags().StringVar(&endpoint, "incus-endpoint", "https://big.thieso2.dev:8443", "Incus HTTPS endpoint for per-project remotes")
 	command.Flags().StringVar(&configDir, "config-dir", "", "incus config dir to regenerate (default: ~/.config/sandcastle/<tenant>/incus)")
 	return command

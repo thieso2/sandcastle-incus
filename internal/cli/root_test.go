@@ -2136,60 +2136,6 @@ func TestProjectStatusJSON(t *testing.T) {
 	}
 }
 
-func TestProjectCreateDryRunJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-	}, "--output", "json", "project", "create", "website", "--dry-run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload tenant.ProjectMutationPlan
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Action != "create" || payload.Project.Name != "website" || len(payload.Projects) != 2 {
-		t.Fatalf("payload = %#v", payload)
-	}
-}
-
-func TestProjectCreateCallsUpdater(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	updater := &fakeProjectUpdater{}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		tenantUpdater: updater,
-	}, "project", "create", "website")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !updater.called || updater.incusProject != "sc-acme" || len(updater.projects) != 2 {
-		t.Fatalf("updater = %#v", updater)
-	}
-}
-
 func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",

@@ -18,7 +18,6 @@ func newProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Manage lightweight projects in the current tenant",
 	}
 	command.AddCommand(newProjectListCommand(config, opts))
-	command.AddCommand(newProjectCreateCommand(config, opts))
 	command.AddCommand(newProjectCreateV2Command(config, opts))
 	command.AddCommand(newProjectStatusCommand(config, opts))
 	command.AddCommand(newProjectSetCloudIdentityCommand(config, opts))
@@ -41,32 +40,6 @@ func newProjectListCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			return writeOutput(config.stdout, opts.output, formatProjectNamespaceList(tenantSummary), tenantSummary)
 		},
 	}
-}
-
-func newProjectCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var dryRun bool
-	command := &cobra.Command{
-		Use:   "create name",
-		Short: "Create a project namespace in the current tenant",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := tenant.PlanCreateProject(cmd.Context(), config.adminConfig, config.tenantStore, tenant.ProjectMutationRequest{Name: args[0]})
-			if err != nil {
-				return err
-			}
-			if !dryRun {
-				if config.tenantUpdater == nil {
-					return fmt.Errorf("project metadata updater is not configured")
-				}
-				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
-					return err
-				}
-			}
-			return writeOutput(config.stdout, opts.output, formatProjectMutationPlan(plan), plan)
-		},
-	}
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the project metadata update without mutating resources")
-	return command
 }
 
 type projectStatusPayload struct {
