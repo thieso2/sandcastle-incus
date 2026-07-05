@@ -90,6 +90,17 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 // assembled from the app projects alone: DNS suffix defaults to the tenant
 // name (the v2 default) and the CIDR stays empty.
 func v2Summaries(projects []IncusProject) []Summary {
+	// The kind=infra projects (visible to admin-socket callers like the
+	// auth-app, usually not to restricted tenant certs) carry the tenant's
+	// /24 — collect them so the summaries can report it.
+	cidrByTenant := map[string]string{}
+	for _, incusProject := range projects {
+		if meta.IsManaged(incusProject.Config) && incusProject.Config[meta.KeyKind] == meta.KindInfra {
+			if owner := strings.TrimSpace(incusProject.Config[meta.KeyTenant]); owner != "" {
+				cidrByTenant[owner] = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
+			}
+		}
+	}
 	byTenant := map[string]*Summary{}
 	order := []string{}
 	for _, incusProject := range projects {
@@ -119,6 +130,8 @@ func v2Summaries(projects []IncusProject) []Summary {
 				Version:      2,
 				InfraProject: incusProject.Name[:idx+len("-"+tenantName)],
 				DNSSuffix:    tenantName,
+				PrivateCIDR:  cidrByTenant[tenantName],
+				DNSAddress:   dnsAddressFromCIDR(cidrByTenant[tenantName]),
 				Status:       "managed",
 			}
 			byTenant[tenantName] = summary

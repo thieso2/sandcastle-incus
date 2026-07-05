@@ -7,6 +7,9 @@ import (
 type TenantAccessSummary struct {
 	Tenant   string `json:"tenant"`
 	Personal bool   `json:"personal"`
+	// PrivateCIDR is the tenant's /24 (v2) — clients use it to verify the
+	// tenant tailnet path without a fresh device login.
+	PrivateCIDR string `json:"private_cidr,omitempty"`
 }
 
 type TenantAccessListResult struct {
@@ -30,7 +33,7 @@ func (h handler) tenantsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	result := TenantAccessListResult{}
 	for _, summary := range summaries {
-		result.Tenants = append(result.Tenants, TenantAccessSummary{Tenant: summary.Tenant, Personal: summary.Personal})
+		result.Tenants = append(result.Tenants, TenantAccessSummary{Tenant: summary.Tenant, Personal: summary.Personal, PrivateCIDR: summary.PrivateCIDR})
 	}
 	writeJSON(w, http.StatusOK, result)
 }

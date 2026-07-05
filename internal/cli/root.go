@@ -90,6 +90,7 @@ type commandConfig struct {
 	loginSetup           loginSetupRunner
 	loginRemoteProbe     func(context.Context, string) error
 	loginTailnetPrecheck func(context.Context) error
+	loginRoutingCheck    func(context.Context, io.Writer, string) error
 	incusRunner          incusRunner
 	gcloudRunner         gcloudRunner
 }

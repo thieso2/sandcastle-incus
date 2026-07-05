@@ -69,6 +69,9 @@ func executeForTestWithConfigAndStderr(t *testing.T, config commandConfig, args 
 		// don't have; tests exercising the refusal inject their own.
 		config.loginTailnetPrecheck = func(context.Context) error { return nil }
 	}
+	if config.loginRoutingCheck == nil {
+		config.loginRoutingCheck = func(context.Context, io.Writer, string) error { return nil }
+	}
 	cmd := NewRootCommand(config)
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)

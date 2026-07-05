@@ -23,7 +23,34 @@ func (h handler) githubLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Remember where to land after the OAuth roundtrip (e.g. the device
+	// approval page with its user_code). A short-lived cookie survives the
+	// redirect to GitHub and back; only local paths are accepted.
+	if next := safeLocalRedirect(r.URL.Query().Get("next")); next != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name:     loginNextCookie,
+			Value:    next,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Expires:  time.Now().Add(10 * time.Minute),
+		})
+	}
 	http.Redirect(w, r, GitHubAuthorizeURL(h.githubOAuth.ClientID, state), http.StatusFound)
+}
+
+// loginNextCookie carries the post-login destination across the OAuth
+// roundtrip.
+const loginNextCookie = "sc_login_next"
+
+// safeLocalRedirect returns the value only when it is a same-site path
+// ("/device?user_code=…"), guarding against open redirects.
+func safeLocalRedirect(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") && !strings.ContainsAny(value, "\r\n") {
+		return value
+	}
+	return ""
 }
 
 func (h handler) githubCallback(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +101,14 @@ func (h handler) githubCallback(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(24 * time.Hour),
 	})
-	http.Redirect(w, r, "/", http.StatusFound)
+	destination := "/"
+	if cookie, err := r.Cookie(loginNextCookie); err == nil {
+		if next := safeLocalRedirect(cookie.Value); next != "" {
+			destination = next
+		}
+		http.SetCookie(w, &http.Cookie{Name: loginNextCookie, Value: "", Path: "/", MaxAge: -1})
+	}
+	http.Redirect(w, r, destination, http.StatusFound)
 }
 
 func createOAuthState(ctx context.Context, db *sql.DB, now time.Time) (string, error) {

@@ -815,9 +815,20 @@ func tryExistingLogin(ctx context.Context, config commandConfig, authHost string
 		return false
 	}
 	tenant := strings.TrimSpace(config.adminConfig.Tenant)
-	if tenant != "" && !tenantAccessListed(tenants, tenant) {
-		verbosef("current tenant %q is no longer accessible; starting a fresh device login", tenant)
-		return false
+	tenantCIDR := ""
+	if tenant != "" {
+		found := false
+		for _, candidate := range tenants {
+			if candidate.Tenant == tenant {
+				found = true
+				tenantCIDR = strings.TrimSpace(candidate.PrivateCIDR)
+				break
+			}
+		}
+		if !found {
+			verbosef("current tenant %q is no longer accessible; starting a fresh device login", tenant)
+			return false
+		}
 	}
 	probe := config.loginRemoteProbe
 	if probe == nil {
@@ -828,6 +839,24 @@ func tryExistingLogin(ctx context.Context, config commandConfig, authHost string
 	if err := probe(probeCtx, remote); err != nil {
 		verbosef("enrolled remote %q did not respond (%v); starting a fresh device login", remote, err)
 		return false
+	}
+	// The saved login is only truly usable when the tenant's tailnet path
+	// still works — the sidecar must be connected (it serves the subnet
+	// route) and this client must reach the tenant over it. Run the same
+	// diagnosis the full login runs; a broken tailnet halts with guidance
+	// instead of pretending everything is fine.
+	if tenantCIDR != "" {
+		routingCheck := config.loginRoutingCheck
+		if routingCheck == nil {
+			routingCheck = ensureTenantRouting
+		}
+		if err := routingCheck(ctx, config.stdout, tenantCIDR); err != nil {
+			verbosef("tenant tailnet verification failed; starting a fresh device login would not fix it")
+			// Surface the guidance instead of silently re-running the device
+			// flow — a fresh login cannot repair a broken tailnet path.
+			fmt.Fprintln(config.stderr, err.Error())
+			return true
+		}
 	}
 	fmt.Fprintf(config.stdout, "Already logged in at %s", host)
 	if tenant != "" {

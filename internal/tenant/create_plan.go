@@ -66,8 +66,6 @@ type TenantCA struct {
 	PrivateKeyPEM   []byte `json:"-"`
 }
 
-
-
 func uniqueImageAliases(aliases ...string) []string {
 	output := make([]string, 0, len(aliases))
 	seen := map[string]bool{}
@@ -80,10 +78,6 @@ func uniqueImageAliases(aliases ...string) []string {
 	}
 	return output
 }
-
-
-
-
 
 func roleAddress(prefix netip.Prefix, hostOctet byte) (netip.Addr, error) {
 	addr, err := cidr.RoleAddress(prefix, hostOctet)
