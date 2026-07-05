@@ -48,7 +48,7 @@ dropped.)
   cost/availability of a self-hosted coordinator disappears. Coordination is Tailscale's,
   under each tenant's own account.
 - **Provisioning must stop injecting one shared Tailscale key.** Each tenant supplies their
-  own key (`create-v2 --tailscale-authkey` / login). The shared `auth-app
+  own key (`tenant create --tailscale-authkey` / login). The shared `auth-app
   --tailscale-auth-key` is a **dev-only** convenience.
 - The client must already be on the tenant's own tailnet to enroll — true by construction
   (BYO).

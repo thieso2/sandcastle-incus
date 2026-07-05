@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # v2 MVP end-to-end (ADR-0016), run against a live Incus host.
 #
-# Proves: sc-adm tenant create-v2 stands up the topology (infra project +
+# Proves: sc-adm tenant create stands up the topology (infra project +
 # sidecar with CoreDNS + shared bridge + default app project + cloud-init
-# profile); sc-adm project create-v2 adds a second app project served by the
+# profile); sc-adm project create adds a second app project served by the
 # SAME sidecar; native `incus launch` of a cloud image into each project yields
 # a machine reachable at <machine>.<suffix> via the sidecar CoreDNS with
 # cloud-init login. Tears everything down at the end.
@@ -70,14 +70,14 @@ resolve_via_coredns() {
 }
 
 log "create tenant ${TENANT} (pool ${POOL})"
-"$SC_ADM" tenant create-v2 "$TENANT" \
+"$SC_ADM" tenant create "$TENANT" \
   --cidr-pool "$POOL" --sidecar-image "$SIDECAR_IMAGE" \
   --ssh-key "$(cat "$KEY.pub")" >/dev/null
 DNS_ADDR="$(incus project get "$INFRA" user.sandcastle.v2.cidr | sed 's#0/[0-9]*#3#')"
 [ -n "$DNS_ADDR" ] && pass "tenant created (sidecar DNS ${DNS_ADDR})" || fail "tenant create"
 
 log "second project via scaffolding"
-"$SC_ADM" project create-v2 "$TENANT" backend >/dev/null && pass "project backend created" || fail "project create"
+"$SC_ADM" project create "$TENANT" backend >/dev/null && pass "project backend created" || fail "project create"
 
 # launch one machine into each project and assert DNS + SSH
 check_machine() {

@@ -241,7 +241,8 @@
       <p class="lede">For the complete Auth App, OIDC, and workload identity setup path, open <a href="auth-app-full-setup.html">Full Auth App Setup</a>.</p>
     </div>
     <nav class="wrap" aria-label="Quickstart sections">
-      <a href="#assumptions">Assumptions</a>
+      <a href="#install">Install (current)</a>
+      <a href="#assumptions">Legacy manual setup</a>
       <a href="#admin">Admin setup</a>
       <a href="#handoff">Handoff</a>
       <a href="#developer">Developer machine</a>
@@ -251,8 +252,34 @@
   </header>
 
   <main class="wrap">
+    <section id="install">
+      <h2>Install a Sandcastle (current)</h2>
+      <p>A fresh Debian-based host goes from empty to a running Sandcastle in two commands. This supersedes the manual multi-step admin setup below (kept for reference and deep customization). Sandcastle requires <strong>no prebuilt images</strong> — everything is created from stock <code>images:debian/13</code>, pulled on demand — and <strong>no inbound ports</strong> unless you choose the ACME ingress.</p>
+      <pre><code><span class="comment"># 1. install the latest Incus (Zabbly) + minimal init + incus-admin group</span>
+sudo sc-adm install-incus
+
+<span class="comment"># 2. install the whole server side (auth-app + broker) with public ingress.
+#    --ingress cloudflare  → outbound tunnel, no inbound ports
+#      (pass --cloudflare-tunnel-token for a dashboard-made tunnel, or
+#       --cloudflare-api-token to have the installer create the tunnel + DNS)
+#    --ingress acme        → host :80/:443 + Let's Encrypt (needs a public IP + an A record)
+#    --ingress none        → bring your own edge</span>
+sc-adm install \
+  --auth-hostname burg.example.dev \
+  --github-client-id &lt;id&gt; --github-client-secret &lt;secret&gt; \
+  --admin-github-users you \
+  --ingress cloudflare --cloudflare-api-token &lt;token&gt;</code></pre>
+      <p>The GitHub OAuth App's callback URL is <code>https://&lt;auth-hostname&gt;/oauth/github/callback</code>. <code>--cidr-pool</code> is optional (shared by auth-app + broker); keep pools distinct across installations that share a tailnet. <code>--prefix</code> (default <code>sc</code>) scopes an installation so several can share one host; the installer refuses to run when a same-prefix install already exists.</p>
+      <p><strong>Then a user logs in from any Tailscale node:</strong></p>
+      <pre><code>sc login https://burg.example.dev            <span class="comment"># --tailscale-auth-key to join the sidecar unattended,
+                                             # or follow the printed tailnet join URL</span>
+sc c dev                                     <span class="comment"># create + SSH into a machine as your login user</span>
+sc project create web --broker https://&lt;tenant-gateway&gt;:9443 --cert … --key …  <span class="comment"># a second project</span></code></pre>
+      <p>The client needs the <code>incus</code> client (<code>apt-get install incus-client</code> / <code>brew install incus</code>) and must be a Tailscale node — <code>sc login</code> refuses up front otherwise and prints the install one-liner. Full runbook: <code>docs/e2e-sc2.md</code>.</p>
+    </section>
+
     <section id="assumptions">
-      <h2>Assumptions</h2>
+      <h2>Assumptions <span style="font-weight:400;font-size:0.8em;opacity:0.7">(legacy manual admin setup)</span></h2>
       <div class="grid">
         <div class="panel">
           <h3>Admin machine</h3>

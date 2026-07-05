@@ -162,9 +162,9 @@ ssh 10.248.1.14 './sandcastle-admin bootstrap \
   --binary /home/thies/sandcastle --cidr-pool 10.249.0.0/16'
 
 # first tenant (admin path, no browser):
-ssh 10.248.1.14 './sandcastle-admin tenant create-v2 alice \
+ssh 10.248.1.14 './sandcastle-admin tenant create alice \
   --sidecar-image images:debian/13 --ssh-key "<pubkey>" --tailscale-authkey "$TAILSCALE_AUTH_KEY"'
-# prints token=… ; then on the workstation:  sc connect-v2 alice --token <token>
+# prints token=… ; then on the workstation:  sc enroll alice --token <token>
 ```
 Tenant machines: `incus launch images:debian/13/cloud <name> --project sc2-alice-default`.
 
