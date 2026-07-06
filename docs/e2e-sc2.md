@@ -44,6 +44,104 @@ SIMULATE_TOKEN=e2e-simulate-$(head -c6 /dev/urandom | base64 | tr -dc a-z0-9)   
 
 ---
 
+## The two-VM protocol ✅ — bare server VM + bare client VM
+
+**The canonical e2e shape** (validated live 2026-07-06, `e2eserver`/`e2eclient`
+on `obelix`): the operator hands over **two bare Debian 13 VMs**. VM 1 becomes
+the **sc server** (Incus + auth-app + broker + public ingress); VM 2 becomes the
+**client**, where **all client functionality** is installed and tested. Nothing
+is mocked and nothing is pre-installed — both machines start from a stock
+`images:debian/13/cloud` (or any bare Debian 13 with SSH + sudo).
+
+Operator-supplied inputs: a first-level public hostname on a Cloudflare zone +
+either a Cloudflare **API token** (installer creates tunnel + DNS itself) or a
+dashboard-created **tunnel token**; a **Tailscale auth key** (the tenant's own
+tailnet); optionally a Tailscale **API key** for tenant-side route approval; a
+random `SIMULATE_TOKEN` (simulated GitHub — no OAuth app).
+
+### VM 1 — the server
+
+```bash
+# from the workstation: the fat binary, then the four names
+scp bin/linux-amd64/sandcastle server:/tmp/
+ssh server 'sudo install -m0755 /tmp/sandcastle /usr/local/bin/sandcastle &&
+  for n in sc sc-adm sandcastle-admin; do sudo ln -sf sandcastle /usr/local/bin/$n; done'
+
+ssh server
+sudo sc-adm install-incus                       # Zabbly repo + incus + minimal init
+incus config set core.https_address=:8443
+sc-adm install \
+  --auth-hostname  "$E2E_HOSTNAME" \
+  --simulate-github-token "$SIMULATE_TOKEN" \
+  --admin-github-users thieso2 \
+  --ingress cloudflare --cloudflare-api-token "$CLOUDFLARE_API_TOKEN" \
+  --cidr-pool 10.254.0.0/16                     # clear of every other deployment on the tailnet
+```
+
+**PASS:** `systemctl is-active` reports `active` for `sandcastle-auth-app`,
+`caddy`, `cloudflared` (in `sc2-auth-app`) and `sandcastle-broker` (in
+`sc2-broker`); tunnel **Healthy**; `curl https://$E2E_HOSTNAME/healthz` → 200.
+
+### VM 2 — the client (all client functionality)
+
+```bash
+# install: binary (as above) + the two client prerequisites
+apt-get install -y incus-client                                  # sc login shells out to incus
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up --auth-key "$TAILSCALE_AUTH_KEY" --accept-routes    # client must be a tailnet node
+
+# 1. login — provisions the tenant, exercises --dns-suffix
+sc login "https://$E2E_HOSTNAME" --simulate-token "$SIMULATE_TOKEN" --as e2edns \
+  --tailscale-auth-key "$TAILSCALE_AUTH_KEY" --dns-suffix castle
+#    approve the sidecar's advertised /24 (Tailscale admin console, API, or a
+#    tag:sandcastle autoApprover)
+# PASS: all four routing checks ✓; the tenant's stored suffix is the chosen one
+#       (server: incus project get sc2-<tenant> user.sandcastle.v2.suffix)
+
+# 2. projects + machines (flagless broker path, project-scoped refs)
+sc create web --detach                       # default project
+sc project create backend                    # NO flags: broker URL + cert from the login
+sc create backend:api --detach
+sc list                                      # FQDN column shows canonical names
+
+# 3. the ADR-0018 DNS battery (sidecar CoreDNS = tenant CIDR .3)
+DNS=10.254.0.3
+dig +short web.default.castle      @$DNS     # canonical            → machine IP
+dig +short web.castle              @$DNS     # default short alias  → same IP
+dig +short app1.web.default.castle @$DNS     # wildcard             → same IP
+dig +short api.backend.castle      @$DNS     # canonical, 2nd proj  → machine IP
+dig +short api.castle              @$DNS     # PASS = NXDOMAIN (no short outside default)
+# guest identity + guest resolver (via the server admin socket):
+#   incus exec web --project sc2-<tenant>-default -- hostname -f   → web.default.castle
+#   incus exec api --project sc2-<tenant>-backend -- getent hosts web.default.castle
+
+# 4. lifecycle + error UX
+sc c web -- hostname                         # ensure/start/ssh
+sc delete backend:api --yes
+sc create nosuch:box        # PASS: "project \"nosuch\" not found in tenant … (projects: …)"
+sc delete api:backend --yes # PASS: swapped-reference hint: did you mean "backend:api"?
+
+# 5. suffix immutability
+sc login "https://$E2E_HOSTNAME" --simulate-token "$SIMULATE_TOKEN" --as e2edns \
+  --force --dns-suffix other
+# PASS: "the Tenant DNS Suffix is immutable: tenant … already uses \"castle\""
+```
+
+Registration is event-driven: records appear **within seconds** of
+`incus launch`/`sc create` (30s reconcile loop as backstop). The admin-plane
+counterpart of this protocol is automated in `scripts/e2e-v2.sh` (run it on the
+server VM once the stack is up — it refuses to run without the auth-app).
+
+**Teardown:** delete both VMs; remove the tenant sidecar + client devices from
+the tailnet; delete the run's Cloudflare tunnel + DNS record.
+
+> Gotcha from the validated run: mid-run binary swaps on the server do NOT
+> retro-apply to an already-provisioned tenant — the suffix is immutable, so a
+> tenant provisioned before a fix keeps its original suffix. Use a fresh
+> `--as <user>` per attempt.
+
+---
+
 ## Hermetic harness — a fresh sc2 per run, torn down after 🚧
 The real e2e provisions a **throwaway sc2 host** as a VM on `big`, with its **own
 nested Incus** and its own sc2 stack (edge + broker + auth-app), and routes a fresh
@@ -115,7 +213,8 @@ sharing the long-lived appliances. The hermetic harness makes every run disposab
 > checks pass verbatim; the inner Caddyfile is plain `http://<host>:8080` vhosts.
 > What remains 🚧 is only the *automation* of this setup.
 
-> ⚠️ **The real e2e needs TWO VMs, and BOTH must be genuine tailscale nodes.**
+> ⚠️ **The real e2e needs TWO VMs, and BOTH must be genuine tailscale nodes**
+> — the runnable protocol is [The two-VM protocol](#the-two-vm-protocol---bare-server-vm--bare-client-vm) above.
 > `sc login` now refuses to start the device flow on a machine that is not itself
 > a tailnet node (see Phase 9 notes), because in a tailnet **subnet-to-subnet does
 > not route**: a machine that is merely *resident* in a subnet some other router
