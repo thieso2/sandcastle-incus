@@ -70,6 +70,18 @@ run, and never enable it on a production install you don't intend to test
 against. An attended real-OAuth login is an optional extra verification, not
 part of the default protocol.
 
+### Multi-install coexistence (validated 2026-07-06)
+
+Several sandcastles share one Incus host via `--prefix` (e.g. `sc` +
+`--prefix id`), each with its own hostname/tunnel, CIDR pool, and Tenant DNS
+Suffix. Validated side by side on one server + one client: distinct appliances
+(`id-auth-app`/`id-broker`), prefix-qualified certificates and client remotes
+(`sandcastle-id-<tenant>`), tunnel installs bind **no broker host port**
+(tenant plane = auth-app `/api/projects`), per-install DNS zones with zero
+cross-zone bleed, and both enrollments usable from one client
+(`SANDCASTLE_REMOTE=<remote> sc …` selects; the last login is the default).
+Keep CIDR pools distinct across installs sharing a tailnet.
+
 ### Run logging — `logs/<machine-name>.log` (required)
 
 Every install/test run keeps a **verbatim transcript per machine**: each command
