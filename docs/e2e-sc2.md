@@ -21,13 +21,13 @@ starts from a clean slate.
 - **GitHub auth — two modes:**
   - **Simulated (no OAuth app, recommended for e2e):** deploy the auth-app with `--simulate-github-token <secret>`; log in with `sc login <auth-host> --simulate-token <secret> --as <username>`. No `GH_CLIENT_ID`/`GH_CLIENT_SECRET`, no browser, no network to GitHub. **Dev/e2e only.**
   - **Real OAuth app:** `.env.sc2` with `GH_CLIENT_ID`, `GH_CLIENT_SECRET`; the OAuth **callback URL is `https://<auth-host>/oauth/github/callback`** (note `/oauth/…`, not `/login/…`).
-- `.env.sc2` at repo root with: `PUBIC_URL=sc2.thieso2.dev`, `TAILSCALE_AUTH_KEY`, optional `TAILSCALE_API_KEY` (a `tskey-api-…` token), and (real-OAuth only) `GH_CLIENT_ID`/`GH_CLIENT_SECRET`.
+- `.env.sc2` at repo root with: `PUBIC_URL=sc2.thieso2.dev`, `TAILSCALE_AUTH_KEY`, and (real-OAuth only) `GH_CLIENT_ID`/`GH_CLIENT_SECRET`. (An optional `TAILSCALE_API_KEY` is useful only for the harness's own tenant-side route-approval scripting — the product has no API-key flag.)
 - **Tenant machine reachability (per-tenant tailnet, ADR-0017).** The sidecar advertises the tenant `/24` as a subnet route; a client reaches tenant machines only once that route is **approved** and the client **accepts routes**. Every sidecar joins the tailnet tagged **`tag:sandcastle`** (`tailscale up --advertise-tags=tag:sandcastle`), so the **recommended zero-touch approval** is a Tailscale ACL `autoApprovers` rule that auto-approves any route advertised by that tag — no API key, no manual step. Add to the tailnet policy:
   ```jsonc
   "tagOwners":     { "tag:sandcastle": ["autogroup:admin"] },
   "autoApprovers": { "routes": { "10.0.0.0/8": ["tag:sandcastle"] } }
   ```
-  (Scope the route prefix to your CIDR pool.) On the client side, `sc login` enables `--accept-routes` and **verifies the route actually egresses over the tailnet, halting with guidance if not** (a raw connect to the gateway is not trusted — it can leak via the client's own LAN). Alternatives to the tag rule: deploy the auth-app with `--tailscale-api-key "$TAILSCALE_API_KEY"` to approve each route via the API at provisioning, or approve manually in the Tailscale admin console.
+  (Scope the route prefix to your CIDR pool.) On the client side, `sc login` enables `--accept-routes` and **verifies the route actually egresses over the tailnet, halting with guidance if not** (a raw connect to the gateway is not trusted — it can leak via the client's own LAN). Alternative to the tag rule: approve each route manually in the Tailscale admin console.
 - **CIDR pools must not overlap the host's own network.** Pick `/16`s clear of the host IP and of `incusbr0`/other bridges (e.g. broker `10.249.0.0/16`, auth-app `10.250.0.0/16`). The allocator only sees existing v2 tenants, not the host subnet — an overlap fails with `dnsmasq: Address already in use`.
 - Public DNS: `sc2.thieso2.dev` → the host's public IP (`65.21.132.31`). *(On an IP-less host, front the auth-host via a Cloudflare tunnel + `sc-edge` instead — see `docs/handoff-sandcastle-e2e-tunnel.md`.)*
 - `TENANT=e2etest` throughout.
@@ -58,6 +58,29 @@ either a Cloudflare **API token** (installer creates tunnel + DNS itself) or a
 dashboard-created **tunnel token**; a **Tailscale auth key** (the tenant's own
 tailnet); optionally a Tailscale **API key** for tenant-side route approval; a
 random `SIMULATE_TOKEN` (simulated GitHub — no OAuth app).
+
+### Run logging — `logs/<machine-name>.log` (required)
+
+Every install/test run keeps a **verbatim transcript per machine**: each command
+that runs on a VM, followed by that command's full output, appended to
+`logs/<machine-name>.log` (e.g. `logs/e2eserver.log`, `logs/e2eclient.log`) in
+the run's working directory. Drive every remote command through this wrapper —
+no untracked side-channel commands:
+
+```bash
+mkdir -p logs
+# run <machine-name> <ssh-target> <command…> — echoes the command, appends
+# command + combined output to logs/<machine-name>.log, and prints it live.
+run() {
+  local m="$1" t="$2"; shift 2
+  { printf '\n$ %s\n' "$*"; ssh "$t" "$@" 2>&1; } | tee -a "logs/$m.log"
+}
+run e2eserver server sudo sc-adm install-incus            # example
+```
+
+**PASS:** after the run, `logs/` contains one log per machine, and every
+command from the protocol below appears in the right log with its output —
+the logs alone must be enough to replay or debug the run.
 
 ### VM 1 — the server
 
@@ -283,7 +306,7 @@ Stock image is the default (`--base-image images:debian/13`, pulled on demand �
 > ```bash
 > sc-adm install --auth-hostname "$PUBIC_URL" \
 >   --simulate-github-token "$SIMULATE_TOKEN" --admin-github-users thieso2 \
->   --tailscale-api-key "$TAILSCALE_API_KEY" --cidr-pool 10.252.0.0/16
+>   --cidr-pool 10.252.0.0/16
 > ```
 > `--ingress cloudflare|acme|none` builds the public edge INTO the auth-app
 > appliance (caddy + cloudflared inside the same container, proxying
@@ -305,8 +328,7 @@ sc-adm auth-app deploy \
   --auth-hostname "$PUBIC_URL" \
   --simulate-github-token "$SIMULATE_TOKEN" \
   --admin-github-users thieso2 \
-  --tailscale-auth-key "$TAILSCALE_AUTH_KEY" \
-  --tailscale-api-key "$TAILSCALE_API_KEY"      # optional: auto-approve tenant routes
+  --tailscale-auth-key "$TAILSCALE_AUTH_KEY"
 ```
 
 **Real OAuth app (alternative):**
@@ -846,17 +868,15 @@ sidecar is tagged **`tag:sandcastle`**, so the clean fix is the `autoApprovers` 
 (see Prerequisites) — then the route approves the moment the sidecar advertises it, and
 the client (with `--accept-routes`) reaches every machine. Without approval the sidecar's
 own IP (`.3`) is reachable but machines behind it are not (`No route to host`), and
-`sc login` (without `--skip-setup`) correctly **halts** at the routing check. Alternatives:
-deploy the auth-app with `--tailscale-api-key` (approves each route via the API at
-provisioning) or approve manually in the Tailscale admin console.
+`sc login` (without `--skip-setup`) correctly **halts** at the routing check. Alternative:
+approve manually in the Tailscale admin console. (There is deliberately no server-side
+API-key path — approval is a tenant action on the tenant's tailnet.)
 
 > **Stale sidecar devices blackhole an approved route.** Each teardown+rebuild (or a
 > re-register) leaves the previous sidecar as a **dead tailnet device with the same
 > hostname**, still advertising the tenant's `/24`. With several duplicates, Tailscale's
 > subnet-router primary election can pick an **offline** one — so the route reads as
-> approved yet the client still gets `No route to host`. `ApproveTailscaleRoute` (the
-> `--tailscale-api-key` path) now **deletes same-hostname stragglers** before approving
-> the live device, keeping exactly one router for the `/24`. If you approve by hand,
+> approved yet the client still gets `No route to host`. When approving by hand,
 > delete the old `sc2-<tenant>` devices in the admin console (or use an **ephemeral**
 > auth key so they self-remove when offline). Symptom to recognise: the device's
 > `enabledRoutes` shows the `/24` but the node's `Self.PrimaryRoutes` is `null`.

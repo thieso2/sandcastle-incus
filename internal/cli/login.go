@@ -276,7 +276,8 @@ func ensureTenantRouting(ctx context.Context, stdout io.Writer, cidr string) err
 	case !offered:
 		return fail("    • Approve the route the tenant sidecar advertises in your Tailscale admin\n" +
 			"      console (Machines → the sidecar → Edit route settings → approve " + cidr + "),\n" +
-			"      or deploy the auth-app with --tailscale-api-key for automatic approval.\n" +
+			"      or add a tag:sandcastle autoApprovers rule to your tailnet ACL for\n" +
+			"      zero-touch approval.\n" +
 			"      Also check the sidecar device is online in the admin console.")
 	case !primary:
 		return fail("    • The route is approved but no peer won the primary-router election —\n" +

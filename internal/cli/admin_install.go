@@ -34,7 +34,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	var (
 		prefix, cidrPool, baseImage, binaryPath, bridge, storagePool string
 		hostname, githubClientID, githubClientSecret, adminUsers     string
-		defaultUnixUser, tailscaleAuthKey, tailscaleAPIKey           string
+		defaultUnixUser, tailscaleAuthKey                            string
 		simulateGitHubToken, tlsMode, brokerPort                     string
 		ingressMode, acmeEmail, tunnelToken, cloudflareAPIToken      string
 	)
@@ -128,7 +128,6 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				AdminGitHubUsers:    splitCommaList(adminUsers),
 				DefaultUnixUser:     defaultUnixUser,
 				TailscaleAuthKey:    tailscaleAuthKey,
-				TailscaleAPIKey:     tailscaleAPIKey,
 				SimulateGitHubToken: simulateGitHubToken,
 				CIDRPool:            cidrPool,
 				ProjectPrefix:       prefix,
@@ -181,7 +180,6 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&simulateGitHubToken, "simulate-github-token", "", "DEV ONLY: simulated-GitHub mode gated by this shared secret (no real OAuth app)")
 	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix login for provisioned machines")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "OPTIONAL default Tailscale auth key for tenants that don't bring their own (tenants normally supply theirs at sc login)")
-	command.Flags().StringVar(&tailscaleAPIKey, "tailscale-api-key", "", "OPTIONAL Tailscale API key for tenant route auto-approval")
 	command.Flags().StringVar(&baseImage, "base-image", incusx.DefaultApplianceImage, "system-container base image for the appliances")
 	command.Flags().StringVar(&binaryPath, "binary", "", "path to the fat binary to push (default: this binary)")
 	command.Flags().StringVar(&bridge, "bridge", "incusbr0", "bridge the appliance NICs attach to")

@@ -161,10 +161,12 @@ picking it. `sc-adm install` refuses to run when an installation under the
 same `--prefix` (default `sc`) already exists, and warns when the pool
 overlaps a host address.
 
-No Tailscale flags: tenants bring their own keys at login.
-(`--tailscale-auth-key` sets a server-side default key, and
-`--tailscale-api-key` enables route auto-approval — both only make sense when
-the operator owns the tenants' tailnet, e.g. single-user or CI installs.)
+No Tailscale flags: tenants bring their own keys at login
+(`--tailscale-auth-key` sets a server-side default key — only sensible when
+the operator owns the tenants' tailnet, e.g. single-user or CI installs).
+Subnet-route approval is the tenant's job on the tenant's tailnet: approve in
+the Tailscale admin console, or add a `tag:sandcastle` `autoApprovers` ACL
+rule for zero-touch approval.
 
 ---
 

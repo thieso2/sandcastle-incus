@@ -226,7 +226,6 @@ func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(co
 		var result authapp.V2CreateResult
 		err := creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
 			TailscaleAuthKey:    key,
-			TailscaleAPIKey:     admin.AuthTailscaleAPIKey,
 			OnSidecarTailnetIP:  func(ip string) { result.SidecarTailnetIP = ip },
 			OnTailscaleLoginURL: func(url string) { result.TailscaleLoginURL = url },
 		})
