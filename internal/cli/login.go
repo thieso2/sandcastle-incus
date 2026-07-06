@@ -29,6 +29,12 @@ type loginRemoteInstallRequest struct {
 	Token        string
 	Tenant       string
 	IncusAddress string // sidecar tailnet IP; the remote URL is set to https://<addr>:8443
+	// IncusProject is the tenant's default Incus project this remote must be
+	// pinned to. With shared client identity the trust cert unions several
+	// installs' projects, so the cert's "default" project is ambiguous —
+	// pinning is what keeps `incus list` on sc-<install>-<tenant> showing the
+	// right install's machines.
+	IncusProject string
 }
 
 type loginRemoteInstallResult struct {
@@ -737,6 +743,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 								Token:        result.Token,
 								Tenant:       tenant,
 								IncusAddress: result.IncusRemoteAddress,
+								IncusProject: result.IncusProject,
 							})
 							return err
 						}); err != nil {

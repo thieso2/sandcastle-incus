@@ -50,7 +50,7 @@ Use --tenant to also set your default tenant name in one step:
 				stdin:  config.stdin,
 				stdout: config.stdout,
 				stderr: config.stderr,
-			}, args[0], args[1], tenant, "")
+			}, args[0], args[1], tenant, "", "")
 			if err != nil {
 				return err
 			}
@@ -88,7 +88,7 @@ type incusLoginRemoteInstaller struct {
 }
 
 func (i incusLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, request loginRemoteInstallRequest) (loginRemoteInstallResult, error) {
-	result, err := addIncusRemoteWithToken(ctx, remoteAddIO{stdin: i.stdin, stdout: i.stdout, stderr: i.stderr}, request.RemoteName, request.Token, request.Tenant, request.IncusAddress)
+	result, err := addIncusRemoteWithToken(ctx, remoteAddIO{stdin: i.stdin, stdout: i.stdout, stderr: i.stderr}, request.RemoteName, request.Token, request.Tenant, request.IncusAddress, request.IncusProject)
 	if err != nil {
 		return loginRemoteInstallResult{}, err
 	}
@@ -99,7 +99,7 @@ func (i incusLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, reque
 // When incusAddress is set (the sidecar's tailnet IP — ADR-0017), the remote URL
 // is pinned to https://<addr>:8443 so the connection rides the tenant tailnet via
 // the sidecar proxy; otherwise the address the token advertised is normalized.
-func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name string, joinToken string, tenant string, incusAddress string) (remoteAddResult, error) {
+func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name string, joinToken string, tenant string, incusAddress string, incusProject string) (remoteAddResult, error) {
 	// ONE shared incus config dir for every enrollment: the client keypair in
 	// it is the shared identity across installs, and each install is just a
 	// remote (`incus remote switch sc-id-<tenant>`). Never wipe the dir —
@@ -126,9 +126,26 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 	addCmd.Env = env
 	addCmd.Stdin = ioConfig.stdin
 	addCmd.Stdout = ioConfig.stdout
-	addCmd.Stderr = ioConfig.stderr
+	var addErr strings.Builder
+	addCmd.Stderr = io.MultiWriter(ioConfig.stderr, &addErr)
 	if err := addCmd.Run(); err != nil {
-		return remoteAddResult{}, fmt.Errorf("incus remote add: %w", err)
+		// Shared client identity: when this daemon already trusts our keypair
+		// (enrolled by another install on the same host), token redemption is
+		// refused with "Client is already trusted" — provisioning has already
+		// unioned this install's projects into the trust entry, so add the
+		// remote certificate-based (with the SAME project pin) instead.
+		if strings.Contains(addErr.String(), "already trusted") && strings.TrimSpace(incusAddress) != "" {
+			url := "https://" + net.JoinHostPort(strings.TrimSpace(incusAddress), "8443")
+			certAdd := exec.CommandContext(ctx, "incus", "remote", "add", name, url, "--auth-type=tls", "--accept-certificate")
+			certAdd.Env = env
+			certAdd.Stdout = ioConfig.stdout
+			certAdd.Stderr = ioConfig.stderr
+			if err := certAdd.Run(); err != nil {
+				return remoteAddResult{}, fmt.Errorf("incus remote add (trusted client): %w", err)
+			}
+		} else {
+			return remoteAddResult{}, fmt.Errorf("incus remote add: %w", err)
+		}
 	}
 
 	switchCmd := exec.CommandContext(ctx, "incus", "remote", "switch", name)
@@ -152,12 +169,59 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 		return remoteAddResult{}, err
 	}
 
+	// Pin the remote to this install's default project by writing it into the
+	// incus config — no server round-trip (the shared trust cert unions
+	// several installs' projects, so the server-side default is ambiguous and
+	// `incus list` could otherwise read the other install's project on the
+	// shared host daemon).
+	if p := strings.TrimSpace(incusProject); p != "" {
+		if err := setRemoteProject(filepath.Join(incusDir, "config.yml"), name, p); err != nil {
+			return remoteAddResult{}, fmt.Errorf("pin remote %s to project %s: %w", name, p, err)
+		}
+	}
+
 	cfgPath := scconfig.DefaultConfigPath()
 	defaultRemoteSet, tenant, err := saveRemoteDefaults(cfgPath, name, tenant)
 	if err != nil {
 		return remoteAddResult{}, err
 	}
 	return remoteAddResult{RemoteName: name, IncusConfig: incusDir, Tenant: tenant, DefaultRemoteSet: defaultRemoteSet}, nil
+}
+
+// setRemoteProject writes remotes[name].project into an incus config.yml,
+// preserving the rest of the file's remotes/aliases/defaults.
+func setRemoteProject(configPath string, name string, project string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	remotes, _ := doc["remotes"].(map[any]any)
+	if remotes == nil {
+		if m, ok := doc["remotes"].(map[string]any); ok {
+			remotes = map[any]any{}
+			for k, v := range m {
+				remotes[k] = v
+			}
+			doc["remotes"] = remotes
+		}
+	}
+	if remotes == nil {
+		return fmt.Errorf("no remotes in %s", configPath)
+	}
+	entry, _ := remotes[name].(map[any]any)
+	if entry == nil {
+		return fmt.Errorf("remote %s not found in %s", name, configPath)
+	}
+	entry["project"] = project
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, out, 0o600)
 }
 
 func remoteExists(incusDir string, name string) bool {

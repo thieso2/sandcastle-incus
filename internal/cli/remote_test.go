@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,5 +152,27 @@ func writeTestCertificate(t *testing.T, path string, dnsNames []string) {
 	content := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSetRemoteProject(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yml")
+	if err := os.WriteFile(cfg, []byte("remotes:\n  sc-id-acme:\n    addr: https://x:8443\n    protocol: incus\naliases: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := setRemoteProject(cfg, "sc-id-acme", "id-acme-default"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(cfg)
+	if !strings.Contains(string(data), "project: id-acme-default") {
+		t.Fatalf("project not written:\n%s", data)
+	}
+	// unrelated fields preserved
+	if !strings.Contains(string(data), "addr: https://x:8443") {
+		t.Fatalf("addr lost:\n%s", data)
+	}
+	if err := setRemoteProject(cfg, "missing", "x"); err == nil {
+		t.Fatal("expected error for missing remote")
 	}
 }

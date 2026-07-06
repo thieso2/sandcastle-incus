@@ -42,6 +42,7 @@ type DevicePollResult struct {
 	Token              string
 	RemoteName         string
 	IncusRemoteAddress string
+	IncusProject       string
 	TailscaleLoginURL  string
 	TenantPrivateCIDR  string
 	AccessibleTenants  []string
@@ -142,6 +143,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		Token:              payload.Token,
 		RemoteName:         payload.RemoteName,
 		IncusRemoteAddress: payload.IncusRemoteAddress,
+		IncusProject:       payload.IncusProject,
 		TailscaleLoginURL:  payload.TailscaleLoginURL,
 		TenantPrivateCIDR:  payload.TenantPrivateCIDR,
 		AccessibleTenants:  append([]string{}, payload.AccessibleTenants...),
