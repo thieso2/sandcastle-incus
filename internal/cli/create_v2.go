@@ -71,6 +71,31 @@ func parseV2MachineReference(reference string, currentTenant string, currentProj
 	return project, machine, nil
 }
 
+// resolveV2MachineReference parses "[tenant/][project:]machine" and verifies
+// the project actually exists in the tenant — otherwise a mistyped project
+// surfaces as a raw Incus "User does not have permission for project …" from
+// the nonexistent project's name. A machine part that matches an existing
+// project usually means the reference was written backwards; suggest the swap.
+func resolveV2MachineReference(summary tenant.Summary, reference string, currentProject string) (project string, machine string, err error) {
+	project, machine, err = parseV2MachineReference(reference, summary.Tenant, currentProject)
+	if err != nil {
+		return "", "", err
+	}
+	if _, ok := findProject(summary, project); !ok {
+		names := make([]string, 0, len(summary.Projects))
+		for _, candidate := range summary.Projects {
+			names = append(names, candidate.Name)
+		}
+		hint := ""
+		if _, swapped := findProject(summary, machine); swapped {
+			hint = fmt.Sprintf("\nThe reference is [project:]machine — did you mean %q?", machine+":"+project)
+		}
+		return "", "", fmt.Errorf("project %q not found in tenant %s (projects: %s).%s\nCreate it with: sc project create %s",
+			project, summary.Tenant, strings.Join(names, ", "), hint, project)
+	}
+	return project, machine, nil
+}
+
 type createV2Options struct {
 	Image  string
 	VM     bool
@@ -78,7 +103,7 @@ type createV2Options struct {
 }
 
 func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOptions, summary tenant.Summary, reference string, options createV2Options) error {
-	project, machine, err := parseV2MachineReference(reference, summary.Tenant, config.adminConfig.Project)
+	project, machine, err := resolveV2MachineReference(summary, reference, config.adminConfig.Project)
 	if err != nil {
 		return err
 	}
@@ -107,7 +132,7 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 // machine if it doesn't exist, start it if it is stopped, wait for sshd, then
 // open an SSH session as the profile login user with the login SSH key.
 func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, command []string) error {
-	project, machineName, err := parseV2MachineReference(reference, summary.Tenant, config.adminConfig.Project)
+	project, machineName, err := resolveV2MachineReference(summary, reference, config.adminConfig.Project)
 	if err != nil {
 		return err
 	}

@@ -21,7 +21,7 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			// v2 tenants: freeform instances, plain names — apply the action
 			// directly instead of the v1 plan machinery.
 			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
-				project, machineName, err := parseV2MachineReference(args[0], summary.Tenant, config.adminConfig.Project)
+				project, machineName, err := resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
 				if err != nil {
 					return err
 				}

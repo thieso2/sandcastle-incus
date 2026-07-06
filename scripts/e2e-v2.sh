@@ -6,11 +6,14 @@
 # profile); sc-adm project create adds a second app project served by the
 # SAME sidecar; native `incus launch` of a cloud image into each project yields
 # a machine reachable at <machine>.<suffix> via the sidecar CoreDNS with
-# cloud-init login. Tears everything down at the end.
+# cloud-init login; and the USER CLI lifecycle works: `sc create`/`sc delete`
+# with project-scoped refs, clear errors for unknown projects, and the
+# swapped-reference hint. Tears everything down at the end.
 #
 # Required env:
 #   SANDCASTLE_REMOTE   single-address Incus remote the Go SDK can use (e.g. bigv2)
 #   SC_ADM              path to the sandcastle-admin binary (default ./bin/sc-adm)
+#   SC                  path to the user sc binary (default ./bin/sc)
 # Optional:
 #   V2_TENANT (default e2ev2)  V2_POOL (default 10.252.0.0/16)
 #   V2_SIDECAR_IMAGE (system-container base image alias/fingerprint; required)
@@ -20,6 +23,7 @@ set -euo pipefail
 TENANT="${V2_TENANT:-e2ev2}"
 POOL="${V2_POOL:-10.252.0.0/16}"
 SC_ADM="${SC_ADM:-./bin/sc-adm}"
+SC="${SC:-./bin/sc}"
 IMAGE="${V2_IMAGE:-images:debian/13/cloud}"
 SIDECAR_IMAGE="${V2_SIDECAR_IMAGE:?set V2_SIDECAR_IMAGE to a system-container base image}"
 : "${SANDCASTLE_REMOTE:?set SANDCASTLE_REMOTE to a single-address Incus remote}"
@@ -97,6 +101,28 @@ check_machine() {
 
 check_machine web "$DEF"
 check_machine api "$BACK"
+
+# machine lifecycle through the USER CLI (`sc create` / `sc delete`, v2 path):
+# project-scoped references must resolve, a bad project must fail fast with the
+# tenant's project list (not an Incus permission error for a project that does
+# not exist), and a swapped project:machine reference must suggest the fix.
+log "machine lifecycle via sc create/delete"
+export SANDCASTLE_TENANT="$TENANT"
+if "$SC" create backend:dev1 --image "$IMAGE" --detach >/dev/null 2>&1 &&
+   incus info dev1 --project "$BACK" >/dev/null 2>&1; then
+  pass "sc create backend:dev1"
+else fail "sc create backend:dev1"; fi
+if out="$("$SC" create nosuch:dev1 2>&1)"; then fail "sc create nosuch:dev1 unexpectedly succeeded"
+elif printf '%s' "$out" | grep -q 'not found in tenant'; then pass "unknown project fails with the project list"
+else fail "unknown-project error unclear: $out"; fi
+if out="$("$SC" delete dev1:backend --yes 2>&1)"; then fail "swapped reference unexpectedly succeeded"
+elif printf '%s' "$out" | grep -q 'did you mean "backend:dev1"'; then pass "swapped reference suggests backend:dev1"
+else fail "swap hint missing: $out"; fi
+if "$SC" delete backend:dev1 --yes >/dev/null 2>&1 &&
+   ! incus info dev1 --project "$BACK" >/dev/null 2>&1; then
+  pass "sc delete backend:dev1"
+else fail "sc delete backend:dev1"; fi
+unset SANDCASTLE_TENANT
 
 log "result"
 if [ "$FAILED" = 0 ]; then echo "v2 e2e: GREEN"; else echo "v2 e2e: RED"; fi
