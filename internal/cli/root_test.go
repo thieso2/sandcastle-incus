@@ -5757,6 +5757,46 @@ func (f *fakeLocalTrustManager) Uninstall(ctx context.Context, plan localtrust.P
 
 // Regression: the --dns-suffix flag must actually reach the device poll
 // request (it was once accepted but silently dropped).
+// Regression: sc login must send the shared-identity client certificate on
+// the device poll so the server can union this install's projects into the
+// existing trust entry (multi-install shared identity). This has silently
+// vanished twice under adjacent edits.
+func TestLoginSendsClientCertificate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USER", "loginuser")
+	// Seed the shared incus dir with a client cert (as a prior install's login would).
+	shared := scconfig.SharedIncusDir()
+	if err := os.MkdirAll(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "client.crt"), []byte("PEM-SENTINEL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	installer := &fakeLoginRemoteInstaller{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			UserKey:           "octocat",
+			CLIAuthToken:      "cli-token",
+			Token:             "token",
+			RemoteName:        "sc-octocat",
+			AccessibleTenants: []string{"octocat"},
+		}},
+	}
+	if _, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+	}, "login", "https://auth.example.com", "--skip-setup"); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.pollRequests) == 0 || client.pollRequests[0].ClientCertificatePEM != "PEM-SENTINEL" {
+		t.Fatalf("client certificate not sent on poll: %#v", client.pollRequests)
+	}
+}
+
 func TestLoginSendsDNSSuffix(t *testing.T) {
 	useLoginHomeForTest(t)
 	t.Setenv("USER", "loginuser")
