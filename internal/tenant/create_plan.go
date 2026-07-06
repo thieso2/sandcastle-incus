@@ -45,6 +45,12 @@ type CreateRequest struct {
 	Personal      bool
 	CreatedBy     string
 	UnixUser      string
+	// DNSSuffix is the tenant-chosen Tenant DNS Suffix (single label; defaults
+	// to the tenant name). ExistingDNSSuffix carries the live tenant's stored
+	// suffix on idempotent re-provisioning — the suffix is immutable (ADR-0018),
+	// so a differing explicit DNSSuffix is rejected.
+	DNSSuffix         string
+	ExistingDNSSuffix string
 }
 
 type SidecarPlan struct {

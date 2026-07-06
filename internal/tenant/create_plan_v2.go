@@ -19,9 +19,21 @@ import (
 // applies it at first boot, creating the login user (UID 2000, sudo) with the
 // tenant's SSH key and an enabled sshd — so machines are reachable over the
 // tenant's tailnet with no Sandcastle-in-the-loop configure step.
-func V2DefaultProfileUserData(user string, sshKey string) string {
-	return fmt.Sprintf(`#cloud-config
-users:
+//
+// When project and suffix are known the user-data is a jinja template that
+// stamps each machine with its canonical Machine Private Hostname
+// <machine>.<project>.<suffix> (ADR-0018) — identity only; resolution comes
+// from the sidecar CoreDNS zone.
+func V2DefaultProfileUserData(user string, sshKey string, project string, suffix string) string {
+	header := "#cloud-config\n"
+	identity := ""
+	project = strings.TrimSpace(project)
+	suffix = strings.TrimSpace(suffix)
+	if project != "" && suffix != "" {
+		header = "## template: jinja\n#cloud-config\n"
+		identity = fmt.Sprintf("fqdn: {{ v1.local_hostname }}.%s.%s\nprefer_fqdn_over_hostname: true\n", project, suffix)
+	}
+	return header + identity + fmt.Sprintf(`users:
   - name: %s
     uid: 2000
     groups: [sudo]
@@ -105,7 +117,19 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 	if err := naming.ValidateUnixUsername(unixUser); err != nil {
 		return CreatePlanV2{}, err
 	}
-	suffix, err := domainrules.ValidateTenantDNSSuffix(ref.Tenant, domainrules.Policy{
+	requestedSuffix := strings.TrimSpace(request.DNSSuffix)
+	existingSuffix := strings.TrimSpace(request.ExistingDNSSuffix)
+	if requestedSuffix != "" && existingSuffix != "" && requestedSuffix != existingSuffix {
+		return CreatePlanV2{}, fmt.Errorf("the Tenant DNS Suffix is immutable: tenant %s already uses %q (requested %q)", ref.Tenant, existingSuffix, requestedSuffix)
+	}
+	effectiveSuffix := requestedSuffix
+	if effectiveSuffix == "" {
+		effectiveSuffix = existingSuffix
+	}
+	if effectiveSuffix == "" {
+		effectiveSuffix = ref.Tenant
+	}
+	suffix, err := domainrules.ValidateTenantDNSSuffix(effectiveSuffix, domainrules.Policy{
 		AllowedSuffixes: admin.AllowedDomainSuffixes,
 		DeniedSuffixes:  admin.DeniedDomainSuffixes,
 	})
@@ -135,7 +159,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 	if err != nil {
 		return CreatePlanV2{}, err
 	}
-	dnsFiles, err := dns.RenderInitial(suffix, dnsAddress.String(), gatewayAddress.String())
+	dnsFiles, err := dns.RenderInitial(suffix, dnsAddress.String())
 	if err != nil {
 		return CreatePlanV2{}, err
 	}

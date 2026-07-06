@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
 type File struct {
@@ -22,25 +23,30 @@ const (
 	UpstreamResolverContent = "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
 )
 
-func RenderInitial(suffix string, dnsAddress string, gatewayAddress string) ([]File, error) {
-	return RenderTenant(suffix, dnsAddress, gatewayAddress, nil)
+func RenderInitial(suffix string, dnsAddress string) ([]File, error) {
+	return RenderTenant(suffix, dnsAddress, nil)
 }
 
-// RenderTenant builds the CoreDNS config for a tenant. The tenant zone serves
-// static A records for managed machines from the zone file; the file plugin's
-// fallthrough hands any name not in the zone to the bridge gateway's built-in
-// dnsmasq (gatewayAddress), so freeform `incus launch` instances resolve under
-// their DHCP-assigned <name>.<DefaultProjectName>.<suffix> without static records.
-func RenderTenant(domain string, dnsAddress string, gatewayAddress string, machines []meta.Machine) ([]File, error) {
+// RenderTenant builds the CoreDNS config for a tenant. The tenant zone is the
+// ONLY authority for names under the Tenant DNS Suffix (ADR-0018): there is no
+// fallthrough to the bridge dnsmasq, because lease names are guest-asserted
+// and single-label (they cannot express the project). Names outside the suffix
+// forward upstream.
+//
+// Record shape per machine (ADR-0018):
+//   - canonical Machine Private Hostname <machine>.<project>.<suffix> plus its
+//     wildcard, for every machine whose project is known;
+//   - the Default Project Short Hostname <machine>.<suffix> (plus wildcard)
+//     ONLY for machines in the default project — never first-wins across
+//     projects, never uniqueness-dependent;
+//   - a machine with no known project (legacy callers) gets the short form only.
+func RenderTenant(domain string, dnsAddress string, machines []meta.Machine) ([]File, error) {
 	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
 	if domain == "" {
 		return nil, fmt.Errorf("tenant DNS suffix is required")
 	}
 	if dnsAddress == "" {
 		return nil, fmt.Errorf("DNS address is required")
-	}
-	if gatewayAddress == "" {
-		return nil, fmt.Errorf("gateway address is required")
 	}
 
 	zonePath := path.Join("/etc/coredns/zones", "db."+domain)
@@ -56,20 +62,14 @@ ns IN A %s
 		}
 		return machines[i].Project < machines[j].Project
 	})
-	seenShort := map[string]bool{}
 	for _, machine := range machines {
 		if machine.Name == "" || machine.PrivateIP == "" {
 			continue
 		}
-		// Short name <machine>.<suffix> — the canonical v2 tenant machine name.
-		// Emitted once per name (first wins on collision across projects).
-		if !seenShort[machine.Name] {
-			seenShort[machine.Name] = true
+		if machine.Project == "" || machine.Project == naming.DefaultProjectName {
 			short := machine.Name + "." + domain + "."
-			zone += fmt.Sprintf("%s IN A %s\n", short, machine.PrivateIP)
+			zone += fmt.Sprintf("%s IN A %s\n*.%s IN A %s\n", short, machine.PrivateIP, short, machine.PrivateIP)
 		}
-		// Project-qualified name <machine>.<project>.<suffix> (+ wildcard) when a
-		// project is known (v1 machines carry it; freeform v2 machines may not).
 		if machine.Project != "" {
 			record := machine.Name + "." + machine.Project + "." + domain + "."
 			zone += fmt.Sprintf("%s IN A %s\n*.%s IN A %s\n", record, machine.PrivateIP, record, machine.PrivateIP)
@@ -81,10 +81,7 @@ ns IN A %s
 			Mode: 0o644,
 			Content: fmt.Sprintf(`%s:53 {
     errors
-    file %s %s {
-        fallthrough
-    }
-    forward . %s
+    file %s %s
 }
 .:53 {
     errors
@@ -92,7 +89,7 @@ ns IN A %s
         force_tcp
     }
 }
-`, domain, zonePath, domain, gatewayAddress, UpstreamResolverPath),
+`, domain, zonePath, domain, UpstreamResolverPath),
 		},
 		{
 			Path:    zonePath,

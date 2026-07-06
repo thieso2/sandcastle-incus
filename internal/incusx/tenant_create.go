@@ -28,6 +28,7 @@ type TenantCreateServer interface {
 type TenantResourceServer interface {
 	GetNetwork(name string) (*api.Network, string, error)
 	CreateNetwork(network api.NetworksPost) error
+	UpdateNetwork(name string, network api.NetworkPut, ETag string) error
 	GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error)
 	CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error
 	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
@@ -274,6 +275,10 @@ func (s sdkResourceServer) GetNetwork(name string) (*api.Network, string, error)
 
 func (s sdkResourceServer) CreateNetwork(network api.NetworksPost) error {
 	return s.inner.CreateNetwork(network)
+}
+
+func (s sdkResourceServer) UpdateNetwork(name string, network api.NetworkPut, ETag string) error {
+	return s.inner.UpdateNetwork(name, network, ETag)
 }
 
 func (s sdkResourceServer) GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error) {

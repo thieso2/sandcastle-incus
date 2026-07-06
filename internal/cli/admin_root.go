@@ -156,7 +156,13 @@ func ExecuteAdmin(name string, args []string) int {
 				if authAppSocketServer == nil {
 					return nil // no mounted socket (not the serving appliance) — nothing to reconcile
 				}
-				return incusx.ReconcileV2TenantsDNS(ctx, authAppSocketServer, authAppTenants)
+				return authAppDNSReconciler(authAppSocketServer, authAppTenants).Reconcile(ctx)
+			},
+			DNSEvents: func(ctx context.Context, notify func()) {
+				if authAppSocketServer == nil {
+					return
+				}
+				subscribeInstanceLifecycleEvents(ctx, authAppSocketServer, notify)
 			},
 			Provisioner: authapp.Provisioner{
 				Admin:   adminConfig,

@@ -137,6 +137,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 	var sidecarImage string
 	var cidrPool string
 	var unixUser string
+	var dnsSuffix string
 	var broker, brokerCert, brokerKey string
 	command := &cobra.Command{
 		Use:   "create tenant",
@@ -155,6 +156,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 					"tenant":           args[0],
 					"sshPublicKey":     sshKey,
 					"tailscaleAuthKey": tailscaleAuthKey,
+					"dnsSuffix":        strings.TrimSpace(dnsSuffix),
 				}, &result); err != nil {
 					return err
 				}
@@ -170,20 +172,22 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			if strings.TrimSpace(cidrPool) != "" {
 				admin.CIDRPool = strings.TrimSpace(cidrPool)
 			}
-			var ownCIDR string
+			var ownCIDR, ownSuffix string
 			var occupied []string
 			if config.tenantStore != nil {
 				var err error
-				if ownCIDR, occupied, err = tenant.CIDRAllocationInputs(cmd.Context(), config.tenantStore, args[0]); err != nil {
+				if ownCIDR, ownSuffix, occupied, err = tenant.ProvisionReuseInputs(cmd.Context(), config.tenantStore, args[0]); err != nil {
 					return fmt.Errorf("list allocated CIDRs: %w", err)
 				}
 			}
 			plan, err := tenant.PlanCreateV2(admin, tenant.CreateRequest{
-				Reference:     args[0],
-				SSHPublicKey:  sshKey,
-				UnixUser:      unixUser,
-				OccupiedCIDRs: occupied,
-				PreferredCIDR: ownCIDR,
+				Reference:         args[0],
+				SSHPublicKey:      sshKey,
+				UnixUser:          unixUser,
+				OccupiedCIDRs:     occupied,
+				PreferredCIDR:     ownCIDR,
+				DNSSuffix:         dnsSuffix,
+				ExistingDNSSuffix: ownSuffix,
 			})
 			if err != nil {
 				return err
@@ -228,6 +232,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 	command.Flags().StringVar(&sidecarImage, "sidecar-image", "", "system-container base image (alias or fingerprint) for the sidecar; defaults to the configured base")
 	command.Flags().StringVar(&cidrPool, "cidr-pool", "10.249.0.0/16", "CIDR pool to allocate the tenant's /24 from (must not overlap v1)")
 	command.Flags().StringVar(&unixUser, "unix-user", "", "login user baked into the default-project profile (default \"dev\"); matches the login path's client username")
+	command.Flags().StringVar(&dnsSuffix, "dns-suffix", "", "Tenant DNS Suffix — the single-label final part of machine hostnames <machine>.<project>.<suffix> (default: the tenant name; immutable once created)")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the v2 plan without mutating Incus")
 	command.Flags().StringVar(&broker, "broker", "", "route through the Sandcastle Broker admin API (e.g. https://big.thieso2.dev:9443) instead of direct Incus")
 	command.Flags().StringVar(&brokerCert, "broker-cert", "", "admin client cert for the broker (default: admin incus config)")

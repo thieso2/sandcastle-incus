@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -13,40 +14,60 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-// ReconcileV2TenantsDNS registers DNS A-records for every running machine in each
-// v2 tenant's default project into that tenant's sidecar CoreDNS zone, so freeform
-// `incus launch` machines resolve as <name>.<suffix> without any manual step. It is
-// idempotent — a machine that vanished is dropped on the next pass. This is the
-// auto-registration the sidecar dnsmasq fallthrough never delivered.
+// ReconcileV2TenantsDNS registers DNS A-records for every machine in each v2
+// tenant's app projects into that tenant's sidecar CoreDNS zone: the canonical
+// <name>.<project>.<suffix> plus the default project's short alias (ADR-0018).
+// The zone is the only DNS authority for the suffix, so freeform `incus launch`
+// machines resolve with no manual step. It is idempotent — a machine that
+// vanished is dropped on the next pass.
 //
 // v2 tenants are the `kind=infra` projects (they hold the sidecar + the tenant's
-// CIDR/suffix); the machines run in the sibling `<infra>-default` project.
+// CIDR/suffix); the machines run in the sibling `<infra>-<project>` projects.
 func ReconcileV2TenantsDNS(ctx context.Context, server incus.InstanceServer, store tenant.IncusTenantStore) error {
-	if server == nil {
+	return (&V2DNSReconciler{Server: server, Store: store}).Reconcile(ctx)
+}
+
+// V2DNSReconciler is the stateful form of ReconcileV2TenantsDNS: it remembers
+// each tenant's last-written zone body and skips the sidecar file write +
+// CoreDNS reload when nothing changed, which makes the event-driven trigger
+// path (several reconcile passes per instance event) cheap. Safe for
+// concurrent use; passes are serialized.
+type V2DNSReconciler struct {
+	Server incus.InstanceServer
+	Store  tenant.IncusTenantStore
+
+	mu       sync.Mutex
+	lastZone map[string]string
+}
+
+func (r *V2DNSReconciler) Reconcile(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.Server == nil {
 		return nil
 	}
-	projects, err := store.ListProjects(ctx)
+	if r.lastZone == nil {
+		r.lastZone = map[string]string{}
+	}
+	projects, err := r.Store.ListProjects(ctx)
 	if err != nil {
 		return fmt.Errorf("list projects for DNS reconcile: %w", err)
 	}
 
 	var errs []string
-	infra := 0
 	for _, project := range projects {
 		if !meta.IsManaged(project.Config) || project.Config[meta.KeyKind] != meta.KindInfra {
 			continue
 		}
-		infra++
 		suffix := strings.TrimSpace(project.Config[keyV2Suffix])
 		cidr := strings.TrimSpace(project.Config[keyV2CIDR])
 		if suffix == "" || cidr == "" {
 			continue
 		}
-		if err := reconcileOneV2TenantDNS(server, project.Name, suffix, cidr); err != nil {
+		if err := reconcileOneV2TenantDNS(r.Server, project.Name, suffix, cidr, r.lastZone); err != nil {
 			errs = append(errs, project.Name+": "+err.Error())
 		}
 	}
@@ -56,25 +77,36 @@ func ReconcileV2TenantsDNS(ctx context.Context, server incus.InstanceServer, sto
 	return nil
 }
 
-func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, cidr string) error {
-	defaultProject := infraProject + "-" + naming.DefaultProjectName
+func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, cidr string, lastZone map[string]string) error {
 	prefix, err := netip.ParsePrefix(cidr)
 	if err != nil {
 		return err
 	}
 
-	instances, err := server.UseProject(defaultProject).GetInstancesFull(api.InstanceTypeAny)
+	// Every app project of the tenant is named <infraProject>-<project>; scan
+	// them all so machines get their canonical <name>.<project>.<suffix>
+	// records (ADR-0018) — the renderer adds the short alias for default.
+	projectNames, err := server.GetProjectNames()
 	if err != nil {
-		return fmt.Errorf("list %s instances: %w", defaultProject, err)
+		return fmt.Errorf("list projects: %w", err)
 	}
 	machines := []meta.Machine{}
-	for _, instance := range instances {
-		ip := instanceTenantIPv4(instance, prefix)
-		if ip == "" {
+	for _, projectName := range projectNames {
+		shortProject, ok := strings.CutPrefix(projectName, infraProject+"-")
+		if !ok || shortProject == "" {
 			continue
 		}
-		// No Project → short name <name>.<suffix> only (see dns.RenderTenant).
-		machines = append(machines, meta.Machine{Name: instance.Name, PrivateIP: ip, Running: instance.IsActive()})
+		instances, err := server.UseProject(projectName).GetInstancesFull(api.InstanceTypeAny)
+		if err != nil {
+			return fmt.Errorf("list %s instances: %w", projectName, err)
+		}
+		for _, instance := range instances {
+			ip := instanceTenantIPv4(instance, prefix)
+			if ip == "" {
+				continue
+			}
+			machines = append(machines, meta.Machine{Name: instance.Name, Project: shortProject, PrivateIP: ip, Running: instance.IsActive()})
+		}
 	}
 
 	result, err := dns.PlanApply(dns.Tenant{
@@ -85,6 +117,17 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 	}, machines)
 	if err != nil {
 		return err
+	}
+	// Skip the sidecar write + CoreDNS reload when the rendered zone (which is
+	// serial-free at this point) is identical to the last one we wrote.
+	desired := ""
+	for _, file := range result.Files {
+		if strings.Contains(file.Path, "/zones/db.") {
+			desired = file.Content
+		}
+	}
+	if lastZone != nil && lastZone[infraProject] == desired {
+		return nil
 	}
 	// The v2 sidecar instance is named after the infra project (SidecarInstance ==
 	// infraProject), not the v1 "sc-dns" instance writeDNSFiles targets.
@@ -126,7 +169,13 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 	if err != nil {
 		return fmt.Errorf("reload coredns: %w", err)
 	}
-	return op.Wait()
+	if err := op.Wait(); err != nil {
+		return err
+	}
+	if lastZone != nil {
+		lastZone[infraProject] = desired
+	}
+	return nil
 }
 
 // instanceTenantIPv4 returns the instance's eth0 IPv4 that falls inside the tenant

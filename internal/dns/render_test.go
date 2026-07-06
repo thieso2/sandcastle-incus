@@ -8,7 +8,7 @@ import (
 )
 
 func TestRenderInitial(t *testing.T) {
-	files, err := RenderInitial("Acme.", "10.248.0.3", "10.248.0.1")
+	files, err := RenderInitial("Acme.", "10.248.0.3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,9 +16,6 @@ func TestRenderInitial(t *testing.T) {
 		t.Fatalf("len(files) = %d, want 4", len(files))
 	}
 	corefile := fileByPath(t, files, "/etc/coredns/Corefile")
-	if corefile.Path != "/etc/coredns/Corefile" {
-		t.Fatalf("Corefile path = %q", corefile.Path)
-	}
 	if !strings.Contains(corefile.Content, "acme:53") {
 		t.Fatalf("Corefile content = %q", corefile.Content)
 	}
@@ -28,16 +25,15 @@ func TestRenderInitial(t *testing.T) {
 	if !strings.Contains(corefile.Content, "force_tcp") {
 		t.Fatalf("Corefile missing TCP upstream forwarding: %q", corefile.Content)
 	}
-	if !strings.Contains(corefile.Content, "fallthrough") {
-		t.Fatalf("Corefile missing zone fallthrough: %q", corefile.Content)
+	// ADR-0018: the zone is the only authority under the suffix — no dnsmasq
+	// fallthrough, no gateway forwarding inside the suffix zone.
+	if strings.Contains(corefile.Content, "fallthrough") {
+		t.Fatalf("Corefile must not fall through to dnsmasq: %q", corefile.Content)
 	}
-	if !strings.Contains(corefile.Content, "forward . 10.248.0.1") {
-		t.Fatalf("Corefile missing gateway dnsmasq forwarding: %q", corefile.Content)
+	if strings.Contains(corefile.Content, "forward . 10.248.0.1") {
+		t.Fatalf("Corefile must not forward the suffix zone to the gateway: %q", corefile.Content)
 	}
 	zoneFile := fileByPath(t, files, "/etc/coredns/zones/db.acme")
-	if zoneFile.Path != "/etc/coredns/zones/db.acme" {
-		t.Fatalf("zone path = %q", zoneFile.Path)
-	}
 	if !strings.Contains(zoneFile.Content, "ns IN A 10.248.0.3") {
 		t.Fatalf("zone content = %q", zoneFile.Content)
 	}
@@ -55,38 +51,89 @@ func TestRenderInitial(t *testing.T) {
 }
 
 func TestRenderInitialRequiresTenantDNSSuffix(t *testing.T) {
-	_, err := RenderInitial("", "10.248.0.3", "10.248.0.1")
+	_, err := RenderInitial("", "10.248.0.3")
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
-func TestRenderTenantRequiresGatewayAddress(t *testing.T) {
-	_, err := RenderTenant("acme", "10.248.0.3", "", nil)
+func TestRenderTenantRequiresDNSAddress(t *testing.T) {
+	_, err := RenderTenant("acme", "", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
-func TestRenderTenantIncludesMachineRecords(t *testing.T) {
-	files, err := RenderTenant("acme", "10.248.0.3", "10.248.0.1", []meta.Machine{
+// ADR-0018: default-project machines get the canonical Machine Private
+// Hostname AND the Default Project Short Hostname, each with a wildcard.
+func TestRenderTenantDefaultProjectMachine(t *testing.T) {
+	files, err := RenderTenant("acme", "10.248.0.3", []meta.Machine{
 		{Project: "default", Name: "codex", PrivateIP: "10.248.0.20"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	zone := files[1].Content
-	if !strings.Contains(zone, "codex.default.acme. IN A 10.248.0.20") {
-		t.Fatalf("zone missing exact machine record: %q", zone)
-	}
-	if !strings.Contains(zone, "*.codex.default.acme. IN A 10.248.0.20") {
-		t.Fatalf("zone missing wildcard machine record: %q", zone)
+	for _, record := range []string{
+		"codex.default.acme. IN A 10.248.0.20",
+		"*.codex.default.acme. IN A 10.248.0.20",
+		"codex.acme. IN A 10.248.0.20",
+		"*.codex.acme. IN A 10.248.0.20",
+	} {
+		if !strings.Contains(zone, record) {
+			t.Fatalf("zone missing %q: %q", record, zone)
+		}
 	}
 	if strings.Contains(zone, "*.default.acme") {
 		t.Fatalf("zone should not contain project-wide wildcard: %q", zone)
 	}
-	if strings.Contains(zone, "codex.default IN A") || strings.Contains(zone, "*.codex.default IN A") {
-		t.Fatalf("zone should not contain relative short machine records: %q", zone)
+}
+
+// ADR-0018: machines outside the default project get ONLY the canonical name —
+// never a short form, regardless of uniqueness.
+func TestRenderTenantNonDefaultProjectHasNoShortName(t *testing.T) {
+	files, err := RenderTenant("acme", "10.248.0.3", []meta.Machine{
+		{Project: "test2", Name: "dev", PrivateIP: "10.248.0.30"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zone := files[1].Content
+	if !strings.Contains(zone, "dev.test2.acme. IN A 10.248.0.30") {
+		t.Fatalf("zone missing canonical record: %q", zone)
+	}
+	if !strings.Contains(zone, "*.dev.test2.acme. IN A 10.248.0.30") {
+		t.Fatalf("zone missing canonical wildcard: %q", zone)
+	}
+	if strings.Contains(zone, "dev.acme. IN A") {
+		t.Fatalf("non-default machine must not get a short name: %q", zone)
+	}
+}
+
+// ADR-0018: the short name always belongs to the DEFAULT project's machine,
+// deterministically — even when another project reuses the name.
+func TestRenderTenantShortNameIsDefaultProjects(t *testing.T) {
+	files, err := RenderTenant("acme", "10.248.0.3", []meta.Machine{
+		{Project: "aaa", Name: "dev", PrivateIP: "10.248.0.99"}, // sorts before "default"
+		{Project: "default", Name: "dev", PrivateIP: "10.248.0.20"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zone := files[1].Content
+	if !strings.Contains(zone, "dev.acme. IN A 10.248.0.20") {
+		t.Fatalf("short name must resolve to the default project's machine: %q", zone)
+	}
+	if strings.Contains(zone, "dev.acme. IN A 10.248.0.99") {
+		t.Fatalf("short name must not be claimed by another project: %q", zone)
+	}
+	for _, record := range []string{
+		"dev.aaa.acme. IN A 10.248.0.99",
+		"dev.default.acme. IN A 10.248.0.20",
+	} {
+		if !strings.Contains(zone, record) {
+			t.Fatalf("zone missing %q: %q", record, zone)
+		}
 	}
 }
 

@@ -64,6 +64,9 @@ type DevicePollRequest struct {
 	// AwaitingTailnet re-runs the idempotent provisioning so an interactive
 	// tailnet join is noticed (the client polls with this while waiting).
 	AwaitingTailnet bool
+	// DNSSuffix is the tenant-chosen Tenant DNS Suffix for first-login
+	// provisioning (ADR-0018); empty means the tenant name.
+	DNSSuffix string
 }
 
 func (c DeviceClient) Start(ctx context.Context) (DeviceStartResult, error) {
@@ -101,6 +104,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		"local_unix_user":    poll.LocalUnixUser,
 		"tailscale_auth_key": poll.TailscaleAuthKey,
 		"awaiting_tailnet":   poll.AwaitingTailnet,
+		"dns_suffix":         poll.DNSSuffix,
 	})
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/device/poll"), bytes.NewReader(body))
 	if err != nil {

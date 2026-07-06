@@ -94,15 +94,16 @@ func TestPlanCreateV2FlatDNSZone(t *testing.T) {
 	if corefile == "" {
 		t.Fatal("no Corefile in plan")
 	}
-	// Flat zone named after the suffix, with fallthrough to the bridge dnsmasq.
+	// Zone named after the suffix; the zone is the ONLY authority (ADR-0018) —
+	// no fallthrough and no gateway-dnsmasq forwarding.
 	if !strings.Contains(corefile, "acme:53") {
 		t.Fatalf("Corefile missing acme zone: %q", corefile)
 	}
-	if !strings.Contains(corefile, "fallthrough") {
-		t.Fatalf("Corefile missing fallthrough: %q", corefile)
+	if strings.Contains(corefile, "fallthrough") {
+		t.Fatalf("Corefile must not fall through to dnsmasq: %q", corefile)
 	}
-	if !strings.Contains(corefile, "forward . "+plan.GatewayAddress) {
-		t.Fatalf("Corefile missing gateway forward: %q", corefile)
+	if strings.Contains(corefile, "forward . "+plan.GatewayAddress) {
+		t.Fatalf("Corefile must not forward the zone to the gateway: %q", corefile)
 	}
 }
 
@@ -119,5 +120,50 @@ func TestPlanCreateV2GeneratesCA(t *testing.T) {
 func TestPlanCreateV2RejectsBadTenant(t *testing.T) {
 	if _, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "Bad Name"}); err == nil {
 		t.Fatal("expected error for invalid tenant")
+	}
+}
+
+// ADR-0018: the Tenant DNS Suffix is tenant-chosen (default: tenant name) and
+// immutable across re-provisioning.
+func TestPlanCreateV2DNSSuffix(t *testing.T) {
+	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", DNSSuffix: "corp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DNSSuffix != "corp" {
+		t.Fatalf("DNSSuffix = %q, want corp", plan.DNSSuffix)
+	}
+
+	// default: tenant name
+	plan, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DNSSuffix != "acme" {
+		t.Fatalf("DNSSuffix = %q, want acme", plan.DNSSuffix)
+	}
+
+	// re-provision reuses the stored suffix
+	plan, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", ExistingDNSSuffix: "corp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DNSSuffix != "corp" {
+		t.Fatalf("DNSSuffix = %q, want the existing corp", plan.DNSSuffix)
+	}
+
+	// immutable: differing explicit suffix is rejected
+	if _, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", DNSSuffix: "other", ExistingDNSSuffix: "corp"}); err == nil {
+		t.Fatal("expected immutability error")
+	}
+
+	// multi-label still rejected (single label for now)
+	if _, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", DNSSuffix: "corp.internal"}); err == nil {
+		t.Fatal("expected single-label validation error")
+	}
+
+	// public TLDs stay denied
+	if _, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", DNSSuffix: "dev"}); err == nil {
+		t.Fatal("expected public-TLD denial")
 	}
 }

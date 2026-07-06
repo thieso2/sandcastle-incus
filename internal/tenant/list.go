@@ -94,10 +94,12 @@ func v2Summaries(projects []IncusProject) []Summary {
 	// auth-app, usually not to restricted tenant certs) carry the tenant's
 	// /24 — collect them so the summaries can report it.
 	cidrByTenant := map[string]string{}
+	suffixByTenant := map[string]string{}
 	for _, incusProject := range projects {
 		if meta.IsManaged(incusProject.Config) && incusProject.Config[meta.KeyKind] == meta.KindInfra {
 			if owner := strings.TrimSpace(incusProject.Config[meta.KeyTenant]); owner != "" {
 				cidrByTenant[owner] = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
+				suffixByTenant[owner] = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
 			}
 		}
 	}
@@ -129,7 +131,7 @@ func v2Summaries(projects []IncusProject) []Summary {
 				Tenant:       tenantName,
 				Version:      2,
 				InfraProject: incusProject.Name[:idx+len("-"+tenantName)],
-				DNSSuffix:    tenantName,
+				DNSSuffix:    firstNonEmptyString(suffixByTenant[tenantName], tenantName),
 				PrivateCIDR:  cidrByTenant[tenantName],
 				DNSAddress:   dnsAddressFromCIDR(cidrByTenant[tenantName]),
 				Status:       "managed",
@@ -178,6 +180,45 @@ func AllocatedCIDRs(ctx context.Context, store IncusTenantStore) ([]string, erro
 // OTHER tenant's /24. Create uses `own` as PreferredCIDR (so re-provisioning is
 // idempotent) and `others` as OccupiedCIDRs (so a fresh tenant avoids
 // collisions). Covers both v1 (kind=tenant) and v2 (kind=infra) tenants.
+// ProvisionReuseInputs gathers what an idempotent re-provision must reuse from
+// live state: the tenant's own /24 and Tenant DNS Suffix (immutable, ADR-0018),
+// plus the other tenants' CIDRs the allocator must avoid.
+func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, tenantName string) (ownCIDR string, ownSuffix string, occupied []string, err error) {
+	projects, err := store.ListProjects(ctx)
+	if err != nil {
+		return "", "", nil, err
+	}
+	tenantName = strings.TrimSpace(tenantName)
+	for _, incusProject := range projects {
+		if !meta.IsManaged(incusProject.Config) {
+			continue
+		}
+		var cidr, suffix, owner string
+		switch incusProject.Config[meta.KeyKind] {
+		case meta.KindTenant:
+			if t, e := meta.ParseTenantConfig(incusProject.Config); e == nil {
+				cidr, owner = strings.TrimSpace(t.PrivateCIDR), strings.TrimSpace(t.Tenant)
+			}
+		case meta.KindInfra:
+			cidr = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
+			suffix = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
+			owner = strings.TrimSpace(incusProject.Config[meta.KeyTenant])
+		default:
+			continue
+		}
+		if cidr == "" {
+			continue
+		}
+		if tenantName != "" && owner == tenantName {
+			ownCIDR = cidr
+			ownSuffix = suffix
+		} else {
+			occupied = append(occupied, cidr)
+		}
+	}
+	return ownCIDR, ownSuffix, occupied, nil
+}
+
 func CIDRAllocationInputs(ctx context.Context, store IncusTenantStore, tenantName string) (own string, others []string, err error) {
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
@@ -240,4 +281,13 @@ type MemoryStore struct {
 
 func (s MemoryStore) ListProjects(ctx context.Context) ([]IncusProject, error) {
 	return s.Projects, nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

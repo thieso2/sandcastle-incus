@@ -34,11 +34,7 @@ func PlanApply(summary Tenant, machines []meta.Machine) (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	gatewayAddress, err := roleAddress(summary.PrivateCIDR, cidr.GatewayHostOctet)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	files, err := RenderTenant(summary.DNSSuffix, dnsAddress, gatewayAddress, machines)
+	files, err := RenderTenant(summary.DNSSuffix, dnsAddress, machines)
 	if err != nil {
 		return ApplyResult{}, err
 	}

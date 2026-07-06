@@ -113,6 +113,9 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		// server re-runs the idempotent provisioning so the sidecar's join is
 		// noticed and the Incus Reach completed.
 		AwaitingTailnet bool `json:"awaiting_tailnet"`
+		// DNSSuffix is the tenant-chosen Tenant DNS Suffix for first-login
+		// provisioning (ADR-0018).
+		DNSSuffix string `json:"dns_suffix"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -124,7 +127,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if login.Status == DeviceStatusApproved && h.provisioner != nil && (login.ProvisionedAt == "" || request.AwaitingTailnet) {
-		login, err = h.provisionPersonalTenant(r.Context(), login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey)
+		login, err = h.provisionPersonalTenant(r.Context(), login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix)
 		if err != nil {
 			login.Status = DeviceStatusPending
 		}
@@ -342,7 +345,7 @@ func nextCommandForDeviceLogin(login DeviceLogin) string {
 	return ""
 }
 
-func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string, sshPublicKey string, tailscaleAuthKey string) (DeviceLogin, error) {
+func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string, sshPublicKey string, tailscaleAuthKey string, dnsSuffix string) (DeviceLogin, error) {
 	user, err := FindUser(ctx, h.db, login.UserKey)
 	if err != nil {
 		return DeviceLogin{}, err
@@ -352,7 +355,7 @@ func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin,
 	if _, err := h.db.ExecContext(ctx, "UPDATE device_logins SET message = ? WHERE device_code = ? AND provisioned_at = ''", "Provisioning Personal Tenant for "+user.UserKey+".", login.DeviceCode); err != nil {
 		return DeviceLogin{}, err
 	}
-	result, err := h.provisioner.EnsurePersonalTenant(ctx, user, ProvisionOptions{TailscaleAuthKey: tailscaleAuthKey})
+	result, err := h.provisioner.EnsurePersonalTenant(ctx, user, ProvisionOptions{TailscaleAuthKey: tailscaleAuthKey, DNSSuffix: dnsSuffix})
 	if err != nil {
 		message := "Personal Tenant provisioning failed: " + err.Error()
 		_, _ = h.db.ExecContext(ctx, "UPDATE device_logins SET message = ? WHERE device_code = ? AND provisioned_at = ''", message, login.DeviceCode)

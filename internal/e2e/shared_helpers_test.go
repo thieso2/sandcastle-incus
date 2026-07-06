@@ -103,4 +103,3 @@ func hostPort(host string, defaultPort string) string {
 	}
 	return net.JoinHostPort(host, defaultPort)
 }
-

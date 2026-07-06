@@ -21,6 +21,10 @@ type PersonalTenantProvisioner interface {
 // config (which may hold at most an optional default).
 type ProvisionOptions struct {
 	TailscaleAuthKey string
+	// DNSSuffix is the tenant-chosen Tenant DNS Suffix for first-login
+	// provisioning (ADR-0018); empty means the tenant name. Immutable — a
+	// re-login with a different value fails provisioning.
+	DNSSuffix string
 }
 
 type PersonalTenantResult struct {
@@ -72,7 +76,7 @@ type Provisioner struct {
 // ensurePersonalTenantV2 provisions (or re-ensures) the caller's v2 tenant via
 // V2Create and mints a restricted enrollment token scoped to its default
 // project. The SSH key is applied separately by the device flow after approval.
-func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string, tailscaleAuthKey string) (PersonalTenantResult, error) {
+func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string, tailscaleAuthKey string, dnsSuffix string) (PersonalTenantResult, error) {
 	if p.Trust == nil {
 		return PersonalTenantResult{}, fmt.Errorf("trust manager is not configured")
 	}
@@ -80,19 +84,21 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	// re-login); otherwise allocate one that avoids other tenants' CIDRs. Uses
 	// CIDRAllocationInputs — List+OccupiedCIDRs only surfaces v1 kind=tenant
 	// projects, so it would miss every v2 tenant and let the allocator collide.
-	var ownCIDR string
+	var ownCIDR, ownSuffix string
 	var occupied []string
 	if p.Tenants != nil {
-		if own, others, err := tenant.CIDRAllocationInputs(ctx, p.Tenants, userKey); err == nil {
-			ownCIDR, occupied = own, others
+		if own, suffix, others, err := tenant.ProvisionReuseInputs(ctx, p.Tenants, userKey); err == nil {
+			ownCIDR, ownSuffix, occupied = own, suffix, others
 		}
 	}
 	plan, err := tenant.PlanCreateV2(p.Admin, tenant.CreateRequest{
-		Reference:     userKey,
-		SSHPublicKey:  strings.TrimSpace(sshPublicKey),
-		UnixUser:      unixUser,
-		OccupiedCIDRs: occupied,
-		PreferredCIDR: ownCIDR,
+		Reference:         userKey,
+		SSHPublicKey:      strings.TrimSpace(sshPublicKey),
+		UnixUser:          unixUser,
+		OccupiedCIDRs:     occupied,
+		PreferredCIDR:     ownCIDR,
+		DNSSuffix:         strings.TrimSpace(dnsSuffix),
+		ExistingDNSSuffix: ownSuffix,
 	})
 	if err != nil {
 		return PersonalTenantResult{}, err
@@ -145,7 +151,7 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User, option
 	if p.V2Create == nil {
 		return PersonalTenantResult{}, fmt.Errorf("v2 provisioning is not configured")
 	}
-	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user), options.TailscaleAuthKey)
+	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user), options.TailscaleAuthKey, options.DNSSuffix)
 }
 
 // profileUnixUser picks the login user baked into the tenant's default profile:

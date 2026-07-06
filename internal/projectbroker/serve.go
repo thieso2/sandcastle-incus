@@ -59,6 +59,9 @@ type TenantRequest struct {
 	Tenant           string `json:"tenant"`
 	SSHPublicKey     string `json:"sshPublicKey,omitempty"`
 	TailscaleAuthKey string `json:"tailscaleAuthKey,omitempty"`
+	// DNSSuffix is the tenant-chosen Tenant DNS Suffix (ADR-0018); empty means
+	// the tenant name.
+	DNSSuffix string `json:"dnsSuffix,omitempty"`
 }
 
 // TenantResult is returned to the admin after a successful tenant bring-up.

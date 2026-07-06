@@ -65,6 +65,7 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, tenantName string, p
 		StoragePool:        cfg[keyV2Pool],
 		DefaultProfileUser: cfg[keyV2User],
 		SSHPublicKey:       cfg[keyV2SSHKey],
+		DNSSuffix:          cfg[keyV2Suffix],
 	}
 	if profilePlan.DefaultProfileUser == "" {
 		profilePlan.DefaultProfileUser = tenant.DefaultV2UnixUser
@@ -77,7 +78,7 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, tenantName string, p
 		return CreateProjectV2Result{}, err
 	}
 	c.log("ensure app default profile " + incusProject)
-	if err := ensureV2AppProfile(server.UseProject(incusProject), profilePlan, server.SupportsIdmappedMounts()); err != nil {
+	if err := ensureV2AppProfile(server.UseProject(incusProject), profilePlan, server.SupportsIdmappedMounts(), project); err != nil {
 		return CreateProjectV2Result{}, err
 	}
 	return CreateProjectV2Result{

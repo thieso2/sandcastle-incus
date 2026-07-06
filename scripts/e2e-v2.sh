@@ -65,13 +65,29 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# resolve <name>.<suffix> against the sidecar CoreDNS (.3) via a real resolver
-# (exec inside a machine on the bridge), returns the A record.
-resolve_via_coredns() {
-  local host="$1" via="$2" proj="$3"
-  incus exec "$via" --project "$proj" -- sh -c \
-    "printf 'nameserver ${DNS_ADDR}\n' >/etc/resolv.conf; getent hosts ${host}" 2>/dev/null | awk '{print $1}'
+# resolve a name with the machine's OWN resolver (no override): proves the
+# bridge hands the sidecar CoreDNS out via DHCP (ADR-0018) AND the record
+# exists in the zone. Retries briefly — registration is event-driven and lands
+# within seconds. Returns the A record, empty on NXDOMAIN.
+resolve_in_machine() {
+  local host="$1" via="$2" proj="$3" ip="" i
+  for i in $(seq 1 15); do
+    ip="$(incus exec "$via" --project "$proj" -- getent hosts "$host" 2>/dev/null | awk '{print $1}' | head -1)"
+    [ -n "$ip" ] && break
+    sleep 2
+  done
+  printf '%s' "$ip"
 }
+
+# The full stack is required (ADR-0018: no harness shortcuts): DNS records are
+# registered ONLY by the auth-app reconciler; the dnsmasq fallthrough is gone.
+log "full stack present?"
+if incus exec sc2-auth-app --project infrastructure -- systemctl is-active sandcastle-auth-app >/dev/null 2>&1; then
+  pass "auth-app is running (DNS reconciler active)"
+else
+  fail "auth-app appliance is not running — deploy the full stack first (sc-adm install); DNS assertions cannot pass without its reconciler"
+  echo "v2 e2e: RED"; exit 1
+fi
 
 log "create tenant ${TENANT} (pool ${POOL})"
 "$SC_ADM" tenant create "$TENANT" \
@@ -83,24 +99,40 @@ DNS_ADDR="$(incus project get "$INFRA" user.sandcastle.v2.cidr | sed 's#0/[0-9]*
 log "second project via scaffolding"
 "$SC_ADM" project create "$TENANT" backend >/dev/null && pass "project backend created" || fail "project create"
 
-# launch one machine into each project and assert DNS + SSH
+# launch one machine into each project; assert the ADR-0018 naming contract
+# with the machine's own resolver, then SSH via the canonical name's IP.
+# $4 = the project SHORT name ("default"/"backend").
 check_machine() {
-  local name="$1" proj="$2"
+  local name="$1" proj="$2" short="$3"
   log "launch ${name} into ${proj}"
   incus launch "$IMAGE" "$name" --project "$proj" >/dev/null
   incus exec "$name" --project "$proj" -- cloud-init status --wait >/dev/null 2>&1 || true
-  local ip; ip="$(resolve_via_coredns "${name}.${TENANT}" "$name" "$proj")"
-  if [ -n "$ip" ]; then pass "CoreDNS resolves ${name}.${TENANT} -> ${ip}"; else fail "DNS ${name}.${TENANT}"; return; fi
+  local canonical="${name}.${short}.${TENANT}"
+  local ip; ip="$(resolve_in_machine "$canonical" "$name" "$proj")"
+  if [ -n "$ip" ]; then pass "resolves ${canonical} -> ${ip} (machine's own resolver)"; else fail "DNS ${canonical}"; return; fi
+  # wildcard under the canonical name
+  local wip; wip="$(resolve_in_machine "app1.${canonical}" "$name" "$proj")"
+  [ "$wip" = "$ip" ] && pass "wildcard app1.${canonical} -> ${wip}" || fail "wildcard app1.${canonical} (got '${wip}')"
+  # short alias: default project ONLY
+  local sip; sip="$(incus exec "$name" --project "$proj" -- getent hosts "${name}.${TENANT}" 2>/dev/null | awk '{print $1}' | head -1)"
+  if [ "$short" = "default" ]; then
+    [ "$sip" = "$ip" ] && pass "short ${name}.${TENANT} -> ${sip} (default project alias)" || fail "short ${name}.${TENANT} (got '${sip}')"
+  else
+    [ -z "$sip" ] && pass "short ${name}.${TENANT} is NXDOMAIN (non-default project)" || fail "short ${name}.${TENANT} must NOT resolve (got '${sip}')"
+  fi
+  # guest identity: hostname -f = canonical Machine Private Hostname
+  local fq; fq="$(incus exec "$name" --project "$proj" -- hostname -f 2>/dev/null || true)"
+  [ "$fq" = "$canonical" ] && pass "guest hostname -f = ${fq}" || fail "guest hostname -f (got '${fq}', want ${canonical})"
   local out; out="$(ssh -i "$KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 "dev@${ip}" 'echo OK:$(hostname):$(id -u)' 2>/dev/null || true)"
+    -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 "dev@${ip}" 'echo OK:$(id -u)' 2>/dev/null || true)"
   case "$out" in
-    OK:${name}:2000) pass "ssh dev@${name}.${TENANT} -> ${out}" ;;
+    OK:2000) pass "ssh dev@${canonical} -> ${out}" ;;
     *) fail "ssh ${name} (got '${out}')" ;;
   esac
 }
 
-check_machine web "$DEF"
-check_machine api "$BACK"
+check_machine web "$DEF" default
+check_machine api "$BACK" backend
 
 # machine lifecycle through the USER CLI (`sc create` / `sc delete`, v2 path):
 # project-scoped references must resolve, a bad project must fail fast with the

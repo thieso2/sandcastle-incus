@@ -512,6 +512,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var sshPublicKeyPath string
 	var skipSetup bool
 	var tailscaleAuthKey string
+	var dnsSuffix string
 	var debugApprove bool
 	var simulateToken string
 	var simulateAs string
@@ -808,6 +809,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&sshPublicKeyPath, "ssh-public-key", "", "SSH public key path to authorize for Machine SSH Access")
 	command.Flags().BoolVar(&skipSetup, "skip-setup", false, "skip automatic DNS and Tailscale setup after enrollment")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key for unattended post-login attachment")
+	command.Flags().StringVar(&dnsSuffix, "dns-suffix", "", "Tenant DNS Suffix for first-login provisioning — the single-label final part of machine hostnames <machine>.<project>.<suffix> (default: your tenant name; immutable once created)")
 	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve via /debug/device/approve (requires server --debug-device-user)")
 	command.Flags().StringVar(&simulateToken, "simulate-token", "", "DEV ONLY: auto-approve via /oauth/github/simulate using this shared secret (requires server --simulate-github-token); no browser/GitHub")
 	command.Flags().StringVar(&simulateAs, "as", "", "GitHub username to log in as when using --simulate-token")

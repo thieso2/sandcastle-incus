@@ -208,7 +208,12 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 		verb = "would be created"
 	}
 	fmt.Fprintf(&builder, "Machine %s %s (%s, project %s, image %s).\n", result.Name, verb, result.Type, project, result.Image)
-	fqdn := result.Name + "." + summary.DNSSuffix
+	// Canonical Machine Private Hostname; the default project also answers at
+	// the short alias (ADR-0018).
+	fqdn := result.Name + "." + project + "." + summary.DNSSuffix
+	if project == naming.DefaultProjectName {
+		fqdn += " (also: " + result.Name + "." + summary.DNSSuffix + ")"
+	}
 	if dryRun {
 		fmt.Fprintf(&builder, "DNS: %s (auto-registers after boot)", fqdn)
 		return builder.String()
@@ -218,7 +223,7 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 		loginUser = tenant.DefaultV2UnixUser
 	}
 	if result.PrivateIP != "" {
-		fmt.Fprintf(&builder, "IP: %s   DNS: %s (auto-registers in ~30s)\n", result.PrivateIP, fqdn)
+		fmt.Fprintf(&builder, "IP: %s   DNS: %s (auto-registers within seconds)\n", result.PrivateIP, fqdn)
 		fmt.Fprintf(&builder, "SSH: ssh %s@%s   (cloud-init may still be installing sshd)", loginUser, result.PrivateIP)
 	} else {
 		fmt.Fprintf(&builder, "Still booting — no IP leased yet. Watch it with: sc list\n")

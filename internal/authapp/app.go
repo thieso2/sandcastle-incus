@@ -89,6 +89,11 @@ type HTTPRunner struct {
 	MachineSSHAccess MachineSSHAccessRevoker
 	ShareStore       share.Store
 	ShareReconciler  ShareReconciler
+	// DNSEvents, when set, is started once and subscribes to instance lifecycle
+	// events, calling notify() whenever tenant machine DNS may have changed —
+	// the event-driven half of ADR-0018's registration. It should block until
+	// ctx is done, reconnecting internally as needed.
+	DNSEvents func(ctx context.Context, notify func())
 	// DNSReconcile, when set, is invoked periodically to register tenant machine
 	// DNS records (auto-registration of freeform `incus launch` machines).
 	DNSReconcile func(context.Context) error
@@ -187,24 +192,62 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	}
 }
 
-// runDNSReconcileLoop periodically registers tenant machine DNS records so
-// freeform `incus launch` machines resolve without a manual step. Errors are
+// runDNSReconcileLoop registers tenant machine DNS records so freeform
+// `incus launch` machines resolve without a manual step (ADR-0018): instance
+// lifecycle events trigger a reconcile within seconds (with two settle passes
+// to catch the DHCP lease landing after the event), and a periodic pass every
+// 30s guarantees convergence across missed events and restarts. Errors are
 // logged and the loop continues; it stops when ctx is cancelled.
 func (r HTTPRunner) runDNSReconcileLoop(ctx context.Context) {
 	const interval = 30 * time.Second
+	reconcile := func() {
+		if err := r.DNSReconcile(ctx); err != nil {
+			log.Printf("auth-app DNS reconcile: %v", err)
+		}
+	}
+	if r.DNSEvents != nil {
+		trigger := make(chan struct{}, 1)
+		go r.DNSEvents(ctx, func() {
+			select {
+			case trigger <- struct{}{}:
+			default:
+			}
+		})
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-trigger:
+					reconcile()
+					// The event usually precedes the DHCP lease; settle passes
+					// pick up the IP. The reconciler skips unchanged zones, so
+					// extra passes are cheap.
+					for _, settle := range []time.Duration{3 * time.Second, 8 * time.Second} {
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(settle):
+						}
+						select {
+						case <-trigger: // coalesce triggers that arrived meanwhile
+						default:
+						}
+						reconcile()
+					}
+				}
+			}
+		}()
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	if err := r.DNSReconcile(ctx); err != nil {
-		log.Printf("auth-app DNS reconcile: %v", err)
-	}
+	reconcile()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := r.DNSReconcile(ctx); err != nil {
-				log.Printf("auth-app DNS reconcile: %v", err)
-			}
+			reconcile()
 		}
 	}
 }

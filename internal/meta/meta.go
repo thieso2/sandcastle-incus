@@ -20,7 +20,10 @@ const (
 	// KeyV2CIDR is where v2 stores a tenant's private /24, on the kind=infra
 	// project (v1 keeps it in the tenant metadata under KeyPrivateCIDR). Must
 	// match incusx's keyV2CIDR.
-	KeyV2CIDR    = Prefix + "v2.cidr"
+	KeyV2CIDR = Prefix + "v2.cidr"
+	// KeyV2Suffix is where v2 stores the Tenant DNS Suffix, on the kind=infra
+	// project (ADR-0018: tenant-chosen, defaults to the tenant name).
+	KeyV2Suffix  = Prefix + "v2.suffix"
 	KeyAppPort   = Prefix + "app_port"
 	KeyLinuxUser = Prefix + "linux_user"
 	KeyCreatedBy = Prefix + "created_by"

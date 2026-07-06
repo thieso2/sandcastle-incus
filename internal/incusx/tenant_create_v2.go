@@ -75,7 +75,7 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		return err
 	}
 	c.log("ensure app default profile " + plan.DefaultProject)
-	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted); err != nil {
+	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted, naming.DefaultProjectName); err != nil {
 		return err
 	}
 	c.log("ensure sidecar profile")
@@ -143,9 +143,20 @@ func (c TenantCreator) resolveV2Server() (TenantCreateServer, error) {
 }
 
 // ensureV2Bridge creates the shared per-tenant bridge in the default project.
+// An existing bridge is converged onto the CoreDNS DHCP resolver option so
+// pre-ADR-0018 tenants pick it up on their next idempotent re-provision.
 func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 	def := server.UseProject(naming.DefaultProjectName)
-	if _, _, err := def.GetNetwork(plan.Bridge); err == nil {
+	if bridge, etag, err := def.GetNetwork(plan.Bridge); err == nil {
+		want := "dhcp-option=6," + plan.DNSAddress
+		if bridge.Config["raw.dnsmasq"] == want {
+			return nil
+		}
+		put := bridge.Writable()
+		put.Config["raw.dnsmasq"] = want
+		if err := def.UpdateNetwork(plan.Bridge, put, etag); err != nil {
+			return fmt.Errorf("update bridge %s DHCP resolver: %w", plan.Bridge, err)
+		}
 		return nil
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get bridge %s: %w", plan.Bridge, err)
@@ -159,9 +170,12 @@ func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 				"ipv4.address": gatewayCIDR(plan.PrivateCIDR),
 				"ipv4.nat":     "true",
 				"ipv6.address": "none",
-				// Flat per-tenant DNS: dnsmasq publishes <machine>.<suffix> for every
-				// leased instance across all of the tenant's projects (ADR-0016).
-				"dns.domain":        plan.DNSSuffix,
+				"dns.domain":   plan.DNSSuffix,
+				// The sidecar CoreDNS is the ONLY DNS authority for the suffix
+				// (ADR-0018): hand it to guests as their DHCP resolver instead of
+				// the bridge dnsmasq, whose lease names are guest-asserted and
+				// cannot express the project label.
+				"raw.dnsmasq":       "dhcp-option=6," + plan.DNSAddress,
 				meta.KeyKind:        "network",
 				meta.KeyTenant:      plan.Tenant,
 				meta.KeyPrivateCIDR: plan.PrivateCIDR,
@@ -181,7 +195,7 @@ func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 const (
 	keyV2Bridge = "user.sandcastle.v2.bridge"
 	keyV2Pool   = "user.sandcastle.v2.pool"
-	keyV2Suffix = "user.sandcastle.v2.suffix"
+	keyV2Suffix = meta.KeyV2Suffix
 	keyV2CIDR   = "user.sandcastle.v2.cidr"
 	keyV2User   = "user.sandcastle.v2.user"
 	keyV2SSHKey = "user.sandcastle.v2.sshkey"
@@ -279,7 +293,7 @@ func ensureV2SharedVolume(server TenantResourceServer, pool string, name string,
 	})
 }
 
-func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, shifted bool) error {
+func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, shifted bool, projectShort string) error {
 	devices := api.DevicesMap{
 		"root":      {"type": "disk", "pool": plan.StoragePool, "path": "/"},
 		"eth0":      {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},
@@ -296,7 +310,7 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, s
 	desired := api.ProfilePut{
 		Description: "Sandcastle v2 default profile for " + plan.Tenant,
 		Config: api.ConfigMap{
-			"cloud-init.user-data": tenant.V2DefaultProfileUserData(plan.DefaultProfileUser, plan.SSHPublicKey),
+			"cloud-init.user-data": tenant.V2DefaultProfileUserData(plan.DefaultProfileUser, plan.SSHPublicKey, projectShort, plan.DNSSuffix),
 			meta.KeyKind:           "profile",
 			meta.KeyTenant:         plan.Tenant,
 			meta.KeyVersion:        "2",

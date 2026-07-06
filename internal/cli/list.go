@@ -195,7 +195,7 @@ func formatMachineList(result listPayload) string {
 
 	var builder strings.Builder
 	table := tabwriter.NewWriter(&builder, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "PROJECT\tMACHINE\tFQDN\tIP\tCREATED\tSTATE")
+	fmt.Fprintln(table, "PROJECT\tMACHINE\tTYPE\tFQDN\tIP\tCREATED\tSTATE")
 	for _, machine := range result.Machines {
 		state := "stopped"
 		if machine.Running {
@@ -203,9 +203,10 @@ func formatMachineList(result listPayload) string {
 		}
 		fmt.Fprintf(
 			table,
-			"%s\t%s\t%s\t%s\t%s\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			machine.Project,
 			machine.Name,
+			machineTypeShort(machine.Type),
 			machineFQDN(result.Tenant, machine),
 			machine.PrivateIP,
 			formatListCreatedAt(machine.CreatedAt),
@@ -223,9 +224,10 @@ func formatMachineList(result listPayload) string {
 		}
 		fmt.Fprintf(
 			table,
-			"%s\t%s\t%s\t%s\t%s\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			"-",
 			unmanaged.Name,
+			machineTypeShort(unmanaged.Type),
 			"-",
 			displayValue(unmanaged.PrivateIP),
 			formatListCreatedAt(unmanaged.CreatedAt),
@@ -244,6 +246,19 @@ func displayValue(value string) string {
 	return value
 }
 
+// machineTypeShort renders an Incus instance type as the compact table label:
+// CT for containers, VM for virtual machines.
+func machineTypeShort(instanceType string) string {
+	switch instanceType {
+	case "virtual-machine":
+		return "VM"
+	case meta.MachineTypeContainer, "":
+		return "CT"
+	default:
+		return instanceType
+	}
+}
+
 func machineFQDN(tenant tenant.Summary, machine meta.Machine) string {
 	suffix := strings.Trim(strings.TrimSpace(tenant.DNSSuffix), ".")
 	if suffix == "" {
@@ -252,11 +267,9 @@ func machineFQDN(tenant tenant.Summary, machine meta.Machine) string {
 	if machine.Name == "" || machine.Project == "" || suffix == "" {
 		return "-"
 	}
-	// v2 DNS is flat: the sidecar CoreDNS registers <machine>.<suffix> across
-	// all of the tenant's projects (ADR-0016), with no project label.
-	if tenant.Version == 2 {
-		return machine.Name + "." + suffix
-	}
+	// The canonical Machine Private Hostname is <machine>.<project>.<suffix>
+	// for every project (ADR-0018); the default project also answers at the
+	// short alias, but the list teaches the canonical form.
 	return machine.Name + "." + machine.Project + "." + suffix
 }
 
@@ -301,14 +314,14 @@ func formatTenantResources(result tenantResourcesPayload) string {
 	}
 	fmt.Fprintln(&b)
 	table := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "PROJECT\tMACHINE\tFQDN\tIP\tCREATED\tSTATE")
+	fmt.Fprintln(table, "PROJECT\tMACHINE\tTYPE\tFQDN\tIP\tCREATED\tSTATE")
 	for _, m := range result.Machines {
 		state := "stopped"
 		if m.Running {
 			state = "running"
 		}
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			m.Project, m.Name, machineFQDN(t, m), m.PrivateIP, formatListCreatedAt(m.CreatedAt), state)
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			m.Project, m.Name, machineTypeShort(m.Type), machineFQDN(t, m), m.PrivateIP, formatListCreatedAt(m.CreatedAt), state)
 	}
 	for _, u := range result.Unmanaged {
 		state := u.Status
@@ -319,8 +332,8 @@ func formatTenantResources(result tenantResourcesPayload) string {
 				state = "stopped"
 			}
 		}
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			"-", u.Name, "-", displayValue(u.PrivateIP), formatListCreatedAt(u.CreatedAt), "unmanaged:"+state)
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			"-", u.Name, machineTypeShort(u.Type), "-", displayValue(u.PrivateIP), formatListCreatedAt(u.CreatedAt), "unmanaged:"+state)
 	}
 	_ = table.Flush()
 	return strings.TrimRight(b.String(), "\n")

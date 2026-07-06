@@ -62,20 +62,22 @@ type TenantProvisionerAdapter struct {
 }
 
 func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectbroker.TenantRequest) (projectbroker.TenantResult, error) {
-	var ownCIDR string
+	var ownCIDR, ownSuffix string
 	var occupied []string
 	if a.Tenants != nil {
 		var err error
-		ownCIDR, occupied, err = tenant.CIDRAllocationInputs(ctx, a.Tenants, req.Tenant)
+		ownCIDR, ownSuffix, occupied, err = tenant.ProvisionReuseInputs(ctx, a.Tenants, req.Tenant)
 		if err != nil {
 			return projectbroker.TenantResult{}, fmt.Errorf("list allocated CIDRs: %w", err)
 		}
 	}
 	plan, err := tenant.PlanCreateV2(a.Admin, tenant.CreateRequest{
-		Reference:     req.Tenant,
-		SSHPublicKey:  req.SSHPublicKey,
-		OccupiedCIDRs: occupied,
-		PreferredCIDR: ownCIDR,
+		Reference:         req.Tenant,
+		SSHPublicKey:      req.SSHPublicKey,
+		OccupiedCIDRs:     occupied,
+		PreferredCIDR:     ownCIDR,
+		DNSSuffix:         req.DNSSuffix,
+		ExistingDNSSuffix: ownSuffix,
 	})
 	if err != nil {
 		return projectbroker.TenantResult{}, err
