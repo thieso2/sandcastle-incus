@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -25,7 +26,7 @@ type CreateProjectV2Result struct {
 // supplies tenant + project names. This is the scaffolding the Sandcastle Broker
 // performs on a tenant's `sc project create` (ADR-0016); it does not itself
 // extend the tenant's restricted cert (the broker/admin layer does that).
-func (c TenantCreator) CreateProjectV2(ctx context.Context, tenantName string, project string) (CreateProjectV2Result, error) {
+func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string, tenantName string, project string) (CreateProjectV2Result, error) {
 	if err := naming.ValidateTenantName(tenantName); err != nil {
 		return CreateProjectV2Result{}, err
 	}
@@ -36,7 +37,11 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, tenantName string, p
 	if err != nil {
 		return CreateProjectV2Result{}, err
 	}
-	infraProject, err := naming.V2TenantInfraProjectName(naming.V2IncusProjectPrefix, tenantName)
+	installPrefix = strings.TrimSpace(installPrefix)
+	if installPrefix == "" || installPrefix == naming.DefaultIncusProjectPrefix {
+		installPrefix = naming.V2IncusProjectPrefix
+	}
+	infraProject, err := naming.V2TenantInfraProjectName(installPrefix, tenantName)
 	if err != nil {
 		return CreateProjectV2Result{}, err
 	}

@@ -109,8 +109,8 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	}
 	tok, err := p.Trust.CreateToken(ctx, usertrust.UserPlan{
 		User:            plan.Tenant,
-		CertificateName: usertrust.RestrictedName(plan.Tenant),
-		RemoteName:      usertrust.RestrictedName(plan.Tenant),
+		CertificateName: usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
+		RemoteName:      usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
 		Restricted:      true,
 		Projects:        plan.RestrictedProjects,
 		Description:     "Sandcastle v2 tenant " + plan.Tenant,

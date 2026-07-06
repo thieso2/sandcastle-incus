@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v2"
 
+	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
@@ -39,6 +41,13 @@ func newProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.C
 			project := strings.TrimSpace(args[0])
 			if err := naming.ValidateNewProjectName(project); err != nil {
 				return err
+			}
+			// Preferred tenant plane: the auth-app API over the public
+			// hostname, authenticated by the saved login token — works through
+			// a tunnel, needs no broker port and no client certificate. The
+			// broker path below remains for --broker/BYO setups.
+			if strings.TrimSpace(broker) == "" && strings.TrimSpace(config.adminConfig.AuthToken) != "" && commandAuthHostname(config, "") != "" {
+				return runProjectCreateViaAuthApp(cmd.Context(), config, opts, project, writeRemote, incusEndpoint, incusConf, remoteName)
 			}
 			conn, err := resolveBrokerConnection(config.adminConfig, broker, certFile, keyFile, incusConf)
 			if err != nil {
@@ -107,6 +116,68 @@ func newProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.C
 	command.Flags().StringVar(&incusConf, "incus-conf", "", "INCUS_CONF dir to write the remote into (default: $INCUS_CONF or the incus default)")
 	command.Flags().StringVar(&remoteName, "remote-name", "", "name for the per-project remote (default: <tenant>-<project>)")
 	return command
+}
+
+// runProjectCreateViaAuthApp creates the project through the auth-app's
+// token-gated /api/projects and drops the per-project incus remote, reusing
+// the enrolled tenant remote's endpoint (the sidecar Incus Reach).
+func runProjectCreateViaAuthApp(ctx context.Context, config commandConfig, opts *rootOptions, project string, writeRemote bool, incusEndpoint, incusConf, remoteName string) error {
+	client := config.authProjects
+	if client == nil {
+		client = authapp.DeviceClient{BaseURL: commandAuthHostname(config, ""), AuthToken: config.adminConfig.AuthToken}
+	}
+	result, err := client.CreateProject(ctx, project)
+	if err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(result)
+	fmt.Fprintln(config.stdout, string(payload))
+	if writeRemote && result.IncusProject != "" {
+		name := strings.TrimSpace(remoteName)
+		if name == "" {
+			name = result.Tenant + "-" + result.Project
+		}
+		endpoint := strings.TrimSpace(incusEndpoint)
+		conf := strings.TrimSpace(incusConf)
+		enrolled := strings.TrimSpace(config.adminConfig.Remote)
+		if endpoint == "" && enrolled != "" {
+			endpoint = enrolledRemoteEndpoint(enrolled)
+		}
+		if conf == "" && enrolled != "" {
+			dir := scconfig.RemoteIncusDir(enrolled)
+			if _, err := os.Stat(filepath.Join(dir, "config.yml")); err == nil {
+				conf = dir
+			}
+		}
+		if endpoint == "" {
+			fmt.Fprintln(config.stderr, "Note: skipped per-project remote: no enrolled tenant remote to derive the Incus endpoint from")
+			return nil
+		}
+		if err := addProjectRemote(ctx, name, endpoint, result.IncusProject, conf); err != nil {
+			fmt.Fprintf(config.stderr, "Note: created project but could not add remote %q: %v\n", name, err)
+			return nil
+		}
+		fmt.Fprintf(config.stdout, "added incus remote %q → project %s (try: incus list %s:)\n", name, result.IncusProject, name)
+	}
+	return nil
+}
+
+// enrolledRemoteEndpoint reads the enrolled remote's Incus endpoint (the
+// sidecar Incus Reach URL) from the per-remote incus config.
+func enrolledRemoteEndpoint(remote string) string {
+	data, err := os.ReadFile(filepath.Join(scconfig.RemoteIncusDir(remote), "config.yml"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Remotes map[string]struct {
+			Addr string `yaml:"addr"`
+		} `yaml:"remotes"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Remotes[remote].Addr)
 }
 
 // brokerConnection is the resolved broker dial config for tenant self-service.

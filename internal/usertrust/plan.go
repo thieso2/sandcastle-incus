@@ -3,6 +3,7 @@ package usertrust
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -144,6 +145,20 @@ func PlanDeleteUser(user string) (UserPlan, error) {
 
 func RestrictedName(user string) string {
 	return CertificateNamePrefix + user
+}
+
+// RestrictedInstallName returns the restricted certificate/remote name for a
+// tenant of the given installation prefix. The default installation keeps the
+// historical sandcastle-<tenant>; any other prefix qualifies the name
+// (sandcastle-<prefix>-<tenant>) so several sandcastles sharing one Incus
+// host — and their enrollments sharing one client — cannot collide on
+// certificate or remote names (--prefix installs).
+func RestrictedInstallName(prefix string, user string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix == "sc" || prefix == naming.V2IncusProjectPrefix {
+		return RestrictedName(user)
+	}
+	return RestrictedName(prefix + "-" + user)
 }
 
 func validateUser(user string) error {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 )
 
@@ -175,6 +176,32 @@ func (c DeviceClient) DebugApprove(ctx context.Context, userCode string) error {
 		return fmt.Errorf("debug approve: %s", msg)
 	}
 	return nil
+}
+
+// CreateProject drives the token-gated POST /api/projects — the
+// tunnel-friendly tenant plane for project creation (no broker port).
+func (c DeviceClient) CreateProject(ctx context.Context, project string) (projectbroker.ProjectResult, error) {
+	body, _ := json.Marshal(map[string]string{"project": project})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/projects"), bytes.NewReader(body))
+	if err != nil {
+		return projectbroker.ProjectResult{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	response, err := c.client().Do(request)
+	if err != nil {
+		return projectbroker.ProjectResult{}, err
+	}
+	defer response.Body.Close()
+	payload, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if response.StatusCode != http.StatusOK {
+		return projectbroker.ProjectResult{}, fmt.Errorf("create project: %s: %s", response.Status, strings.TrimSpace(string(payload)))
+	}
+	var result projectbroker.ProjectResult
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return projectbroker.ProjectResult{}, err
+	}
+	return result, nil
 }
 
 // SimulateApprove drives the token-gated /oauth/github/simulate endpoint to

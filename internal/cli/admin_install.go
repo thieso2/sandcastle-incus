@@ -140,21 +140,30 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 			}
 			fmt.Fprintf(config.stdout, "[2/2] deploying broker appliance %s...\n", brokerName)
 			if err := creator.BootstrapV2(cmd.Context(), incusx.BootstrapV2Request{
-				BaseImage:   baseImage,
-				BinaryPath:  binaryPath,
-				Bridge:      bridge,
-				StoragePool: storagePool,
-				Hostname:    hostname,
-				CIDRPool:    cidrPool,
-				PublicPort:  brokerPort,
-				Project:     brokerName,
-				Instance:    brokerName,
+				BaseImage:     baseImage,
+				BinaryPath:    binaryPath,
+				Bridge:        bridge,
+				StoragePool:   storagePool,
+				Hostname:      hostname,
+				CIDRPool:      cidrPool,
+				PublicPort:    brokerPort,
+				Project:       brokerName,
+				Instance:      brokerName,
+				ProjectPrefix: installV2Prefix(prefix),
+				// Tunnel-fronted installs need no inbound host port: the tenant
+				// plane rides the auth-app API, so the broker stays
+				// container-internal and cannot collide with other installs.
+				NoHostPort: ingressMode == incusx.IngressCloudflare,
 			}); err != nil {
 				return fmt.Errorf("broker bootstrap: %w", err)
 			}
 			fmt.Fprintf(config.stdout, "sandcastle installed (prefix %q):\n", prefix)
 			fmt.Fprintf(config.stdout, "  auth-app: %s (project infrastructure), serving :9444 internally\n", authAppInstance)
-			fmt.Fprintf(config.stdout, "  broker:   %s (project %s), :%s\n", brokerName, brokerName, brokerPort)
+			if ingressMode == incusx.IngressCloudflare {
+				fmt.Fprintf(config.stdout, "  broker:   %s (project %s), container-internal :9443 (no host port)\n", brokerName, brokerName)
+			} else {
+				fmt.Fprintf(config.stdout, "  broker:   %s (project %s), :%s\n", brokerName, brokerName, brokerPort)
+			}
 			fmt.Fprintf(config.stdout, "  tenant CIDR pool: %s (shared; the allocator avoids other tenants' /24s)\n", cidrPool)
 			switch ingressMode {
 			case incusx.IngressACME:

@@ -210,8 +210,8 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			if config.trustManager != nil {
 				tok, err := config.trustManager.CreateToken(cmd.Context(), usertrust.UserPlan{
 					User:            plan.Tenant,
-					CertificateName: usertrust.RestrictedName(plan.Tenant),
-					RemoteName:      usertrust.RestrictedName(plan.Tenant),
+					CertificateName: usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
+					RemoteName:      usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
 					Restricted:      true,
 					Projects:        plan.RestrictedProjects,
 					Description:     "Sandcastle v2 tenant " + plan.Tenant,
@@ -247,7 +247,7 @@ func newAdminProjectCreateV2Command(config commandConfig, opts *rootOptions) *co
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			creator := config.tenantCreator
-			result, err := creator.CreateProjectV2(cmd.Context(), args[0], args[1])
+			result, err := creator.CreateProjectV2(cmd.Context(), config.adminConfig.IncusProjectPrefix, args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -327,7 +327,7 @@ func newAdminProjectBrokerServeCommand(config commandConfig) *cobra.Command {
 			handler := projectbroker.Handler{
 				// tenant plane
 				Trust:   incusx.NewRouteBrokerTrustMapper(config.adminConfig.Remote),
-				Creator: incusx.ProjectBrokerCreator{Creator: creator, Trust: config.trustManager},
+				Creator: incusx.ProjectBrokerCreator{Creator: creator, Trust: config.trustManager, Prefix: config.adminConfig.IncusProjectPrefix},
 				// admin plane
 				Admin: incusx.NewAdminAuthorizer(config.adminConfig.Remote),
 				Provisioner: incusx.TenantProvisionerAdapter{

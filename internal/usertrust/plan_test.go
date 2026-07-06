@@ -112,3 +112,20 @@ func TestPlanTenantUsers(t *testing.T) {
 		t.Fatalf("plan = %#v", plan)
 	}
 }
+
+func TestRestrictedInstallName(t *testing.T) {
+	if got := RestrictedInstallName("", "acme"); got != "sandcastle-acme" {
+		t.Fatalf("got %q", got)
+	}
+	if got := RestrictedInstallName("sc", "acme"); got != "sandcastle-acme" {
+		t.Fatalf("got %q", got)
+	}
+	if got := RestrictedInstallName("sc2", "acme"); got != "sandcastle-acme" {
+		t.Fatalf("got %q", got)
+	}
+	// non-default installs qualify the name so two sandcastles on one host
+	// (and one client) cannot collide on certificates or remotes
+	if got := RestrictedInstallName("id", "acme"); got != "sandcastle-id-acme" {
+		t.Fatalf("got %q", got)
+	}
+}

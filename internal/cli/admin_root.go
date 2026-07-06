@@ -158,6 +158,11 @@ func ExecuteAdmin(name string, args []string) int {
 				}
 				return authAppDNSReconciler(authAppSocketServer, authAppTenants).Reconcile(ctx)
 			},
+			Projects: incusx.ProjectBrokerCreator{
+				Creator: authAppCreator,
+				Trust:   authAppTrust,
+				Prefix:  adminConfig.IncusProjectPrefix,
+			},
 			DNSEvents: func(ctx context.Context, notify func()) {
 				if authAppSocketServer == nil {
 					return

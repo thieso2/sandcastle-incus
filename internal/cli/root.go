@@ -22,6 +22,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/route"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
@@ -81,6 +82,7 @@ type commandConfig struct {
 	authWorkload         authWorkloadClient
 	authCloudIdentity    authCloudIdentityClient
 	authTenants          authTenantClient
+	authProjects         authProjectClient
 	authShares           authShareClient
 	shareStore           share.Store
 	shareReconciler      tenantShareReconciler
@@ -120,6 +122,10 @@ type authCloudIdentityClient interface {
 
 type authTenantClient interface {
 	ListTenants(context.Context) ([]authapp.TenantAccessSummary, error)
+}
+
+type authProjectClient interface {
+	CreateProject(context.Context, string) (projectbroker.ProjectResult, error)
 }
 
 type authShareClient interface {

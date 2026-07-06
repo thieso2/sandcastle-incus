@@ -222,3 +222,36 @@ func TestProjectCreateFlaglessRoundTrip(t *testing.T) {
 		t.Fatalf("expected the created incus project in output, got %q", stdout.String())
 	}
 }
+
+type stubAuthProjects struct{ tenant, project string }
+
+func (s *stubAuthProjects) CreateProject(_ context.Context, project string) (projectbroker.ProjectResult, error) {
+	s.project = project
+	return projectbroker.ProjectResult{Tenant: "demo", Project: project, IncusProject: "id-demo-" + project}, nil
+}
+
+// After login, `sc project create` prefers the auth-app token API (works over
+// the tunnel, no broker port, no client cert) — the broker path is only used
+// with --broker or when no login token is saved.
+func TestProjectCreatePrefersAuthApp(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", "")
+	stub := &stubAuthProjects{}
+	var stdout, stderr bytes.Buffer
+	command := newProjectCreateV2Command(commandConfig{
+		adminConfig:  scconfig.Admin{AuthHostname: "https://idefix.example.dev", AuthToken: "tok", Tenant: "demo"},
+		authProjects: stub,
+		stdout:       &stdout,
+		stderr:       &stderr,
+	}, &rootOptions{output: outputText})
+	command.SetArgs([]string{"web"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("auth-app project create failed: %v (stderr: %s)", err, stderr.String())
+	}
+	if stub.project != "web" {
+		t.Fatalf("auth-app client not used: %+v", stub)
+	}
+	if !strings.Contains(stdout.String(), "id-demo-web") {
+		t.Fatalf("expected incus project in output, got %q", stdout.String())
+	}
+}

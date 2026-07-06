@@ -19,18 +19,22 @@ import (
 type ProjectBrokerCreator struct {
 	Creator TenantCreator
 	Trust   usertrust.Manager
+	// Prefix is the installation prefix this broker/auth-app serves; it scopes
+	// the infra-project lookup and the certificate/remote names so several
+	// sandcastles can share one Incus host.
+	Prefix string
 }
 
 func (p ProjectBrokerCreator) CreateTenantProject(ctx context.Context, tenant string, project string) (projectbroker.ProjectResult, error) {
-	res, err := p.Creator.CreateProjectV2(ctx, tenant, project)
+	res, err := p.Creator.CreateProjectV2(ctx, p.Prefix, tenant, project)
 	if err != nil {
 		return projectbroker.ProjectResult{}, err
 	}
 	if p.Trust != nil {
 		if err := p.Trust.Grant(ctx, usertrust.UserPlan{
 			User:            tenant,
-			CertificateName: usertrust.RestrictedName(tenant),
-			RemoteName:      usertrust.RestrictedName(tenant),
+			CertificateName: usertrust.RestrictedInstallName(p.Prefix, tenant),
+			RemoteName:      usertrust.RestrictedInstallName(p.Prefix, tenant),
 			Restricted:      true,
 			Projects:        []string{res.IncusProject},
 			Description:     "Sandcastle v2 tenant " + tenant,
@@ -101,8 +105,8 @@ func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectb
 	if a.Trust != nil {
 		tok, err := a.Trust.CreateToken(ctx, usertrust.UserPlan{
 			User:            plan.Tenant,
-			CertificateName: usertrust.RestrictedName(plan.Tenant),
-			RemoteName:      usertrust.RestrictedName(plan.Tenant),
+			CertificateName: usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
+			RemoteName:      usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
 			Restricted:      true,
 			Projects:        plan.RestrictedProjects,
 			Description:     "Sandcastle v2 tenant " + plan.Tenant,

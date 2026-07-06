@@ -3,6 +3,7 @@ package authapp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
+	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -89,6 +91,9 @@ type HTTPRunner struct {
 	MachineSSHAccess MachineSSHAccessRevoker
 	ShareStore       share.Store
 	ShareReconciler  ShareReconciler
+	// Projects performs the privileged project scaffolding for the token-gated
+	// POST /api/projects — the tunnel-friendly tenant plane (no broker port).
+	Projects TenantProjectCreator
 	// DNSEvents, when set, is started once and subscribes to instance lifecycle
 	// events, calling notify() whenever tenant machine DNS may have changed —
 	// the event-driven half of ADR-0018's registration. It should block until
@@ -503,24 +508,33 @@ func ensureColumn(ctx context.Context, db *sql.DB, table string, column string, 
 }
 
 type HandlerOptions struct {
-	AuthHostname        string
-	GitHubClientID      string
-	GitHubClientSecret  string
-	GitHub              GitHubClient
-	RestrictedUsers     RestrictedUserRevoker
-	Provisioner         PersonalTenantProvisioner
-	Admin               config.Admin
-	Tenants             tenant.IncusTenantStore
-	TenantAccess        TenantAccessManager
-	Machines            machine.Store
-	MachineSSHKeys      MachineSSHKeyReconciler
-	TenantSSHKeys       TenantSSHKeyUpdater
-	MachineSSHAccess    MachineSSHAccessRevoker
-	ShareStore          share.Store
-	ShareReconciler     ShareReconciler
+	AuthHostname       string
+	GitHubClientID     string
+	GitHubClientSecret string
+	GitHub             GitHubClient
+	RestrictedUsers    RestrictedUserRevoker
+	Provisioner        PersonalTenantProvisioner
+	Admin              config.Admin
+	Tenants            tenant.IncusTenantStore
+	TenantAccess       TenantAccessManager
+	Machines           machine.Store
+	MachineSSHKeys     MachineSSHKeyReconciler
+	TenantSSHKeys      TenantSSHKeyUpdater
+	MachineSSHAccess   MachineSSHAccessRevoker
+	ShareStore         share.Store
+	ShareReconciler    ShareReconciler
+	// Projects performs the privileged project scaffolding for the token-gated
+	// POST /api/projects — the tunnel-friendly tenant plane (no broker port).
+	Projects            TenantProjectCreator
 	DebugDeviceUser     string
 	SimulateGitHubToken string
 	TailscaleAuthKey    string
+}
+
+// TenantProjectCreator creates an app project for a tenant and extends the
+// tenant's restricted certificate; satisfied by incusx.ProjectBrokerCreator.
+type TenantProjectCreator interface {
+	CreateTenantProject(ctx context.Context, tenant string, project string) (projectbroker.ProjectResult, error)
 }
 
 func NewHandler(db *sql.DB, options any) http.Handler {
@@ -542,6 +556,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		machineSSHAccess: handlerOptions.MachineSSHAccess,
 		shareStore:       handlerOptions.ShareStore,
 		shareReconciler:  handlerOptions.ShareReconciler,
+		projects:         handlerOptions.Projects,
 		debugDeviceUser:  NormalizeGitHubUsername(handlerOptions.DebugDeviceUser),
 		simulateToken:    strings.TrimSpace(handlerOptions.SimulateGitHubToken),
 		tailscaleAuthKey: strings.TrimSpace(handlerOptions.TailscaleAuthKey),
@@ -569,6 +584,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/cloud-identities/delete", app.cloudIdentityDelete)
 	mux.HandleFunc("/api/cloud-identities", app.cloudIdentitiesAPI)
 	mux.HandleFunc("/api/tenants", app.tenantsAPI)
+	mux.HandleFunc("/api/projects", app.projectsAPI)
 	mux.HandleFunc("/api/shares", app.sharesAPI)
 	mux.HandleFunc("/api/shares/status", app.shareStatusAPI)
 	mux.HandleFunc("/api/shares/accept", app.shareAcceptAPI)
@@ -621,10 +637,50 @@ type handler struct {
 	machineSSHAccess MachineSSHAccessRevoker
 	shareStore       share.Store
 	shareReconciler  ShareReconciler
+	projects         TenantProjectCreator
 	debugDeviceUser  string
 	simulateToken    string
 	tailscaleAuthKey string
 	sessionCookie    string
+}
+
+// projectsAPI is the tunnel-friendly tenant plane for project creation
+// (ADR-0016 amended): POST /api/projects {"project": "..."} authenticated by
+// the CLI Auth Token. It replaces the broker's host port in tunnel-fronted
+// installs — the auth-app performs the same scaffolding + cert extension.
+func (h handler) projectsAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.projects == nil {
+		http.Error(w, "project creation is not available on this deployment", http.StatusNotImplemented)
+		return
+	}
+	user, err := h.requireBearerUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	var request struct {
+		Project string `json:"project"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	project := strings.TrimSpace(request.Project)
+	if err := naming.ValidateNewProjectName(project); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	result, err := h.projects.CreateTenantProject(r.Context(), user.UserKey, project)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (h handler) health(w http.ResponseWriter, r *http.Request) {

@@ -39,9 +39,15 @@ type BootstrapV2Request struct {
 	Hostname     string // DNS name for the self-signed broker cert SAN
 	CIDRPool     string // v2 CIDR pool (e.g. 10.249.0.0/16)
 	SidecarImage string // system-container base for tenant sidecars
-	PublicPort   string // host port to expose (default 9443)
-	Project      string // Incus project for the appliance (default BrokerProjectName)
-	Instance     string // appliance instance name (default BrokerInstanceName)
+	PublicPort   string // host port to expose (default 9443; ignored with NoHostPort)
+	// NoHostPort skips the host proxy device entirely: the broker listens only
+	// inside its container (cloudflare-tunnel installs need no inbound host
+	// port; the tenant plane rides the auth-app API instead). Admins on the
+	// host reach it at the appliance's bridge IP :9443.
+	NoHostPort    bool
+	ProjectPrefix string // installation prefix baked into the appliance env (default sc2)
+	Project       string // Incus project for the appliance (default BrokerProjectName)
+	Instance      string // appliance instance name (default BrokerInstanceName)
 }
 
 func (r BootstrapV2Request) project() string {
@@ -77,7 +83,7 @@ func (c TenantCreator) BootstrapV2(ctx context.Context, req BootstrapV2Request) 
 	}
 
 	c.log("ensure broker project " + req.project())
-	if err := ensureBrokerProject(server); err != nil {
+	if err := ensureBrokerProject(server, req.project()); err != nil {
 		return err
 	}
 	psrv := server.UseProject(req.project())
@@ -101,7 +107,7 @@ func (c TenantCreator) BootstrapV2(ctx context.Context, req BootstrapV2Request) 
 		{BrokerUnitPath, []byte(brokerUnit(req.SidecarImage)), 0o644},
 	}
 	for _, f := range files {
-		if err := writeBrokerFile(psrv, f); err != nil {
+		if err := writeBrokerFile(psrv, req.instance(), f); err != nil {
 			return err
 		}
 	}
@@ -117,12 +123,15 @@ func (c TenantCreator) BootstrapV2(ctx context.Context, req BootstrapV2Request) 
 	return nil
 }
 
-func ensureBrokerProject(server TenantCreateServer) error {
-	if _, _, err := server.GetProject(BrokerProjectName); err == nil {
+func ensureBrokerProject(server TenantCreateServer, name string) error {
+	if strings.TrimSpace(name) == "" {
+		name = BrokerProjectName
+	}
+	if _, _, err := server.GetProject(name); err == nil {
 		return nil
 	}
 	return server.CreateProject(api.ProjectsPost{
-		Name: BrokerProjectName,
+		Name: name,
 		ProjectPut: api.ProjectPut{
 			Description: "Sandcastle v2 broker appliance",
 			Config: api.ConfigMap{
@@ -137,12 +146,24 @@ func ensureBrokerProject(server TenantCreateServer) error {
 }
 
 func ensureBrokerInstance(server TenantResourceServer, req BootstrapV2Request, port string) error {
-	if _, _, err := server.GetInstance(BrokerInstanceName); err == nil {
+	if _, _, err := server.GetInstance(req.instance()); err == nil {
 		return nil
 	}
 	source := imageInstanceSource(req.BaseImage)
+	devices := api.DevicesMap{
+		"root": {"type": "disk", "pool": req.StoragePool, "path": "/"},
+		"eth0": {"type": "nic", "nictype": "bridged", "parent": req.Bridge},
+		// mount the host admin socket → the broker uses it with full rights
+		"incus-socket": {"type": "disk", "source": BrokerIncusSocket, "path": BrokerIncusSocket},
+	}
+	// Expose the broker on the host — unless the install is tunnel-fronted, in
+	// which case the tenant plane rides the auth-app API and the broker stays
+	// container-internal (no host port to collide with other installs).
+	if !req.NoHostPort {
+		devices["broker"] = map[string]string{"type": "proxy", "listen": "tcp:0.0.0.0:" + port, "connect": "tcp:" + BrokerListenInternal}
+	}
 	op, err := server.CreateInstance(api.InstancesPost{
-		Name:   BrokerInstanceName,
+		Name:   req.instance(),
 		Type:   "container",
 		Start:  true,
 		Source: source,
@@ -156,14 +177,7 @@ func ensureBrokerInstance(server TenantResourceServer, req BootstrapV2Request, p
 				meta.KeyKind:          "broker",
 				meta.KeyVersion:       "2",
 			},
-			Devices: api.DevicesMap{
-				"root": {"type": "disk", "pool": req.StoragePool, "path": "/"},
-				"eth0": {"type": "nic", "nictype": "bridged", "parent": req.Bridge},
-				// mount the host admin socket → the broker uses it with full rights
-				"incus-socket": {"type": "disk", "source": BrokerIncusSocket, "path": BrokerIncusSocket},
-				// expose the broker on the host
-				"broker": {"type": "proxy", "listen": "tcp:0.0.0.0:" + port, "connect": "tcp:" + BrokerListenInternal},
-			},
+			Devices:  devices,
 			Profiles: []string{},
 		},
 	})
@@ -182,11 +196,11 @@ type brokerFile struct {
 	mode    int
 }
 
-func writeBrokerFile(server TenantResourceServer, f brokerFile) error {
-	if err := writeInstanceDir(server, BrokerInstanceName, f.path); err != nil {
+func writeBrokerFile(server TenantResourceServer, instance string, f brokerFile) error {
+	if err := writeInstanceDir(server, instance, f.path); err != nil {
 		return err
 	}
-	return server.CreateInstanceFile(BrokerInstanceName, f.path, incus.InstanceFileArgs{
+	return server.CreateInstanceFile(instance, f.path, incus.InstanceFileArgs{
 		Content:   strings.NewReader(string(f.content)),
 		Type:      "file",
 		Mode:      f.mode,
@@ -203,8 +217,8 @@ func brokerEnv(req BootstrapV2Request) string {
 		"SANDCASTLE_REMOTE=local", // the mounted unix socket
 		"SANDCASTLE_STORAGE_POOL=" + req.StoragePool,
 		"SANDCASTLE_CIDR_POOL=" + pool,
-		"SANDCASTLE_INCUS_PROJECT_PREFIX=sc2",
-		"SANDCASTLE_INFRASTRUCTURE_PROJECT=" + BrokerProjectName,
+		"SANDCASTLE_INCUS_PROJECT_PREFIX=" + orDefaultStr(strings.TrimSpace(req.ProjectPrefix), "sc2"),
+		"SANDCASTLE_INFRASTRUCTURE_PROJECT=" + req.project(),
 		"SANDCASTLE_BASE_IMAGE=" + DefaultApplianceImage,
 		"SANDCASTLE_AI_IMAGE=" + DefaultApplianceImage,
 	}
