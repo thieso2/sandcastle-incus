@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -132,7 +133,17 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if login.Status == DeviceStatusApproved && h.provisioner != nil && (login.ProvisionedAt == "" || request.AwaitingTailnet) {
-		login, err = h.provisionPersonalTenant(r.Context(), login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)
+		// Provision with a DETACHED context, not r.Context(): tenant bring-up
+		// (image pull, package install, tailscale up) takes minutes, and a
+		// client poll through a flaky edge (Cloudflare tunnel) may time out and
+		// cancel the request long before that — which used to abort provisioning
+		// mid-flight so it never finished. A per-device lock serializes the
+		// concurrent polls that arrive while one is still running.
+		unlock := lockDeviceProvisioning(request.DeviceCode)
+		provisionCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+		login, err = h.provisionPersonalTenant(provisionCtx, login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)
+		cancel()
+		unlock()
 		if err != nil {
 			login.Status = DeviceStatusPending
 		}
@@ -636,3 +647,23 @@ var deviceTemplate = template.Must(template.New("device").Parse(`<!doctype html>
 </body>
 </html>
 `))
+
+// deviceProvisioningLocks serializes provisioning per device code so the
+// concurrent polls that arrive while a (detached, minutes-long) provisioning
+// is still running don't run it a second time in parallel.
+var (
+	deviceProvisioningMu    sync.Mutex
+	deviceProvisioningLocks = map[string]*sync.Mutex{}
+)
+
+func lockDeviceProvisioning(deviceCode string) func() {
+	deviceProvisioningMu.Lock()
+	lock, ok := deviceProvisioningLocks[deviceCode]
+	if !ok {
+		lock = &sync.Mutex{}
+		deviceProvisioningLocks[deviceCode] = lock
+	}
+	deviceProvisioningMu.Unlock()
+	lock.Lock()
+	return lock.Unlock
+}
