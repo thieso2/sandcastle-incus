@@ -187,7 +187,7 @@ func ensureBrokerInstance(server TenantResourceServer, req BootstrapV2Request, p
 	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
 		return fmt.Errorf("wait for broker appliance: %w", err)
 	}
-	return nil
+	return waitInstanceRunning(server, req.instance(), 60*time.Second)
 }
 
 // isAlreadyRunning reports whether err is Incus's spurious "instance is

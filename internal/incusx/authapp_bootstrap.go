@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -201,7 +202,7 @@ func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequ
 	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
 		return fmt.Errorf("wait for auth-app appliance: %w", err)
 	}
-	return nil
+	return waitInstanceRunning(server, instance, 60*time.Second)
 }
 
 // authAppDevices builds the appliance's device map; ACME ingress additionally

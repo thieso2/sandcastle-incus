@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -372,7 +373,30 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
 		return fmt.Errorf("wait for sidecar %s: %w", plan.SidecarInstance, err)
 	}
-	return nil
+	// Start:true returns before the guest is actually up; wait for RUNNING so
+	// the subsequent exec/file-push steps don't race the boot ("Not Found").
+	return waitInstanceRunning(server, plan.SidecarInstance, 60*time.Second)
+}
+
+// waitInstanceRunning blocks until the instance reports RUNNING (or timeout).
+// CreateInstance{Start:true} returns as soon as the start is requested, not
+// when the guest is ready — exec/CreateInstanceFile against a not-yet-running
+// instance fail with a spurious "Not Found".
+func waitInstanceRunning(server TenantResourceServer, name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		state, _, err := server.GetInstanceState(name)
+		if err == nil && state != nil && state.StatusCode == api.Running {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			if err != nil {
+				return fmt.Errorf("wait for %s to run: %w", name, err)
+			}
+			return fmt.Errorf("instance %s did not reach RUNNING within %s", name, timeout)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // coreDNSVersion is the CoreDNS release fetched onto stock-Debian sidecars
