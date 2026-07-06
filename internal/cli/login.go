@@ -633,6 +633,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					LocalUnixUser:    defaultLocalUnixUsername(),
 					TailscaleAuthKey: strings.TrimSpace(tailscaleAuthKey),
 					AwaitingTailnet:  awaitingTailnet,
+					DNSSuffix:        strings.TrimSpace(dnsSuffix),
 				})
 				if pollErr != nil {
 					return pollErr

@@ -5748,3 +5748,32 @@ func (f *fakeLocalTrustManager) Uninstall(ctx context.Context, plan localtrust.P
 	f.plan = plan
 	return localtrust.Result{Reference: plan.Reference, TrustName: plan.TrustName, Action: "uninstall", Platform: "fake"}, nil
 }
+
+// Regression: the --dns-suffix flag must actually reach the device poll
+// request (it was once accepted but silently dropped).
+func TestLoginSendsDNSSuffix(t *testing.T) {
+	useLoginHomeForTest(t)
+	t.Setenv("USER", "loginuser")
+	installer := &fakeLoginRemoteInstaller{}
+	client := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{{
+			Status:            authapp.DeviceStatusApproved,
+			UserKey:           "octocat",
+			CLIAuthToken:      "cli-token",
+			Token:             "token",
+			RemoteName:        "sandcastle-octocat",
+			AccessibleTenants: []string{"octocat"},
+		}},
+	}
+	if _, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  client,
+		loginRemote: installer,
+	}, "login", "https://auth.example.com", "--dns-suffix", "castle"); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.pollRequests) == 0 || client.pollRequests[0].DNSSuffix != "castle" {
+		t.Fatalf("poll requests missing dns suffix: %#v", client.pollRequests)
+	}
+}

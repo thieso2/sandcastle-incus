@@ -380,6 +380,11 @@ func installV2SidecarPackages(server TenantResourceServer, plan tenant.CreatePla
 	script := strings.Join([]string{
 		"set -eu",
 		"export DEBIAN_FRONTEND=noninteractive",
+		// Bootstrap resolver: the bridge's DHCP resolver is the sidecar's OWN
+		// CoreDNS (ADR-0018), which doesn't exist until this install finishes.
+		// Until CoreDNS is live, resolve the package downloads via upstream
+		// directly; configureV2Sidecar switches to 127.0.0.1 afterwards.
+		"systemctl is-active coredns >/dev/null 2>&1 || printf 'nameserver 1.1.1.1\\nnameserver 8.8.8.8\\n' > /etc/resolv.conf",
 		"need_apt=0",
 		"command -v curl >/dev/null 2>&1 || need_apt=1",
 		"command -v tailscale >/dev/null 2>&1 || need_apt=1",
