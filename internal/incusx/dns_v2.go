@@ -38,6 +38,10 @@ func ReconcileV2TenantsDNS(ctx context.Context, server incus.InstanceServer, sto
 type V2DNSReconciler struct {
 	Server incus.InstanceServer
 	Store  tenant.IncusTenantStore
+	// Prefix scopes the sweep to this installation's tenants — several
+	// sandcastles share one Incus host, and each install's auth-app must only
+	// touch its own sidecars.
+	Prefix string
 
 	mu       sync.Mutex
 	lastZone map[string]string
@@ -57,9 +61,20 @@ func (r *V2DNSReconciler) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("list projects for DNS reconcile: %w", err)
 	}
 
+	installPrefix := strings.TrimSpace(r.Prefix)
+	if installPrefix == "" || installPrefix == "sc" {
+		installPrefix = "sc2"
+	}
 	var errs []string
 	for _, project := range projects {
 		if !meta.IsManaged(project.Config) || project.Config[meta.KeyKind] != meta.KindInfra {
+			continue
+		}
+		projectPrefix := strings.TrimSpace(project.Config[keyV2Prefix])
+		if projectPrefix == "" {
+			projectPrefix = "sc2"
+		}
+		if projectPrefix != installPrefix {
 			continue
 		}
 		suffix := strings.TrimSpace(project.Config[keyV2Suffix])

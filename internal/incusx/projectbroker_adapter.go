@@ -70,7 +70,7 @@ func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectb
 	var occupied []string
 	if a.Tenants != nil {
 		var err error
-		ownCIDR, ownSuffix, occupied, err = tenant.ProvisionReuseInputs(ctx, a.Tenants, req.Tenant)
+		ownCIDR, ownSuffix, occupied, err = tenant.ProvisionReuseInputs(ctx, a.Tenants, a.Admin.IncusProjectPrefix, req.Tenant)
 		if err != nil {
 			return projectbroker.TenantResult{}, fmt.Errorf("list allocated CIDRs: %w", err)
 		}

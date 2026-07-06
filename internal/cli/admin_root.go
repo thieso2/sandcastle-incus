@@ -156,7 +156,7 @@ func ExecuteAdmin(name string, args []string) int {
 				if authAppSocketServer == nil {
 					return nil // no mounted socket (not the serving appliance) — nothing to reconcile
 				}
-				return authAppDNSReconciler(authAppSocketServer, authAppTenants).Reconcile(ctx)
+				return authAppDNSReconciler(authAppSocketServer, authAppTenants, adminConfig.IncusProjectPrefix).Reconcile(ctx)
 			},
 			Projects: incusx.ProjectBrokerCreator{
 				Creator: authAppCreator,

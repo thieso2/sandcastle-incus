@@ -23,7 +23,10 @@ const (
 	KeyV2CIDR = Prefix + "v2.cidr"
 	// KeyV2Suffix is where v2 stores the Tenant DNS Suffix, on the kind=infra
 	// project (ADR-0018: tenant-chosen, defaults to the tenant name).
-	KeyV2Suffix  = Prefix + "v2.suffix"
+	KeyV2Suffix = Prefix + "v2.suffix"
+	// KeyV2Prefix is where v2 stores the installation prefix, on the kind=infra
+	// project — several sandcastles can share one Incus host (--prefix).
+	KeyV2Prefix  = Prefix + "v2.prefix"
 	KeyAppPort   = Prefix + "app_port"
 	KeyLinuxUser = Prefix + "linux_user"
 	KeyCreatedBy = Prefix + "created_by"

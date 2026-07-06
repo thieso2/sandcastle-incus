@@ -87,7 +87,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	var ownCIDR, ownSuffix string
 	var occupied []string
 	if p.Tenants != nil {
-		if own, suffix, others, err := tenant.ProvisionReuseInputs(ctx, p.Tenants, userKey); err == nil {
+		if own, suffix, others, err := tenant.ProvisionReuseInputs(ctx, p.Tenants, p.Admin.IncusProjectPrefix, userKey); err == nil {
 			ownCIDR, ownSuffix, occupied = own, suffix, others
 		}
 	}

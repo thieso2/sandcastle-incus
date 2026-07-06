@@ -22,9 +22,9 @@ var (
 // authAppDNSReconciler returns the process-wide stateful DNS reconciler, so the
 // unchanged-zone cache is shared between the periodic loop and event-triggered
 // passes (ADR-0018).
-func authAppDNSReconciler(server incus.InstanceServer, store tenant.IncusTenantStore) *incusx.V2DNSReconciler {
+func authAppDNSReconciler(server incus.InstanceServer, store tenant.IncusTenantStore, prefix string) *incusx.V2DNSReconciler {
 	dnsReconcilerOnce.Do(func() {
-		dnsReconciler = &incusx.V2DNSReconciler{Server: server, Store: store}
+		dnsReconciler = &incusx.V2DNSReconciler{Server: server, Store: store, Prefix: prefix}
 	})
 	return dnsReconciler
 }

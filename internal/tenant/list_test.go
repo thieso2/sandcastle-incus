@@ -184,3 +184,42 @@ func TestListSurfacesV2Tenants(t *testing.T) {
 		t.Fatalf("V2IncusProjectName(\"\") = %q", got)
 	}
 }
+
+// Two sandcastles share one Incus host (--prefix): another install's
+// same-named tenant is a FOREIGN tenant — its CIDR is occupied, its suffix
+// must not be mistaken for this install's (that false match blocked a second
+// install's first login with a bogus suffix-immutability error).
+func TestProvisionReuseInputsScopedToInstallPrefix(t *testing.T) {
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "sc2-acme", Config: map[string]string{
+			meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "acme",
+			meta.KeyV2CIDR: "10.253.0.0/24", meta.KeyV2Suffix: "acme", meta.KeyV2Prefix: "sc2",
+		}},
+		{Name: "id-acme", Config: map[string]string{
+			meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "acme",
+			meta.KeyV2CIDR: "10.251.0.0/24", meta.KeyV2Suffix: "idefix", meta.KeyV2Prefix: "id",
+		}},
+	}}
+	// the "id" install sees ITS tenant as own, the sc2 one as occupied
+	own, suffix, occupied, err := ProvisionReuseInputs(context.Background(), store, "id", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own != "10.251.0.0/24" || suffix != "idefix" {
+		t.Fatalf("id install own = %q/%q", own, suffix)
+	}
+	if len(occupied) != 1 || occupied[0] != "10.253.0.0/24" {
+		t.Fatalf("occupied = %v", occupied)
+	}
+	// and vice versa (default prefix normalizes sc→sc2)
+	own, suffix, occupied, err = ProvisionReuseInputs(context.Background(), store, "sc", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own != "10.253.0.0/24" || suffix != "acme" {
+		t.Fatalf("sc install own = %q/%q", own, suffix)
+	}
+	if len(occupied) != 1 || occupied[0] != "10.251.0.0/24" {
+		t.Fatalf("occupied = %v", occupied)
+	}
+}

@@ -182,34 +182,48 @@ func AllocatedCIDRs(ctx context.Context, store IncusTenantStore) ([]string, erro
 // collisions). Covers both v1 (kind=tenant) and v2 (kind=infra) tenants.
 // ProvisionReuseInputs gathers what an idempotent re-provision must reuse from
 // live state: the tenant's own /24 and Tenant DNS Suffix (immutable, ADR-0018),
-// plus the other tenants' CIDRs the allocator must avoid.
-func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, tenantName string) (ownCIDR string, ownSuffix string, occupied []string, err error) {
+// plus the other tenants' CIDRs the allocator must avoid. "Own" is scoped to
+// the INSTALLATION prefix: several sandcastles share one Incus host (--prefix),
+// and another install's same-named tenant is a foreign tenant, not this one —
+// its CIDR is occupied, its suffix is irrelevant.
+func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPrefix string, tenantName string) (ownCIDR string, ownSuffix string, occupied []string, err error) {
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
 		return "", "", nil, err
 	}
 	tenantName = strings.TrimSpace(tenantName)
+	installPrefix = strings.TrimSpace(installPrefix)
+	if installPrefix == "" || installPrefix == naming.DefaultIncusProjectPrefix {
+		installPrefix = naming.V2IncusProjectPrefix
+	}
 	for _, incusProject := range projects {
 		if !meta.IsManaged(incusProject.Config) {
 			continue
 		}
 		var cidr, suffix, owner string
+		own := false
 		switch incusProject.Config[meta.KeyKind] {
 		case meta.KindTenant:
 			if t, e := meta.ParseTenantConfig(incusProject.Config); e == nil {
 				cidr, owner = strings.TrimSpace(t.PrivateCIDR), strings.TrimSpace(t.Tenant)
 			}
+			own = tenantName != "" && owner == tenantName
 		case meta.KindInfra:
 			cidr = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
 			suffix = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
 			owner = strings.TrimSpace(incusProject.Config[meta.KeyTenant])
+			projectPrefix := strings.TrimSpace(incusProject.Config[meta.KeyV2Prefix])
+			if projectPrefix == "" {
+				projectPrefix = naming.V2IncusProjectPrefix
+			}
+			own = tenantName != "" && owner == tenantName && projectPrefix == installPrefix
 		default:
 			continue
 		}
 		if cidr == "" {
 			continue
 		}
-		if tenantName != "" && owner == tenantName {
+		if own {
 			ownCIDR = cidr
 			ownSuffix = suffix
 		} else {

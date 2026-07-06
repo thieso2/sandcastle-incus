@@ -176,7 +176,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			var occupied []string
 			if config.tenantStore != nil {
 				var err error
-				if ownCIDR, ownSuffix, occupied, err = tenant.ProvisionReuseInputs(cmd.Context(), config.tenantStore, args[0]); err != nil {
+				if ownCIDR, ownSuffix, occupied, err = tenant.ProvisionReuseInputs(cmd.Context(), config.tenantStore, admin.IncusProjectPrefix, args[0]); err != nil {
 					return fmt.Errorf("list allocated CIDRs: %w", err)
 				}
 			}

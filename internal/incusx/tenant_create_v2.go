@@ -189,7 +189,7 @@ const (
 	keyV2CIDR   = "user.sandcastle.v2.cidr"
 	keyV2User   = "user.sandcastle.v2.user"
 	keyV2SSHKey = "user.sandcastle.v2.sshkey"
-	keyV2Prefix = "user.sandcastle.v2.prefix"
+	keyV2Prefix = meta.KeyV2Prefix
 )
 
 func v2InfraMetadata(plan tenant.CreatePlanV2) map[string]string {
