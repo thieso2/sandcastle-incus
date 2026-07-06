@@ -167,6 +167,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			MachineSSHAccess:    r.MachineSSHAccess,
 			ShareStore:          r.ShareStore,
 			ShareReconciler:     r.ShareReconciler,
+			Projects:            r.Projects,
 			DebugDeviceUser:     plan.DebugDeviceUser,
 			SimulateGitHubToken: plan.SimulateGitHubToken,
 			TailscaleAuthKey:    plan.TailscaleAuthKey,
