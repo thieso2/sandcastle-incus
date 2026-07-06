@@ -56,7 +56,7 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		return err
 	}
 	c.log("ensure app project " + plan.DefaultProject)
-	if err := ensureV2Project(server, plan.DefaultProject, "Sandcastle v2 project default for "+plan.Tenant, "project", plan.Tenant, true, nil); err != nil {
+	if err := ensureV2Project(server, plan.DefaultProject, "Sandcastle v2 project default for "+plan.Tenant, "project", plan.Tenant, true, map[string]string{meta.KeyV2Suffix: plan.DNSSuffix}); err != nil {
 		return err
 	}
 	shifted := server.SupportsIdmappedMounts()
@@ -205,7 +205,24 @@ func v2InfraMetadata(plan tenant.CreatePlanV2) map[string]string {
 }
 
 func ensureV2Project(server TenantCreateServer, name string, description string, kind string, tenantName string, ownImages bool, extra map[string]string) error {
-	if _, _, err := server.GetProject(name); err == nil {
+	if existing, etag, err := server.GetProject(name); err == nil {
+		// Converge missing metadata onto pre-existing projects (additive only)
+		// so idempotent re-provisioning can teach old projects new keys, e.g.
+		// the client-visible Tenant DNS Suffix (ADR-0018).
+		changed := false
+		put := existing.Writable()
+		for k, v := range extra {
+			if put.Config[k] != v {
+				put.Config[k] = v
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		if err := server.UpdateProject(name, put, etag); err != nil {
+			return fmt.Errorf("update project %s metadata: %w", name, err)
+		}
 		return nil
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) && !api.StatusErrorCheck(err, http.StatusForbidden) {
 		return fmt.Errorf("get project %s: %w", name, err)

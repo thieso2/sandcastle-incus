@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
@@ -60,7 +61,7 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string
 	}
 
 	c.log("ensure app project " + incusProject)
-	if err := ensureV2Project(server, incusProject, "Sandcastle v2 project "+project+" for "+tenantName, "project", tenantName, true, nil); err != nil {
+	if err := ensureV2Project(server, incusProject, "Sandcastle v2 project "+project+" for "+tenantName, "project", tenantName, true, map[string]string{meta.KeyV2Suffix: cfg[keyV2Suffix]}); err != nil {
 		return CreateProjectV2Result{}, err
 	}
 	profilePlan := tenant.CreatePlanV2{

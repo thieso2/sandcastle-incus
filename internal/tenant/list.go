@@ -125,6 +125,14 @@ func v2Summaries(projects []IncusProject) []Summary {
 		if shortName == "" {
 			continue
 		}
+		if suffix := strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix]); suffix != "" {
+			if suffixByTenant[tenantName] == "" {
+				suffixByTenant[tenantName] = suffix
+			}
+			if existing := byTenant[tenantName]; existing != nil && existing.DNSSuffix == tenantName {
+				existing.DNSSuffix = suffix
+			}
+		}
 		summary, seen := byTenant[tenantName]
 		if !seen {
 			summary = &Summary{
