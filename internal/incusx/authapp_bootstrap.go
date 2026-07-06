@@ -198,7 +198,7 @@ func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequ
 	if err != nil {
 		return fmt.Errorf("create auth-app appliance: %w", err)
 	}
-	if err := op.Wait(); err != nil {
+	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
 		return fmt.Errorf("wait for auth-app appliance: %w", err)
 	}
 	return nil

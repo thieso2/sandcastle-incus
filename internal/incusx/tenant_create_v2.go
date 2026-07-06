@@ -369,7 +369,7 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 	if err != nil {
 		return fmt.Errorf("create sidecar %s: %w", plan.SidecarInstance, err)
 	}
-	if err := op.Wait(); err != nil {
+	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
 		return fmt.Errorf("wait for sidecar %s: %w", plan.SidecarInstance, err)
 	}
 	return nil

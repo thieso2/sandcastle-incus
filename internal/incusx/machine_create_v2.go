@@ -67,7 +67,7 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 	if err != nil {
 		return CreateMachineV2Result{}, fmt.Errorf("create machine %s: %w", request.Name, err)
 	}
-	if err := op.Wait(); err != nil {
+	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
 		return CreateMachineV2Result{}, fmt.Errorf("wait for machine %s: %w", request.Name, err)
 	}
 	result.PrivateIP = waitForV2InstanceIPv4(ctx, project, request.Name, v2MachineIPTimeout(request.VM))

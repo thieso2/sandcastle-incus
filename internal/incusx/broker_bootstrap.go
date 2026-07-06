@@ -184,10 +184,18 @@ func ensureBrokerInstance(server TenantResourceServer, req BootstrapV2Request, p
 	if err != nil {
 		return fmt.Errorf("create broker appliance: %w", err)
 	}
-	if err := op.Wait(); err != nil {
+	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
 		return fmt.Errorf("wait for broker appliance: %w", err)
 	}
 	return nil
+}
+
+// isAlreadyRunning reports whether err is Incus's spurious "instance is
+// already running" — it surfaces when CreateInstance{Start:true} creates from
+// a CACHED image so fast the start op races itself. The instance is up, which
+// is the goal, so it's benign.
+func isAlreadyRunning(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "already running")
 }
 
 type brokerFile struct {
