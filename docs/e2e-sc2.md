@@ -59,6 +59,17 @@ dashboard-created **tunnel token**; a **Tailscale auth key** (the tenant's own
 tailnet); optionally a Tailscale **API key** for tenant-side route approval; a
 random `SIMULATE_TOKEN` (simulated GitHub — no OAuth app).
 
+**Unattended by default.** The e2e must run with no human in the loop, so the
+server install **always** includes `--simulate-github-token "$SIMULATE_TOKEN"`
+— even when real OAuth credentials are also configured: the two modes coexist
+(the token-gated `/oauth/github/simulate` endpoint registers *in addition to*
+the real OAuth handlers), so humans can still log in with GitHub while the
+harness short-circuits OAuth with `sc login --simulate-token … --as <user>`.
+The secret gates everything — treat it like a password, generate it fresh per
+run, and never enable it on a production install you don't intend to test
+against. An attended real-OAuth login is an optional extra verification, not
+part of the default protocol.
+
 ### Run logging — `logs/<machine-name>.log` (required)
 
 Every install/test run keeps a **verbatim transcript per machine**: each command
@@ -95,7 +106,7 @@ sudo sc-adm install-incus                       # Zabbly repo + incus + minimal 
 incus config set core.https_address=:8443
 sc-adm install \
   --auth-hostname  "$E2E_HOSTNAME" \
-  --simulate-github-token "$SIMULATE_TOKEN" \
+  --simulate-github-token "$SIMULATE_TOKEN" \   # ALWAYS — unattended runs; coexists with real --github-* creds
   --admin-github-users thieso2 \
   --ingress cloudflare --cloudflare-api-token "$CLOUDFLARE_API_TOKEN" \
   --cidr-pool 10.254.0.0/16                     # clear of every other deployment on the tailnet
