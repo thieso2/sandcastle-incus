@@ -77,7 +77,7 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, tenantName string, p
 		return CreateProjectV2Result{}, err
 	}
 	c.log("ensure app default profile " + incusProject)
-	if err := ensureV2AppProfile(server.UseProject(incusProject), profilePlan); err != nil {
+	if err := ensureV2AppProfile(server.UseProject(incusProject), profilePlan, server.SupportsIdmappedMounts()); err != nil {
 		return CreateProjectV2Result{}, err
 	}
 	return CreateProjectV2Result{

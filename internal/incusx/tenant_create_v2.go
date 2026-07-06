@@ -67,15 +67,15 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	shifted := server.SupportsIdmappedMounts()
 	if !shifted {
 		c.log("WARNING: this host's kernel offers no idmapped mounts (container-hosted incus?) — " +
-			"shared volumes are created WITHOUT security.shifted; CT<->CT sharing works, but VM " +
-			"machines would see shifted file owners (VMs are typically unavailable on such hosts anyway)")
+			"shared /home is disabled (machines get a local /home so VM sshd works); /workspace stays shared. " +
+			"Enable idmapped mounts (e.g. a zfs/btrfs storage pool) for a shared /home across CT + VM.")
 	}
 	c.log("ensure shared /workspace + /home volumes in " + plan.DefaultProject)
 	if err := ensureV2ProjectVolumes(server.UseProject(plan.DefaultProject), plan.StoragePool, plan.Tenant, shifted); err != nil {
 		return err
 	}
 	c.log("ensure app default profile " + plan.DefaultProject)
-	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan); err != nil {
+	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted); err != nil {
 		return err
 	}
 	c.log("ensure sidecar profile")
@@ -279,7 +279,20 @@ func ensureV2SharedVolume(server TenantResourceServer, pool string, name string,
 	})
 }
 
-func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2) error {
+func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, shifted bool) error {
+	devices := api.DevicesMap{
+		"root":      {"type": "disk", "pool": plan.StoragePool, "path": "/"},
+		"eth0":      {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},
+		"workspace": {"type": "disk", "pool": plan.StoragePool, "source": v2WorkspaceVolumeName, "path": "/workspace"},
+	}
+	// A shared /home only works across CT + VM when the volume is
+	// security.shifted, which needs kernel idmapped-mount support. Without it a
+	// VM sees the CT's shifted owners on /home/<user> and sshd's StrictModes
+	// refuses key auth — so on such hosts machines get a normal local /home
+	// (login/SSH always works) and only /workspace is shared.
+	if shifted {
+		devices["home"] = map[string]string{"type": "disk", "pool": plan.StoragePool, "source": v2HomeVolumeName, "path": "/home"}
+	}
 	desired := api.ProfilePut{
 		Description: "Sandcastle v2 default profile for " + plan.Tenant,
 		Config: api.ConfigMap{
@@ -288,12 +301,7 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2) e
 			meta.KeyTenant:         plan.Tenant,
 			meta.KeyVersion:        "2",
 		},
-		Devices: api.DevicesMap{
-			"root":      {"type": "disk", "pool": plan.StoragePool, "path": "/"},
-			"eth0":      {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},
-			"workspace": {"type": "disk", "pool": plan.StoragePool, "source": v2WorkspaceVolumeName, "path": "/workspace"},
-			"home":      {"type": "disk", "pool": plan.StoragePool, "source": v2HomeVolumeName, "path": "/home"},
-		},
+		Devices: devices,
 	}
 	return ensureExactProfile(server, "default", desired)
 }
