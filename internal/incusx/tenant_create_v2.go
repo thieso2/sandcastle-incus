@@ -345,8 +345,21 @@ func ensureV2SidecarProfile(server TenantResourceServer, plan tenant.CreatePlanV
 }
 
 func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, image string) error {
-	if _, _, err := server.GetInstance(plan.SidecarInstance); err == nil {
-		return nil
+	if existing, _, err := server.GetInstance(plan.SidecarInstance); err == nil {
+		// The sidecar already exists. If it is not running (a prior provisioning
+		// was interrupted, or its bridge was briefly missing so it stopped),
+		// START it — otherwise the package-install and config steps below fail
+		// with "Instance is not running".
+		if existing.StatusCode != api.Running {
+			op, err := server.UpdateInstanceState(plan.SidecarInstance, api.InstanceStatePut{Action: "start", Timeout: -1}, "")
+			if err != nil {
+				return fmt.Errorf("start existing sidecar %s: %w", plan.SidecarInstance, err)
+			}
+			if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
+				return fmt.Errorf("wait for sidecar %s start: %w", plan.SidecarInstance, err)
+			}
+		}
+		return waitInstanceRunning(server, plan.SidecarInstance, 60*time.Second)
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get sidecar %s: %w", plan.SidecarInstance, err)
 	}
