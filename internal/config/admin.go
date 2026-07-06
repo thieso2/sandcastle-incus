@@ -48,6 +48,7 @@ type Admin struct {
 	AuthTailscaleAuthKey   string
 	AuthTailscaleAPIKey    string
 	AuthToken              string
+	Broker                 string // Sandcastle Broker URL for tenant self-service
 	RouteBrokerIncusSocket string
 	AllowedDomainSuffixes  []string
 	DeniedDomainSuffixes   []string
@@ -104,6 +105,7 @@ func adminOverridesFromEnv(env map[string]string) Admin {
 		AuthTailscaleAuthKey:   authTailscaleAuthKeyFromEnv(env),
 		AuthTailscaleAPIKey:    strings.TrimSpace(env["SANDCASTLE_TAILSCALE_API_KEY"]),
 		AuthToken:              strings.TrimSpace(env["SANDCASTLE_AUTH_TOKEN"]),
+		Broker:                 strings.TrimSpace(env["SANDCASTLE_BROKER"]),
 		RouteBrokerIncusSocket: strings.TrimSpace(env["SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"]),
 		AllowedDomainSuffixes:  splitListFrom(env, "SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES"),
 		DeniedDomainSuffixes:   splitListFrom(env, "SANDCASTLE_DENIED_DOMAIN_SUFFIXES"),
@@ -175,6 +177,9 @@ func MergeAdmin(base Admin, overrides Admin) Admin {
 	}
 	if strings.TrimSpace(overrides.AuthToken) != "" {
 		out.AuthToken = strings.TrimSpace(overrides.AuthToken)
+	}
+	if strings.TrimSpace(overrides.Broker) != "" {
+		out.Broker = strings.TrimSpace(overrides.Broker)
 	}
 	if strings.TrimSpace(overrides.RouteBrokerIncusSocket) != "" {
 		out.RouteBrokerIncusSocket = strings.TrimSpace(overrides.RouteBrokerIncusSocket)

@@ -12,11 +12,13 @@ import (
 	neturl "net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
@@ -38,9 +40,11 @@ func newProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.C
 			if err := naming.ValidateNewProjectName(project); err != nil {
 				return err
 			}
-			if strings.TrimSpace(broker) == "" {
-				return fmt.Errorf("broker URL is required (--broker https://host:9443)")
+			conn, err := resolveBrokerConnection(config.adminConfig, broker, certFile, keyFile, incusConf)
+			if err != nil {
+				return err
 			}
+			broker, certFile, keyFile, incusConf = conn.Broker, conn.CertFile, conn.KeyFile, conn.IncusConf
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 			if err != nil {
 				return fmt.Errorf("load client certificate: %w", err)
@@ -95,14 +99,71 @@ func newProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.C
 			return nil
 		},
 	}
-	command.Flags().StringVar(&broker, "broker", "", "Sandcastle Broker URL (e.g. https://host:9443)")
-	command.Flags().StringVar(&certFile, "cert", "", "tenant client certificate file")
-	command.Flags().StringVar(&keyFile, "key", "", "tenant client key file")
+	command.Flags().StringVar(&broker, "broker", "", "Sandcastle Broker URL (default: recorded by sc login, or SANDCASTLE_BROKER)")
+	command.Flags().StringVar(&certFile, "cert", "", "tenant client certificate file (default: the enrolled remote's client.crt)")
+	command.Flags().StringVar(&keyFile, "key", "", "tenant client key file (default: the enrolled remote's client.key)")
 	command.Flags().BoolVar(&writeRemote, "write-remote", true, "add a per-project incus remote after creating the project")
 	command.Flags().StringVar(&incusEndpoint, "incus-endpoint", "", "Incus HTTPS endpoint for the remote (default: broker host on :8443)")
 	command.Flags().StringVar(&incusConf, "incus-conf", "", "INCUS_CONF dir to write the remote into (default: $INCUS_CONF or the incus default)")
 	command.Flags().StringVar(&remoteName, "remote-name", "", "name for the per-project remote (default: <tenant>-<project>)")
 	return command
+}
+
+// brokerConnection is the resolved broker dial config for tenant self-service.
+type brokerConnection struct {
+	Broker    string
+	CertFile  string
+	KeyFile   string
+	IncusConf string
+}
+
+// resolveBrokerConnection fills in the broker URL and client-certificate
+// paths for `sc project create`: explicit flags win; otherwise the broker URL
+// comes from the saved login config (or SANDCASTLE_BROKER) and the cert/key
+// from the enrolled remote's per-remote incus dir — so a logged-in tenant
+// needs no flags at all.
+func resolveBrokerConnection(admin scconfig.Admin, flagBroker, flagCert, flagKey, flagIncusConf string) (brokerConnection, error) {
+	conn := brokerConnection{
+		Broker:    strings.TrimSpace(flagBroker),
+		CertFile:  strings.TrimSpace(flagCert),
+		KeyFile:   strings.TrimSpace(flagKey),
+		IncusConf: strings.TrimSpace(flagIncusConf),
+	}
+	if conn.Broker == "" {
+		conn.Broker = strings.TrimSpace(admin.Broker)
+	}
+	if conn.Broker == "" {
+		return conn, fmt.Errorf("no broker URL is known — re-run `sc login` (it records the broker URL),\n" +
+			"set SANDCASTLE_BROKER, or pass --broker https://host:9443")
+	}
+	remoteDir := ""
+	if remote := strings.TrimSpace(admin.Remote); remote != "" {
+		remoteDir = scconfig.RemoteIncusDir(remote)
+	}
+	if conn.CertFile == "" || conn.KeyFile == "" {
+		if remoteDir == "" {
+			return conn, fmt.Errorf("no tenant client certificate is known — run `sc login`, or pass --cert/--key")
+		}
+		certPath := filepath.Join(remoteDir, "client.crt")
+		keyPath := filepath.Join(remoteDir, "client.key")
+		if _, err := os.Stat(certPath); err != nil {
+			return conn, fmt.Errorf("no tenant client certificate at %s — run `sc login`, or pass --cert/--key", certPath)
+		}
+		if conn.CertFile == "" {
+			conn.CertFile = certPath
+		}
+		if conn.KeyFile == "" {
+			conn.KeyFile = keyPath
+		}
+	}
+	// Default the per-project remote into the enrolled remote's incus config,
+	// where the login remotes already live — not the global ~/.config/incus.
+	if conn.IncusConf == "" && remoteDir != "" {
+		if _, err := os.Stat(filepath.Join(remoteDir, "config.yml")); err == nil {
+			conn.IncusConf = remoteDir
+		}
+	}
+	return conn, nil
 }
 
 // incusEndpointFromBroker returns the explicit endpoint if set, else derives it

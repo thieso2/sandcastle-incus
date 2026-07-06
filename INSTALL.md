@@ -231,6 +231,8 @@ sc status                        # tenant overview
 sc create mybox                  # create a machine (container)
 sc connect mybox                 # SSH in (alias: sc c)
 sc incus -- list                 # raw incus against your tenant remote
+sc project create test2          # self-service project via the broker
+                                 # (broker URL + client cert come from the login)
 ```
 
 **Admin path (no browser):** admins can create tenants directly on the host —

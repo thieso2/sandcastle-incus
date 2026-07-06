@@ -16,6 +16,9 @@ type SandcastleConfig struct {
 	AdminRemote  string `yaml:"admin_remote,omitempty"`
 	AuthHostname string `yaml:"auth_hostname,omitempty"`
 	AuthToken    string `yaml:"auth_token,omitempty"`
+	// Broker is the Sandcastle Broker URL for tenant self-service (project
+	// create). Saved by `sc login`, derived from the tenant's private CIDR.
+	Broker string `yaml:"broker,omitempty"`
 }
 
 // DefaultConfigDir returns ~/.config/sandcastle.
@@ -104,6 +107,7 @@ func adminFromConfigAndEnv(cfg SandcastleConfig, env map[string]string) Admin {
 		InfrastructureTLSMode:  strings.TrimSpace(env["SANDCASTLE_INFRA_TLS_MODE"]),
 		AuthHostname:           firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_AUTH_HOSTNAME"]), cfg.AuthHostname),
 		AuthToken:              firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_AUTH_TOKEN"]), cfg.AuthToken),
+		Broker:                 firstNonEmpty(strings.TrimSpace(env["SANDCASTLE_BROKER"]), cfg.Broker),
 		AuthGitHubClientID:     getenvFrom(env, "SANDCASTLE_AUTH_GITHUB_CLIENT_ID", ""),
 		AuthGitHubClientSecret: getenvFrom(env, "SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", ""),
 		AuthAdminGitHubUsers:   splitListFrom(env, "SANDCASTLE_AUTH_ADMIN_GITHUB_USERS"),

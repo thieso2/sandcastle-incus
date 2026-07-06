@@ -53,6 +53,28 @@ func saveAuthDefaults(rawHostname string, rawToken string) error {
 	return nil
 }
 
+// saveBrokerDefault records the Sandcastle Broker URL in the user config so
+// broker-backed commands (`sc project create`) work without --broker.
+func saveBrokerDefault(rawURL string) error {
+	broker := strings.TrimRight(strings.TrimSpace(rawURL), "/")
+	if broker == "" {
+		return nil
+	}
+	path := scconfig.DefaultConfigPath()
+	cfg, err := scconfig.LoadSandcastleConfig(path)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.Broker == broker {
+		return nil
+	}
+	cfg.Broker = broker
+	if err := scconfig.SaveSandcastleConfig(path, cfg); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+	return nil
+}
+
 func commandAuthHostname(config commandConfig, override string) string {
 	if host := normalizeAuthHostname(override); host != "" {
 		return host

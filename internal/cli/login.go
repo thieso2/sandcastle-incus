@@ -430,6 +430,22 @@ func firstHostInCIDR(cidr string) (string, error) {
 	return prefix.Masked().Addr().Next().String(), nil
 }
 
+// brokerURLForTenantCIDR derives the Sandcastle Broker URL from the tenant's
+// private CIDR: the broker listens on the Incus host's :9443, and the tenant
+// gateway (first host of the /24) is that host's address inside the subnet
+// route the sidecar advertises — the one host address a tenant client can
+// always reach. Empty when no CIDR is known (v1 tenants).
+func brokerURLForTenantCIDR(cidr string) string {
+	if strings.TrimSpace(cidr) == "" {
+		return ""
+	}
+	gateway, err := firstHostInCIDR(cidr)
+	if err != nil {
+		return ""
+	}
+	return "https://" + net.JoinHostPort(gateway, "9443")
+}
+
 // tailscaleCGNAT is the 100.64.0.0/10 range Tailscale assigns to every node.
 var tailscaleCGNAT = netip.MustParsePrefix("100.64.0.0/10")
 
@@ -667,6 +683,13 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					if err := saveAuthDefaults(args[0], result.CLIAuthToken); err != nil {
 						return err
 					}
+					// Record the broker URL so broker-backed commands
+					// (`sc project create`) need no --broker flag.
+					if broker := brokerURLForTenantCIDR(result.TenantPrivateCIDR); broker != "" {
+						if err := saveBrokerDefault(broker); err != nil {
+							fmt.Fprintf(config.stderr, "Note: could not save broker URL: %v\n", err)
+						}
+					}
 					// BYO tailnet: the tenant supplies the sidecar's tailscale key.
 					// Without one the sidecar starts an interactive join — print its
 					// login URL and keep polling until it has a tailnet address (the
@@ -857,6 +880,10 @@ func tryExistingLogin(ctx context.Context, config commandConfig, authHost string
 			fmt.Fprintln(config.stderr, err.Error())
 			return true
 		}
+	}
+	// Backfill the broker URL for logins saved before it was recorded.
+	if broker := brokerURLForTenantCIDR(tenantCIDR); broker != "" {
+		_ = saveBrokerDefault(broker)
 	}
 	fmt.Fprintf(config.stdout, "Already logged in at %s", host)
 	if tenant != "" {

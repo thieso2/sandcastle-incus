@@ -434,18 +434,24 @@ certificate** to cover it — the admin shortcut (`sc-adm project create`)
 scaffolds only.
 
 ```bash
-DIR=~/.config/sandcastle/sandcastle-$TENANT/incus   # the enrolled remote's config
-# the broker's host :9443 is reached at the TENANT GATEWAY over the subnet route
-sc project create web --broker https://<gateway>:9443 \
-  --cert "$DIR/client.crt" --key "$DIR/client.key"
+# No flags needed after `sc login`: it records the broker URL
+# (https://<tenant-gateway>:9443 — the host's :9443 reached over the subnet
+# route) and the enrolled remote's client cert is used automatically.
+sc project create web
+# equivalent explicit form (pre-login enrollments, or overriding):
+#   DIR=~/.config/sandcastle/sandcastle-$TENANT/incus
+#   sc project create web --broker https://<gateway>:9443 \
+#     --cert "$DIR/client.crt" --key "$DIR/client.key"
 
 sc list                        # summary now lists project "web"
 sc c web:dev1 -- hostname      # machine lifecycle scoped by project prefix
 sc delete web:dev1 --yes
 ```
 **PASS:**
-- `sc project create` returns the new project + writes the per-project
-  remote (`<tenant>-web`).
+- `sc project create web` works **with no flags** (broker URL from the saved
+  login, cert/key from the enrolled remote) and returns the new project +
+  writes the per-project remote (`<tenant>-web`) into the enrolled remote's
+  incus config.
 - `sc list`/`sc c web:dev1` work over the SAME certificate (extension applied,
   no re-login) — machines in `web` use that project's own shared volumes.
 
