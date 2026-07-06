@@ -401,7 +401,7 @@ active on both.
 
 ### Phase 7c — `sc` CLI v2 machine lifecycle (from the enrolled client) ✅
 Run the whole machine lifecycle through the `sc` CLI — this is the regression net
-for the v2-topology support (each step below failed at least once before being
+for the tenant-topology support (each step below failed at least once before being
 fixed; see the appendix).
 
 ```bash

@@ -1,6 +1,12 @@
-# Sandcastle v2 — Implementation Plan
+# Sandcastle — v1→v2 Migration History (completed)
 
-> Sequenced rollout of the v2 topology (ADR-0011/0012/0013/0014/0015, `v2-topology.md`). **v2 ships as a parallel deployment beside v1** (ADR-0015) — not a flag inside v1's running deployment. The v2 code is built incrementally (phases below) and tested on a throwaway parallel deployment, then stood up beside v1 for real; users migrate one at a time (Phase 8); v1 is retired last. Commits are kept tiny per the repo's convention.
+> **Historical record.** This was the sequenced plan that migrated Sandcastle from
+> the original tenant-as-one-Incus-project design ("v1") to the current
+> per-project-Incus-project architecture. That migration is done: there is now a
+> single Sandcastle (see [`topology.md`](topology.md) / [`glossary.md`](glossary.md))
+> and v1 is retired. Kept for provenance; not an operating guide.
+
+> Sequenced rollout of the v2 topology (ADR-0011/0012/0013/0014/0015, [`topology.md`](topology.md)). **v2 ships as a parallel deployment beside v1** (ADR-0015) — not a flag inside v1's running deployment. The v2 code is built incrementally (phases below) and tested on a throwaway parallel deployment, then stood up beside v1 for real; users migrate one at a time (Phase 8); v1 is retired last. Commits are kept tiny per the repo's convention.
 
 ## Phase P — Prerequisite: make the infra deployment-scoped (blocker for coexistence, ADR-0015)
 Two host-global singletons are hardcoded and prevent a second deployment from installing beside v1. This must land **first** (it's also useful for v1 alone — enables N deployments per host):
@@ -54,7 +60,7 @@ Per user, one at a time (v1 stays until v2 verified):
 - *Open:* R1 vs R2 driver; hostname break vs `.tenant` grace-period alias (ADR-0014).
 
 ## Phase 9 — Cleanup / ratify
-- Remove v1 code paths + the feature flag; delete `{project}-{machine}` and per-tenant sidecar code; **fold `docs/v2-glossary.md` into `CONTEXT.md`** and retire superseded terms; mark ADR-0001/0006/0007 superseded.
+- Remove v1 code paths + the feature flag; delete `{project}-{machine}` and per-tenant sidecar code; **fold the glossary into `CONTEXT.md`** and retire superseded terms; mark ADR-0001/0006/0007 superseded.
 
 ## Test strategy
 - Unit tests per phase (as today). Gated integration/e2e (`SANDCASTLE_INCUS_INTEGRATION=1`, `SANDCASTLE_INCUS_E2E=1`) exercise each phase end-to-end on real Incus. `make e2e-safe` in CI. v2 phases are validated on a **throwaway parallel deployment** (distinct `sc2` prefix / CIDR / ports), so v1 is never touched during development.

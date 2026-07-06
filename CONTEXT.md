@@ -3,7 +3,7 @@
 Sandcastle provides Incus-backed development environments scoped by tenant and
 project, with simple CLI management for containers and later VMs.
 
-> **v2 vocabulary is proposed** in [`docs/v2-glossary.md`](docs/v2-glossary.md) (see ADR-0011/0012/0013 and `docs/v2-topology.md`). This file remains **canonical for the current v1 code**; the v2 terms (User replaces Tenant, Project becomes an Incus project, `<machine>.<project>` hostnames) take over only when v2 is implemented.
+> The domain vocabulary is in [`docs/glossary.md`](docs/glossary.md); the architecture overview is in [`docs/topology.md`](docs/topology.md). Use those terms in code, comments, and messages.
 
 ## Language
 
