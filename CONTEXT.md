@@ -16,12 +16,20 @@ An automatically created Tenant scoped to one allowlisted User.
 _Avoid_: User-owned tenant, GitHub tenant
 
 **Tenant DNS Suffix**:
-The tenant name used as the final label of Sandcastle private hostnames.
+The tenant-chosen final label(s) of Sandcastle private hostnames; defaults to the tenant name.
 _Avoid_: Tenant TLD, tenant domain
 
 **Personal Tenant DNS Suffix**:
 The Tenant DNS Suffix initially derived from the allowlisted GitHub Username for a Personal Tenant.
 _Avoid_: Numeric GitHub account ID suffix, auto-updated GitHub username
+
+**Machine Private Hostname**:
+The canonical private DNS name of a Machine: `<machine>.<project>.<Tenant DNS Suffix>`, for every project including default.
+_Avoid_: Short hostname, machine FQDN
+
+**Default Project Short Hostname**:
+The alias `<machine>.<Tenant DNS Suffix>` that resolves to the default project's machine of that name; machines in other projects have no short form.
+_Avoid_: Unique-name short alias, first-wins short name
 
 **GitHub Username Tenant Name**:
 The normalized GitHub username form allowed for Personal Tenant names.
