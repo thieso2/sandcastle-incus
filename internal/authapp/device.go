@@ -203,7 +203,7 @@ func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey stri
 	if h.tenants == nil {
 		return fmt.Errorf("cannot reconcile User SSH Public Key: tenant store is not configured")
 	}
-	summaries, err := tenant.List(ctx, h.tenants)
+	summaries, err := tenant.ListForPrefix(ctx, h.tenants, h.admin.IncusProjectPrefix)
 	if err != nil {
 		return fmt.Errorf("list tenants for User SSH Public Key reconciliation: %w", err)
 	}
@@ -251,7 +251,7 @@ func (h handler) setPersonalTenantSSHKey(ctx context.Context, userKey string, pu
 }
 
 func (h handler) findPersonalTenant(ctx context.Context, userKey string) (tenant.Summary, error) {
-	summaries, err := tenant.List(ctx, h.tenants)
+	summaries, err := tenant.ListForPrefix(ctx, h.tenants, h.admin.IncusProjectPrefix)
 	if err != nil {
 		return tenant.Summary{}, err
 	}

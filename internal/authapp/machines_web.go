@@ -94,7 +94,7 @@ func (h handler) accessibleTenantSummaries(r *http.Request, user User) ([]tenant
 	if h.tenantAccess == nil {
 		return nil, fmt.Errorf("tenant access manager is not configured")
 	}
-	summaries, err := tenant.List(r.Context(), h.tenants)
+	summaries, err := tenant.ListForPrefix(r.Context(), h.tenants, h.admin.IncusProjectPrefix)
 	if err != nil {
 		return nil, err
 	}

@@ -41,6 +41,15 @@ type Summary struct {
 }
 
 func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
+	return ListForPrefix(ctx, store, "")
+}
+
+// ListForPrefix scopes the v2 tenant summaries to one installation prefix —
+// several sandcastles share an Incus host (--prefix), and same-named tenants
+// of different installs are different tenants. Empty prefix = no scoping
+// (restricted tenant certs only see their own projects anyway; admin-socket
+// callers like the auth-app MUST pass their install's prefix).
+func ListForPrefix(ctx context.Context, store IncusTenantStore, installPrefix string) ([]Summary, error) {
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
 		return nil, err
@@ -76,7 +85,7 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 			StorageShares:   append([]meta.TenantStorageShare{}, tenant.StorageShares...),
 		})
 	}
-	summaries = append(summaries, v2Summaries(projects)...)
+	summaries = append(summaries, v2Summaries(projects, installPrefix)...)
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Tenant < summaries[j].Tenant
 	})
@@ -89,21 +98,25 @@ func List(ctx context.Context, store IncusTenantStore) ([]Summary, error) {
 // project (sidecar, CIDR) is usually not visible to it, so the summary is
 // assembled from the app projects alone: DNS suffix defaults to the tenant
 // name (the v2 default) and the CIDR stays empty.
-func v2Summaries(projects []IncusProject) []Summary {
+func v2Summaries(projects []IncusProject, installPrefix string) []Summary {
+	installPrefix = strings.TrimSpace(installPrefix)
+	if installPrefix == naming.DefaultIncusProjectPrefix {
+		installPrefix = naming.V2IncusProjectPrefix
+	}
 	// The kind=infra projects (visible to admin-socket callers like the
 	// auth-app, usually not to restricted tenant certs) carry the tenant's
-	// /24 — collect them so the summaries can report it.
-	cidrByTenant := map[string]string{}
-	suffixByTenant := map[string]string{}
+	// /24 — collect them so the summaries can report it. Keyed by the
+	// installation's infra project name (<prefix>-<tenant>): same-named
+	// tenants of different installs are different tenants.
+	cidrByInfra := map[string]string{}
+	suffixByInfra := map[string]string{}
 	for _, incusProject := range projects {
 		if meta.IsManaged(incusProject.Config) && incusProject.Config[meta.KeyKind] == meta.KindInfra {
-			if owner := strings.TrimSpace(incusProject.Config[meta.KeyTenant]); owner != "" {
-				cidrByTenant[owner] = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
-				suffixByTenant[owner] = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
-			}
+			cidrByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
+			suffixByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
 		}
 	}
-	byTenant := map[string]*Summary{}
+	byInfra := map[string]*Summary{}
 	order := []string{}
 	for _, incusProject := range projects {
 		if !meta.IsManaged(incusProject.Config) {
@@ -125,27 +138,32 @@ func v2Summaries(projects []IncusProject) []Summary {
 		if shortName == "" {
 			continue
 		}
+		projectPrefix := incusProject.Name[:idx]
+		if installPrefix != "" && projectPrefix != installPrefix {
+			continue
+		}
+		infraName := incusProject.Name[:idx+len("-"+tenantName)]
 		if suffix := strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix]); suffix != "" {
-			if suffixByTenant[tenantName] == "" {
-				suffixByTenant[tenantName] = suffix
+			if suffixByInfra[infraName] == "" {
+				suffixByInfra[infraName] = suffix
 			}
-			if existing := byTenant[tenantName]; existing != nil && existing.DNSSuffix == tenantName {
+			if existing := byInfra[infraName]; existing != nil && existing.DNSSuffix == tenantName {
 				existing.DNSSuffix = suffix
 			}
 		}
-		summary, seen := byTenant[tenantName]
+		summary, seen := byInfra[infraName]
 		if !seen {
 			summary = &Summary{
 				Tenant:       tenantName,
 				Version:      2,
-				InfraProject: incusProject.Name[:idx+len("-"+tenantName)],
-				DNSSuffix:    firstNonEmptyString(suffixByTenant[tenantName], tenantName),
-				PrivateCIDR:  cidrByTenant[tenantName],
-				DNSAddress:   dnsAddressFromCIDR(cidrByTenant[tenantName]),
+				InfraProject: infraName,
+				DNSSuffix:    firstNonEmptyString(suffixByInfra[infraName], tenantName),
+				PrivateCIDR:  cidrByInfra[infraName],
+				DNSAddress:   dnsAddressFromCIDR(cidrByInfra[infraName]),
 				Status:       "managed",
 			}
-			byTenant[tenantName] = summary
-			order = append(order, tenantName)
+			byInfra[infraName] = summary
+			order = append(order, infraName)
 		}
 		if shortName == naming.DefaultProjectName || summary.IncusName == "" {
 			summary.IncusName = incusProject.Name
@@ -153,8 +171,8 @@ func v2Summaries(projects []IncusProject) []Summary {
 		summary.Projects = append(summary.Projects, meta.Project{Name: shortName})
 	}
 	summaries := make([]Summary, 0, len(order))
-	for _, tenantName := range order {
-		summary := byTenant[tenantName]
+	for _, infraName := range order {
+		summary := byInfra[infraName]
 		sort.Slice(summary.Projects, func(i, j int) bool { return summary.Projects[i].Name < summary.Projects[j].Name })
 		summaries = append(summaries, *summary)
 	}

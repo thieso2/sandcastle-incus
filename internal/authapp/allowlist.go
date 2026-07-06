@@ -103,7 +103,7 @@ func (h handler) revokeMachineSSHAccessFromAllTenants(r *http.Request, userKey s
 	if h.tenants == nil {
 		return fmt.Errorf("tenant store is not configured")
 	}
-	summaries, err := tenant.List(r.Context(), h.tenants)
+	summaries, err := tenant.ListForPrefix(r.Context(), h.tenants, h.admin.IncusProjectPrefix)
 	if err != nil {
 		return err
 	}

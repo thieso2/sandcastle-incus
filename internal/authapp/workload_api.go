@@ -155,7 +155,7 @@ func (h handler) authorizeWorkloadTenant(ctx context.Context, userKey string, te
 	if h.tenants == nil || h.tenantAccess == nil {
 		return fmt.Errorf("user %s is not authorized for tenant %s", userKey, tenantName)
 	}
-	summaries, err := tenant.List(ctx, h.tenants)
+	summaries, err := tenant.ListForPrefix(ctx, h.tenants, h.admin.IncusProjectPrefix)
 	if err != nil {
 		return err
 	}

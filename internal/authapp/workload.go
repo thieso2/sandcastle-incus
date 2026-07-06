@@ -191,7 +191,7 @@ WHERE tenant = ? AND project = ? AND machine = ?
 }
 
 func (h handler) findEnabledMachine(ctx context.Context, tenantName string, projectName string, machineName string) (tenant.Summary, meta.Machine, error) {
-	summaries, err := tenant.List(ctx, h.tenants)
+	summaries, err := tenant.ListForPrefix(ctx, h.tenants, h.admin.IncusProjectPrefix)
 	if err != nil {
 		return tenant.Summary{}, meta.Machine{}, err
 	}

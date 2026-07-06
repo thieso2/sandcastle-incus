@@ -111,7 +111,7 @@ func (h handler) findTenantSummary(r *http.Request, tenantName string) (tenant.S
 	if h.tenants == nil {
 		return tenant.Summary{}, fmt.Errorf("tenant store is not configured")
 	}
-	summaries, err := tenant.List(r.Context(), h.tenants)
+	summaries, err := tenant.ListForPrefix(r.Context(), h.tenants, h.admin.IncusProjectPrefix)
 	if err != nil {
 		return tenant.Summary{}, err
 	}
@@ -135,7 +135,7 @@ func (h handler) tenantAccessPage(r *http.Request) (accessPage, error) {
 	if err != nil {
 		return accessPage{}, err
 	}
-	summaries, err := tenant.List(r.Context(), h.tenants)
+	summaries, err := tenant.ListForPrefix(r.Context(), h.tenants, h.admin.IncusProjectPrefix)
 	if err != nil {
 		return accessPage{}, err
 	}
