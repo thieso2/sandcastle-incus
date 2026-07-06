@@ -1,6 +1,9 @@
 # v2 Installs as a Parallel Deployment Beside v1
 
-> Status: proposed (v2 topology). Builds on ADR-0011→0014. Captured 2026-07-01. This is a hard requirement: v2 must be installable next to a running v1 instance on the same Incus host.
+> Status: **superseded — v1 retired.** The requirement to install beside a running
+> v1 instance is moot now that v1 no longer exists; multi-installation coexistence
+> on one host is instead served generally by the `--prefix` install flag (see
+> `../topology.md`). Retained as a dated decision record. Built on ADR-0011→0014. Captured 2026-07-01.
 
 v2 is a **different topology** (ADR-0011: User boundary, Project = Incus project) and migration is **re-onboard, preserving volumes** (ADR-0014). To migrate without a flag-day, v2 is deployed as a **separate Sandcastle deployment alongside the live v1 deployment** on the same Incus host (`big`); users migrate one at a time; v1 is retired only after v2 is verified.
 

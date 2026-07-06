@@ -1,6 +1,9 @@
 # v2 Migration: Preserve Home/Workspace Volumes, Recreate Everything Else
 
-> Status: proposed (v2 topology, Phase 8). Depends on ADR-0011/0012/0013. Captured 2026-07-01 during a design grilling.
+> Status: **superseded — migration complete.** The v1→v2 migration this ADR
+> planned is done and v1 is retired; there is a single Sandcastle today (see
+> `../topology.md` / `../glossary.md`, history in `../migration-history.md`).
+> Retained as a dated decision record. Depends on ADR-0011/0012/0013. Captured 2026-07-01.
 
 Machines are **reproducible** — their only precious state lives on the `sc-home` and `sc-workspace` volumes; the rootfs comes from the image + the project profile. So v1→v2 migration **preserves those two volumes and recreates everything else** (per-user infra project + sidecar, per-project Incus projects, profiles, machines, CA). No cross-project instance surgery.
 

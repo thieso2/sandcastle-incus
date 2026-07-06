@@ -1,6 +1,6 @@
 # User as the Owning Boundary; Project as the Incus Project
 
-> Status: proposed (v2 topology). Supersedes ADR-0001; amends ADR-0006 and ADR-0007. Captured 2026-07-01 during a design grilling.
+> Status: **accepted (implemented).** Supersedes ADR-0001; amends ADR-0006 and ADR-0007. **As shipped, ADR-0016 amended this**: the boundary is the **Tenant** (handle-keyed, `sc2-<tenant>` projects), not a GitHub-identity "User". Captured 2026-07-01; implemented since.
 
 In v2, the **User** (GitHub identity) is the top-level owning, identity, and infrastructure boundary. A **Project** is promoted from a lightweight metadata label to **its own Incus project**, with no `-infra`/`-native` sibling projects. All of a user's projects share **one network** (Option A below): the private bridge lives in the `default` Incus project (`features.networks=false`) and every project references it, so a single per-user sidecar reaches every project. This replaces ADR-0001's "tenant = Incus project" — the term *Tenant* collapses into *User*.
 

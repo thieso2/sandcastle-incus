@@ -1,6 +1,6 @@
 # Per-User Subnet-Router Sidecar; Machines Reachable as `machine.project`
 
-> Status: proposed (v2 topology). Amends ADR-0006 (tailnet per user, not per tenant) and ADR-0007 (per-user consolidated sidecar, not a global split of Caddy/DNS). Builds on ADR-0011. Captured 2026-07-01 during a design grilling.
+> Status: **accepted (implemented).** Amends ADR-0006 and ADR-0007. **As shipped, ADR-0016 amended this**: DNS is flat `<machine>.<suffix>` (one zone per tenant), not `<machine>.<project>`. Builds on ADR-0011. Captured 2026-07-01; implemented since.
 
 Each user has one **per-user tailnet** and one **per-user sidecar** (`sc-<username>`) that runs CoreDNS, a private-only Caddy, the Tailscale subnet-router, and other global services. VMs/containers are **not** Tailscale nodes: they sit on the shared per-user bridge (`sc-<username>`, `10.x`) and are reachable over the tailnet because the sidecar advertises that subnet. Machine hostnames are **`<machine>.<project>`** (two labels; the user is implicit because the tailnet is per-user), resolving to the machine's bridge IP.
 

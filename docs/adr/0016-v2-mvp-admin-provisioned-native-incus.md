@@ -1,6 +1,6 @@
 # v2 MVP: Admin-Provisioned Tenants, Native Incus Access, OAuth Deferred
 
-> Status: proposed (v2 MVP). Amends ADR-0011 (Tenant survives as the boundary), ADR-0012 (flat per-tenant DNS, suffix retained), and ADR-0015 (front-door/parallel-seed work dropped for the MVP). Builds on ADR-0011→0014. Captured 2026-07-01 during a design grilling.
+> Status: **accepted (implemented) — this ADR defines the current architecture.** Amends ADR-0011 (Tenant survives as the boundary) and ADR-0012 (flat per-tenant DNS, suffix retained). Builds on ADR-0011→0014. Captured 2026-07-01; the shipped design (see `../topology.md` / `../glossary.md`). GitHub OAuth login and public ingress, deferred here, have since shipped.
 
 The first shippable slice of v2 runs on `big` **beside the live v1 deployment** and gets tenants creating projects and machines with **native `incus` commands** — **without** GitHub OAuth or public routes (both deferred, because we do not yet own the public endpoint). Tenants are **provisioned by an admin** (`sc-adm`), not by OAuth device login. This ADR records the nine decisions that define that slice.
 

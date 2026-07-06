@@ -1,6 +1,6 @@
 # Public Routes Stay Shared Infrastructure (Per-User Caddy is Private-Only)
 
-> Status: proposed (v2 topology). Builds on ADR-0011 and ADR-0012. Captured 2026-07-01 during a design grilling.
+> Status: **accepted (implemented).** Builds on ADR-0011 and ADR-0012. Captured 2026-07-01; implemented since (the edge now lives in the auth-app appliance — see `../topology.md`).
 
 Public HTTP(S) routes remain **shared infrastructure**: the one global infra Caddy owns the public `:80/:443`, terminates TLS, and reverse-proxies to the target machine on its per-user bridge — the current public-route data path, unchanged. The **per-user sidecar Caddy is private-only** (tenant/tailnet TLS). The Route Broker authorizes the request by the caller's Incus client certificate (principal = **User**), scopes the route to the user's `sc-<username>-<project>` Incus project, and targets `sc-<username>-<project>/machine`.
 
