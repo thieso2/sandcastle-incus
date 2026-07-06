@@ -3572,6 +3572,9 @@ func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
 	if err := os.MkdirAll(incusDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte("remotes: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var gotArgs []string
 	var gotEnv []string
 	stdout, err := executeForTestWithConfig(t, commandConfig{
@@ -3606,6 +3609,9 @@ func TestIncusCommandVerboseShowsEnvAndCommand(t *testing.T) {
 	t.Setenv("VERBOSE", "1")
 	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
 	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte("remotes: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{

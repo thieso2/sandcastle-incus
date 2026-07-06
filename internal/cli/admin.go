@@ -150,6 +150,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				certFile, keyFile := adminClientCert(brokerCert, brokerKey)
 				var result struct {
 					Tenant, InfraProject, DefaultProject, Bridge, DNSSuffix, Token string
+					RemoteName                                                     string
 					TailscaleLoginURL                                              string
 				}
 				if err := brokerPost(cmd.Context(), broker, "/v2/tenants", certFile, keyFile, map[string]string{
@@ -163,7 +164,11 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				fmt.Fprintf(config.stdout, "Tenant: %s\nInfra project: %s\nDefault project: %s\nBridge: %s\nDNS suffix: %s\n",
 					result.Tenant, result.InfraProject, result.DefaultProject, result.Bridge, result.DNSSuffix)
 				if result.Token != "" {
-					fmt.Fprintf(config.stdout, "\nEnrollment:\n  sc enroll %s --token %s\n", result.Tenant, result.Token)
+					remoteName := result.RemoteName
+					if remoteName == "" {
+						remoteName = usertrust.RemoteInstallName("", result.Tenant)
+					}
+					fmt.Fprintf(config.stdout, "\nEnrollment:\n  sc enroll %s --token %s --remote-name %s\n", result.Tenant, result.Token, remoteName)
 				}
 				printTailscaleLoginURL(config.stdout, result.TailscaleLoginURL)
 				return nil
@@ -211,7 +216,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				tok, err := config.trustManager.CreateToken(cmd.Context(), usertrust.UserPlan{
 					User:            plan.Tenant,
 					CertificateName: usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
-					RemoteName:      usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
+					RemoteName:      usertrust.RemoteInstallName(plan.Prefix, plan.Tenant),
 					Restricted:      true,
 					Projects:        plan.RestrictedProjects,
 					Description:     "Sandcastle v2 tenant " + plan.Tenant,
@@ -219,8 +224,8 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				if err != nil {
 					fmt.Fprintf(config.stderr, "Warning: trust token creation failed: %v\n", err)
 				} else {
-					fmt.Fprintf(config.stdout, "\nTenant enrollment (restricted to %v):\n  incus remote add %s <incus-https-endpoint> --token=%s\n",
-						tok.Projects, plan.Tenant, tok.Token)
+					fmt.Fprintf(config.stdout, "\nTenant enrollment (restricted to %v):\n  sc enroll %s --token %s --remote-name %s\n",
+						tok.Projects, plan.Tenant, tok.Token, tok.RemoteName)
 				}
 			}
 			printTailscaleLoginURL(config.stdout, tailscaleLoginURL)

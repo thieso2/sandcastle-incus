@@ -72,6 +72,9 @@ type TenantResult struct {
 	Bridge         string `json:"bridge"`
 	DNSSuffix      string `json:"dnsSuffix"`
 	Token          string `json:"token,omitempty"`
+	// RemoteName is the client-side remote name for this enrollment
+	// (sc-<tenant>, or sc-<prefix>-<tenant> for non-default installs).
+	RemoteName string `json:"remoteName,omitempty"`
 	// TailscaleLoginURL is set when the tenant was created without a Tailscale
 	// auth key: the caller shows it so the user can register the sidecar.
 	TailscaleLoginURL string `json:"tailscaleLoginURL,omitempty"`

@@ -153,6 +153,18 @@ func RestrictedName(user string) string {
 // (sandcastle-<prefix>-<tenant>) so several sandcastles sharing one Incus
 // host — and their enrollments sharing one client — cannot collide on
 // certificate or remote names (--prefix installs).
+// RemoteInstallName is the client-side Incus remote name for a tenant
+// enrollment: sc-<tenant> for the default installation, sc-<prefix>-<tenant>
+// otherwise. All enrollments share one incus config dir (and one client
+// keypair), so plain `incus remote switch` moves between sandcastles.
+func RemoteInstallName(prefix string, user string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix == "sc" || prefix == naming.V2IncusProjectPrefix {
+		return "sc-" + user
+	}
+	return "sc-" + prefix + "-" + user
+}
+
 func RestrictedInstallName(prefix string, user string) string {
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" || prefix == "sc" || prefix == naming.V2IncusProjectPrefix {

@@ -100,21 +100,26 @@ func (i incusLoginRemoteInstaller) InstallLoginRemote(ctx context.Context, reque
 // is pinned to https://<addr>:8443 so the connection rides the tenant tailnet via
 // the sidecar proxy; otherwise the address the token advertised is normalized.
 func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name string, joinToken string, tenant string, incusAddress string) (remoteAddResult, error) {
-	incusDir := scconfig.RemoteIncusDir(name)
+	// ONE shared incus config dir for every enrollment: the client keypair in
+	// it is the shared identity across installs, and each install is just a
+	// remote (`incus remote switch sc-id-<tenant>`). Never wipe the dir —
+	// other installs' remotes and the shared keypair live here; replace only
+	// THIS remote.
+	incusDir := scconfig.SharedIncusDir()
 	if err := os.MkdirAll(incusDir, 0o700); err != nil {
 		return remoteAddResult{}, fmt.Errorf("create incus config dir: %w", err)
 	}
 
 	env := append(os.Environ(), "INCUS_CONF="+incusDir)
 	if remoteExists(incusDir, name) {
-		// Wipe the per-remote incus config directory so that incus remote add
-		// starts fresh and the new token (which may carry an updated project list)
-		// creates a new certificate.
-		if err := os.RemoveAll(incusDir); err != nil {
-			return remoteAddResult{}, fmt.Errorf("remove existing incus config: %w", err)
-		}
-		if err := os.MkdirAll(incusDir, 0o700); err != nil {
-			return remoteAddResult{}, fmt.Errorf("recreate incus config dir: %w", err)
+		switchAway := exec.CommandContext(ctx, "incus", "remote", "switch", "local")
+		switchAway.Env = env
+		_ = switchAway.Run()
+		removeCmd := exec.CommandContext(ctx, "incus", "remote", "remove", name)
+		removeCmd.Env = env
+		removeCmd.Stderr = ioConfig.stderr
+		if err := removeCmd.Run(); err != nil {
+			return remoteAddResult{}, fmt.Errorf("replace existing remote %s: %w", name, err)
 		}
 	}
 	addCmd := exec.CommandContext(ctx, "incus", "remote", "add", name, joinToken)

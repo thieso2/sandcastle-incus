@@ -21,6 +21,12 @@ type PersonalTenantProvisioner interface {
 // config (which may hold at most an optional default).
 type ProvisionOptions struct {
 	TailscaleAuthKey string
+	// ClientCertificatePEM is the client's EXISTING shared-identity certificate
+	// (if it has one): when it is already trusted by this Incus daemon (any
+	// install), provisioning unions this install's projects into that trust
+	// entry — token redemption alone cannot, because Incus keys trust by
+	// fingerprint and the client will connect already-authenticated.
+	ClientCertificatePEM string
 	// DNSSuffix is the tenant-chosen Tenant DNS Suffix for first-login
 	// provisioning (ADR-0018); empty means the tenant name. Immutable — a
 	// re-login with a different value fails provisioning.
@@ -76,7 +82,7 @@ type Provisioner struct {
 // ensurePersonalTenantV2 provisions (or re-ensures) the caller's v2 tenant via
 // V2Create and mints a restricted enrollment token scoped to its default
 // project. The SSH key is applied separately by the device flow after approval.
-func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string, tailscaleAuthKey string, dnsSuffix string) (PersonalTenantResult, error) {
+func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string, tailscaleAuthKey string, dnsSuffix string, clientCertificatePEM string) (PersonalTenantResult, error) {
 	if p.Trust == nil {
 		return PersonalTenantResult{}, fmt.Errorf("trust manager is not configured")
 	}
@@ -107,14 +113,27 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
-	tok, err := p.Trust.CreateToken(ctx, usertrust.UserPlan{
+	tokenPlan := usertrust.UserPlan{
 		User:            plan.Tenant,
 		CertificateName: usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
-		RemoteName:      usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
+		RemoteName:      usertrust.RemoteInstallName(plan.Prefix, plan.Tenant),
 		Restricted:      true,
 		Projects:        plan.RestrictedProjects,
 		Description:     "Sandcastle v2 tenant " + plan.Tenant,
-	})
+	}
+	// Shared client identity: if the client's existing certificate is already
+	// trusted (enrolled by any install on this daemon), extend it with this
+	// install's projects — the token below then goes unused by the client.
+	if pem := strings.TrimSpace(clientCertificatePEM); pem != "" {
+		if ensurer, ok := p.Trust.(interface {
+			EnsureClientCertificate(context.Context, string, usertrust.UserPlan) (bool, error)
+		}); ok {
+			if _, err := ensurer.EnsureClientCertificate(ctx, pem, tokenPlan); err != nil {
+				return PersonalTenantResult{}, fmt.Errorf("extend shared client certificate: %w", err)
+			}
+		}
+	}
+	tok, err := p.Trust.CreateToken(ctx, tokenPlan)
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
@@ -151,7 +170,7 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User, option
 	if p.V2Create == nil {
 		return PersonalTenantResult{}, fmt.Errorf("v2 provisioning is not configured")
 	}
-	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user), options.TailscaleAuthKey, options.DNSSuffix)
+	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user), options.TailscaleAuthKey, options.DNSSuffix, options.ClientCertificatePEM)
 }
 
 // profileUnixUser picks the login user baked into the tenant's default profile:

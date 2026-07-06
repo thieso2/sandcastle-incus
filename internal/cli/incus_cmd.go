@@ -126,7 +126,7 @@ func resolveIncusDir(remote string) string {
 	if remote == "" {
 		return ""
 	}
-	dir := scconfig.RemoteIncusDir(remote)
+	dir := scconfig.ResolveConfigPath(remote)
 	if _, err := os.Stat(dir); err == nil {
 		return dir
 	}

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
+	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 // newConnectV2Command implements `sc connect-v2 <tenant>` (ADR-0016): it
@@ -21,7 +21,7 @@ import (
 // are idempotent: pass no token to just refresh the per-project remotes after
 // new projects were created.
 func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command {
-	var token, endpoint, configDir string
+	var token, endpoint, configDir, remoteName string
 	command := &cobra.Command{
 		Use:   "enroll tenant",
 		Short: "Enroll a tenant locally from a token (regenerates local incus config + per-project remotes)",
@@ -31,13 +31,13 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 			if err := naming.ValidateTenantName(tenant); err != nil {
 				return err
 			}
+			name := strings.TrimSpace(remoteName)
+			if name == "" {
+				name = usertrust.RemoteInstallName("", tenant)
+			}
 			dir := strings.TrimSpace(configDir)
 			if dir == "" {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return err
-				}
-				dir = filepath.Join(home, ".config", "sandcastle", tenant, "incus")
+				dir = scconfig.SharedIncusDir()
 			}
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return fmt.Errorf("create config dir: %w", err)
@@ -47,17 +47,17 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 			}
 
 			// 1. Enroll the base remote from the token (only if not already enrolled).
-			if !remoteExists(dir, tenant) {
+			if !remoteExists(dir, name) {
 				if strings.TrimSpace(token) == "" {
 					return fmt.Errorf("tenant %q is not enrolled here; pass --token from `sc-adm tenant create`", tenant)
 				}
-				if err := runIncus(cmd.Context(), dir, "remote", "add", tenant, strings.TrimSpace(token)); err != nil {
+				if err := runIncus(cmd.Context(), dir, "remote", "add", name, strings.TrimSpace(token)); err != nil {
 					return fmt.Errorf("enroll tenant remote: %w", err)
 				}
 			}
 
 			// 2. Add one cert-pinned remote per project the cert can see.
-			projects, err := listRemoteProjects(cmd.Context(), dir, tenant)
+			projects, err := listRemoteProjects(cmd.Context(), dir, name)
 			if err != nil {
 				return fmt.Errorf("list projects: %w", err)
 			}
@@ -67,31 +67,32 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 				if short == "" {
 					continue
 				}
-				name := tenant + "-" + short
-				if remoteExists(dir, name) {
+				projectRemote := name + "-" + short
+				if remoteExists(dir, projectRemote) {
 					continue
 				}
-				if err := addProjectRemote(cmd.Context(), name, strings.TrimSpace(endpoint), incusProject, dir); err != nil {
-					fmt.Fprintf(config.stderr, "Note: could not add remote %q: %v\n", name, err)
+				if err := addProjectRemote(cmd.Context(), projectRemote, strings.TrimSpace(endpoint), incusProject, dir); err != nil {
+					fmt.Fprintf(config.stderr, "Note: could not add remote %q: %v\n", projectRemote, err)
 					continue
 				}
 				added++
-				fmt.Fprintf(config.stdout, "  %s: → %s\n", name, incusProject)
+				fmt.Fprintf(config.stdout, "  %s: → %s\n", projectRemote, incusProject)
 			}
 			// Persist the tenant + remote as the local defaults so every other
 			// sc command (list, create, connect, incus, …) resolves this tenant
 			// without SANDCASTLE_TENANT — the login path does the same.
-			if _, _, err := saveRemoteDefaults(scconfig.DefaultConfigPath(), tenant, tenant); err != nil {
+			if _, _, err := saveRemoteDefaults(scconfig.DefaultConfigPath(), name, tenant); err != nil {
 				fmt.Fprintf(config.stderr, "Note: could not save local defaults: %v\n", err)
 			}
 			fmt.Fprintf(config.stdout, "connected tenant %q — config at %s (%d project remote(s))\n", tenant, dir, added)
-			fmt.Fprintf(config.stdout, "use it with:  INCUS_CONF=%s incus list %s:\n", dir, tenant)
+			fmt.Fprintf(config.stdout, "use it with:  INCUS_CONF=%s incus list %s:\n", dir, name)
 			return nil
 		},
 	}
 	command.Flags().StringVar(&token, "token", "", "enrollment token from `sc-adm tenant create` (first enroll only)")
 	command.Flags().StringVar(&endpoint, "incus-endpoint", "https://big.thieso2.dev:8443", "Incus HTTPS endpoint for per-project remotes")
-	command.Flags().StringVar(&configDir, "config-dir", "", "incus config dir to regenerate (default: ~/.config/sandcastle/<tenant>/incus)")
+	command.Flags().StringVar(&configDir, "config-dir", "", "incus config dir to enroll into (default: the shared ~/.config/sandcastle/incus)")
+	command.Flags().StringVar(&remoteName, "remote-name", "", "remote name (default sc-<tenant>; prefix installs use sc-<prefix>-<tenant> — copy it from `sc-adm tenant create`)")
 	return command
 }
 

@@ -32,9 +32,34 @@ func DefaultConfigPath() string {
 	return filepath.Join(DefaultConfigDir(), "config.yml")
 }
 
-// RemoteIncusDir returns the per-remote incus config directory.
+// SharedIncusDir returns the ONE incus config directory holding every
+// sandcastle enrollment: a single client keypair shared across installs, and
+// one remote per install (sc-<tenant>, sc-<prefix>-<tenant>) — so plain
+// `incus remote switch` moves between sandcastles.
+func SharedIncusDir() string {
+	return filepath.Join(DefaultConfigDir(), "incus")
+}
+
+// RemoteIncusDir returns the legacy per-remote incus config directory
+// (pre-shared-identity enrollments kept one dir + keypair per remote).
 func RemoteIncusDir(remoteName string) string {
 	return filepath.Join(DefaultConfigDir(), remoteName, "incus")
+}
+
+// remoteListedIn reports whether the incus config at dir knows the remote.
+func remoteListedIn(dir string, remoteName string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "config.yml"))
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		Remotes map[string]any `yaml:"remotes"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return false
+	}
+	_, ok := cfg.Remotes[remoteName]
+	return ok
 }
 
 // LoadSandcastleConfig reads the config file at path. Missing file returns empty config, not an error.
@@ -123,11 +148,15 @@ func adminFromConfigAndEnv(cfg SandcastleConfig, env map[string]string) Admin {
 	})
 }
 
-// ResolveConfigPath returns the per-remote Sandcastle incus dir if it exists, otherwise empty string.
-// This directory contains the restricted user TLS certificate for the remote.
+// ResolveConfigPath returns the Sandcastle incus dir that knows the remote:
+// the shared dir first (shared client identity, all installs side by side),
+// then the legacy per-remote dir; empty string when the remote is unknown.
 func ResolveConfigPath(remote string) string {
 	if remote == "" {
 		return ""
+	}
+	if shared := SharedIncusDir(); remoteListedIn(shared, remote) {
+		return shared
 	}
 	dir := RemoteIncusDir(remote)
 	if _, err := os.Stat(filepath.Join(dir, "config.yml")); err == nil {

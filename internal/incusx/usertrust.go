@@ -2,6 +2,9 @@ package incusx
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"sort"
 	"strings"
@@ -137,6 +140,61 @@ func (m TrustManager) ListTenantUsers(ctx context.Context, plan usertrust.Tenant
 		IncusProject: plan.IncusProject,
 		Users:        users,
 	}, nil
+}
+
+// EnsureClientCertificate implements shared client identity across installs
+// sharing one Incus daemon: when the client's existing certificate is already
+// trusted (enrolled by ANY install), Incus keys trust by fingerprint — one
+// entry, one project list — so this unions the plan's projects into that
+// entry instead of trying to add the certificate again. Returns whether the
+// certificate was found (true = enrollment token redemption will be a no-op
+// for the client; the union here is what actually grants access).
+func (m TrustManager) EnsureClientCertificate(ctx context.Context, certificatePEM string, plan usertrust.UserPlan) (bool, error) {
+	fingerprint, err := certificatePEMFingerprint(certificatePEM)
+	if err != nil {
+		return false, err
+	}
+	server, err := m.server()
+	if err != nil {
+		return false, err
+	}
+	certificates, err := server.GetCertificates()
+	if err != nil {
+		return false, err
+	}
+	for _, cert := range certificates {
+		if !strings.EqualFold(cert.Fingerprint, fingerprint) {
+			continue
+		}
+		projects := mergeProjects(cert.Projects, plan.Projects)
+		description := cert.Description
+		if description == "" {
+			description = plan.Description
+		}
+		if err := server.UpdateCertificate(cert.Fingerprint, api.CertificatePut{
+			Name:        cert.Name,
+			Type:        api.CertificateTypeClient,
+			Restricted:  true,
+			Projects:    projects,
+			Certificate: cert.Certificate,
+			Description: description,
+		}, ""); err != nil {
+			return false, fmt.Errorf("extend certificate %s: %w", cert.Fingerprint[:12], err)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// certificatePEMFingerprint returns the SHA-256 fingerprint (hex) of the
+// first certificate in the PEM, matching Incus trust-store fingerprints.
+func certificatePEMFingerprint(certificatePEM string) (string, error) {
+	block, _ := pem.Decode([]byte(certificatePEM))
+	if block == nil || block.Type != "CERTIFICATE" {
+		return "", fmt.Errorf("no certificate in PEM")
+	}
+	sum := sha256.Sum256(block.Bytes)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (m TrustManager) CreateToken(ctx context.Context, plan usertrust.UserPlan) (usertrust.TokenResult, error) {

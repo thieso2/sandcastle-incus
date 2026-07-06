@@ -129,3 +129,18 @@ func TestRestrictedInstallName(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestRemoteInstallName(t *testing.T) {
+	if got := RemoteInstallName("", "acme"); got != "sc-acme" {
+		t.Fatalf("got %q", got)
+	}
+	if got := RemoteInstallName("sc", "acme"); got != "sc-acme" {
+		t.Fatalf("got %q", got)
+	}
+	if got := RemoteInstallName("sc2", "acme"); got != "sc-acme" {
+		t.Fatalf("got %q", got)
+	}
+	if got := RemoteInstallName("id", "acme"); got != "sc-id-acme" {
+		t.Fatalf("got %q", got)
+	}
+}

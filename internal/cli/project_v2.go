@@ -146,10 +146,7 @@ func runProjectCreateViaAuthApp(ctx context.Context, config commandConfig, opts 
 			endpoint = enrolledRemoteEndpoint(enrolled)
 		}
 		if conf == "" && enrolled != "" {
-			dir := scconfig.RemoteIncusDir(enrolled)
-			if _, err := os.Stat(filepath.Join(dir, "config.yml")); err == nil {
-				conf = dir
-			}
+			conf = scconfig.ResolveConfigPath(enrolled)
 		}
 		if endpoint == "" {
 			fmt.Fprintln(config.stderr, "Note: skipped per-project remote: no enrolled tenant remote to derive the Incus endpoint from")
@@ -167,7 +164,11 @@ func runProjectCreateViaAuthApp(ctx context.Context, config commandConfig, opts 
 // enrolledRemoteEndpoint reads the enrolled remote's Incus endpoint (the
 // sidecar Incus Reach URL) from the per-remote incus config.
 func enrolledRemoteEndpoint(remote string) string {
-	data, err := os.ReadFile(filepath.Join(scconfig.RemoteIncusDir(remote), "config.yml"))
+	dir := scconfig.ResolveConfigPath(remote)
+	if dir == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.yml"))
 	if err != nil {
 		return ""
 	}
@@ -211,7 +212,7 @@ func resolveBrokerConnection(admin scconfig.Admin, flagBroker, flagCert, flagKey
 	}
 	remoteDir := ""
 	if remote := strings.TrimSpace(admin.Remote); remote != "" {
-		remoteDir = scconfig.RemoteIncusDir(remote)
+		remoteDir = scconfig.ResolveConfigPath(remote)
 	}
 	if conn.CertFile == "" || conn.KeyFile == "" {
 		if remoteDir == "" {

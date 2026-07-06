@@ -143,3 +143,32 @@ func TestResolveConfigPathReturnsEmptyWhenDirMissing(t *testing.T) {
 		t.Fatal("expected empty config path for missing remote")
 	}
 }
+
+// Shared-identity resolution: the shared dir wins when it knows the remote;
+// legacy per-remote dirs still resolve for old enrollments.
+func TestResolveConfigPathSharedFirst(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	shared := SharedIncusDir()
+	if err := os.MkdirAll(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "config.yml"), []byte("remotes:\n  sc-acme:\n    addr: https://x:8443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := RemoteIncusDir("sandcastle-old")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "config.yml"), []byte("remotes: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveConfigPath("sc-acme"); got != shared {
+		t.Fatalf("sc-acme -> %q, want shared dir %q", got, shared)
+	}
+	if got := ResolveConfigPath("sandcastle-old"); got != legacy {
+		t.Fatalf("sandcastle-old -> %q, want legacy dir %q", got, legacy)
+	}
+	if got := ResolveConfigPath("unknown"); got != "" {
+		t.Fatalf("unknown -> %q, want empty", got)
+	}
+}

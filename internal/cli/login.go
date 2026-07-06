@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
@@ -721,7 +722,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 						tenant := defaultLoginTenant(result.AccessibleTenants)
 						remoteName := result.RemoteName
 						if remoteName == "" && result.UserKey != "" {
-							remoteName = usertrust.RestrictedName(result.UserKey)
+							remoteName = usertrust.RemoteInstallName("", result.UserKey)
 						}
 						installer := config.loginRemote
 						if installer == nil {
@@ -816,6 +817,17 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&simulateToken, "simulate-token", "", "DEV ONLY: auto-approve via /oauth/github/simulate using this shared secret (requires server --simulate-github-token); no browser/GitHub")
 	command.Flags().StringVar(&simulateAs, "as", "", "GitHub username to log in as when using --simulate-token")
 	return command
+}
+
+// sharedClientCertificatePEM returns the shared-identity client certificate
+// from the shared incus config dir, or "" when none exists yet (first ever
+// enrollment on this machine — the token redemption will mint it).
+func sharedClientCertificatePEM() string {
+	data, err := os.ReadFile(filepath.Join(scconfig.SharedIncusDir(), "client.crt"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // tryExistingLogin makes `sc login` idempotent: when the saved login for this

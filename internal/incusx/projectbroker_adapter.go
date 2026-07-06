@@ -34,7 +34,7 @@ func (p ProjectBrokerCreator) CreateTenantProject(ctx context.Context, tenant st
 		if err := p.Trust.Grant(ctx, usertrust.UserPlan{
 			User:            tenant,
 			CertificateName: usertrust.RestrictedInstallName(p.Prefix, tenant),
-			RemoteName:      usertrust.RestrictedInstallName(p.Prefix, tenant),
+			RemoteName:      usertrust.RemoteInstallName(p.Prefix, tenant),
 			Restricted:      true,
 			Projects:        []string{res.IncusProject},
 			Description:     "Sandcastle v2 tenant " + tenant,
@@ -106,7 +106,7 @@ func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectb
 		tok, err := a.Trust.CreateToken(ctx, usertrust.UserPlan{
 			User:            plan.Tenant,
 			CertificateName: usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
-			RemoteName:      usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
+			RemoteName:      usertrust.RemoteInstallName(plan.Prefix, plan.Tenant),
 			Restricted:      true,
 			Projects:        plan.RestrictedProjects,
 			Description:     "Sandcastle v2 tenant " + plan.Tenant,
@@ -115,6 +115,7 @@ func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectb
 			return projectbroker.TenantResult{}, fmt.Errorf("mint enrollment token: %w", err)
 		}
 		result.Token = tok.Token
+		result.RemoteName = tok.RemoteName
 	}
 	return result, nil
 }
