@@ -4058,7 +4058,7 @@ func TestHostOverrideDeleteAppliesMachineAndHosts(t *testing.T) {
 		hostMachine:   fakeHostMachineStore{},
 		hostOverrides: manager,
 		hostFiles:     files,
-	}, "host", "override", "delete", "codex", "example.com")
+	}, "host", "override", "delete", "codex", "example.com", "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4989,7 +4989,7 @@ func TestAdminUserDeleteCallsTrustManager(t *testing.T) {
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
 		name:         "sandcastle-admin",
 		trustManager: manager,
-	}, "user", "delete", "alice")
+	}, "user", "delete", "alice", "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}

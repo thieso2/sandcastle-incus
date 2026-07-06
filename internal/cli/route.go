@@ -103,6 +103,7 @@ func newRouteStatusCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 }
 
 func newRouteDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var yes bool
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "delete hostname",
@@ -116,6 +117,15 @@ func newRouteDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			if dryRun {
 				return writeOutput(config.stdout, opts.output, formatRouteDelete(plan), plan)
 			}
+			if !yes {
+				confirmed, err := confirmMissingYes(config, "Delete route "+plan.Hostname+"?", "refusing to delete route without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return nil
+				}
+			}
 			if config.routes == nil {
 				return fmt.Errorf("route broker executor is not configured")
 			}
@@ -125,6 +135,7 @@ func newRouteDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			return writeOutput(config.stdout, opts.output, formatRouteDelete(plan), plan)
 		},
 	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm route deletion")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the route delete plan without contacting the route broker")
 	return command
 }

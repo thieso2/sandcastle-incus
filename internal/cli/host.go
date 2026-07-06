@@ -79,12 +79,22 @@ func newHostOverrideListCommand(config commandConfig, opts *rootOptions) *cobra.
 }
 
 func newHostOverrideDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var yes bool
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "delete [tenant/][project:]machine hostname",
 		Short: "Delete a local exact host override",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes && !dryRun {
+				confirmed, err := confirmMissingYes(config, "Delete host override "+args[1]+"?", "refusing to delete host override without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return nil
+				}
+			}
 			plan, err := hostoverride.PlanDelete(cmd.Context(), config.adminConfig, config.tenantStore, config.hostMachine, hostoverride.DeleteRequest{
 				Reference: args[0],
 				Hostname:  args[1],
@@ -109,6 +119,7 @@ func newHostOverrideDeleteCommand(config commandConfig, opts *rootOptions) *cobr
 			return writeOutput(config.stdout, opts.output, formatHostOverrideDelete(plan), plan)
 		},
 	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm host override deletion")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the host override delete plan without editing local state")
 	return command
 }

@@ -713,6 +713,7 @@ func newAdminImageBuilderCommand(config commandConfig, opts *rootOptions) *cobra
 	}
 	statusCommand.Flags().StringVar(&statusRemote, "remote", "", "Incus remote, defaulting to the configured remote")
 
+	var destroyYes bool
 	var destroyRemote string
 	var keepCache bool
 	destroyCommand := &cobra.Command{
@@ -724,6 +725,15 @@ func newAdminImageBuilderCommand(config commandConfig, opts *rootOptions) *cobra
 			if err != nil {
 				return err
 			}
+			if !destroyYes {
+				confirmed, err := confirmMissingYes(config, "Destroy Image Builder "+app.Instance+" in "+app.Remote+":"+app.Project+"?", "refusing to destroy the Image Builder without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return nil
+				}
+			}
 			if config.remoteImageBuilder == nil {
 				return fmt.Errorf("remote image builder is not configured")
 			}
@@ -734,6 +744,7 @@ func newAdminImageBuilderCommand(config commandConfig, opts *rootOptions) *cobra
 			return nil
 		},
 	}
+	destroyCommand.Flags().BoolVar(&destroyYes, "yes", false, "confirm Image Builder teardown")
 	destroyCommand.Flags().StringVar(&destroyRemote, "remote", "", "Incus remote, defaulting to the configured remote")
 	destroyCommand.Flags().BoolVar(&keepCache, "keep-cache", false, "preserve the podman layer-cache volume and project")
 
@@ -1002,12 +1013,22 @@ func newAdminUserCreateCommand(config commandConfig, opts *rootOptions) *cobra.C
 }
 
 func newAdminUserDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var yes bool
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "delete user",
 		Short: "Delete a restricted Sandcastle user certificate",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes && !dryRun {
+				confirmed, err := confirmMissingYes(config, "Delete restricted user "+args[0]+"?", "refusing to delete user without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return nil
+				}
+			}
 			plan, err := usertrust.PlanDeleteUser(args[0])
 			if err != nil {
 				return err
@@ -1024,6 +1045,7 @@ func newAdminUserDeleteCommand(config commandConfig, opts *rootOptions) *cobra.C
 			return writeOutput(config.stdout, opts.output, formatUserPlan(plan), plan)
 		},
 	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm user certificate deletion")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the delete plan without deleting a certificate")
 	return command
 }

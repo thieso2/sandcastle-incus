@@ -89,8 +89,14 @@ func newProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Com
 		Short: "Delete an empty project namespace from the current tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !yes {
-				return fmt.Errorf("refusing to delete project without --yes")
+			if !yes && !dryRun {
+				confirmed, err := confirmMissingYes(config, "Delete project "+args[0]+"?", "refusing to delete project without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return nil
+				}
 			}
 			tenantSummary, machines, err := currentTenantMachines(cmd, config)
 			if err != nil {

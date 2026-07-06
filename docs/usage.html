@@ -359,8 +359,8 @@ Bootstrap:
 
   <div class="step">
     <h3>Delete a restricted user certificate</h3>
-    <p>Removes the user's restricted Incus certificate entirely. This revokes all tenant access for that certificate.</p>
-    <pre><code><span class="cmd">sandcastle-admin user delete</span> <span class="arg">alice</span></code></pre>
+    <p>Removes the user's restricted Incus certificate entirely. This revokes all tenant access for that certificate. Prompts for confirmation when run interactively; use <code>--yes</code> for scripts.</p>
+    <pre><code><span class="cmd">sandcastle-admin user delete</span> <span class="arg">alice</span> <span class="flag">--yes</span></code></pre>
   </div>
 
   <div class="step">
@@ -437,7 +437,7 @@ Bootstrap:
 <span class="cmd">sandcastle project unset-cloud-identity</span> <span class="arg">default</span>
 <span class="cmd">sandcastle project set-docker-autostart</span> <span class="arg">website</span> <span class="arg">on</span>
 <span class="cmd">sandcastle project delete</span> <span class="arg">website</span> <span class="flag">--yes</span></code></pre>
-    <p>A project's default Cloud Identity Config is used by <code>sandcastle create</code> and by <code>sandcastle connect</code> when it auto-creates a missing machine. <code>sandcastle project set-cloud-identity</code> validates that the named Auth App Cloud Identity Config exists for the current tenant before it updates project metadata; a same-named config from another tenant is refused. The Docker autostart setting controls whether Docker is enabled and started during new machine configuration; it also enables nested container tooling for those new machines. Docker is installed in the base image but the daemon is disabled by default. The default project can carry both settings too.</p>
+    <p>A project's default Cloud Identity Config is used by <code>sandcastle create</code> and by <code>sandcastle connect</code> when it auto-creates a missing machine. <code>sandcastle project set-cloud-identity</code> validates that the named Auth App Cloud Identity Config exists for the current tenant before it updates project metadata; a same-named config from another tenant is refused. The Docker autostart setting controls whether Docker is enabled and started during new machine configuration; it also enables nested container tooling for those new machines. Docker is installed in the base image but the daemon is disabled by default. The default project can carry both settings too. <code>project delete</code> prompts for confirmation when run interactively; use <code>--yes</code> for scripts and other non-interactive runs.</p>
   </div>
 
   <div class="step">
@@ -667,7 +667,8 @@ Bootstrap:
 
   <div class="step">
     <h3>Delete a route <span class="badge badge-user">user</span></h3>
-    <pre><code><span class="cmd">sandcastle route delete</span> <span class="arg">myapp.example.com</span></code></pre>
+    <p>Prompts for confirmation when run interactively; use <code>--yes</code> for scripts.</p>
+    <pre><code><span class="cmd">sandcastle route delete</span> <span class="arg">myapp.example.com</span> <span class="flag">--yes</span></code></pre>
   </div>
 </section>
 
@@ -833,7 +834,7 @@ Bootstrap:
 <span class="cmd">mise run image:all:build-remote</span>          <span class="comment"># or sc-adm image build-remote base|ai|all</span></code></pre>
     <p>How it works: the <code>sc-build</code> project holds a persistent <code>sc-builder</code> container (neutral <code>images:debian/13</code>, <code>security.nesting</code>, <code>/dev/fuse</code>) that builds with <strong>rootless podman</strong> against a cache volume. <code>build-remote</code> ensures the appliance and a one-time <code>ghcr</code> OCI remote, ships the working-tree build context in, logs in with the token over stdin (never persisted), builds <code>:latest</code> + an immutable <code>:&lt;git-describe&gt;</code> tag, pushes to GHCR, then copies the immutable tag into the local Incus alias and syncs tenant aliases. The AI image is built <code>FROM</code> the immutable base tag of the same run.</p>
     <p><strong>Provisioning is decoupled from building.</strong> On a cold start (no appliance) <code>build-remote</code> auto-provisions; on a warm appliance it only starts it and builds, skipping the (idempotent) provision step for speed. Provision deliberately with <code>mise run image:builder:provision</code> (or <code>sandcastle-admin image builder provision</code>) — e.g. after changing the provision toolchain. Builds are heavily cached: the Dockerfiles use <code>RUN --mount=type=cache</code> for apt/npm and the build runs with <code>BUILDAH_LAYERS=true</code>, so a no-op rebuild is seconds. Pass <code>VERBOSE=1</code> to stream the underlying podman build/push output live.</p>
-    <p>Flags: <code>--require-clean</code> (refuse a dirty tree), <code>--no-push</code>, <code>--no-import</code>, <code>--rebuild-builder</code>, <code>--ghcr-repo</code>, <code>--ghcr-user</code>, <code>--remote</code>, <code>--platform</code>, <code>--dry-run</code>. Manage the appliance with <code>sandcastle-admin image builder provision</code>, <code>sandcastle-admin image builder status</code>, and <code>sandcastle-admin image builder destroy [--keep-cache]</code>. GHCR packages must be public-read so the Incus host pulls without credentials; the token is only used to push.</p>
+    <p>Flags: <code>--require-clean</code> (refuse a dirty tree), <code>--no-push</code>, <code>--no-import</code>, <code>--rebuild-builder</code>, <code>--ghcr-repo</code>, <code>--ghcr-user</code>, <code>--remote</code>, <code>--platform</code>, <code>--dry-run</code>. Manage the appliance with <code>sandcastle-admin image builder provision</code>, <code>sandcastle-admin image builder status</code>, and <code>sandcastle-admin image builder destroy [--yes] [--keep-cache]</code> (prompts for confirmation when run interactively). GHCR packages must be public-read so the Incus host pulls without credentials; the token is only used to push.</p>
   </div>
 
   <div class="step">
