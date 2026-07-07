@@ -59,6 +59,30 @@ dashboard-created **tunnel token**; a **Tailscale auth key** (the tenant's own
 tailnet); optionally a Tailscale **API key** for tenant-side route approval; a
 random `SIMULATE_TOKEN` (simulated GitHub — no OAuth app).
 
+**Credentials come from the operator's gitignored `.env*` file** (repo-root
+`.env.default`, or a run-specific `.env.sc2` sourced in the prologue) so the
+whole e2e runs unattended — the harness sources it (`set -a; . ./.env.default;
+set +a`) and never prompts. The Tailscale side is already there
+(`SANDCASTLE_E2E_TAILSCALE_AUTHKEY`, `SANDCASTLE_E2E_TAILSCALE_TAG`,
+`SANDCASTLE_E2E_TAILSCALE_ROUTES_APPROVED`, plus `SANDCASTLE_TAILSCALE_AUTHKEY`
+/ `SANDCASTLE_AUTH_TAILSCALE_AUTHKEY` for install-time keys); keep the
+Cloudflare API token for `--cloudflare-api-token` next to them
+(`SANDCASTLE_E2E_CLOUDFLARE_API_TOKEN`). Never commit these files.
+
+**Test-lab access (unattended SSH, verified live 2026-07-07).** The lab VMs on
+`big` are reachable through host port-forwards, passwordless with the
+operator's standard key:
+
+```bash
+ssh -p 7001 sc@big.thieso2.dev   # → obelix
+ssh -p 7002 sc@big.thieso2.dev   # → asterix
+```
+
+Additional passwordless per-VM keys are named `<host>_ed25519` and may live in
+`~/.config/sandcastle/` (e.g. `obelix_ed25519`, `asterix_ed25519`,
+`e2e-test_ed25519`) or in `~/` — pass one with `ssh -i` when the default key
+isn't authorized.
+
 **Unattended by default.** The e2e must run with no human in the loop, so the
 server install **always** includes `--simulate-github-token "$SIMULATE_TOKEN"`
 — even when real OAuth credentials are also configured: the two modes coexist
@@ -130,9 +154,11 @@ and silently operated on the *other* install's project.
   same GitHub user into BOTH from one client machine, choosing a different
   Tenant DNS Suffix per login (e.g. `sc login https://<host-a> --dns-suffix=tcA`,
   `sc login https://<host-b> --dns-suffix=tcB`). Switch installs with
-  `sc config set remote sc-<prefix>-<tenant>` (note: `sc incus remote switch`
-  only moves the *raw* incus CLI's current remote; `sc`'s own remote — and the
-  project pin derived from it — comes from `~/.config/sandcastle/config.yml`).
+  `sc incus remote switch sc-<prefix>-<tenant>` (or plain `incus remote switch`
+  in the shared config dir): the incus current remote is the **single source of
+  truth** for which install `sc` targets — the whole CLI (remote, project pin,
+  tenant scoping) follows it. `sc config set remote …` writes through to the
+  same knob; `SANDCASTLE_REMOTE` still overrides for a single invocation.
 - **PASS:** with a machine created in only one install,
   `VERBOSE=1 sc incus ls` under each remote prints
   `INCUS_PROJECT=<that-install's-prefix>-<tenant>-default` and lists only that
@@ -141,6 +167,34 @@ and silently operated on the *other* install's project.
   remote belongs to. Each login installed its own resolver zone
   (`/etc/resolver/tcA`, `/etc/resolver/tcB` on darwin) pointing at its own
   tenant's CoreDNS, and each tenant got a /24 from its own install's pool.
+
+**Tenant DNS Suffix e2e scenarios (`sc login --dns-suffix=…`).** The suffix is
+chosen at first login, is **immutable** per tenant per install
+(`TestPlanCreateV2DNSSuffix`), and the existing-suffix lookup is
+prefix-scoped so the same user on two installs can (and should) use two
+different suffixes (`ProvisionReuseInputs` tests). Run all three:
+
+1. **Fresh suffix.** `sc login https://<host-a> --dns-suffix=tcA` on a fresh
+   tenant, then `sc create dev`. **PASS:** the login installs
+   `/etc/resolver/tcA` (darwin; `resolvectl` domain on linux) pointing at the
+   tenant's CoreDNS; `dev.default.tcA` resolves to the machine's tenant IP from
+   the client (`dscacheutil -q host -a name dev.default.tcA` / `getent hosts`),
+   and `sc connect dev` works by name.
+2. **Persistence + immutability.** Re-run `sc login https://<host-a>` with NO
+   `--dns-suffix`. **PASS:** the suffix stays `tcA` (summary + resolver
+   unchanged). Then `sc login https://<host-a> --dns-suffix=other` must fail
+   fast with `the Tenant DNS Suffix is immutable: … already uses "tcA"` — no
+   half-provisioned state, and the tcA zone keeps resolving.
+3. **Two installs, one client, two suffixes.** With install A (`tcA`) and
+   install B on the same Incus daemon: `sc login https://<host-b>
+   --dns-suffix=tcB`. Suffixes MUST be distinct across installs — the client
+   resolver path is per-suffix (`/etc/resolver/<suffix>`), so a shared suffix
+   would clobber the other install's resolver. **PASS:** both resolver files
+   coexist, each pointing at its own tenant's CoreDNS address (from its own
+   install's CIDR pool); names in BOTH zones resolve simultaneously without
+   switching remotes (DNS is per-suffix, not per-current-remote); cross-zone
+   lookups are NXDOMAIN both ways (`dev.default.tcA` absent from tcB's zone
+   and vice versa).
 
 Keep CIDR pools distinct across installs sharing a tailnet. Robustness fixes the
 from-scratch run surfaced (all in `internal/incusx` + the auth-app): tolerate

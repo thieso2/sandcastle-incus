@@ -405,6 +405,7 @@ Bootstrap:
   <div class="step">
     <h3>Use incus directly against your remote</h3>
     <p>Three <code>sc incus*</code> variants target the three Incus projects that make up a tenant namespace. Each wraps the <code>incus</code> CLI with the correct <code>INCUS_CONF</code> and <code>INCUS_PROJECT</code>. Pass an explicit <code>--project</code> to override the project.</p>
+    <p><strong>Switching between sandcastles:</strong> the incus current remote is the single source of truth — <code>sc incus remote switch sc-&lt;prefix&gt;-&lt;tenant&gt;</code> (or plain <code>incus remote switch</code> in the shared config dir) moves the whole <code>sc</code> CLI (remote, project pin, tenant scoping) to that install. <code>sc config set remote …</code> writes through to the same knob; <code>SANDCASTLE_REMOTE</code> overrides per invocation.</p>
     <table>
       <thead><tr><th>Command</th><th>Project</th><th>Contents</th></tr></thead>
       <tbody>

@@ -5,6 +5,24 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-07 — incus current remote is the single source of truth for `sc`'s remote
+
+- Two knobs selected the active install and could disagree: the shared incus
+  dir's `default-remote` (moved by `incus remote switch`, set by login's
+  enrollment) and `remote:` in `~/.config/sandcastle/config.yml` (written by
+  login, read by `sc`). A manual `sc incus remote switch` moved only the first,
+  so `sc` kept operating on the previous install — exactly the confusion the
+  operator hit with tc2/tc3 on one daemon.
+- Now `LoadUser` prefers the shared incus dir's `default-remote` whenever it
+  names a Sandcastle enrollment (`sc-…` and listed in that config); precedence
+  is `SANDCASTLE_REMOTE` env → incus current remote → config.yml `remote` →
+  default. Non-sandcastle current remotes (`local`, `images`, …) are ignored so
+  raw-incus work doesn't hijack `sc`. `sc config set remote X` writes through
+  to the incus `default-remote` (refusing names that aren't enrolled), so the
+  two knobs can no longer diverge; config.yml's `remote` stays as a fallback
+  and for back-compat. Admin commands (`LoadAdmin`) are unchanged — their
+  remote points at an Incus host, not an enrollment.
+
 ## 2026-07-07 — tenant lookup scoped to the current remote's install (same-daemon multi-install)
 
 - With two installs on one Incus daemon (tc2 + tc3) and one user logged into

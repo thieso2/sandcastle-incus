@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,6 +165,65 @@ func LoadUser() Admin {
 	return loadUserFromFileAndEnv(cfg)
 }
 
+// SharedIncusDefaultRemote returns the shared incus config dir's current
+// remote when it names a Sandcastle enrollment ("sc-…"), else "". This makes
+// the incus current remote the single source of truth for which install the
+// user CLI targets — `incus remote switch sc-<prefix>-<tenant>` (or the
+// `sc incus` wrapper) moves sc along with it. Non-sandcastle remotes (local,
+// images, …) are ignored so raw-incus work doesn't hijack sc.
+func SharedIncusDefaultRemote() string {
+	data, err := os.ReadFile(filepath.Join(SharedIncusDir(), "config.yml"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		DefaultRemote string         `yaml:"default-remote"`
+		Remotes       map[string]any `yaml:"remotes"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	name := strings.TrimSpace(cfg.DefaultRemote)
+	if !strings.HasPrefix(name, "sc-") {
+		return ""
+	}
+	if _, ok := cfg.Remotes[name]; !ok {
+		return ""
+	}
+	return name
+}
+
+// SetSharedIncusDefaultRemote points the shared incus config dir's current
+// remote at name (the write-through for `sc config set remote`). The remote
+// must already be enrolled there.
+func SetSharedIncusDefaultRemote(name string) error {
+	path := filepath.Join(SharedIncusDir(), "config.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var cfg map[string]any
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return err
+	}
+	enrolled := false
+	switch remotes := cfg["remotes"].(type) {
+	case map[string]any: // yaml.v3 shape
+		_, enrolled = remotes[name]
+	case map[any]any: // yaml.v2 shape
+		_, enrolled = remotes[name]
+	}
+	if !enrolled {
+		return fmt.Errorf("remote %q is not enrolled in %s", name, path)
+	}
+	cfg["default-remote"] = name
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o600)
+}
+
 // loadAdminFromFileAndEnv applies env var overrides on top of a file config.
 func loadAdminFromFileAndEnv(cfg SandcastleConfig) Admin {
 	env := loadAdminEnv()
@@ -172,7 +232,17 @@ func loadAdminFromFileAndEnv(cfg SandcastleConfig) Admin {
 
 func loadUserFromFileAndEnv(cfg SandcastleConfig) Admin {
 	env := loadProcessEnv()
-	return adminFromConfigAndEnv(cfg, env)
+	admin := adminFromConfigAndEnv(cfg, env)
+	// The shared incus dir's current remote is the source of truth for which
+	// install the user CLI targets (login switches it on enrollment; the user
+	// moves between installs with `incus remote switch`). Env still wins;
+	// config.yml's remote is the fallback when no sandcastle remote is current.
+	if getenvFrom(env, "SANDCASTLE_REMOTE", "") == "" {
+		if name := SharedIncusDefaultRemote(); name != "" {
+			admin.Remote = name
+		}
+	}
+	return admin
 }
 
 func adminFromConfigAndEnv(cfg SandcastleConfig, env map[string]string) Admin {

@@ -73,6 +73,16 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 				return fmt.Errorf("save config: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Set %s = %q in %s\n", key, value, cfgPath)
+			// The shared incus dir's current remote is the source of truth for
+			// the user CLI's remote — write through so `sc config set remote`
+			// and `incus remote switch` never disagree.
+			if key == "remote" {
+				if err := scconfig.SetSharedIncusDefaultRemote(value); err != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "Note: incus current remote not switched: %v\n", err)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "Switched incus current remote to %q.\n", value)
+				}
+			}
 			return nil
 		},
 	}

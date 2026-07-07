@@ -58,6 +58,9 @@ func TestLoadAdminFromFileAndEnvEnvWins(t *testing.T) {
 
 func TestLoadUserFromFileAndEnvIgnoresDotEnvDefaults(t *testing.T) {
 	clearAdminEnvForTest(t)
+	// The user load path consults the shared incus dir's current remote —
+	// isolate HOME so the developer's real enrollments don't leak in.
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	oldwd, err := os.Getwd()
 	if err != nil {
@@ -222,4 +225,58 @@ func TestSharedIncusDirAutoDetect(t *testing.T) {
 			t.Fatalf("prior dedicated: got %q, want dedicated %q", got, dedicated())
 		}
 	})
+}
+
+// The shared incus dir's current remote is the single source of truth for the
+// user CLI's remote: `incus remote switch sc-…` must move sc between installs.
+func TestSharedIncusDefaultRemoteDrivesUserRemote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SANDCASTLE_REMOTE", "")
+	incusDir := filepath.Join(home, ".config", "sandcastle", "incus")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeIncusConfig := func(defaultRemote string) {
+		content := "default-remote: " + defaultRemote + "\nremotes:\n  local:\n    addr: unix://\n  sc-tc3-thieso2:\n    addr: https://100.95.173.101:8443\n"
+		if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeIncusConfig("sc-tc3-thieso2")
+	if got := SharedIncusDefaultRemote(); got != "sc-tc3-thieso2" {
+		t.Fatalf("SharedIncusDefaultRemote() = %q, want sc-tc3-thieso2", got)
+	}
+	admin := loadUserFromFileAndEnv(SandcastleConfig{Remote: "sc-tc2-thieso2"})
+	if admin.Remote != "sc-tc3-thieso2" {
+		t.Fatalf("user remote = %q, want the incus current remote sc-tc3-thieso2", admin.Remote)
+	}
+
+	// Non-sandcastle current remote (raw incus work) must not hijack sc.
+	writeIncusConfig("local")
+	if got := SharedIncusDefaultRemote(); got != "" {
+		t.Fatalf("SharedIncusDefaultRemote() = %q, want \"\" for non-sc remote", got)
+	}
+	admin = loadUserFromFileAndEnv(SandcastleConfig{Remote: "sc-tc2-thieso2"})
+	if admin.Remote != "sc-tc2-thieso2" {
+		t.Fatalf("user remote = %q, want config.yml fallback sc-tc2-thieso2", admin.Remote)
+	}
+
+	// Env override still wins over everything.
+	writeIncusConfig("sc-tc3-thieso2")
+	t.Setenv("SANDCASTLE_REMOTE", "env-remote")
+	admin = loadUserFromFileAndEnv(SandcastleConfig{Remote: "sc-tc2-thieso2"})
+	if admin.Remote != "env-remote" {
+		t.Fatalf("user remote = %q, want env-remote", admin.Remote)
+	}
+
+	// Write-through used by `sc config set remote`.
+	t.Setenv("SANDCASTLE_REMOTE", "")
+	if err := SetSharedIncusDefaultRemote("sc-tc3-thieso2"); err != nil {
+		t.Fatalf("SetSharedIncusDefaultRemote: %v", err)
+	}
+	if err := SetSharedIncusDefaultRemote("sc-unknown"); err == nil {
+		t.Fatal("SetSharedIncusDefaultRemote should refuse a remote that is not enrolled")
+	}
 }
