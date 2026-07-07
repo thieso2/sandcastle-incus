@@ -293,8 +293,8 @@ func ensureV2Project(server TenantCreateServer, name string, description string,
 // workload's concern). /home is the whole directory: cloud-init creates the
 // login user's home on the first machine and every later machine sees it.
 const (
-	v2WorkspaceVolumeName = "workspace"
-	v2HomeVolumeName      = "home"
+	v2WorkspaceVolumeName = tenant.V2WorkspaceVolumeName
+	v2HomeVolumeName      = tenant.V2HomeVolumeName
 )
 
 // ensureV2ProjectVolumes creates the project's shared volumes if missing.

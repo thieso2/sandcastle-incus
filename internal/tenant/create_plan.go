@@ -15,6 +15,11 @@ const (
 	TenantCACertPath    = "/ca.crt"
 	TenantCAKeyPath     = "/ca.key"
 	DNSName             = "sc-dns"
+
+	// v2 shared volumes are per-app-project and named plain "home"/
+	// "workspace" (the project scopes them; no sc- prefix).
+	V2HomeVolumeName      = "home"
+	V2WorkspaceVolumeName = "workspace"
 )
 
 // TailscaleInstanceName returns the Incus instance name for the tenant's Tailscale sidecar.

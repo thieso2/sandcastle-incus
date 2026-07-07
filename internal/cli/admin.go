@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io"
@@ -389,6 +390,28 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 					return fmt.Errorf("delete canceled")
 				}
 			}
+			// v2 tenants have their own shape (per-project Incus projects,
+			// sidecar, bridge) — the v1 plan below would target v1 names
+			// that don't exist and report a silent no-op success.
+			if config.tenantStore != nil {
+				planV2, isV2, err := tenant.PlanDeleteV2(cmd.Context(), config.adminConfig, config.tenantStore, args[0], purge)
+				if err != nil {
+					return err
+				}
+				if isV2 {
+					deleter, ok := config.tenantDeleter.(interface {
+						DeleteTenantV2(context.Context, tenant.DeletePlanV2) error
+					})
+					if !ok {
+						return fmt.Errorf("tenant deletion executor does not support v2 tenants")
+					}
+					if err := deleter.DeleteTenantV2(cmd.Context(), planV2); err != nil {
+						return err
+					}
+					incusx.NewConnectCache(config.adminConfig.Remote).InvalidateTenant(planV2.Reference)
+					return writeOutput(config.stdout, opts.output, formatDeletePlanV2(planV2), planV2)
+				}
+			}
 			plan, err := tenant.PlanDelete(config.adminConfig, tenant.DeleteRequest{
 				Reference: args[0],
 				Purge:     purge,
@@ -556,6 +579,11 @@ func formatDeletePlan(plan tenant.DeletePlan) string {
 		return fmt.Sprintf("Deleted %s and purged durable state.", plan.Reference)
 	}
 	return fmt.Sprintf("Deleted runtime resources for %s; durable state was preserved.", plan.Reference)
+}
+
+func formatDeletePlanV2(plan tenant.DeletePlanV2) string {
+	return fmt.Sprintf("Deleted v2 tenant %s: projects %s + %s, shared volumes, sidecar, bridge %s.",
+		plan.Reference, strings.Join(plan.AppProjects, ", "), plan.InfraProject, plan.Bridge)
 }
 
 func newAdminImageCommand(config commandConfig, opts *rootOptions) *cobra.Command {

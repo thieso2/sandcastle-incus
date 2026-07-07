@@ -364,6 +364,29 @@ client" during the coexistence e2e. Four linked fixes:
   plus clobbers MagicDNS).
 - macOS is untouched: `/etc/resolver/<suffix>` is natively per-domain.
 
+## 2026-07-07 — `sc-adm tenant delete` on a v2 tenant was a silent no-op success
+
+- **Bug (audit, validated live):** `tenant delete e2ea --yes` on a v2 tenant
+  printed "Deleted runtime resources for e2ea; durable state was preserved."
+  and deleted NOTHING — `PlanDelete` computes v1 `sc-<tenant>` resource names
+  that don't exist for v2, and each per-resource delete is ignore-not-found.
+  An operator would believe the tenant was gone.
+- **Fix:** the delete command first runs `tenant.PlanDeleteV2` (scoped to the
+  install prefix — a same-named tenant of another install must not be
+  touched); a v2 match routes to `TenantDeleter.DeleteTenantV2`, which tears
+  down each app project (instances, images, shared home/workspace volumes —
+  detached from the default profile first — and profiles), the infra project
+  (sidecar), and the tenant bridge. Without `--purge` a v2 tenant is refused:
+  the shared volumes live inside the app projects, so there is no meaningful
+  "runtime only" subset (unlike v1, whose volumes live in the tenant project
+  and survive a non-purge delete). First live run caught a second bug: the
+  plan reused the v1 volume names (`sc-home`/`sc-workspace`) — the deletes
+  404'd silently and project deletion failed with "Only empty projects can be
+  removed"; v2 names are plain `home`/`workspace` (now shared constants
+  `tenant.V2HomeVolumeName`/`V2WorkspaceVolumeName` used by create and
+  delete). The sidecar's tailnet device is deliberately not removed (BYO
+  tailnet, no server-side API key — ADR-0017); documented instead.
+
 ## Running Notes
 
 - Started implementation from the committed domain docs (`CONTEXT.md`,

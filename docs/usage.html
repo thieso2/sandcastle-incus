@@ -314,13 +314,14 @@ remote: sc-alice</code></pre>
   </div>
 
   <div class="step">
-    <h3>Delete a tenant (keep volumes)</h3>
-    <p>Stops runtime resources (sidecars, network) but preserves home/workspace volumes.</p>
+    <h3>Delete a tenant (v1: keep volumes)</h3>
+    <p>For a <strong>v1</strong> tenant, stops runtime resources (sidecars, network) but preserves home/workspace volumes. A <strong>v2</strong> tenant refuses this form — its shared volumes live inside the app projects, so deletion is all-or-nothing: re-run with <code>--purge</code>.</p>
     <pre><code><span class="cmd">sandcastle-admin tenant delete</span> <span class="arg">acme</span> <span class="flag">--yes</span></code></pre>
   </div>
 
   <div class="step">
     <h3>Purge a tenant (destroy everything)</h3>
+    <p>For a <strong>v2</strong> tenant this removes every app project (machines, images, shared home/workspace volumes, profiles), the infra project (sidecar), and the tenant bridge — scoped to the installation prefix (<code>SANDCASTLE_INCUS_PROJECT_PREFIX</code>), so a same-named tenant of another install on the same daemon is untouched. The sidecar's tailnet device is the tenant's own (BYO tailnet) — remove it in the Tailscale admin console, or use ephemeral keys.</p>
     <pre><code><span class="cmd">sandcastle-admin tenant delete</span> <span class="arg">acme</span> <span class="flag">--yes</span> <span class="flag">--purge</span></code></pre>
   </div>
 </section>

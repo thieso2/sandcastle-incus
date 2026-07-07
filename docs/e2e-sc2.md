@@ -427,6 +427,18 @@ sharing the long-lived appliances. The hermetic harness makes every run disposab
 ## Phase 0 — Teardown (idempotent reset) ✅
 Remove any prior test-tenant server state + local client config so the run starts clean.
 
+> ✅ **v2 tenants now have a product teardown path:**
+> `sc-adm tenant delete <tenant> --yes --purge` (scope a prefixed install with
+> `SANDCASTLE_INCUS_PROJECT_PREFIX=<prefix>`) deletes the app projects
+> (machines, images, shared home/workspace volumes, profiles), the infra
+> project (sidecar), and the tenant bridge — the manual loop below remains for
+> v1 tenants and partial states. Without `--purge` a v2 tenant is refused
+> (all-or-nothing). The sidecar's tailnet device is NOT removed (BYO tailnet —
+> no server-side API key by design): delete it in the Tailscale admin console
+> or use ephemeral keys. **PASS:** after the purge, `incus project list | grep
+> <prefix>-<tenant>` and `incus network list | grep <prefix>-<tenant>` are both
+> empty, and a same-named tenant of ANOTHER install on the daemon is untouched.
+
 ```bash
 # server: delete the test tenant's instances + images + custom profiles + projects + bridge.
 # NB: v2 projects have their own image store (features.images=true) and a custom
@@ -1001,6 +1013,7 @@ stays truthful and self-healing.
 | Shared `/home` silently NOT shared (VM can't see the CT's `/home` writes); `home` volume exists but is attached to no profile | `SupportsIdmappedMounts` keyed on `kernel_features["idmapped_mounts"] == "true"`, and **Incus 7.x stopped populating `kernel_features`** (always `{}`) — so every 7.x host looked idmapped-less and provisioning omitted the shared `/home` (and created both volumes unshifted) | **Fixed:** an ABSENT `idmapped_mounts` entry now means supported (the Incus 7.x kernel floor ≥ 5.15 includes it); only an explicit `"false"` disables the shared `/home`. Regression test `TestKernelFeaturesSupportIdmappedMounts`. **e2e check:** after provisioning, `incus profile show default --project <prefix>-<tenant>-default` lists BOTH `home` and `workspace` devices and both volumes have `security.shifted=true` |
 | `sc login --force --dns-suffix other` prints the immutable-suffix error, then hangs polling for ~10 min ("device login polling timed out") while the server re-attempts provisioning every poll | A provisioning failure always left the device login `pending` (correct for transient bring-up errors, wrong for deterministic user-input errors) | **Fixed:** terminal errors (`tenant.TerminalProvisionError`: immutable-suffix conflict, rejected suffix) DENY the device login; the client fails fast with `device login denied: <message>` and exit 1. Regression test `TestDevicePollDeniesLoginOnTerminalProvisioningError` |
 | Two installs on one client (Linux): only ONE suffix ever resolves via `getent` — direct `dig @<sidecar>` works for both, and which zone dies varies | Per-domain DNS routing in systemd-resolved only works ACROSS link scopes; the global resolved.conf.d drop-ins merged both tenant servers + public upstreams into ONE flat list where only the rotating "current server" is asked — an authoritative NXDOMAIN from the wrong server ends the lookup (and the tenant servers' REFUSED responses rotate the current server onto the public upstream, killing both zones) | **Fixed:** per-suffix link scopes — `sandcastle-dns-<suffix>.service` creates a dummy link (`scdns-<hash>`, 169.254/16 addr — no address = no active scope) pinned to `DNS=<CoreDNS> Domains=~<suffix>`, `PartOf=systemd-resolved.service` so a resolved restart re-applies it; login removes any legacy drop-in. The sidecar CoreDNS also now REFUSES tailnet (100.64/10) sources outside its zone instead of forwarding them upstream (`acl` block) — machines on the bridge keep recursion. Tests: `TestSystemdResolvedUnitCreatesPerSuffixLinkScope`, `TestRenderInitial` |
+| `sc-adm tenant delete <v2-tenant> --yes` prints "Deleted runtime resources … durable state preserved" but deletes NOTHING (all v2 projects, machines, sidecar, bridge survive) | `PlanDelete` is v1-shaped: it computes `sc-<tenant>` resource names that don't exist for a v2 tenant, and every per-resource delete is ignore-not-found — a silent no-op reported as success | **Fixed:** `tenant delete` detects a v2 tenant (install-prefix-scoped, `PlanDeleteV2`) and tears down app projects (machines, images, shared volumes, profiles), infra project (sidecar), and bridge via `DeleteTenantV2`; without `--purge` it REFUSES (v2 deletion is all-or-nothing — the shared volumes live in the app projects). Validated live on the `id` install with the `sc2` install's same-named tenant untouched. Tests: `TestPlanDeleteV2` |
 
 ---
 
