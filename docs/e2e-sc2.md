@@ -406,7 +406,7 @@ sc-adm auth-app deploy \
 > `infrastructure` as `sc2-auth-app` (systemd unit `sandcastle-auth-app`,
 > listening `:9444`). Both paths yield the same appliance.
 
-**PASS:** `incus exec big:sc2-auth-app --project infrastructure -- systemctl is-active sandcastle-auth-app` → `active`, listening `:9444`.
+**PASS:** `incus exec big:sc2-auth-app --project sc2-infra -- systemctl is-active sandcastle-auth-app` → `active`, listening `:9444`.
 
 ---
 
@@ -414,7 +414,7 @@ sc-adm auth-app deploy \
 Add a terminate vhost so `https://sc2.thieso2.dev` reverse-proxies to the auth app.
 
 ```bash
-AUTH_IP=$(incus exec big:sc2-auth-app --project infrastructure -- \
+AUTH_IP=$(incus exec big:sc2-auth-app --project sc2-infra -- \
   ip -4 -o addr show eth0 | grep -oE '10\.196\.38\.[0-9]+' | head -1)
 incus exec big:sc-edge --project infrastructure -- bash -c "
   grep -q '$PUBIC_URL' /etc/caddy/Caddyfile || printf '\n%s {\n    reverse_proxy http://%s:9444\n}\n' '$PUBIC_URL' '$AUTH_IP' >> /etc/caddy/Caddyfile
@@ -784,14 +784,14 @@ not token-gated — kept for back-compat.
 
 ```bash
 # TEMPORARILY enable on the auth app (revert after!):
-incus exec big:sc2-auth-app --project infrastructure -- bash -c \
+incus exec big:sc2-auth-app --project sc2-infra -- bash -c \
   "sed -i \"s/^SANDCASTLE_AUTH_DEBUG_DEVICE_USER=.*/SANDCASTLE_AUTH_DEBUG_DEVICE_USER='thieso2'/\" /etc/sandcastle/auth-app/env && systemctl restart sandcastle-auth-app"
 
 rm -rf ~/.config/sandcastle/$TENANT
 ./bin/sc login https://$PUBIC_URL --debug-approve --skip-setup
 
 # ALWAYS revert (security):
-incus exec big:sc2-auth-app --project infrastructure -- bash -c \
+incus exec big:sc2-auth-app --project sc2-infra -- bash -c \
   "sed -i \"s/^SANDCASTLE_AUTH_DEBUG_DEVICE_USER=.*/SANDCASTLE_AUTH_DEBUG_DEVICE_USER=''/\" /etc/sandcastle/auth-app/env && systemctl restart sandcastle-auth-app"
 ```
 **PASS (✅ validated):** `--debug-approve` auto-approves (no browser); same provisioning

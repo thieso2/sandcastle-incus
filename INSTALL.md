@@ -192,7 +192,7 @@ rule for zero-touch approval.
 On the host:
 
 ```bash
-incus exec sc2-auth-app --project infrastructure -- \
+incus exec sc2-auth-app --project sc2-infra -- \
   systemctl is-active sandcastle-auth-app caddy cloudflared   # active ×3
 # (acme/none ingress only — Cloudflare installs deploy no broker)
 # incus exec sc2-broker --project sc2-broker -- systemctl is-active sandcastle-broker
@@ -317,7 +317,7 @@ Rules:
 
 ```
 Incus host
-├── project infrastructure
+├── project sc2-infra
 │   └── sc2-auth-app   auth-app :9444 + caddy :8080 + cloudflared (outbound tunnel)
 ├── project sc2-broker            (acme/none ingress only — omitted with Cloudflare)
 │   └── sc2-broker     broker :9443  (admin provisioning plane)

@@ -51,6 +51,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 			v2Prefix := installV2Prefix(prefix)
 			authAppInstance := v2Prefix + "-auth-app"
 			brokerName := v2Prefix + "-broker"
+			infraProject := v2Prefix + "-infra"
 
 			// Preflight 1: refuse when this prefix is already installed.
 			if existing := detectExistingInstall(cmd.Context(), config, v2Prefix, authAppInstance, brokerName); len(existing) > 0 {
@@ -132,7 +133,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 
 			fmt.Fprintf(config.stdout, "[1/2] deploying auth-app appliance %s...\n", authAppInstance)
 			if err := creator.BootstrapAuthApp(cmd.Context(), incusx.BootstrapAuthAppRequest{
-				Project:             "infrastructure",
+				Project:             infraProject,
 				Instance:            authAppInstance,
 				BaseImage:           baseImage,
 				BinaryPath:          binaryPath,
@@ -180,7 +181,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				fmt.Fprintf(config.stdout, "[2/2] skipping broker appliance (Cloudflare ingress: tenant plane is the auth-app /api/projects; no reachable broker)\n")
 			}
 			fmt.Fprintf(config.stdout, "sandcastle installed (prefix %q):\n", prefix)
-			fmt.Fprintf(config.stdout, "  auth-app: %s (project infrastructure), serving :9444 internally\n", authAppInstance)
+			fmt.Fprintf(config.stdout, "  auth-app: %s (project %s), serving :9444 internally\n", authAppInstance, infraProject)
 			if deployBroker {
 				fmt.Fprintf(config.stdout, "  broker:   %s (project %s), :%s\n", brokerName, brokerName, brokerPort)
 			} else {
@@ -192,6 +193,31 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				fmt.Fprintf(config.stdout, "  appliance bridge: %s (existing, via --bridge)\n", applianceBridge)
 			}
 			fmt.Fprintf(config.stdout, "  tenant CIDR pool: %s (shared; the allocator avoids other tenants' /24s)\n", cidrPool)
+
+			// Inventory of what this install created, so the operator can see —
+			// and later tear down — exactly what belongs to this install. Deleting
+			// the infra project cascades to the auth-app instance, its profiles,
+			// and volumes; the bridge is separate.
+			resources := []string{
+				fmt.Sprintf("incus project    %s", infraProject),
+				fmt.Sprintf("incus instance   %s (project %s)", authAppInstance, infraProject),
+			}
+			if strings.TrimSpace(bridge) == "" {
+				resources = append(resources, fmt.Sprintf("incus network    %s (bridge)", applianceBridge))
+			}
+			if deployBroker {
+				resources = append(resources,
+					fmt.Sprintf("incus project    %s", brokerName),
+					fmt.Sprintf("incus instance   %s (project %s)", brokerName, brokerName))
+			}
+			if ingressMode == incusx.IngressCloudflare && strings.TrimSpace(cloudflareAPIToken) != "" {
+				resources = append(resources, fmt.Sprintf("cloudflare       tunnel + ingress rule + proxied DNS for %s", hostname))
+			}
+			fmt.Fprintf(config.stdout, "resources created by this install (prefix %q):\n", prefix)
+			for _, r := range resources {
+				fmt.Fprintf(config.stdout, "  - %s\n", r)
+			}
+			fmt.Fprintf(config.stdout, "  (to remove this install: delete the project(s) above + the bridge; nothing else is touched)\n")
 			switch ingressMode {
 			case incusx.IngressACME:
 				fmt.Fprintf(config.stdout, "  ingress: Let's Encrypt on host :80/:443 for https://%s\n", hostname)
@@ -247,7 +273,7 @@ func detectExistingInstall(ctx context.Context, config commandConfig, v2Prefix s
 			}
 		}
 	}
-	if instance := detectInstance(config, "infrastructure", authAppInstance); instance != "" {
+	if instance := detectInstance(config, v2Prefix+"-infra", authAppInstance); instance != "" {
 		found = append(found, instance)
 	}
 	return found

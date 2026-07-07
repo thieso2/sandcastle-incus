@@ -5,6 +5,27 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-07 — per-install infra project `<prefix>-infra` + install resource inventory
+
+- **The auth-app appliance now lives in `<prefix>-infra`, not the generic
+  `infrastructure`.** Every install put its auth-app in one shared, unprefixed
+  `infrastructure` project, so on a host with several sandcastles (or an older
+  `sc-infra` install) you couldn't tell which appliance belonged to which install,
+  and the project name didn't group with its own `<prefix>-<tenant>` / `<prefix>-net`
+  resources. The install now derives `infraProject := installV2Prefix(prefix) +
+  "-infra"` (e.g. default `sc` → `sc2-infra`, `--prefix id` → `id-infra`), matching
+  the appliance-bridge (`<prefix>-net`) and tenant (`<prefix>-<tenant>`) naming.
+  Safe rename: the appliance project name is decoupled from runtime — provisioning
+  and the DNS reconciler scope tenants by `SANDCASTLE_INCUS_PROJECT_PREFIX`, not by
+  the appliance project name — so only the install wiring + the existing-install
+  guard referenced the literal. `AuthAppDefaultProject` stays `"infrastructure"` as
+  the fallback for the lower-level standalone `authapp deploy`.
+- **Install now prints a resource inventory.** The summary ends with a
+  "resources created by this install" list (infra project, auth-app instance,
+  bridge, broker project/instance, cloudflare tunnel) plus a one-line teardown
+  hint. Makes coexistence auditable and teardown obvious (delete the listed
+  project(s) + bridge).
+
 ## 2026-07-07 — enrollment reaches the sidecar over the tailnet, not the private CIDR
 
 Found during the first real-OAuth login from a Mac that was on the tenant tailnet
