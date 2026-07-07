@@ -1,0 +1,2970 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "sandcastle-incus",
+    "languages": [
+      "go",
+      "markdown",
+      "shell",
+      "yaml",
+      "toml",
+      "html",
+      "dockerfile",
+      "makefile"
+    ],
+    "frameworks": [
+      "Cobra",
+      "Incus",
+      "Docker",
+      "Docker Compose",
+      "GitHub Actions"
+    ],
+    "description": "A system that provisions and manages multi-tenant, tenant-scoped Incus container/VM machines for AI and development workflows, with identity/auth, private tenant networking (Tailscale + DNS), and published HTTP routes.",
+    "analyzedAt": "2026-07-07T19:32:41Z",
+    "gitCommitHash": "56313a186b7b11fcc237430db05fca732bdbe6ac"
+  },
+  "nodes": [
+    {
+      "id": "domain:identity-access",
+      "type": "domain",
+      "name": "Identity & Access",
+      "summary": "The Auth App handles user authentication and machine identity. It runs GitHub OAuth web login, browser-assisted CLI Device Login that issues Incus certificate add tokens, allowlist/user management, and the Sandcastle OIDC Provider that mints short-lived Workload Identity Tokens for machines.",
+      "tags": [
+        "auth",
+        "oidc",
+        "oauth",
+        "identity",
+        "allowlist"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "User",
+          "DeviceLogin",
+          "Allowlist",
+          "OIDCSigningKey",
+          "WorkloadIdentityToken",
+          "MachineRuntimeSecret"
+        ],
+        "businessRules": [
+          "Only allowlisted GitHub users may complete device login",
+          "Workload tokens are short-lived and signed per-tenant",
+          "First device login provisions the user's personal tenant"
+        ],
+        "crossDomainInteractions": [
+          "Provisions a personal Tenant on first login",
+          "Mints Workload Identity Tokens consumed by Machines"
+        ]
+      }
+    },
+    {
+      "id": "domain:tenant-lifecycle",
+      "type": "domain",
+      "name": "Tenant Lifecycle",
+      "summary": "Manages the full lifecycle of a Tenant, which is an Incus project boundary with its own CA, DNS suffix, CIDR allocation and sidecar. Covers create/delete plus list and status derived from live Incus topology.",
+      "tags": [
+        "tenant",
+        "provisioning",
+        "incus-project",
+        "topology"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "Tenant",
+          "CreatePlanV2",
+          "DeletePlan",
+          "Topology",
+          "Sidecar",
+          "TenantCA"
+        ],
+        "businessRules": [
+          "Each tenant is an isolated Incus project with a dedicated CIDR",
+          "Tenant creation is idempotent and reuses existing projects",
+          "Deleting a tenant cleans up shares and detaches its network"
+        ],
+        "crossDomainInteractions": [
+          "Provisioned by Identity & Access on first login and by the Project Broker",
+          "Brings up sidecar Tailscale + DNS in Networking"
+        ]
+      }
+    },
+    {
+      "id": "domain:machine-lifecycle",
+      "type": "domain",
+      "name": "Machine Lifecycle",
+      "summary": "Creates, connects to, and controls Tenant machines (Incus containers/VMs), including private-IP allocation, device/mount assembly, start/stop/restart/delete, and enabling GCP workload-identity token exchange for a machine.",
+      "tags": [
+        "machine",
+        "instance",
+        "lifecycle",
+        "workload-identity",
+        "connect"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "Machine",
+          "CreatePlan",
+          "MachineController",
+          "WorkloadIdentityFiles",
+          "MachineRuntimeSecret"
+        ],
+        "businessRules": [
+          "Machines are resolved with unique-search semantics across projects",
+          "Each machine gets a free private IP within the project CIDR",
+          "Workload identity requires an approved device login"
+        ],
+        "crossDomainInteractions": [
+          "Obtains Workload Identity Tokens from Identity & Access",
+          "Relies on Networking & DNS for connectivity and host overrides"
+        ]
+      }
+    },
+    {
+      "id": "domain:networking-dns",
+      "type": "domain",
+      "name": "Networking & DNS",
+      "summary": "Wires tenants and machines onto a user-selected Tailscale network and serves private tenant DNS. Covers tailnet enrollment/verification, the per-tenant split-DNS reconciler on the sc-dns sidecar, and client-side host configuration (local resolvers, Tenant CA trust, /etc/hosts overrides).",
+      "tags": [
+        "tailscale",
+        "dns",
+        "split-dns",
+        "networking",
+        "trust"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "Tailnet",
+          "TenantDNSSuffix",
+          "DNSZone",
+          "LocalResolver",
+          "HostOverride",
+          "TenantCA"
+        ],
+        "businessRules": [
+          "Each tenant advertises tenant-scoped Tailscale tags",
+          "Split-DNS zones are rendered from live instance IPs and applied idempotently",
+          "Client resolvers and CA trust are installed per-tenant"
+        ],
+        "crossDomainInteractions": [
+          "Underpins Machine connectivity",
+          "Configured during Tenant creation via the sidecar"
+        ]
+      }
+    },
+    {
+      "id": "domain:public-routes",
+      "type": "domain",
+      "name": "Public Routes",
+      "summary": "Publishes HTTP routes for tenant machines through shared-infrastructure Caddy. A route request is validated with DNS proof-of-ownership, sent to the Route Broker over mutual TLS, authorized against the caller's project access, and applied to global route infrastructure.",
+      "tags": [
+        "routes",
+        "caddy",
+        "dns-proof",
+        "route-broker",
+        "mtls"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "PublicRoute",
+          "RouteBroker",
+          "DNSProof",
+          "Principal",
+          "Caddy"
+        ],
+        "businessRules": [
+          "The public hostname must pass DNS proof-of-ownership",
+          "The Route Broker authorizes callers via their Incus client certificate",
+          "A principal may only mutate routes in projects it owns"
+        ],
+        "crossDomainInteractions": [
+          "Depends on shared Caddy from Infrastructure & Provisioning",
+          "Resolves target Machines from Machine Lifecycle"
+        ]
+      }
+    },
+    {
+      "id": "domain:infrastructure-provisioning",
+      "type": "domain",
+      "name": "Infrastructure & Provisioning",
+      "summary": "Bootstraps and operates the shared platform: operator install of shared v2 infrastructure from the Infrastructure Seed File, base/AI OCI image build and publish via the Image Builder appliance, the mTLS Project Broker that provisions tenants/projects, and Storage Shares between tenants.",
+      "tags": [
+        "infrastructure",
+        "install",
+        "images",
+        "project-broker",
+        "storage-share",
+        "seed"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "InfrastructureSeed",
+          "SharedInfra",
+          "Image",
+          "ImageBuilderAppliance",
+          "ProjectBroker",
+          "StorageShare"
+        ],
+        "businessRules": [
+          "The seed file carries Auth Hostname, remote, CIDR pool and TLS material",
+          "Install refuses to clobber an existing deployment",
+          "The Project Broker authorizes callers by certificate fingerprint"
+        ],
+        "crossDomainInteractions": [
+          "Provisions Tenants on behalf of authorized principals",
+          "Provides the shared Caddy that Public Routes depend on"
+        ]
+      }
+    },
+    {
+      "id": "flow:cli-device-login",
+      "type": "flow",
+      "name": "CLI Device Login",
+      "summary": "Browser-assisted device authorization: the CLI creates a device login, the user authenticates via GitHub and is checked against the allowlist, a personal tenant is provisioned on first login, and an Incus certificate add token is issued and polled for.",
+      "tags": [
+        "auth",
+        "device-login",
+        "cli"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "sc login",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:cli-device-login:create-device-login",
+      "type": "step",
+      "name": "Create device login",
+      "summary": "Creates a new device-login authorization record with a user code.",
+      "tags": [
+        "auth"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/device.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:cli-device-login:github-oauth",
+      "type": "step",
+      "name": "GitHub OAuth authenticate",
+      "summary": "Redirects to GitHub and handles the OAuth callback to identify the user.",
+      "tags": [
+        "oauth"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/github.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:cli-device-login:approve-allowlisted",
+      "type": "step",
+      "name": "Approve for allowlisted user",
+      "summary": "Approves the pending device login only for an allowlisted user.",
+      "tags": [
+        "allowlist"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/device.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:cli-device-login:provision-personal-tenant",
+      "type": "step",
+      "name": "Provision personal tenant",
+      "summary": "Provisions or reuses the user's personal tenant during device login.",
+      "tags": [
+        "provisioning"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/authapp/device.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:cli-device-login:issue-add-token",
+      "type": "step",
+      "name": "Issue certificate add token",
+      "summary": "Creates an Incus certificate add token scoped to the tenant for enrollment.",
+      "tags": [
+        "trust"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/usertrust.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:cli-device-login:poll-credentials",
+      "type": "step",
+      "name": "Poll for credentials",
+      "summary": "Handles the device-login poll, returning pending or completed credentials.",
+      "tags": [
+        "auth"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/authapp/device.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:cli-device-login:post-login-setup",
+      "type": "step",
+      "name": "Post-login host setup",
+      "summary": "Enrolls the tenant remote and completes client host setup after login.",
+      "tags": [
+        "cli",
+        "setup"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/cli/login.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:github-web-login",
+      "type": "flow",
+      "name": "GitHub Web Login",
+      "summary": "The Auth App web login flow: redirect to GitHub OAuth, exchange the callback code, check the allowlist and upsert the user, and establish a web session.",
+      "tags": [
+        "auth",
+        "oauth",
+        "web"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "GET /login/github",
+        "entryType": "http"
+      }
+    },
+    {
+      "id": "step:github-web-login:redirect-github",
+      "type": "step",
+      "name": "Redirect to GitHub OAuth",
+      "summary": "Starts the GitHub OAuth flow by redirecting the user to authorize.",
+      "tags": [
+        "oauth"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/authapp/login.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:github-web-login:handle-callback",
+      "type": "step",
+      "name": "Handle OAuth callback",
+      "summary": "Handles the GitHub callback and exchanges the code for the user identity.",
+      "tags": [
+        "oauth"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/login.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:github-web-login:check-allowlist",
+      "type": "step",
+      "name": "Check allowlist & upsert user",
+      "summary": "Checks the allowlist and creates or updates the user in the SQLite store.",
+      "tags": [
+        "allowlist"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/access.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:github-web-login:establish-session",
+      "type": "step",
+      "name": "Establish web session",
+      "summary": "Establishes the authenticated web session for the user.",
+      "tags": [
+        "session"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/authapp/store.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:issue-workload-token",
+      "type": "flow",
+      "name": "Issue Workload Identity Token",
+      "summary": "The Sandcastle OIDC Provider issues a short-lived Workload Identity Token to a machine: workload identity is enabled and a runtime secret provisioned, the tenant OIDC signing key is ensured, the caller is authenticated, and a signed JWT is minted.",
+      "tags": [
+        "oidc",
+        "workload-identity",
+        "jwt"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "POST /workload/token",
+        "entryType": "http"
+      }
+    },
+    {
+      "id": "step:issue-workload-token:enable-workload",
+      "type": "step",
+      "name": "Enable machine workload identity",
+      "summary": "Enables workload identity on a machine and provisions its runtime secret.",
+      "tags": [
+        "workload-identity"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/workload.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:issue-workload-token:ensure-signing-key",
+      "type": "step",
+      "name": "Ensure OIDC signing key",
+      "summary": "Ensures an active encrypted OIDC signing key exists for the tenant.",
+      "tags": [
+        "oidc"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/oidc.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:issue-workload-token:authenticate-secret",
+      "type": "step",
+      "name": "Authenticate runtime secret",
+      "summary": "Authenticates the calling machine via its Machine Runtime Secret.",
+      "tags": [
+        "auth"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/workload.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:issue-workload-token:mint-token",
+      "type": "step",
+      "name": "Mint short-lived token",
+      "summary": "Mints a signed short-lived workload identity token.",
+      "tags": [
+        "jwt"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/workload.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:issue-workload-token:sign-jwt",
+      "type": "step",
+      "name": "Sign JWT with tenant key",
+      "summary": "Signs the JWT with the tenant's active OIDC signing key.",
+      "tags": [
+        "jwt"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/workload.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:create-tenant",
+      "type": "flow",
+      "name": "Create Tenant",
+      "summary": "Orchestrates full v2 tenant provisioning: builds the create plan (CA, DNS, CIDR, cloud-init), ensures the bridge and Incus project, creates and configures the sidecar, installs its packages, and brings Tailscale up inside it.",
+      "tags": [
+        "tenant",
+        "provisioning",
+        "incus"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "CreateTenantV2",
+        "entryType": "manual"
+      }
+    },
+    {
+      "id": "step:create-tenant:build-plan",
+      "type": "step",
+      "name": "Build v2 create plan",
+      "summary": "Builds the complete v2 tenant plan: CA material, DNS config, CIDR allocation and cloud-init.",
+      "tags": [
+        "planning"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/tenant/create_plan_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-tenant:ensure-bridge",
+      "type": "step",
+      "name": "Ensure tenant bridge",
+      "summary": "Ensures the tenant's v2 bridge network exists with the correct configuration.",
+      "tags": [
+        "networking"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/tenant_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-tenant:ensure-project",
+      "type": "step",
+      "name": "Ensure Incus project",
+      "summary": "Idempotently creates or updates the v2 Incus project with metadata and image ownership.",
+      "tags": [
+        "incus-project"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/tenant_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-tenant:create-sidecar",
+      "type": "step",
+      "name": "Create and start sidecar",
+      "summary": "Creates and starts the tenant's v2 sidecar instance, waiting for it to run.",
+      "tags": [
+        "sidecar"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/tenant_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-tenant:install-packages",
+      "type": "step",
+      "name": "Install sidecar packages",
+      "summary": "Installs required packages inside the sidecar so it can run DNS and Tailscale.",
+      "tags": [
+        "sidecar"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/tenant_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-tenant:configure-sidecar",
+      "type": "step",
+      "name": "Configure sidecar networking/DNS",
+      "summary": "Configures the sidecar's networking, DNS and services after installation.",
+      "tags": [
+        "dns",
+        "networking"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/incusx/tenant_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-tenant:tailscale-up",
+      "type": "step",
+      "name": "Bring Tailscale up",
+      "summary": "Brings Tailscale up inside the sidecar, parsing the tailnet IP and login URL.",
+      "tags": [
+        "tailscale"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/tenant_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:delete-tenant",
+      "type": "flow",
+      "name": "Delete Tenant",
+      "summary": "Removes all Incus resources belonging to a tenant: builds the delete plan, cleans up shares involving the tenant, deletes each project completely, and detaches the tenant network from the default profile.",
+      "tags": [
+        "tenant",
+        "teardown",
+        "incus"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "sc-adm tenant delete",
+        "entryType": "manual"
+      }
+    },
+    {
+      "id": "step:delete-tenant:build-delete-plan",
+      "type": "step",
+      "name": "Build delete plan",
+      "summary": "Builds the plan describing which tenant projects and resources to remove.",
+      "tags": [
+        "planning"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/tenant/delete_plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:delete-tenant:cleanup-shares",
+      "type": "step",
+      "name": "Cleanup tenant shares",
+      "summary": "Reconciles and removes all storage shares involving the tenant being deleted.",
+      "tags": [
+        "storage-share"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/share/share.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:delete-tenant:delete-projects",
+      "type": "step",
+      "name": "Delete projects completely",
+      "summary": "Removes every resource inside each Incus project before deleting the project.",
+      "tags": [
+        "incus-project"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/incusx/tenant_delete.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:delete-tenant:clear-network",
+      "type": "step",
+      "name": "Detach tenant network",
+      "summary": "Detaches the tenant network device from the default profile so it can be deleted.",
+      "tags": [
+        "networking"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/tenant_delete.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:delete-tenant:execute-delete",
+      "type": "step",
+      "name": "Execute deletion",
+      "summary": "Executes the deletion plan and clears the tenant network from the remote.",
+      "tags": [
+        "teardown"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/tenant_delete.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:inspect-tenant",
+      "type": "flow",
+      "name": "List & Status Tenant",
+      "summary": "Reports tenant state from live Incus topology: lists tenants under the install prefix, reads the live topology, and computes status combining share health, Tailscale checks and topology-derived diagnostics.",
+      "tags": [
+        "tenant",
+        "status",
+        "topology"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "sc tenant list / status",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:inspect-tenant:list-tenants",
+      "type": "step",
+      "name": "List tenants for prefix",
+      "summary": "Lists tenants under the install prefix by reading live Incus projects into summaries.",
+      "tags": [
+        "topology"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/tenant/list.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:inspect-tenant:read-topology",
+      "type": "step",
+      "name": "Read live topology",
+      "summary": "Reads live Incus state into the tenant Topology snapshot.",
+      "tags": [
+        "topology"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/topology.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:inspect-tenant:compute-status",
+      "type": "step",
+      "name": "Compute status",
+      "summary": "Computes full tenant status combining share, Tailscale and topology checks.",
+      "tags": [
+        "status"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/tenant/status.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:inspect-tenant:share-health",
+      "type": "step",
+      "name": "Evaluate share health",
+      "summary": "Evaluates storage-share offer/recipient state health across related tenants.",
+      "tags": [
+        "storage-share"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/tenant/status.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:inspect-tenant:topology-checks",
+      "type": "step",
+      "name": "Derive topology checks",
+      "summary": "Derives sidecar and diagnostic-file presence checks from the topology snapshot.",
+      "tags": [
+        "diagnostics"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/tenant/status.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:create-machine",
+      "type": "flow",
+      "name": "Create Machine",
+      "summary": "Plans and creates a tenant machine: parses the reference and flags, resolves tenant/project, allocates a private IP, assembles devices/mounts, confirms, creates the v2 instance and waits for its IPv4.",
+      "tags": [
+        "machine",
+        "create",
+        "incus"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "sc create",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:create-machine:parse-reference",
+      "type": "step",
+      "name": "Parse machine reference",
+      "summary": "Parses the create command flags and machine reference within the tenant.",
+      "tags": [
+        "cli"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/cli/create.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-machine:resolve-tenant",
+      "type": "step",
+      "name": "Resolve tenant/project",
+      "summary": "Resolves the tenant and project for the planned machine.",
+      "tags": [
+        "resolve"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/machine/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-machine:allocate-ip",
+      "type": "step",
+      "name": "Allocate private IP",
+      "summary": "Allocates a free private IP within the project CIDR avoiding existing machines.",
+      "tags": [
+        "cidr"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/machine/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-machine:assemble-devices",
+      "type": "step",
+      "name": "Assemble devices & mounts",
+      "summary": "Constructs the Incus device map including network, home and workspace mounts.",
+      "tags": [
+        "incus"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/machine/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-machine:confirm",
+      "type": "step",
+      "name": "Confirm plan",
+      "summary": "Prompts the user to confirm the machine creation plan.",
+      "tags": [
+        "cli"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/cli/create.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-machine:create-instance",
+      "type": "step",
+      "name": "Create v2 instance",
+      "summary": "Creates the v2 machine instance in the tenant project and starts it.",
+      "tags": [
+        "incus"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/machine_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-machine:wait-ip",
+      "type": "step",
+      "name": "Wait for instance IPv4",
+      "summary": "Polls the instance until it reports an IPv4 address or times out.",
+      "tags": [
+        "networking"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/incusx/machine_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:connect-machine",
+      "type": "flow",
+      "name": "Connect to Machine",
+      "summary": "Opens a session on a tenant machine: resolves the target reference, creates the machine if it does not yet exist, lists remote projects to resolve the tenant, and launches an Incus exec/shell.",
+      "tags": [
+        "machine",
+        "connect",
+        "cli"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "sc connect",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:connect-machine:resolve-target",
+      "type": "step",
+      "name": "Resolve target machine",
+      "summary": "Resolves the parsed machine reference against the tenant summary.",
+      "tags": [
+        "resolve"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:connect-machine:ensure-machine",
+      "type": "step",
+      "name": "Ensure machine exists",
+      "summary": "Idempotently ensures the machine exists, creating it if absent.",
+      "tags": [
+        "machine"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/machine_create_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:connect-machine:list-projects",
+      "type": "step",
+      "name": "List remote projects",
+      "summary": "Lists projects on the remote to resolve the tenant project.",
+      "tags": [
+        "incus"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/cli/connect_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:connect-machine:launch-shell",
+      "type": "step",
+      "name": "Launch Incus exec/shell",
+      "summary": "Launches an Incus exec/shell session on the resolved machine.",
+      "tags": [
+        "connect"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/connect_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:control-machine",
+      "type": "flow",
+      "name": "Control Machine",
+      "summary": "Applies a lifecycle action (start/stop/restart/delete) to a machine: builds the generic lifecycle command, resolves the machine, applies the plan against the Incus API, repairs networking, and waits for the state.",
+      "tags": [
+        "machine",
+        "lifecycle",
+        "cli"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "sc start | stop | restart | delete",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:control-machine:build-command",
+      "type": "step",
+      "name": "Build lifecycle command",
+      "summary": "Builds a generic machine lifecycle command from an action template.",
+      "tags": [
+        "cli"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/cli/machine_lifecycle.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:control-machine:resolve-machine",
+      "type": "step",
+      "name": "Resolve machine",
+      "summary": "Resolves the target machine with cross-project unique-search semantics.",
+      "tags": [
+        "resolve"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/machine/resolve.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:control-machine:apply-lifecycle",
+      "type": "step",
+      "name": "Apply lifecycle plan",
+      "summary": "Executes the lifecycle plan by updating instance state and waiting for completion.",
+      "tags": [
+        "incus"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/machine_lifecycle.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:control-machine:repair-network",
+      "type": "step",
+      "name": "Repair machine network",
+      "summary": "Ensures correct static IP and gateway, running an in-instance heal script.",
+      "tags": [
+        "networking"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/machine_lifecycle.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:enable-workload-identity",
+      "type": "flow",
+      "name": "Enable Machine Workload Identity",
+      "summary": "Enables GCP workload-identity token exchange on a machine: builds the enable command, approves the workload device login, builds the in-guest workload files and token-helper script, and applies them to the machine.",
+      "tags": [
+        "workload-identity",
+        "machine",
+        "gcp"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "sc workload enable",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:enable-workload-identity:build-enable",
+      "type": "step",
+      "name": "Build workload enable command",
+      "summary": "Builds the CLI command enabling workload identity for a machine.",
+      "tags": [
+        "cli"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/cli/workload.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:enable-workload-identity:approve-device",
+      "type": "step",
+      "name": "Approve workload device login",
+      "summary": "Approves the workload device login during enablement.",
+      "tags": [
+        "auth"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/workload.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:enable-workload-identity:build-files",
+      "type": "step",
+      "name": "Build in-guest workload files",
+      "summary": "Builds the in-guest files enabling GCP workload-identity token exchange.",
+      "tags": [
+        "gcp"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/machine/workload_identity.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:enable-workload-identity:token-helper",
+      "type": "step",
+      "name": "Generate token-helper script",
+      "summary": "Generates the in-guest script that mints tokens via the Machine Runtime Secret.",
+      "tags": [
+        "gcp"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/machine/workload_identity.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:enable-workload-identity:apply-machine",
+      "type": "step",
+      "name": "Apply to machine",
+      "summary": "Applies the workload identity configuration to the target machine.",
+      "tags": [
+        "machine"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/workload.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:enroll-tailnet",
+      "type": "flow",
+      "name": "Enroll Tailnet",
+      "summary": "Joins the host to the tenant's Tailscale network: advertises tenant tags and runs tailscale up, parses local status to confirm membership, verifies the login tailnet, and ensures tenant routing.",
+      "tags": [
+        "tailscale",
+        "enroll",
+        "cli"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "sc tailscale up / sc login",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:enroll-tailnet:advertise-up",
+      "type": "step",
+      "name": "Advertise tags & up",
+      "summary": "Runs tailscale up advertising the tenant-scoped tags.",
+      "tags": [
+        "tailscale"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/tailscale.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:enroll-tailnet:bring-up",
+      "type": "step",
+      "name": "Bring Tailscale up",
+      "summary": "Wraps tailscale up and waits for the interface to come online.",
+      "tags": [
+        "tailscale"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/tailscale/up.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:enroll-tailnet:parse-status",
+      "type": "step",
+      "name": "Verify tailnet membership",
+      "summary": "Parses local Tailscale status and confirms membership in the expected tailnet.",
+      "tags": [
+        "tailscale"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/login_tailnet.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:enroll-tailnet:verify-login",
+      "type": "step",
+      "name": "Verify login tailnet",
+      "summary": "Verifies the host is joined to the expected tenant tailnet during login.",
+      "tags": [
+        "tailscale"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/login.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:enroll-tailnet:ensure-routing",
+      "type": "step",
+      "name": "Ensure tenant routing",
+      "summary": "Ensures tenant routing so traffic egresses via the tailnet.",
+      "tags": [
+        "networking"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/login.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:reconcile-dns",
+      "type": "flow",
+      "name": "Reconcile Tenant Split-DNS",
+      "summary": "Reconciles per-tenant split-DNS for every v2 tenant: iterates live infra projects, extracts tenant instance IPs, renders the zone, normalizes the serial for idempotent comparison, and applies it on the sc-dns sidecar.",
+      "tags": [
+        "dns",
+        "split-dns",
+        "reconciler"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "V2DNSReconciler",
+        "entryType": "event"
+      }
+    },
+    {
+      "id": "step:reconcile-dns:iterate-projects",
+      "type": "step",
+      "name": "Iterate infra projects",
+      "summary": "Iterates live infra projects to reconcile split-DNS for every v2 tenant.",
+      "tags": [
+        "dns"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/dns_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:reconcile-dns:extract-ips",
+      "type": "step",
+      "name": "Extract tenant instance IPs",
+      "summary": "Extracts each tenant instance's IPv4 address within the tenant CIDR.",
+      "tags": [
+        "networking"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/dns_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:reconcile-dns:render-zone",
+      "type": "step",
+      "name": "Render DNS zone",
+      "summary": "Renders the zone from live instances for a single tenant.",
+      "tags": [
+        "dns"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/dns_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:reconcile-dns:normalize-serial",
+      "type": "step",
+      "name": "Normalize zone serial",
+      "summary": "Normalizes the SOA serial to a stable value for idempotent comparison.",
+      "tags": [
+        "dns"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/incusx/dns_v2.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:reconcile-dns:apply-zone",
+      "type": "step",
+      "name": "Apply zone on sidecar",
+      "summary": "Applies the rendered zone on the sc-dns sidecar.",
+      "tags": [
+        "dns"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/dns/apply.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:configure-client-host",
+      "type": "flow",
+      "name": "Configure Client Host",
+      "summary": "Configures the local host for a tenant: plans and installs the per-tenant DNS resolver, installs the Tenant CA into the local trust store, and adds /etc/hosts overrides for machine hostnames.",
+      "tags": [
+        "dns",
+        "trust",
+        "host-config"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "sc dns / post-login setup",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:configure-client-host:plan-resolver",
+      "type": "step",
+      "name": "Plan local DNS resolver",
+      "summary": "Builds a local DNS resolver plan for a v2 tenant from its DNS suffix and CIDR.",
+      "tags": [
+        "dns"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/localdns/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:configure-client-host:install-resolver",
+      "type": "step",
+      "name": "Install resolver",
+      "summary": "Installs the per-tenant resolver configuration on the host.",
+      "tags": [
+        "dns"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/localdns/store.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:configure-client-host:install-ca",
+      "type": "step",
+      "name": "Install Tenant CA",
+      "summary": "Assembles and applies the plan placing the Tenant CA into the local trust store.",
+      "tags": [
+        "trust"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/localtrust/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:configure-client-host:add-hosts",
+      "type": "step",
+      "name": "Add host overrides",
+      "summary": "Plans and adds /etc/hosts overrides for machine hostnames.",
+      "tags": [
+        "host-config"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/hostoverride/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:publish-route",
+      "type": "flow",
+      "name": "Publish Public Route",
+      "summary": "Requests a new public HTTP route: normalizes the hostname, builds the create plan and resolves the target machine, verifies DNS proof-of-ownership, sends the request to the Route Broker over mTLS, which authorizes it and mutates the shared route infrastructure.",
+      "tags": [
+        "routes",
+        "dns-proof",
+        "route-broker",
+        "mtls"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "sc route create",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:publish-route:build-command",
+      "type": "step",
+      "name": "Build route create command",
+      "summary": "Builds the route create command that requests a new public route.",
+      "tags": [
+        "cli"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/cli/route.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:publish-route:normalize-hostname",
+      "type": "step",
+      "name": "Normalize public hostname",
+      "summary": "Validates and normalizes the user-supplied public route hostname.",
+      "tags": [
+        "routes"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/route/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:publish-route:build-plan",
+      "type": "step",
+      "name": "Build create plan",
+      "summary": "Builds the create plan including target machine resolution.",
+      "tags": [
+        "planning"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/route/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:publish-route:verify-dns-proof",
+      "type": "step",
+      "name": "Verify DNS proof-of-ownership",
+      "summary": "Verifies the hostname's DNS proof by resolving it and matching expected targets.",
+      "tags": [
+        "dns-proof"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/route/dnsproof.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:publish-route:send-broker",
+      "type": "step",
+      "name": "Send request over mTLS",
+      "summary": "Sends the route-create request to the Route Broker over mutual TLS.",
+      "tags": [
+        "mtls"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/routebroker/client.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:publish-route:authorize",
+      "type": "step",
+      "name": "Authorize create",
+      "summary": "Authorizes the route creation against the principal's project access.",
+      "tags": [
+        "authz"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/routebroker/authorize.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:publish-route:mutate-infra",
+      "type": "step",
+      "name": "Mutate route infrastructure",
+      "summary": "Stamps the route creator and mutates the shared Caddy route infrastructure.",
+      "tags": [
+        "caddy"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/routebroker/server.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:delete-route",
+      "type": "flow",
+      "name": "Delete Public Route",
+      "summary": "Removes a public route: builds the delete command, sends the request over mTLS, maps the certificate fingerprint to a principal, authorizes deletion against the route's project, and removes the route from infrastructure.",
+      "tags": [
+        "routes",
+        "route-broker",
+        "mtls"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "sc route delete",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:delete-route:build-command",
+      "type": "step",
+      "name": "Build route delete command",
+      "summary": "Builds the route delete command that removes a public route.",
+      "tags": [
+        "cli"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/cli/route.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:delete-route:send-broker",
+      "type": "step",
+      "name": "Send delete over mTLS",
+      "summary": "Sends the route-delete request to the Route Broker over mutual TLS.",
+      "tags": [
+        "mtls"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/routebroker/client.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:delete-route:map-principal",
+      "type": "step",
+      "name": "Map fingerprint to principal",
+      "summary": "Maps the client-certificate fingerprint to a route-broker principal.",
+      "tags": [
+        "authz"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/routebroker/authorize.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:delete-route:authorize-delete",
+      "type": "step",
+      "name": "Authorize delete",
+      "summary": "Authorizes the deletion by checking the principal owns the route's project.",
+      "tags": [
+        "authz"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/routebroker/authorize.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:delete-route:remove-route",
+      "type": "step",
+      "name": "Remove route from infra",
+      "summary": "Removes the route from the shared route infrastructure.",
+      "tags": [
+        "caddy"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/routebroker/server.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:install-infra",
+      "type": "flow",
+      "name": "Install Shared Infrastructure",
+      "summary": "Operator install of shared v2 infrastructure: builds the install command and detects an existing deployment, validates host ports and CIDR overlap, plans the shared infra, reads/writes the Infrastructure Seed File, and bootstraps the Auth App and broker appliances.",
+      "tags": [
+        "install",
+        "infrastructure",
+        "seed",
+        "bootstrap"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "sc-adm install",
+        "entryType": "manual"
+      }
+    },
+    {
+      "id": "step:install-infra:build-command",
+      "type": "step",
+      "name": "Build install command",
+      "summary": "Constructs the admin install command that plans and executes shared v2 infrastructure.",
+      "tags": [
+        "cli"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/admin_install.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:install-infra:validate-host",
+      "type": "step",
+      "name": "Validate host ports & CIDR",
+      "summary": "Checks required host ports and that the CIDR pool does not overlap host interfaces.",
+      "tags": [
+        "validation"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/admin_install.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:install-infra:plan-infra",
+      "type": "step",
+      "name": "Plan shared infra",
+      "summary": "Plans shared infrastructure creation for the deployment prefix.",
+      "tags": [
+        "planning"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/infra/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:install-infra:seed-file",
+      "type": "step",
+      "name": "Read/write seed file",
+      "summary": "Reads or writes the Infrastructure Seed File bootstrap bundle.",
+      "tags": [
+        "seed"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/infra/seed.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:install-infra:bootstrap-authapp",
+      "type": "step",
+      "name": "Bootstrap Auth App",
+      "summary": "Bootstraps the Auth App appliance from the plan.",
+      "tags": [
+        "bootstrap"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/incusx/authapp_bootstrap.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:install-infra:bootstrap-brokers",
+      "type": "step",
+      "name": "Bootstrap brokers",
+      "summary": "Bootstraps the Route and Project Broker appliances.",
+      "tags": [
+        "bootstrap"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/broker_bootstrap.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:install-infra:install-incus",
+      "type": "step",
+      "name": "Install & init Incus",
+      "summary": "Generates and runs the script installing and initializing Incus for the OS suite.",
+      "tags": [
+        "incus"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/cli/admin_install_incus.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:build-image",
+      "type": "flow",
+      "name": "Build & Publish Image",
+      "summary": "Builds and publishes base/AI OCI images: plans the image build, plans and provisions the Image Builder appliance, plans the remote build with the GHCR target, runs the build script, and syncs/imports the image into the remote.",
+      "tags": [
+        "images",
+        "oci",
+        "builder",
+        "ghcr"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "mise image:all:build-remote",
+        "entryType": "manual"
+      }
+    },
+    {
+      "id": "step:build-image:plan-build",
+      "type": "step",
+      "name": "Plan image build",
+      "summary": "Builds the image build plan resolving repo root, build command and template alias.",
+      "tags": [
+        "images"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/images/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:build-image:plan-appliance",
+      "type": "step",
+      "name": "Plan builder appliance",
+      "summary": "Plans creation of the Image Builder appliance instance on the remote.",
+      "tags": [
+        "builder"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/images/remote.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:build-image:provision-builder",
+      "type": "step",
+      "name": "Provision builder",
+      "summary": "Generates the provisioning script installing build tooling on the appliance.",
+      "tags": [
+        "builder"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/images/remote.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:build-image:plan-remote-build",
+      "type": "step",
+      "name": "Plan remote build & GHCR target",
+      "summary": "Plans a remote image build assembling the request and GHCR target.",
+      "tags": [
+        "ghcr"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/images/remote.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:build-image:run-build",
+      "type": "step",
+      "name": "Run remote build script",
+      "summary": "Generates and runs the shell script that builds and publishes images.",
+      "tags": [
+        "builder"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/images/remote.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:build-image:sync-image",
+      "type": "step",
+      "name": "Sync image into remote",
+      "summary": "Plans syncing/importing the built image into the target remote.",
+      "tags": [
+        "images"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/images/plan.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:create-storage-share",
+      "type": "flow",
+      "name": "Create Storage Share",
+      "summary": "Creates a Storage Share from a source project to recipient tenants: builds the share create command, plans the share, enforces caller tenant access, creates it via the Auth App API, and reconciles recipient mounts.",
+      "tags": [
+        "storage-share",
+        "share",
+        "reconcile"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "sc share create",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:create-storage-share:build-command",
+      "type": "step",
+      "name": "Build share create command",
+      "summary": "Builds the CLI command creating a tenant share.",
+      "tags": [
+        "cli"
+      ],
+      "complexity": "simple",
+      "filePath": "internal/cli/share.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-storage-share:plan-share",
+      "type": "step",
+      "name": "Plan storage share",
+      "summary": "Plans creation of a Storage Share from a source project to recipient tenants.",
+      "tags": [
+        "storage-share"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/share/share.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-storage-share:enforce-access",
+      "type": "step",
+      "name": "Enforce tenant access",
+      "summary": "Middleware enforcing caller access to the target tenant for share operations.",
+      "tags": [
+        "authz"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/shares.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-storage-share:create-api",
+      "type": "step",
+      "name": "Create share via API",
+      "summary": "API handler that creates the new tenant share.",
+      "tags": [
+        "share"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/authapp/shares.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:create-storage-share:reconcile-mounts",
+      "type": "step",
+      "name": "Reconcile recipient mounts",
+      "summary": "Reconciles the share's recipient mounts into recipient tenants.",
+      "tags": [
+        "reconcile"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/incusx/share_reconcile.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flow:broker-provision-project",
+      "type": "flow",
+      "name": "Broker Provision Tenant/Project",
+      "summary": "The mTLS Project Broker provisions tenants and projects: it dispatches the HTTP request, resolves the principal from the certificate fingerprint, authorizes admin/project access, and provisions the tenant or a project within it.",
+      "tags": [
+        "project-broker",
+        "provisioning",
+        "mtls"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "POST Project Broker",
+        "entryType": "http"
+      }
+    },
+    {
+      "id": "step:broker-provision-project:dispatch",
+      "type": "step",
+      "name": "Dispatch broker request",
+      "summary": "Dispatches the broker HTTP request, extracting the caller's certificate fingerprint.",
+      "tags": [
+        "mtls"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/projectbroker/serve.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:broker-provision-project:resolve-principal",
+      "type": "step",
+      "name": "Resolve principal",
+      "summary": "Resolves the certificate fingerprint into a broker principal via the trust mapper.",
+      "tags": [
+        "authz"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/projectbroker/serve.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:broker-provision-project:authorize-admin",
+      "type": "step",
+      "name": "Authorize access",
+      "summary": "Determines whether the caller has admin/project privileges on the remote.",
+      "tags": [
+        "authz"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/projectbroker_adapter.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:broker-provision-project:provision-tenant",
+      "type": "step",
+      "name": "Provision tenant",
+      "summary": "Provisions a full tenant on behalf of the project broker via v2 creation.",
+      "tags": [
+        "provisioning"
+      ],
+      "complexity": "complex",
+      "filePath": "internal/incusx/projectbroker_adapter.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "step:broker-provision-project:create-project",
+      "type": "step",
+      "name": "Create project in tenant",
+      "summary": "Creates a project within an existing tenant on behalf of the broker.",
+      "tags": [
+        "incus-project"
+      ],
+      "complexity": "moderate",
+      "filePath": "internal/incusx/projectbroker_adapter.go",
+      "lineRange": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "domain:identity-access",
+      "target": "flow:cli-device-login",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:cli-device-login",
+      "target": "step:cli-device-login:create-device-login",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:cli-device-login",
+      "target": "step:cli-device-login:github-oauth",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:cli-device-login",
+      "target": "step:cli-device-login:approve-allowlisted",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:cli-device-login",
+      "target": "step:cli-device-login:provision-personal-tenant",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:cli-device-login",
+      "target": "step:cli-device-login:issue-add-token",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:cli-device-login",
+      "target": "step:cli-device-login:poll-credentials",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:cli-device-login",
+      "target": "step:cli-device-login:post-login-setup",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "domain:identity-access",
+      "target": "flow:github-web-login",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:github-web-login",
+      "target": "step:github-web-login:redirect-github",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:github-web-login",
+      "target": "step:github-web-login:handle-callback",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:github-web-login",
+      "target": "step:github-web-login:check-allowlist",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:github-web-login",
+      "target": "step:github-web-login:establish-session",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "domain:identity-access",
+      "target": "flow:issue-workload-token",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:issue-workload-token",
+      "target": "step:issue-workload-token:enable-workload",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:issue-workload-token",
+      "target": "step:issue-workload-token:ensure-signing-key",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:issue-workload-token",
+      "target": "step:issue-workload-token:authenticate-secret",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:issue-workload-token",
+      "target": "step:issue-workload-token:mint-token",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:issue-workload-token",
+      "target": "step:issue-workload-token:sign-jwt",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:tenant-lifecycle",
+      "target": "flow:create-tenant",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:create-tenant",
+      "target": "step:create-tenant:build-plan",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:create-tenant",
+      "target": "step:create-tenant:ensure-bridge",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:create-tenant",
+      "target": "step:create-tenant:ensure-project",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:create-tenant",
+      "target": "step:create-tenant:create-sidecar",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:create-tenant",
+      "target": "step:create-tenant:install-packages",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:create-tenant",
+      "target": "step:create-tenant:configure-sidecar",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:create-tenant",
+      "target": "step:create-tenant:tailscale-up",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "domain:tenant-lifecycle",
+      "target": "flow:delete-tenant",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:delete-tenant",
+      "target": "step:delete-tenant:build-delete-plan",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:delete-tenant",
+      "target": "step:delete-tenant:cleanup-shares",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:delete-tenant",
+      "target": "step:delete-tenant:delete-projects",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:delete-tenant",
+      "target": "step:delete-tenant:clear-network",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:delete-tenant",
+      "target": "step:delete-tenant:execute-delete",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:tenant-lifecycle",
+      "target": "flow:inspect-tenant",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:inspect-tenant",
+      "target": "step:inspect-tenant:list-tenants",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:inspect-tenant",
+      "target": "step:inspect-tenant:read-topology",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:inspect-tenant",
+      "target": "step:inspect-tenant:compute-status",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:inspect-tenant",
+      "target": "step:inspect-tenant:share-health",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:inspect-tenant",
+      "target": "step:inspect-tenant:topology-checks",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:machine-lifecycle",
+      "target": "flow:create-machine",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:create-machine",
+      "target": "step:create-machine:parse-reference",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:create-machine",
+      "target": "step:create-machine:resolve-tenant",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:create-machine",
+      "target": "step:create-machine:allocate-ip",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:create-machine",
+      "target": "step:create-machine:assemble-devices",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:create-machine",
+      "target": "step:create-machine:confirm",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:create-machine",
+      "target": "step:create-machine:create-instance",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:create-machine",
+      "target": "step:create-machine:wait-ip",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "domain:machine-lifecycle",
+      "target": "flow:connect-machine",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:connect-machine",
+      "target": "step:connect-machine:resolve-target",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:connect-machine",
+      "target": "step:connect-machine:ensure-machine",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:connect-machine",
+      "target": "step:connect-machine:list-projects",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:connect-machine",
+      "target": "step:connect-machine:launch-shell",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "domain:machine-lifecycle",
+      "target": "flow:control-machine",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:control-machine",
+      "target": "step:control-machine:build-command",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:control-machine",
+      "target": "step:control-machine:resolve-machine",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:control-machine",
+      "target": "step:control-machine:apply-lifecycle",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:control-machine",
+      "target": "step:control-machine:repair-network",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "domain:machine-lifecycle",
+      "target": "flow:enable-workload-identity",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:enable-workload-identity",
+      "target": "step:enable-workload-identity:build-enable",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:enable-workload-identity",
+      "target": "step:enable-workload-identity:approve-device",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:enable-workload-identity",
+      "target": "step:enable-workload-identity:build-files",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:enable-workload-identity",
+      "target": "step:enable-workload-identity:token-helper",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:enable-workload-identity",
+      "target": "step:enable-workload-identity:apply-machine",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:networking-dns",
+      "target": "flow:enroll-tailnet",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:enroll-tailnet",
+      "target": "step:enroll-tailnet:advertise-up",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:enroll-tailnet",
+      "target": "step:enroll-tailnet:bring-up",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:enroll-tailnet",
+      "target": "step:enroll-tailnet:parse-status",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:enroll-tailnet",
+      "target": "step:enroll-tailnet:verify-login",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:enroll-tailnet",
+      "target": "step:enroll-tailnet:ensure-routing",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:networking-dns",
+      "target": "flow:reconcile-dns",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:reconcile-dns",
+      "target": "step:reconcile-dns:iterate-projects",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:reconcile-dns",
+      "target": "step:reconcile-dns:extract-ips",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:reconcile-dns",
+      "target": "step:reconcile-dns:render-zone",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:reconcile-dns",
+      "target": "step:reconcile-dns:normalize-serial",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:reconcile-dns",
+      "target": "step:reconcile-dns:apply-zone",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:networking-dns",
+      "target": "flow:configure-client-host",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:configure-client-host",
+      "target": "step:configure-client-host:plan-resolver",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:configure-client-host",
+      "target": "step:configure-client-host:install-resolver",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:configure-client-host",
+      "target": "step:configure-client-host:install-ca",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:configure-client-host",
+      "target": "step:configure-client-host:add-hosts",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "domain:public-routes",
+      "target": "flow:publish-route",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:publish-route",
+      "target": "step:publish-route:build-command",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:publish-route",
+      "target": "step:publish-route:normalize-hostname",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:publish-route",
+      "target": "step:publish-route:build-plan",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:publish-route",
+      "target": "step:publish-route:verify-dns-proof",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:publish-route",
+      "target": "step:publish-route:send-broker",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:publish-route",
+      "target": "step:publish-route:authorize",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:publish-route",
+      "target": "step:publish-route:mutate-infra",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "domain:public-routes",
+      "target": "flow:delete-route",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:delete-route",
+      "target": "step:delete-route:build-command",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:delete-route",
+      "target": "step:delete-route:send-broker",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:delete-route",
+      "target": "step:delete-route:map-principal",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:delete-route",
+      "target": "step:delete-route:authorize-delete",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:delete-route",
+      "target": "step:delete-route:remove-route",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:infrastructure-provisioning",
+      "target": "flow:install-infra",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:install-infra",
+      "target": "step:install-infra:build-command",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:install-infra",
+      "target": "step:install-infra:validate-host",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:install-infra",
+      "target": "step:install-infra:plan-infra",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:install-infra",
+      "target": "step:install-infra:seed-file",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:install-infra",
+      "target": "step:install-infra:bootstrap-authapp",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:install-infra",
+      "target": "step:install-infra:bootstrap-brokers",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:install-infra",
+      "target": "step:install-infra:install-incus",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "domain:infrastructure-provisioning",
+      "target": "flow:build-image",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:build-image",
+      "target": "step:build-image:plan-build",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:build-image",
+      "target": "step:build-image:plan-appliance",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:build-image",
+      "target": "step:build-image:provision-builder",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:build-image",
+      "target": "step:build-image:plan-remote-build",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:build-image",
+      "target": "step:build-image:run-build",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:build-image",
+      "target": "step:build-image:sync-image",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:infrastructure-provisioning",
+      "target": "flow:create-storage-share",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:create-storage-share",
+      "target": "step:create-storage-share:build-command",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:create-storage-share",
+      "target": "step:create-storage-share:plan-share",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:create-storage-share",
+      "target": "step:create-storage-share:enforce-access",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:create-storage-share",
+      "target": "step:create-storage-share:create-api",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:create-storage-share",
+      "target": "step:create-storage-share:reconcile-mounts",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:infrastructure-provisioning",
+      "target": "flow:broker-provision-project",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:broker-provision-project",
+      "target": "step:broker-provision-project:dispatch",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:broker-provision-project",
+      "target": "step:broker-provision-project:resolve-principal",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:broker-provision-project",
+      "target": "step:broker-provision-project:authorize-admin",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:broker-provision-project",
+      "target": "step:broker-provision-project:provision-tenant",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:broker-provision-project",
+      "target": "step:broker-provision-project:create-project",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:identity-access",
+      "target": "domain:tenant-lifecycle",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "On first CLI device login the Auth App provisions the user's personal tenant.",
+      "weight": 0.8
+    },
+    {
+      "source": "domain:infrastructure-provisioning",
+      "target": "domain:tenant-lifecycle",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "The mTLS Project Broker and operator install provision tenants and their projects.",
+      "weight": 0.7
+    },
+    {
+      "source": "domain:tenant-lifecycle",
+      "target": "domain:networking-dns",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Tenant creation brings up the sidecar's Tailscale and split-DNS.",
+      "weight": 0.7
+    },
+    {
+      "source": "domain:machine-lifecycle",
+      "target": "domain:identity-access",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Machines obtain short-lived Workload Identity Tokens from the Sandcastle OIDC Provider.",
+      "weight": 0.7
+    },
+    {
+      "source": "domain:machine-lifecycle",
+      "target": "domain:networking-dns",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Machine connectivity depends on the tailnet, split-DNS and host overrides.",
+      "weight": 0.6
+    },
+    {
+      "source": "domain:public-routes",
+      "target": "domain:infrastructure-provisioning",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Public routes are applied through the shared Caddy provisioned by infrastructure.",
+      "weight": 0.6
+    },
+    {
+      "source": "domain:public-routes",
+      "target": "domain:machine-lifecycle",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Route plans resolve the target machine to publish.",
+      "weight": 0.5
+    }
+  ],
+  "layers": [],
+  "tour": []
+}

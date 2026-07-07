@@ -1,0 +1,3467 @@
+{
+  "name": "sandcastle-incus",
+  "description": "Sandcastle Incus is the Incus-backed implementation of Sandcastle v1: a Go CLI (sandcastle/sc) plus Auth App that provisions multi-tenant, tenant-scoped Incus container machines for AI and development workflows, wires them onto a user-selected Tailscale network, serves private tenant DNS, and publishes HTTP routes through shared Caddy infrastructure. Note: this project has over 100 source files; consider scoping analysis to a subdirectory for faster results.",
+  "languages": [
+    "dockerfile",
+    "go",
+    "html",
+    "makefile",
+    "markdown",
+    "shell",
+    "toml",
+    "yaml"
+  ],
+  "frameworks": [
+    "Cobra",
+    "Incus",
+    "Docker",
+    "Docker Compose",
+    "GitHub Actions"
+  ],
+  "files": [
+    {
+      "path": ".antigravitycli/5b8e3993-f88e-4f30-baad-5d68a70d55e5.json",
+      "language": "json",
+      "sizeLines": 14,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".env.default",
+      "language": "config",
+      "sizeLines": 159,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "language": "yaml",
+      "sizeLines": 32,
+      "fileCategory": "infra"
+    },
+    {
+      "path": ".github/workflows/e2e-gates.yml",
+      "language": "yaml",
+      "sizeLines": 87,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 3,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "CLAUDE.md",
+      "language": "markdown",
+      "sizeLines": 114,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "cmd/sandcastle/main.go",
+      "language": "go",
+      "sizeLines": 45,
+      "fileCategory": "code"
+    },
+    {
+      "path": "CONTEXT.md",
+      "language": "markdown",
+      "sizeLines": 579,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/admin-developer-quickstart.html",
+      "language": "html",
+      "sizeLines": 568,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "docs/adr/0001-tenant-as-incus-project-boundary.md",
+      "language": "markdown",
+      "sizeLines": 15,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0002-go-auth-app-with-sqlite.md",
+      "language": "markdown",
+      "sizeLines": 16,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0003-github-username-identity-for-personal-tenants.md",
+      "language": "markdown",
+      "sizeLines": 16,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0004-cli-login-provisions-personal-tenant.md",
+      "language": "markdown",
+      "sizeLines": 17,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0005-sandcastle-oidc-provider-for-machine-workload-identity.md",
+      "language": "markdown",
+      "sizeLines": 17,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0006-tenant-tailnet-per-tenant.md",
+      "language": "markdown",
+      "sizeLines": 3,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0007-infrastructure-network-architecture.md",
+      "language": "markdown",
+      "sizeLines": 40,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0008-secret-bearing-infrastructure-seed-files.md",
+      "language": "markdown",
+      "sizeLines": 12,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0009-tenant-storage-share-broker.md",
+      "language": "markdown",
+      "sizeLines": 4,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0010-image-builder-appliance.md",
+      "language": "markdown",
+      "sizeLines": 21,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0011-user-boundary-project-as-incus-project.md",
+      "language": "markdown",
+      "sizeLines": 32,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0012-per-user-sidecar-and-machine-project-dns.md",
+      "language": "markdown",
+      "sizeLines": 24,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0013-public-routes-stay-shared-infrastructure.md",
+      "language": "markdown",
+      "sizeLines": 18,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0014-v2-migration-preserve-volumes-recreate.md",
+      "language": "markdown",
+      "sizeLines": 27,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0015-v2-installs-beside-v1.md",
+      "language": "markdown",
+      "sizeLines": 32,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0016-v2-mvp-admin-provisioned-native-incus.md",
+      "language": "markdown",
+      "sizeLines": 53,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0017-byo-tenant-tailnet-sidecar-incus-reach.md",
+      "language": "markdown",
+      "sizeLines": 67,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/adr/0018-machine-private-hostnames.md",
+      "language": "markdown",
+      "sizeLines": 25,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/agents/domain.md",
+      "language": "markdown",
+      "sizeLines": 35,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/agents/issue-tracker.md",
+      "language": "markdown",
+      "sizeLines": 31,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/agents/triage-labels.md",
+      "language": "markdown",
+      "sizeLines": 16,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/auth-app-full-setup.html",
+      "language": "html",
+      "sizeLines": 396,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "docs/e2e-sc2.md",
+      "language": "markdown",
+      "sizeLines": 959,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/e2e-testing-plan.md",
+      "language": "markdown",
+      "sizeLines": 379,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/features-and-scenarios.md",
+      "language": "markdown",
+      "sizeLines": 237,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/first-run-login-implementation-prompt.md",
+      "language": "markdown",
+      "sizeLines": 141,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/glossary.md",
+      "language": "markdown",
+      "sizeLines": 76,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/handoff-sandcastle-e2e-tunnel.md",
+      "language": "markdown",
+      "sizeLines": 228,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/image-pipeline.html",
+      "language": "html",
+      "sizeLines": 339,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "docs/implementation-plan.md",
+      "language": "markdown",
+      "sizeLines": 239,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/migration-history.md",
+      "language": "markdown",
+      "sizeLines": 73,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/oidc-configuration.html",
+      "language": "html",
+      "sizeLines": 422,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "docs/sandcastle-v1-spec.md",
+      "language": "markdown",
+      "sizeLines": 592,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/sc-login-process.md",
+      "language": "markdown",
+      "sizeLines": 87,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/tenant-storage-share-coldboot.html",
+      "language": "html",
+      "sizeLines": 275,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "docs/tenant-storage-shares.md",
+      "language": "markdown",
+      "sizeLines": 90,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/test_protocol.md",
+      "language": "markdown",
+      "sizeLines": 284,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/topology.md",
+      "language": "markdown",
+      "sizeLines": 100,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/usage.html",
+      "language": "html",
+      "sizeLines": 1136,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "go.mod",
+      "language": "mod",
+      "sizeLines": 67,
+      "fileCategory": "config"
+    },
+    {
+      "path": "images/ai/Dockerfile",
+      "language": "dockerfile",
+      "sizeLines": 61,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "images/base/Dockerfile",
+      "language": "dockerfile",
+      "sizeLines": 185,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "images/base/gitconfig",
+      "language": "unknown",
+      "sizeLines": 45,
+      "fileCategory": "code"
+    },
+    {
+      "path": "images/base/sandcastle-bootstrap",
+      "language": "unknown",
+      "sizeLines": 178,
+      "fileCategory": "code"
+    },
+    {
+      "path": "images/base/smb.conf",
+      "language": "conf",
+      "sizeLines": 36,
+      "fileCategory": "code"
+    },
+    {
+      "path": "impkement.md",
+      "language": "markdown",
+      "sizeLines": 74,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "implementation-notes.md",
+      "language": "markdown",
+      "sizeLines": 572,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "INSTALL.md",
+      "language": "markdown",
+      "sizeLines": 330,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "intergration_test.md",
+      "language": "markdown",
+      "sizeLines": 58,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "internal/authapp/access.go",
+      "language": "go",
+      "sizeLines": 203,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/allowlist.go",
+      "language": "go",
+      "sizeLines": 148,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/app.go",
+      "language": "go",
+      "sizeLines": 802,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/cli_token.go",
+      "language": "go",
+      "sizeLines": 56,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/client.go",
+      "language": "go",
+      "sizeLines": 607,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/cloud_identity.go",
+      "language": "go",
+      "sizeLines": 296,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/device.go",
+      "language": "go",
+      "sizeLines": 669,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/github.go",
+      "language": "go",
+      "sizeLines": 232,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/login.go",
+      "language": "go",
+      "sizeLines": 154,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/machines_web.go",
+      "language": "go",
+      "sizeLines": 278,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/mock_github.go",
+      "language": "go",
+      "sizeLines": 70,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/oidc.go",
+      "language": "go",
+      "sizeLines": 359,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/provision.go",
+      "language": "go",
+      "sizeLines": 202,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/shares.go",
+      "language": "go",
+      "sizeLines": 470,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/simulate.go",
+      "language": "go",
+      "sizeLines": 73,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/store.go",
+      "language": "go",
+      "sizeLines": 319,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/tenants.go",
+      "language": "go",
+      "sizeLines": 48,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/workload_api.go",
+      "language": "go",
+      "sizeLines": 182,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/authapp/workload.go",
+      "language": "go",
+      "sizeLines": 252,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/caddy/render.go",
+      "language": "go",
+      "sizeLines": 136,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/certs/certs.go",
+      "language": "go",
+      "sizeLines": 162,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cidr/allocator.go",
+      "language": "go",
+      "sizeLines": 104,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cidr/roles.go",
+      "language": "go",
+      "sizeLines": 7,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/admin_dns_events.go",
+      "language": "go",
+      "sizeLines": 78,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/admin_install_incus.go",
+      "language": "go",
+      "sizeLines": 127,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/admin_install.go",
+      "language": "go",
+      "sizeLines": 331,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/admin_machine.go",
+      "language": "go",
+      "sizeLines": 243,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/admin_root.go",
+      "language": "go",
+      "sizeLines": 304,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/admin.go",
+      "language": "go",
+      "sizeLines": 1349,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/auth_hostname.go",
+      "language": "go",
+      "sizeLines": 121,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/authapp_deploy.go",
+      "language": "go",
+      "sizeLines": 147,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/broker_client.go",
+      "language": "go",
+      "sizeLines": 83,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/cache.go",
+      "language": "go",
+      "sizeLines": 37,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/cloud_identity.go",
+      "language": "go",
+      "sizeLines": 435,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/cloudflare_tunnel.go",
+      "language": "go",
+      "sizeLines": 171,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/config_cmd.go",
+      "language": "go",
+      "sizeLines": 127,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/confirm.go",
+      "language": "go",
+      "sizeLines": 37,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/connect_v2.go",
+      "language": "go",
+      "sizeLines": 138,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/connect.go",
+      "language": "go",
+      "sizeLines": 491,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/create_v2.go",
+      "language": "go",
+      "sizeLines": 233,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/create.go",
+      "language": "go",
+      "sizeLines": 173,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/dns_refresh.go",
+      "language": "go",
+      "sizeLines": 18,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/dns.go",
+      "language": "go",
+      "sizeLines": 496,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/env_user.go",
+      "language": "go",
+      "sizeLines": 19,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/host.go",
+      "language": "go",
+      "sizeLines": 149,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/incus_cmd.go",
+      "language": "go",
+      "sizeLines": 166,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/known_hosts.go",
+      "language": "go",
+      "sizeLines": 228,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/list.go",
+      "language": "go",
+      "sizeLines": 340,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/login_ssh_key.go",
+      "language": "go",
+      "sizeLines": 111,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/login_tailnet.go",
+      "language": "go",
+      "sizeLines": 63,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/login.go",
+      "language": "go",
+      "sizeLines": 1105,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/machine_lifecycle.go",
+      "language": "go",
+      "sizeLines": 106,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/machine_status.go",
+      "language": "go",
+      "sizeLines": 30,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/output.go",
+      "language": "go",
+      "sizeLines": 21,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/password.go",
+      "language": "go",
+      "sizeLines": 93,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/port.go",
+      "language": "go",
+      "sizeLines": 50,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/project_cloud_identity.go",
+      "language": "go",
+      "sizeLines": 40,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/project_v2.go",
+      "language": "go",
+      "sizeLines": 285,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/project.go",
+      "language": "go",
+      "sizeLines": 319,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/remote.go",
+      "language": "go",
+      "sizeLines": 379,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/root.go",
+      "language": "go",
+      "sizeLines": 490,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/route.go",
+      "language": "go",
+      "sizeLines": 171,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/share.go",
+      "language": "go",
+      "sizeLines": 466,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/ssh_key.go",
+      "language": "go",
+      "sizeLines": 115,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/status.go",
+      "language": "go",
+      "sizeLines": 121,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/tailscale.go",
+      "language": "go",
+      "sizeLines": 169,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/tenant_unix_user.go",
+      "language": "go",
+      "sizeLines": 34,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/tenant.go",
+      "language": "go",
+      "sizeLines": 278,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/trust.go",
+      "language": "go",
+      "sizeLines": 103,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/version.go",
+      "language": "go",
+      "sizeLines": 20,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/cli/workload.go",
+      "language": "go",
+      "sizeLines": 225,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/config/admin.go",
+      "language": "go",
+      "sizeLines": 285,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/config/env.go",
+      "language": "go",
+      "sizeLines": 89,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/config/sandcastle.go",
+      "language": "go",
+      "sizeLines": 233,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/dns/apply.go",
+      "language": "go",
+      "sizeLines": 66,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/dns/render.go",
+      "language": "go",
+      "sizeLines": 110,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/domain/special_use_snapshot_generated.go",
+      "language": "go",
+      "sizeLines": 47,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/domain/tld_refresh.go",
+      "language": "go",
+      "sizeLines": 355,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/domain/tld_snapshot_generated.go",
+      "language": "go",
+      "sizeLines": 1442,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/domain/validate.go",
+      "language": "go",
+      "sizeLines": 108,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/e2e/diagnostics.go",
+      "language": "go",
+      "sizeLines": 218,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/e2e/harness.go",
+      "language": "go",
+      "sizeLines": 155,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/hostoverride/hosts.go",
+      "language": "go",
+      "sizeLines": 105,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/hostoverride/plan.go",
+      "language": "go",
+      "sizeLines": 305,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/images/plan.go",
+      "language": "go",
+      "sizeLines": 459,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/images/remote_exec.go",
+      "language": "go",
+      "sizeLines": 439,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/images/remote.go",
+      "language": "go",
+      "sizeLines": 388,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/api_log.go",
+      "language": "go",
+      "sizeLines": 33,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/appliance_systemd.go",
+      "language": "go",
+      "sizeLines": 37,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/authapp_bootstrap.go",
+      "language": "go",
+      "sizeLines": 291,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/authapp_ingress.go",
+      "language": "go",
+      "sizeLines": 125,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/broker_bootstrap.go",
+      "language": "go",
+      "sizeLines": 247,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/cliconfig_load.go",
+      "language": "go",
+      "sizeLines": 61,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/connect_cache.go",
+      "language": "go",
+      "sizeLines": 301,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/dns_v2.go",
+      "language": "go",
+      "sizeLines": 265,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/dns.go",
+      "language": "go",
+      "sizeLines": 139,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/duration.go",
+      "language": "go",
+      "sizeLines": 14,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/hostoverride.go",
+      "language": "go",
+      "sizeLines": 557,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/image_source.go",
+      "language": "go",
+      "sizeLines": 49,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/images.go",
+      "language": "go",
+      "sizeLines": 115,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/known_hosts.go",
+      "language": "go",
+      "sizeLines": 12,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/localtrust.go",
+      "language": "go",
+      "sizeLines": 298,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/machine_connect.go",
+      "language": "go",
+      "sizeLines": 578,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/machine_create_v2.go",
+      "language": "go",
+      "sizeLines": 231,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/machine_create.go",
+      "language": "go",
+      "sizeLines": 831,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/machine_lifecycle.go",
+      "language": "go",
+      "sizeLines": 206,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/machine_password.go",
+      "language": "go",
+      "sizeLines": 131,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/machine_port.go",
+      "language": "go",
+      "sizeLines": 133,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/machine_ssh_key.go",
+      "language": "go",
+      "sizeLines": 222,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/project_create_v2.go",
+      "language": "go",
+      "sizeLines": 97,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/projectbroker_adapter.go",
+      "language": "go",
+      "sizeLines": 164,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/route.go",
+      "language": "go",
+      "sizeLines": 477,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/routebroker_trust.go",
+      "language": "go",
+      "sizeLines": 92,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/share_reconcile.go",
+      "language": "go",
+      "sizeLines": 294,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/shared_remote.go",
+      "language": "go",
+      "sizeLines": 174,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/tailscale.go",
+      "language": "go",
+      "sizeLines": 250,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/tenant_create_v2.go",
+      "language": "go",
+      "sizeLines": 727,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/tenant_create.go",
+      "language": "go",
+      "sizeLines": 358,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/tenant_delete.go",
+      "language": "go",
+      "sizeLines": 302,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/tenant_store.go",
+      "language": "go",
+      "sizeLines": 320,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/tenant_update.go",
+      "language": "go",
+      "sizeLines": 230,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/topology.go",
+      "language": "go",
+      "sizeLines": 153,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/usertrust.go",
+      "language": "go",
+      "sizeLines": 357,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/incusx/volume_file_fallback.go",
+      "language": "go",
+      "sizeLines": 144,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/localdns/plan.go",
+      "language": "go",
+      "sizeLines": 191,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/localdns/store.go",
+      "language": "go",
+      "sizeLines": 223,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/localdns/strategy.go",
+      "language": "go",
+      "sizeLines": 117,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/localtrust/plan.go",
+      "language": "go",
+      "sizeLines": 100,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/localtrust/store.go",
+      "language": "go",
+      "sizeLines": 206,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/machine/connect.go",
+      "language": "go",
+      "sizeLines": 117,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/machine/lifecycle.go",
+      "language": "go",
+      "sizeLines": 66,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/machine/password.go",
+      "language": "go",
+      "sizeLines": 15,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/machine/plan.go",
+      "language": "go",
+      "sizeLines": 619,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/machine/port.go",
+      "language": "go",
+      "sizeLines": 60,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/machine/resolve.go",
+      "language": "go",
+      "sizeLines": 186,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/machine/status.go",
+      "language": "go",
+      "sizeLines": 50,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/machine/workload_identity.go",
+      "language": "go",
+      "sizeLines": 227,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/meta/meta.go",
+      "language": "go",
+      "sizeLines": 269,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/naming/naming.go",
+      "language": "go",
+      "sizeLines": 319,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/naming/v2.go",
+      "language": "go",
+      "sizeLines": 70,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/projectbroker/serve.go",
+      "language": "go",
+      "sizeLines": 243,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/route/dnsproof.go",
+      "language": "go",
+      "sizeLines": 75,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/route/errors.go",
+      "language": "go",
+      "sizeLines": 23,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/route/plan.go",
+      "language": "go",
+      "sizeLines": 275,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/routebroker/authorize.go",
+      "language": "go",
+      "sizeLines": 102,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/routebroker/client.go",
+      "language": "go",
+      "sizeLines": 161,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/routebroker/serve.go",
+      "language": "go",
+      "sizeLines": 84,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/routebroker/server.go",
+      "language": "go",
+      "sizeLines": 256,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/share/share.go",
+      "language": "go",
+      "sizeLines": 886,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/tailscale/status.go",
+      "language": "go",
+      "sizeLines": 164,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/tailscale/up.go",
+      "language": "go",
+      "sizeLines": 174,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/tenant/create_plan_v2.go",
+      "language": "go",
+      "sizeLines": 209,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/tenant/create_plan.go",
+      "language": "go",
+      "sizeLines": 94,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/tenant/delete_plan.go",
+      "language": "go",
+      "sizeLines": 54,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/tenant/list.go",
+      "language": "go",
+      "sizeLines": 337,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/tenant/status.go",
+      "language": "go",
+      "sizeLines": 202,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/tenant/update.go",
+      "language": "go",
+      "sizeLines": 222,
+      "fileCategory": "code"
+    },
+    {
+      "path": "internal/usertrust/plan.go",
+      "language": "go",
+      "sizeLines": 203,
+      "fileCategory": "code"
+    },
+    {
+      "path": "Makefile",
+      "language": "makefile",
+      "sizeLines": 39,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "mise.toml",
+      "language": "toml",
+      "sizeLines": 216,
+      "fileCategory": "config"
+    },
+    {
+      "path": "OIDC.html",
+      "language": "html",
+      "sizeLines": 314,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "OIDC.md",
+      "language": "markdown",
+      "sizeLines": 319,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "PROGRESS.md",
+      "language": "markdown",
+      "sizeLines": 392,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 77,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "sc-edge/caddy.service",
+      "language": "service",
+      "sizeLines": 25,
+      "fileCategory": "code"
+    },
+    {
+      "path": "sc-edge/Caddyfile",
+      "language": "unknown",
+      "sizeLines": 104,
+      "fileCategory": "code"
+    },
+    {
+      "path": "sc-edge/CLAUDE.md",
+      "language": "markdown",
+      "sizeLines": 130,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "sc-edge/cloudflared.service",
+      "language": "service",
+      "sizeLines": 23,
+      "fileCategory": "code"
+    },
+    {
+      "path": "sc-edge/compose.yaml",
+      "language": "yaml",
+      "sizeLines": 40,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "sc-edge/CONTEXT.md",
+      "language": "markdown",
+      "sizeLines": 52,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "sc-edge/Dockerfile",
+      "language": "dockerfile",
+      "sizeLines": 20,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "sc-edge/docs/adr/0001-sc-edge-three-mode-flexible-edge.md",
+      "language": "markdown",
+      "sizeLines": 71,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "sc-edge/launch.sh",
+      "language": "shell",
+      "sizeLines": 113,
+      "fileCategory": "script"
+    },
+    {
+      "path": "sc-edge/README.md",
+      "language": "markdown",
+      "sizeLines": 271,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "scripts/configure-gcp-oidc.sh",
+      "language": "shell",
+      "sizeLines": 307,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/e2e-local-vm.sh",
+      "language": "shell",
+      "sizeLines": 159,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/e2e-v2.sh",
+      "language": "shell",
+      "sizeLines": 161,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/e2e.sh",
+      "language": "shell",
+      "sizeLines": 214,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/import-docker-image-to-incus.sh",
+      "language": "shell",
+      "sizeLines": 147,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/install-image-to-tenant.sh",
+      "language": "shell",
+      "sizeLines": 112,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/setup-workvm.sh",
+      "language": "shell",
+      "sizeLines": 301,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/sync-sandcastle-images-to-projects.sh",
+      "language": "shell",
+      "sizeLines": 58,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/verify-gcp-oidc.sh",
+      "language": "shell",
+      "sizeLines": 367,
+      "fileCategory": "script"
+    },
+    {
+      "path": "TEST_PROTOCOL.html",
+      "language": "html",
+      "sizeLines": 73,
+      "fileCategory": "markup"
+    }
+  ],
+  "totalFiles": 242,
+  "filteredByIgnore": 98,
+  "estimatedComplexity": "large",
+  "importMap": {
+    ".antigravitycli/5b8e3993-f88e-4f30-baad-5d68a70d55e5.json": [],
+    ".env.default": [],
+    ".github/workflows/ci.yml": [],
+    ".github/workflows/e2e-gates.yml": [],
+    "AGENTS.md": [],
+    "CLAUDE.md": [],
+    "cmd/sandcastle/main.go": [
+      "internal/cli/admin_dns_events.go",
+      "internal/cli/admin_install_incus.go",
+      "internal/cli/admin_install.go",
+      "internal/cli/admin_machine.go",
+      "internal/cli/admin_root.go",
+      "internal/cli/admin.go",
+      "internal/cli/auth_hostname.go",
+      "internal/cli/authapp_deploy.go",
+      "internal/cli/broker_client.go",
+      "internal/cli/cache.go",
+      "internal/cli/cloud_identity.go",
+      "internal/cli/cloudflare_tunnel.go",
+      "internal/cli/config_cmd.go",
+      "internal/cli/confirm.go",
+      "internal/cli/connect_v2.go",
+      "internal/cli/connect.go",
+      "internal/cli/create_v2.go",
+      "internal/cli/create.go",
+      "internal/cli/dns_refresh.go",
+      "internal/cli/dns.go",
+      "internal/cli/env_user.go",
+      "internal/cli/host.go",
+      "internal/cli/incus_cmd.go",
+      "internal/cli/known_hosts.go",
+      "internal/cli/list.go",
+      "internal/cli/login_ssh_key.go",
+      "internal/cli/login_tailnet.go",
+      "internal/cli/login.go",
+      "internal/cli/machine_lifecycle.go",
+      "internal/cli/machine_status.go",
+      "internal/cli/output.go",
+      "internal/cli/password.go",
+      "internal/cli/port.go",
+      "internal/cli/project_cloud_identity.go",
+      "internal/cli/project_v2.go",
+      "internal/cli/project.go",
+      "internal/cli/remote.go",
+      "internal/cli/root.go",
+      "internal/cli/route.go",
+      "internal/cli/share.go",
+      "internal/cli/ssh_key.go",
+      "internal/cli/status.go",
+      "internal/cli/tailscale.go",
+      "internal/cli/tenant_unix_user.go",
+      "internal/cli/tenant.go",
+      "internal/cli/trust.go",
+      "internal/cli/version.go",
+      "internal/cli/workload.go"
+    ],
+    "CONTEXT.md": [],
+    "docs/admin-developer-quickstart.html": [],
+    "docs/adr/0001-tenant-as-incus-project-boundary.md": [],
+    "docs/adr/0002-go-auth-app-with-sqlite.md": [],
+    "docs/adr/0003-github-username-identity-for-personal-tenants.md": [],
+    "docs/adr/0004-cli-login-provisions-personal-tenant.md": [],
+    "docs/adr/0005-sandcastle-oidc-provider-for-machine-workload-identity.md": [],
+    "docs/adr/0006-tenant-tailnet-per-tenant.md": [],
+    "docs/adr/0007-infrastructure-network-architecture.md": [],
+    "docs/adr/0008-secret-bearing-infrastructure-seed-files.md": [],
+    "docs/adr/0009-tenant-storage-share-broker.md": [],
+    "docs/adr/0010-image-builder-appliance.md": [],
+    "docs/adr/0011-user-boundary-project-as-incus-project.md": [],
+    "docs/adr/0012-per-user-sidecar-and-machine-project-dns.md": [],
+    "docs/adr/0013-public-routes-stay-shared-infrastructure.md": [],
+    "docs/adr/0014-v2-migration-preserve-volumes-recreate.md": [],
+    "docs/adr/0015-v2-installs-beside-v1.md": [],
+    "docs/adr/0016-v2-mvp-admin-provisioned-native-incus.md": [],
+    "docs/adr/0017-byo-tenant-tailnet-sidecar-incus-reach.md": [],
+    "docs/adr/0018-machine-private-hostnames.md": [],
+    "docs/agents/domain.md": [],
+    "docs/agents/issue-tracker.md": [],
+    "docs/agents/triage-labels.md": [],
+    "docs/auth-app-full-setup.html": [],
+    "docs/e2e-sc2.md": [],
+    "docs/e2e-testing-plan.md": [],
+    "docs/features-and-scenarios.md": [],
+    "docs/first-run-login-implementation-prompt.md": [],
+    "docs/glossary.md": [],
+    "docs/handoff-sandcastle-e2e-tunnel.md": [],
+    "docs/image-pipeline.html": [],
+    "docs/implementation-plan.md": [],
+    "docs/migration-history.md": [],
+    "docs/oidc-configuration.html": [],
+    "docs/sandcastle-v1-spec.md": [],
+    "docs/sc-login-process.md": [],
+    "docs/tenant-storage-share-coldboot.html": [],
+    "docs/tenant-storage-shares.md": [],
+    "docs/test_protocol.md": [],
+    "docs/topology.md": [],
+    "docs/usage.html": [],
+    "go.mod": [],
+    "images/ai/Dockerfile": [],
+    "images/base/Dockerfile": [],
+    "images/base/gitconfig": [],
+    "images/base/sandcastle-bootstrap": [],
+    "images/base/smb.conf": [],
+    "impkement.md": [],
+    "implementation-notes.md": [],
+    "INSTALL.md": [],
+    "intergration_test.md": [],
+    "internal/authapp/access.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/authapp/allowlist.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/authapp/app.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/projectbroker/serve.go",
+      "internal/share/share.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/authapp/cli_token.go": [],
+    "internal/authapp/client.go": [
+      "internal/meta/meta.go",
+      "internal/projectbroker/serve.go",
+      "internal/share/share.go"
+    ],
+    "internal/authapp/cloud_identity.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/authapp/device.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/authapp/github.go": [],
+    "internal/authapp/login.go": [],
+    "internal/authapp/machines_web.go": [
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/authapp/mock_github.go": [],
+    "internal/authapp/oidc.go": [
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/authapp/provision.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/authapp/shares.go": [
+      "internal/meta/meta.go",
+      "internal/share/share.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/authapp/simulate.go": [],
+    "internal/authapp/store.go": [
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/authapp/tenants.go": [],
+    "internal/authapp/workload_api.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/authapp/workload.go": [
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/caddy/render.go": [
+      "internal/meta/meta.go"
+    ],
+    "internal/certs/certs.go": [],
+    "internal/cidr/allocator.go": [],
+    "internal/cidr/roles.go": [],
+    "internal/cli/admin_dns_events.go": [
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/admin_install_incus.go": [],
+    "internal/cli/admin_install.go": [
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/cli/admin_machine.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/cli/admin_root.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/images/plan.go",
+      "internal/images/remote_exec.go",
+      "internal/images/remote.go",
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/localtrust/plan.go",
+      "internal/localtrust/store.go",
+      "internal/routebroker/authorize.go",
+      "internal/routebroker/client.go",
+      "internal/routebroker/serve.go",
+      "internal/routebroker/server.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/admin.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/domain/special_use_snapshot_generated.go",
+      "internal/domain/tld_refresh.go",
+      "internal/domain/tld_snapshot_generated.go",
+      "internal/domain/validate.go",
+      "internal/images/plan.go",
+      "internal/images/remote_exec.go",
+      "internal/images/remote.go",
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/projectbroker/serve.go",
+      "internal/routebroker/authorize.go",
+      "internal/routebroker/client.go",
+      "internal/routebroker/serve.go",
+      "internal/routebroker/server.go",
+      "internal/share/share.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/cli/auth_hostname.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go"
+    ],
+    "internal/cli/authapp_deploy.go": [
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go"
+    ],
+    "internal/cli/broker_client.go": [],
+    "internal/cli/cache.go": [
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go"
+    ],
+    "internal/cli/cloud_identity.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go"
+    ],
+    "internal/cli/cloudflare_tunnel.go": [],
+    "internal/cli/config_cmd.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go"
+    ],
+    "internal/cli/confirm.go": [],
+    "internal/cli/connect_v2.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/cli/connect.go": [
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/cli/create_v2.go": [
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/create.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/cli/dns_refresh.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/dns.go": [
+      "internal/dns/apply.go",
+      "internal/dns/render.go",
+      "internal/localdns/plan.go",
+      "internal/localdns/store.go",
+      "internal/localdns/strategy.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/env_user.go": [],
+    "internal/cli/host.go": [
+      "internal/hostoverride/hosts.go",
+      "internal/hostoverride/plan.go"
+    ],
+    "internal/cli/incus_cmd.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/known_hosts.go": [
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/cli/list.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/login_ssh_key.go": [],
+    "internal/cli/login_tailnet.go": [],
+    "internal/cli/login.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/localdns/plan.go",
+      "internal/localdns/store.go",
+      "internal/localdns/strategy.go",
+      "internal/localtrust/plan.go",
+      "internal/localtrust/store.go",
+      "internal/tailscale/status.go",
+      "internal/tailscale/up.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/cli/machine_lifecycle.go": [
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/cli/machine_status.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/cli/output.go": [],
+    "internal/cli/password.go": [],
+    "internal/cli/port.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/cli/project_cloud_identity.go": [
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/project_v2.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/cli/project.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/remote.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go"
+    ],
+    "internal/cli/root.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/dns/apply.go",
+      "internal/dns/render.go",
+      "internal/hostoverride/hosts.go",
+      "internal/hostoverride/plan.go",
+      "internal/images/plan.go",
+      "internal/images/remote_exec.go",
+      "internal/images/remote.go",
+      "internal/incusx/api_log.go",
+      "internal/incusx/appliance_systemd.go",
+      "internal/incusx/authapp_bootstrap.go",
+      "internal/incusx/authapp_ingress.go",
+      "internal/incusx/broker_bootstrap.go",
+      "internal/incusx/cliconfig_load.go",
+      "internal/incusx/connect_cache.go",
+      "internal/incusx/dns_v2.go",
+      "internal/incusx/dns.go",
+      "internal/incusx/duration.go",
+      "internal/incusx/hostoverride.go",
+      "internal/incusx/image_source.go",
+      "internal/incusx/images.go",
+      "internal/incusx/known_hosts.go",
+      "internal/incusx/localtrust.go",
+      "internal/incusx/machine_connect.go",
+      "internal/incusx/machine_create_v2.go",
+      "internal/incusx/machine_create.go",
+      "internal/incusx/machine_lifecycle.go",
+      "internal/incusx/machine_password.go",
+      "internal/incusx/machine_port.go",
+      "internal/incusx/machine_ssh_key.go",
+      "internal/incusx/project_create_v2.go",
+      "internal/incusx/projectbroker_adapter.go",
+      "internal/incusx/route.go",
+      "internal/incusx/routebroker_trust.go",
+      "internal/incusx/share_reconcile.go",
+      "internal/incusx/shared_remote.go",
+      "internal/incusx/tailscale.go",
+      "internal/incusx/tenant_create_v2.go",
+      "internal/incusx/tenant_create.go",
+      "internal/incusx/tenant_delete.go",
+      "internal/incusx/tenant_store.go",
+      "internal/incusx/tenant_update.go",
+      "internal/incusx/topology.go",
+      "internal/incusx/usertrust.go",
+      "internal/incusx/volume_file_fallback.go",
+      "internal/localdns/plan.go",
+      "internal/localdns/store.go",
+      "internal/localdns/strategy.go",
+      "internal/localtrust/plan.go",
+      "internal/localtrust/store.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/projectbroker/serve.go",
+      "internal/route/dnsproof.go",
+      "internal/route/errors.go",
+      "internal/route/plan.go",
+      "internal/routebroker/authorize.go",
+      "internal/routebroker/client.go",
+      "internal/routebroker/serve.go",
+      "internal/routebroker/server.go",
+      "internal/share/share.go",
+      "internal/tailscale/status.go",
+      "internal/tailscale/up.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/cli/route.go": [
+      "internal/route/dnsproof.go",
+      "internal/route/errors.go",
+      "internal/route/plan.go"
+    ],
+    "internal/cli/share.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/meta/meta.go",
+      "internal/share/share.go"
+    ],
+    "internal/cli/ssh_key.go": [],
+    "internal/cli/status.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/share/share.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/tailscale.go": [
+      "internal/tailscale/status.go",
+      "internal/tailscale/up.go"
+    ],
+    "internal/cli/tenant_unix_user.go": [
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/cli/tenant.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/localdns/plan.go",
+      "internal/localdns/store.go",
+      "internal/localdns/strategy.go",
+      "internal/localtrust/plan.go",
+      "internal/localtrust/store.go",
+      "internal/tailscale/status.go",
+      "internal/tailscale/up.go"
+    ],
+    "internal/cli/trust.go": [
+      "internal/localtrust/plan.go",
+      "internal/localtrust/store.go"
+    ],
+    "internal/cli/version.go": [],
+    "internal/cli/workload.go": [
+      "internal/authapp/access.go",
+      "internal/authapp/allowlist.go",
+      "internal/authapp/app.go",
+      "internal/authapp/cli_token.go",
+      "internal/authapp/client.go",
+      "internal/authapp/cloud_identity.go",
+      "internal/authapp/device.go",
+      "internal/authapp/github.go",
+      "internal/authapp/login.go",
+      "internal/authapp/machines_web.go",
+      "internal/authapp/mock_github.go",
+      "internal/authapp/oidc.go",
+      "internal/authapp/provision.go",
+      "internal/authapp/shares.go",
+      "internal/authapp/simulate.go",
+      "internal/authapp/store.go",
+      "internal/authapp/tenants.go",
+      "internal/authapp/workload_api.go",
+      "internal/authapp/workload.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go"
+    ],
+    "internal/config/admin.go": [
+      "internal/domain/special_use_snapshot_generated.go",
+      "internal/domain/tld_refresh.go",
+      "internal/domain/tld_snapshot_generated.go",
+      "internal/domain/validate.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/config/env.go": [],
+    "internal/config/sandcastle.go": [],
+    "internal/dns/apply.go": [
+      "internal/cidr/allocator.go",
+      "internal/cidr/roles.go",
+      "internal/meta/meta.go"
+    ],
+    "internal/dns/render.go": [
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/domain/special_use_snapshot_generated.go": [],
+    "internal/domain/tld_refresh.go": [],
+    "internal/domain/tld_snapshot_generated.go": [],
+    "internal/domain/validate.go": [],
+    "internal/e2e/diagnostics.go": [
+      "internal/localdns/plan.go",
+      "internal/localdns/store.go",
+      "internal/localdns/strategy.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/e2e/harness.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/tailscale/status.go",
+      "internal/tailscale/up.go"
+    ],
+    "internal/hostoverride/hosts.go": [],
+    "internal/hostoverride/plan.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/images/plan.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go"
+    ],
+    "internal/images/remote_exec.go": [],
+    "internal/images/remote.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go"
+    ],
+    "internal/incusx/api_log.go": [],
+    "internal/incusx/appliance_systemd.go": [],
+    "internal/incusx/authapp_bootstrap.go": [
+      "internal/meta/meta.go"
+    ],
+    "internal/incusx/authapp_ingress.go": [],
+    "internal/incusx/broker_bootstrap.go": [
+      "internal/certs/certs.go",
+      "internal/meta/meta.go"
+    ],
+    "internal/incusx/cliconfig_load.go": [],
+    "internal/incusx/connect_cache.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/incusx/dns_v2.go": [
+      "internal/dns/apply.go",
+      "internal/dns/render.go",
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/dns.go": [
+      "internal/dns/apply.go",
+      "internal/dns/render.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/duration.go": [],
+    "internal/incusx/hostoverride.go": [
+      "internal/caddy/render.go",
+      "internal/hostoverride/hosts.go",
+      "internal/hostoverride/plan.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/image_source.go": [],
+    "internal/incusx/images.go": [
+      "internal/images/plan.go",
+      "internal/images/remote_exec.go",
+      "internal/images/remote.go"
+    ],
+    "internal/incusx/known_hosts.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go"
+    ],
+    "internal/incusx/localtrust.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/localtrust/plan.go",
+      "internal/localtrust/store.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/machine_connect.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/incusx/machine_create_v2.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/machine_create.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/machine_lifecycle.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go"
+    ],
+    "internal/incusx/machine_password.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/machine_port.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go"
+    ],
+    "internal/incusx/machine_ssh_key.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/project_create_v2.go": [
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/projectbroker_adapter.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/projectbroker/serve.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go",
+      "internal/usertrust/plan.go"
+    ],
+    "internal/incusx/route.go": [
+      "internal/caddy/render.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/route/dnsproof.go",
+      "internal/route/errors.go",
+      "internal/route/plan.go"
+    ],
+    "internal/incusx/routebroker_trust.go": [
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/routebroker/authorize.go",
+      "internal/routebroker/client.go",
+      "internal/routebroker/serve.go",
+      "internal/routebroker/server.go"
+    ],
+    "internal/incusx/share_reconcile.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/share/share.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/shared_remote.go": [],
+    "internal/incusx/tailscale.go": [
+      "internal/meta/meta.go",
+      "internal/tailscale/status.go",
+      "internal/tailscale/up.go"
+    ],
+    "internal/incusx/tenant_create_v2.go": [
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/tenant_create.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/tenant_delete.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/tenant_store.go": [
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/tenant_update.go": [
+      "internal/meta/meta.go",
+      "internal/share/share.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/topology.go": [
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/incusx/usertrust.go": [
+      "internal/usertrust/plan.go"
+    ],
+    "internal/incusx/volume_file_fallback.go": [],
+    "internal/localdns/plan.go": [
+      "internal/cidr/allocator.go",
+      "internal/cidr/roles.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/localdns/store.go": [
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/localdns/strategy.go": [],
+    "internal/localtrust/plan.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/localtrust/store.go": [],
+    "internal/machine/connect.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/machine/lifecycle.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/machine/password.go": [
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/machine/plan.go": [
+      "internal/caddy/render.go",
+      "internal/certs/certs.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/share/share.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/machine/port.go": [
+      "internal/caddy/render.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/machine/resolve.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/machine/status.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/machine/workload_identity.go": [],
+    "internal/meta/meta.go": [],
+    "internal/naming/naming.go": [],
+    "internal/naming/v2.go": [],
+    "internal/projectbroker/serve.go": [
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/routebroker/authorize.go",
+      "internal/routebroker/client.go",
+      "internal/routebroker/serve.go",
+      "internal/routebroker/server.go"
+    ],
+    "internal/route/dnsproof.go": [],
+    "internal/route/errors.go": [],
+    "internal/route/plan.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/machine/connect.go",
+      "internal/machine/lifecycle.go",
+      "internal/machine/password.go",
+      "internal/machine/plan.go",
+      "internal/machine/port.go",
+      "internal/machine/resolve.go",
+      "internal/machine/status.go",
+      "internal/machine/workload_identity.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/routebroker/authorize.go": [
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/route/dnsproof.go",
+      "internal/route/errors.go",
+      "internal/route/plan.go"
+    ],
+    "internal/routebroker/client.go": [
+      "internal/route/dnsproof.go",
+      "internal/route/errors.go",
+      "internal/route/plan.go"
+    ],
+    "internal/routebroker/serve.go": [],
+    "internal/routebroker/server.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/route/dnsproof.go",
+      "internal/route/errors.go",
+      "internal/route/plan.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/share/share.go": [
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/tailscale/status.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/meta/meta.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/tailscale/up.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go",
+      "internal/tenant/create_plan_v2.go",
+      "internal/tenant/create_plan.go",
+      "internal/tenant/delete_plan.go",
+      "internal/tenant/list.go",
+      "internal/tenant/status.go",
+      "internal/tenant/update.go"
+    ],
+    "internal/tenant/create_plan_v2.go": [
+      "internal/certs/certs.go",
+      "internal/cidr/allocator.go",
+      "internal/cidr/roles.go",
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/dns/apply.go",
+      "internal/dns/render.go",
+      "internal/domain/special_use_snapshot_generated.go",
+      "internal/domain/tld_refresh.go",
+      "internal/domain/tld_snapshot_generated.go",
+      "internal/domain/validate.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/tenant/create_plan.go": [
+      "internal/cidr/allocator.go",
+      "internal/cidr/roles.go"
+    ],
+    "internal/tenant/delete_plan.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/tenant/list.go": [
+      "internal/cidr/allocator.go",
+      "internal/cidr/roles.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/tenant/status.go": [
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/tenant/update.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/meta/meta.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "internal/usertrust/plan.go": [
+      "internal/config/admin.go",
+      "internal/config/env.go",
+      "internal/config/sandcastle.go",
+      "internal/naming/naming.go",
+      "internal/naming/v2.go"
+    ],
+    "Makefile": [],
+    "mise.toml": [],
+    "OIDC.html": [],
+    "OIDC.md": [],
+    "PROGRESS.md": [],
+    "README.md": [],
+    "sc-edge/caddy.service": [],
+    "sc-edge/Caddyfile": [],
+    "sc-edge/CLAUDE.md": [],
+    "sc-edge/cloudflared.service": [],
+    "sc-edge/compose.yaml": [],
+    "sc-edge/CONTEXT.md": [],
+    "sc-edge/Dockerfile": [],
+    "sc-edge/docs/adr/0001-sc-edge-three-mode-flexible-edge.md": [],
+    "sc-edge/launch.sh": [],
+    "sc-edge/README.md": [],
+    "scripts/configure-gcp-oidc.sh": [],
+    "scripts/e2e-local-vm.sh": [],
+    "scripts/e2e-v2.sh": [],
+    "scripts/e2e.sh": [],
+    "scripts/import-docker-image-to-incus.sh": [],
+    "scripts/install-image-to-tenant.sh": [],
+    "scripts/setup-workvm.sh": [],
+    "scripts/sync-sandcastle-images-to-projects.sh": [],
+    "scripts/verify-gcp-oidc.sh": [],
+    "TEST_PROTOCOL.html": []
+  }
+}
