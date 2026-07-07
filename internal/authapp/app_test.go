@@ -728,6 +728,37 @@ func TestDevicePollRetriesPersonalTenantProvisioningFailure(t *testing.T) {
 	}
 }
 
+// A terminal provisioning error (bad user input, e.g. an immutable-suffix
+// conflict) must DENY the device login so the client fails fast with the
+// message — not stay pending and re-attempt provisioning on every poll until
+// the client times out.
+func TestDevicePollDeniesLoginOnTerminalProvisioningError(t *testing.T) {
+	db := authDBForTest(t)
+	cookie := adminSessionCookieForTest(t, db)
+	provisioner := &fakePersonalTenantProvisioner{
+		terminalErr: tenant.TerminalProvisionError{Err: errors.New(`the Tenant DNS Suffix is immutable: tenant x already uses "castle" (requested "other")`)},
+	}
+	handler := NewHandler(db, HandlerOptions{Provisioner: provisioner})
+	login, err := CreateDeviceLogin(context.Background(), db, "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveRequest := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
+	approveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approveRequest.AddCookie(cookie)
+	handler.ServeHTTP(httptest.NewRecorder(), approveRequest)
+
+	denied := pollDeviceForTest(t, handler, login.DeviceCode)
+	if denied.Status != DeviceStatusDenied || !strings.Contains(denied.Message, "immutable") {
+		t.Fatalf("terminal-error poll = %#v", denied)
+	}
+	// The denial is durable: the next poll must NOT re-attempt provisioning.
+	again := pollDeviceForTest(t, handler, login.DeviceCode)
+	if again.Status != DeviceStatusDenied || provisioner.calls != 1 {
+		t.Fatalf("second poll = %#v calls=%d", again, provisioner.calls)
+	}
+}
+
 func TestDeviceApprovalRequiresGitHubSession(t *testing.T) {
 	db := authDBForTest(t)
 	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
@@ -1055,14 +1086,18 @@ func testAuthAdminConfig() config.Admin {
 }
 
 type fakePersonalTenantProvisioner struct {
-	calls    int
-	failures int
-	users    []User
+	calls       int
+	failures    int
+	terminalErr error
+	users       []User
 }
 
 func (p *fakePersonalTenantProvisioner) EnsurePersonalTenant(ctx context.Context, user User, options ProvisionOptions) (PersonalTenantResult, error) {
 	p.calls++
 	p.users = append(p.users, user)
+	if p.terminalErr != nil {
+		return PersonalTenantResult{}, p.terminalErr
+	}
 	if p.calls <= p.failures {
 		return PersonalTenantResult{}, errors.New("boom")
 	}

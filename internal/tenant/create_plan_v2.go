@@ -120,7 +120,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 	requestedSuffix := strings.TrimSpace(request.DNSSuffix)
 	existingSuffix := strings.TrimSpace(request.ExistingDNSSuffix)
 	if requestedSuffix != "" && existingSuffix != "" && requestedSuffix != existingSuffix {
-		return CreatePlanV2{}, fmt.Errorf("the Tenant DNS Suffix is immutable: tenant %s already uses %q (requested %q)", ref.Tenant, existingSuffix, requestedSuffix)
+		return CreatePlanV2{}, TerminalProvisionError{Err: fmt.Errorf("the Tenant DNS Suffix is immutable: tenant %s already uses %q (requested %q)", ref.Tenant, existingSuffix, requestedSuffix)}
 	}
 	effectiveSuffix := requestedSuffix
 	if effectiveSuffix == "" {
@@ -134,7 +134,8 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 		DeniedSuffixes:  admin.DeniedDomainSuffixes,
 	})
 	if err != nil {
-		return CreatePlanV2{}, err
+		// Bad user input — no retry can fix a rejected suffix.
+		return CreatePlanV2{}, TerminalProvisionError{Err: err}
 	}
 	var tenantCIDR netip.Prefix
 	if pref := strings.TrimSpace(request.PreferredCIDR); pref != "" {

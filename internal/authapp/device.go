@@ -145,7 +145,16 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		cancel()
 		unlock()
 		if err != nil {
-			login.Status = DeviceStatusPending
+			if tenant.IsTerminalProvisionError(err) {
+				// No retry can fix this (e.g. immutable-suffix conflict) —
+				// deny the login so the client fails fast with the message
+				// instead of polling to timeout while every poll re-attempts
+				// a provisioning that can never succeed.
+				_, _ = h.db.ExecContext(r.Context(), "UPDATE device_logins SET status = ?, message = ? WHERE device_code = ?", DeviceStatusDenied, login.Message, login.DeviceCode)
+				login.Status = DeviceStatusDenied
+			} else {
+				login.Status = DeviceStatusPending
+			}
 		}
 	}
 	sshFingerprint := ""

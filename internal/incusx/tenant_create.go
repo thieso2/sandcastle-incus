@@ -221,7 +221,23 @@ func (s sdkTenantCreateServer) SupportsIdmappedMounts() bool {
 	if err != nil || server == nil {
 		return false
 	}
-	return server.Environment.KernelFeatures["idmapped_mounts"] == "true"
+	return kernelFeaturesSupportIdmappedMounts(server.Environment.KernelFeatures)
+}
+
+// kernelFeaturesSupportIdmappedMounts interprets the daemon's kernel_features
+// map. Incus 7.x stopped populating it entirely (always {}), and its kernel
+// floor (5.15) already includes idmapped mounts (5.12) — so an ABSENT entry
+// means supported; only an explicit "false" (older daemons that still report)
+// disables the shared /home. Keying on == "true" made every Incus 7.x host
+// silently lose the shared /home. (A container-hosted incus may still fail
+// shifted attachment at machine start, but that topology can't host the
+// tenant VMs anyway.)
+func kernelFeaturesSupportIdmappedMounts(features map[string]string) bool {
+	value, reported := features["idmapped_mounts"]
+	if !reported {
+		return true
+	}
+	return value == "true"
 }
 
 type sdkTenantCreateServer struct {

@@ -294,6 +294,43 @@ client" during the coexistence e2e. Four linked fixes:
 - Regression test: `TestListMachinesScopedToCurrentInstall` (two installs,
   same tenant name, each remote must see its own machine set).
 
+## 2026-07-07 — Incus 7.x broke idmapped-mounts detection → shared /home silently gone
+
+- **Bug (caught by the shared-home e2e battery on obelix):** on a fresh Incus
+  7.2 host the `home` volume was created but attached to NO profile, and both
+  shared volumes were created unshifted — CT↔VM `/home` sharing silently
+  gone. `SupportsIdmappedMounts` keyed on
+  `kernel_features["idmapped_mounts"] == "true"`, and Incus 7.x stopped
+  populating `environment.kernel_features` (always `{}`), so every 7.x host
+  read as idmapped-less.
+- **Fix:** absent entry → supported (Incus 7.x's kernel floor 5.15 already
+  includes idmapped mounts, which landed in 5.12); explicit `"false"` (older
+  daemons that still report) → unsupported. Alternative considered: probing
+  by attaching a shifted volume — rejected, the failure only surfaces at
+  instance start. Known tradeoff: a container-hosted incus (nested CT) also
+  reports `{}` and would now try shifted volumes and fail at machine start —
+  that topology can't host the tenant VMs anyway and is not a supported
+  server shape. Regression test: `TestKernelFeaturesSupportIdmappedMounts`.
+
+## 2026-07-07 — terminal provisioning errors kept the device login polling to timeout
+
+- **Bug (immutability e2e check):** `sc login --force --dns-suffix other`
+  printed the immutable-suffix error immediately but then polled for ~10
+  minutes to "device login polling timed out", with the server re-attempting
+  provisioning on every poll. Provisioning failures always left the device
+  login `pending` — right for transient bring-up errors (the retry loop is
+  deliberate), wrong for deterministic user-input errors.
+- **Fix:** a `tenant.TerminalProvisionError` wrapper marks no-retry-can-fix
+  errors (immutable-suffix conflict, rejected suffix); the poll handler
+  DENIES the device login on one, and the client surfaces
+  `device login denied: <message>` (exit 1) on its next poll. Transient
+  errors keep the pending/retry behavior. Regression test:
+  `TestDevicePollDeniesLoginOnTerminalProvisioningError`.
+- **Deploy gotcha (harness):** `incus file push` over an existing same-named
+  file through the nested (big → obelix VM) path silently left the OLD file
+  in place once — always `rm -f` the target first and verify `sha256sum`
+  after pushing a binary.
+
 ## Running Notes
 
 - Started implementation from the committed domain docs (`CONTEXT.md`,

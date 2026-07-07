@@ -823,6 +823,12 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				case authapp.DeviceStatusExpired:
 					return fmt.Errorf("device login expired")
 				case authapp.DeviceStatusDenied:
+					// A terminal provisioning failure (e.g. immutable-suffix
+					// conflict) denies the login server-side; surface its
+					// message instead of a bare "denied".
+					if message := strings.TrimSpace(result.Message); message != "" {
+						return fmt.Errorf("device login denied: %s", message)
+					}
 					return fmt.Errorf("device login denied")
 				default:
 					return fmt.Errorf("unknown device login status %q", result.Status)
