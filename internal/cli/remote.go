@@ -135,7 +135,10 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 	// automatically instead of failing. Falls back to the caller's stdin when no
 	// tailnet address is known (v1 / non-sidecar remotes).
 	if addr := strings.TrimSpace(incusAddress); addr != "" {
-		addCmd.Stdin = strings.NewReader(net.JoinHostPort(addr, "8443") + "\n")
+		// The prompt parses each entry as a URL, so it must carry a scheme —
+		// a bare host:port fails with "first path segment in URL cannot contain
+		// colon".
+		addCmd.Stdin = strings.NewReader("https://" + net.JoinHostPort(addr, "8443") + "\n")
 	} else {
 		addCmd.Stdin = ioConfig.stdin
 	}
