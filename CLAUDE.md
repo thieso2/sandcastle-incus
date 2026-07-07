@@ -84,8 +84,13 @@ Whenever you change a CLI command, flag, mise task, script, or workflow, update 
 
 - `docs/usage.html` — CLI reference for all `sandcastle` commands and mise image tasks
 - `docs/admin-developer-quickstart.html` — step-by-step admin onboarding guide
+- `docs/e2e-sc2.md` — the end-to-end test protocol. **Always keep it up to date** with any change that affects install, provisioning, login/enrollment, tenant/machine/DNS behaviour, or coexistence — add or amend the relevant phase/PASS criteria in the same commit. The e2e doc is the executable source of truth for how the system is expected to behave end to end; a code change that isn't reflected there is not done.
 
 Do not leave docs trailing behind code changes.
+
+## Implementation notes (`implementation-notes.md`)
+
+Keep a running `implementation-notes.md` at the repo root. As you work, append an entry whenever you make a decision that **wasn't in the spec**: a design choice you had to invent, something you had to change from what was asked, a tradeoff you made, a workaround for an environment/tooling limitation, or anything else the user should know to understand *why* the code looks the way it does. Each entry: a dated heading, what the decision was, the alternatives considered, and why you chose it. This is the "why", complementary to ADRs (which record larger, harder-to-reverse architectural decisions) — `implementation-notes.md` is the lighter-weight running log. Keep it current in the same commit as the change it describes.
 
 ## Conventions
 

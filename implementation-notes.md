@@ -1,5 +1,54 @@
 # Implementation Notes
 
+Running log of decisions that weren't in the spec — choices invented on the
+spot, deviations from what was asked, tradeoffs, and workarounds for
+environment/tooling limits. The "why" behind the code; larger hard-to-reverse
+decisions live in `docs/adr/`. Newest first.
+
+## 2026-07-07 — multi-install coexistence, shared identity, appliance bridge
+
+- **Each install owns its appliance bridge `<prefix>-net`** (was: appliances on
+  shared `incusbr0`). Subnet is `ipv4.address=auto` — let Incus pick a free /24,
+  provably non-overlapping, vs. a `--appliance-cidr` flag or deriving from the
+  tenant pool. `--bridge` default flipped from `incusbr0` to empty (empty ⇒ own
+  bridge; set ⇒ use that existing bridge) — a deliberate behaviour change.
+  No unit test (no `TenantCreateServer` fake; logic mirrors the live-tested
+  `ensureV2Bridge`) — validated on the live install.
+- **Skip the broker entirely for Cloudflare ingress** (was: broker deployed with
+  a container-internal `:9443`). It was unreachable dead weight — no host port,
+  no tunnel route; tenant self-service rides the auth-app `/api/projects`.
+  Removed the `NoHostPort` half-measure. Existing-install guard keys on the
+  auth-app instance, so detection still works with no broker project.
+- **Shared incus dir auto-detects `~/.config/incus`.** Prefer the native dir so
+  plain `incus` works with no wrapper, but only when it has no foreign identity.
+  A `.sandcastle-owned` marker (dropped *before* the client cert is written)
+  pins the choice so the dir doesn't flip to the dedicated dir once its own
+  `client.crt` appears. Driven by the hard constraint: one keypair per Incus
+  config dir, so an admin cert and a restricted tenant cert can't coexist —
+  which keeps hosts/admin workstations on the dedicated dir automatically.
+- **Provision on a detached context** (`context.Background()`, 8-min budget, per
+  device-code lock) instead of the poll request context. Workaround for a real
+  limit: over a flaky Cloudflare tunnel the client poll times out (~30s) and
+  cancels the request, which aborted provisioning mid-flight so bring-up never
+  finished. This was *the* unlock for the from-scratch dual-install e2e. A full
+  async-job design is possible; this was the minimal correct fix.
+- **Provisioning idempotency/boot-race fixes** exposed by a cached-base-image
+  host (creates return instantly): tolerate spurious "already running" on
+  `Start:true`; wait for RUNNING before configuring an appliance/sidecar; start
+  an existing STOPPED sidecar on re-provision.
+- **Trust union + per-remote project pin** (shared-identity core): Incus keys
+  trust by cert fingerprint, so multiple installs sharing one client cert means
+  each install must *union* its projects into the one trust entry, and each
+  remote must be *pinned* to its install's default project (the shared cert's
+  server-side default is otherwise ambiguous and lists the wrong install's
+  machines).
+- **Environment note (not a code decision):** the test VMs' frp link drops
+  constantly and aggressive manual cleanup (`rm -rf /var/lib/incus`, `ip link
+  delete` on bridges) corrupts the Incus seccomp/device runtime → fresh sidecars
+  flake to STOPPED; a daemon/VM reboot clears it. Tear down tenant bridges with
+  `incus network delete` (clear the app project's default-profile `eth0` first),
+  never raw `ip link`, or dnsmasq orphans hold the gateway `:53`.
+
 ## Running Notes
 
 - Started implementation from the committed domain docs (`CONTEXT.md`,

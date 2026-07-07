@@ -85,6 +85,14 @@ Suffix. Validated **from scratch** (purged host → `install-incus` → two
   `tenant.List`, and the DNS reconciler are all prefix-scoped (`meta.KeyV2Prefix`
   on the infra project), so same-named tenants of different installs are
   distinct and each auth-app only sweeps its own sidecars.
+- **Own appliance bridge:** each install creates and owns a NATed bridge
+  `<prefix>-net` (`sc2-net`, `id-net`) with an Incus auto-picked subnet and puts
+  its auth-app/broker on it — so the appliances share **no** network object with
+  v1 or with another install (only the Incus daemon is shared). `--bridge`
+  overrides to an existing bridge (e.g. `incusbr0`). Per-tenant bridges are
+  unchanged — each tenant still owns its own `/24`. **e2e check:** after two
+  installs, `incus network list` shows `sc2-net` and `id-net` as distinct
+  managed bridges, and nothing binds `:9443` on the host.
 - **Client — shared identity:** all enrollments live in ONE incus config dir
   (`~/.config/sandcastle/incus`) sharing ONE client keypair; each install is a
   plain remote — `sc-<tenant>` (default install), `sc-<prefix>-<tenant>`
