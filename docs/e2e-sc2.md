@@ -70,17 +70,39 @@ run, and never enable it on a production install you don't intend to test
 against. An attended real-OAuth login is an optional extra verification, not
 part of the default protocol.
 
-### Multi-install coexistence (validated 2026-07-06)
+### Multi-install coexistence + shared identity (validated from scratch 2026-07-07)
 
 Several sandcastles share one Incus host via `--prefix` (e.g. `sc` +
 `--prefix id`), each with its own hostname/tunnel, CIDR pool, and Tenant DNS
-Suffix. Validated side by side on one server + one client: distinct appliances
-(`id-auth-app`/`id-broker`), prefix-qualified certificates and client remotes
-(`sandcastle-id-<tenant>`), tunnel installs bind **no broker host port**
-(tenant plane = auth-app `/api/projects`), per-install DNS zones with zero
-cross-zone bleed, and both enrollments usable from one client
-(`SANDCASTLE_REMOTE=<remote> sc …` selects; the last login is the default).
-Keep CIDR pools distinct across installs sharing a tailnet.
+Suffix. Validated **from scratch** (purged host → `install-incus` → two
+`sc-adm install` runs) side by side on one server + one client:
+
+- **Server:** distinct appliances (`sc2-*` vs `id-*`); tunnel installs bind
+  **no broker host port** (tenant plane = auth-app token-gated
+  `POST /api/projects`), so exactly one `:9443` on the host. Own-tenant lookup,
+  `tenant.List`, and the DNS reconciler are all prefix-scoped (`meta.KeyV2Prefix`
+  on the infra project), so same-named tenants of different installs are
+  distinct and each auth-app only sweeps its own sidecars.
+- **Client — shared identity:** all enrollments live in ONE incus config dir
+  (`~/.config/sandcastle/incus`) sharing ONE client keypair; each install is a
+  plain remote — `sc-<tenant>` (default install), `sc-<prefix>-<tenant>`
+  otherwise — so `incus remote switch sc-id-<tenant>` moves between sandcastles
+  natively. Each remote is pinned to its install's default project (the shared
+  cert's server-side default is ambiguous). Because Incus keys trust by
+  fingerprint, `sc login` sends the client's existing cert and each install
+  **unions** its projects into that one trust entry.
+- **Proven green:** native `incus launch sc-e2e:web` and `sc-id-e2e:api` both
+  RUNNING from the one client; per-install DNS zones with **zero cross-zone
+  bleed** (`web.default.e2e` resolves in the sc zone and is NXDOMAIN in the id
+  zone, and vice-versa for `api.default.idefix`).
+
+Keep CIDR pools distinct across installs sharing a tailnet. Robustness fixes the
+from-scratch run surfaced (all in `internal/incusx` + the auth-app): tolerate
+the spurious "already running" on a cached-image create; wait for RUNNING
+before configuring an appliance/sidecar; start an existing STOPPED sidecar on
+re-provision; and — the big one for flaky edges — **provision on a detached
+context** so a Cloudflare-tunnel poll timeout can't cancel tenant bring-up
+mid-flight.
 
 ### Run logging — `logs/<machine-name>.log` (required)
 
