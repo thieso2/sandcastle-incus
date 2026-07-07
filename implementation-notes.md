@@ -5,6 +5,16 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-07 — `sc connect --vm`: auto-create as a virtual machine
+
+- `sc c <name>` (v2) already auto-creates a missing machine, but always as a
+  container. Added `--vm` to connect so `sc c --vm tubu` creates the machine as
+  a VM when it doesn't exist (pass-through to `EnsureMachineV2`; no effect on
+  an existing machine). VMs get a 240s SSH-wait window instead of 120s —
+  firmware + kernel boot precede cloud-init. Validated live: created a VM in
+  `tc3-thieso2-default`, SSH'd in, hostname `tubu.default.tc4` (login-chosen
+  DNS suffix intact).
+
 ## 2026-07-07 — incus current remote is the single source of truth for `sc`'s remote
 
 - Two knobs selected the active install and could disagree: the shared incus

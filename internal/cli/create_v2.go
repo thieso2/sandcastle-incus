@@ -155,7 +155,7 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 // runConnectV2 implements `sc connect` (alias `c`) for v2 tenants: create the
 // machine if it doesn't exist, start it if it is stopped, wait for sshd, then
 // open an SSH session as the profile login user with the login SSH key.
-func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, command []string) error {
+func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, command []string, vm bool) error {
 	project, machineName, err := resolveV2MachineReference(summary, reference, config.adminConfig.Project)
 	if err != nil {
 		return err
@@ -164,6 +164,7 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 		IncusProject: summary.V2IncusProjectName(project),
 		Name:         machineName,
 		Image:        v2DefaultMachineImage,
+		VM:           vm,
 	})
 	if err != nil {
 		return err
@@ -177,11 +178,16 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 	if ensured.PrivateIP == "" {
 		return fmt.Errorf("machine %s has no IP yet — still booting; retry in a few seconds (watch with: sc list)", machineName)
 	}
-	// A fresh machine needs cloud-init to install and start sshd.
-	sshDeadline := time.Now().Add(120 * time.Second)
+	// A fresh machine needs cloud-init to install and start sshd. VMs take
+	// longer: image download + firmware/kernel boot before cloud-init even runs.
+	sshWait := 120 * time.Second
+	if vm {
+		sshWait = 240 * time.Second
+	}
+	sshDeadline := time.Now().Add(sshWait)
 	for !probeSSHPort(ensured.PrivateIP, 3*time.Second) {
 		if !time.Now().Before(sshDeadline) {
-			return fmt.Errorf("machine %s (%s) did not open SSH within 2 minutes — cloud-init may still be running", machineName, ensured.PrivateIP)
+			return fmt.Errorf("machine %s (%s) did not open SSH within %s — cloud-init may still be running", machineName, ensured.PrivateIP, sshWait)
 		}
 		select {
 		case <-ctx.Done():

@@ -20,6 +20,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var maxPolls int
 	var debugApprove bool
 	var useMosh bool
+	var useVM bool
 	command := &cobra.Command{
 		Use:     "connect [tenant/][project:]machine [-- command...]",
 		Aliases: []string{"c"},
@@ -30,7 +31,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			command := args[1:]
 			// v2 tenants: ensure the freeform machine exists and runs, then SSH.
 			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
-				return runConnectV2(cmd.Context(), config, summary, reference, command)
+				return runConnectV2(cmd.Context(), config, summary, reference, command, useVM)
 			}
 			cache := incusx.NewConnectCache(config.adminConfig.Remote)
 			plan, fromCache, err := planConnectCached(cmd.Context(), config, cache, reference, command, useMosh)
@@ -124,6 +125,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts when enabling workload identity")
 	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve workload identity device login (requires server --debug-device-user)")
 	command.Flags().BoolVar(&useMosh, "mosh", false, "connect with mosh instead of ssh")
+	command.Flags().BoolVar(&useVM, "vm", false, "v2 only: when the machine has to be created first, launch a virtual machine instead of a container")
 	return command
 }
 
