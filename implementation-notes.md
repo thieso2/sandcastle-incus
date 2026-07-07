@@ -249,6 +249,28 @@ client" during the coexistence e2e. Four linked fixes:
   `incus network delete` (clear the app project's default-profile `eth0` first),
   never raw `ip link`, or dnsmasq orphans hold the gateway `:53`.
 
+## 2026-07-07 — foreign v1 tenant CIDR adopted as own on a second install
+
+- **Bug (live on big):** first login to the `tc2` install by GitHub user
+  `thieso2` failed with `dnsmasq: failed to create listening socket for
+  10.248.1.1: Address already in use`. `ProvisionReuseInputs` scoped v2
+  (`kind=infra`) own-tenant matching by `meta.KeyV2Prefix`, but the v1
+  (`kind=tenant`) branch matched by tenant name alone — so the old `sc`
+  install's v1 project `sc-thieso2` (10.248.1.0/24) was adopted as the new
+  install's own CIDR (`PreferredCIDR`) instead of counting as occupied, and
+  tc2 tried to build its tenant bridge on the live `sc-thieso2` gateway.
+- **Fix:** v1 (`kind=tenant`) projects are **never** own in the v2
+  provisioning path — same-named or not, whatever the prefix, their `/24` is
+  always occupied. Alternative considered: recognize a v1 tenant as own when
+  the project name equals `<installPrefix>-<tenant>` (v1 carries no prefix
+  metadata), so a same-install v1→v2 re-provision keeps its /24 — rejected
+  because the v1 bridge (dnsmasq bound to the gateway IP) may still be live,
+  so reusing the /24 collides at bridge creation even within the same
+  install, and the v2 path never creates `kind=tenant` projects anyway.
+  Regression test: `TestProvisionReuseInputsNeverOwnsV1CIDR`. One fix covers
+  all three provisioning paths (device login, `sc-adm tenant create`, project
+  broker) — they all call `ProvisionReuseInputs`.
+
 ## Running Notes
 
 - Started implementation from the committed domain docs (`CONTEXT.md`,

@@ -108,7 +108,17 @@ Suffix. Validated **from scratch** (purged host → `install-incus` → two
   lookup,
   `tenant.List`, and the DNS reconciler are all prefix-scoped (`meta.KeyV2Prefix`
   on the infra project), so same-named tenants of different installs are
-  distinct and each auth-app only sweeps its own sidecars.
+  distinct and each auth-app only sweeps its own sidecars. This scoping covers
+  **v1 tenants too**, more strictly: a `kind=tenant` project is **always** a
+  legacy install's tenant — same-named or not, whatever the prefix — so its
+  `/24` is **occupied**, never adopted as `PreferredCIDR` (the v1 bridge, with
+  its dnsmasq on the gateway IP, may still be live; the v2 path never creates
+  `kind=tenant` projects). Before this, a first login by a user who owned a v1
+  tenant reused the v1 tenant's `/24` and the new install's bridge died with
+  `dnsmasq: failed to create listening socket for <gw>: Address already in
+  use`. Regression test: `TestProvisionReuseInputsNeverOwnsV1CIDR`. **e2e
+  check:** on a host with a v1 `sc-<user>` tenant, first login by the same
+  user to any v2 install provisions on a fresh `/24`.
 - **Own appliance bridge:** each install creates and owns a NATed bridge
   `<prefix>-net` (`sc2-net`, `id-net`) with an Incus auto-picked subnet and puts
   its auth-app/broker on it — so the appliances share **no** network object with
