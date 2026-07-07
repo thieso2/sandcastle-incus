@@ -5,6 +5,28 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-07 — enrollment reaches the sidecar over the tailnet, not the private CIDR
+
+Found during the first real-OAuth login from a Mac that was on the tenant tailnet
+but had NOT accepted the tenant subnet route.
+
+- **`incus remote add` now auto-answers with the sidecar's tailnet endpoint.** The
+  Incus join token embeds the sidecar Incus's own https address, which lives on the
+  tenant's PRIVATE CIDR (e.g. 10.253.x.x). A client that already accepted the tenant
+  subnet route (like the e2e VM) can reach it; a plain tailnet client cannot, so
+  `incus remote add <token>` fell through to an interactive "provide alternate
+  server addresses" prompt and, non-interactively, failed with "All server
+  addresses are unavailable." The auth-app already returns the sidecar's TAILNET IP
+  as `IncusRemoteAddress` (used for the later `set-url`), so we now feed that
+  `<ip>:8443` to the prompt on stdin — enrollment connects over the tailnet with no
+  subnet route required. Falls back to the caller's stdin when no tailnet address is
+  known. Without this, every first login from a Mac/laptop that isn't a subnet-route
+  client would stall at the prompt.
+- **TODO (not yet fixed): auth-app SQLite `SQLITE_BUSY` under concurrent device
+  poll.** The first real login hit `auth app device poll: database is locked (5)
+  (SQLITE_BUSY)`; a retry cleared it. The device-poll path races provisioning
+  writes on the same SQLite file. Needs a busy_timeout / WAL / serialized writer.
+
 ## 2026-07-07 — client-side split-DNS for v2 + reconciler self-heal
 
 Surfaced while chasing "why doesn't `<machine>.<project>.<suffix>` resolve on the

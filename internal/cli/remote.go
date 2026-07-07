@@ -127,7 +127,18 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 	}
 	addCmd := exec.CommandContext(ctx, "incus", "remote", "add", name, joinToken)
 	addCmd.Env = env
-	addCmd.Stdin = ioConfig.stdin
+	// The join token embeds the sidecar Incus's own https address, which is on the
+	// tenant's PRIVATE CIDR — a client that hasn't accepted the tenant subnet route
+	// can't reach it, so `incus remote add` prompts "provide alternate server
+	// addresses". We already know the sidecar's tailnet endpoint (incusAddress),
+	// which every tenant-tailnet client can reach directly, so answer that prompt
+	// automatically instead of failing. Falls back to the caller's stdin when no
+	// tailnet address is known (v1 / non-sidecar remotes).
+	if addr := strings.TrimSpace(incusAddress); addr != "" {
+		addCmd.Stdin = strings.NewReader(net.JoinHostPort(addr, "8443") + "\n")
+	} else {
+		addCmd.Stdin = ioConfig.stdin
+	}
 	addCmd.Stdout = ioConfig.stdout
 	var addErr strings.Builder
 	addCmd.Stderr = io.MultiWriter(ioConfig.stderr, &addErr)
