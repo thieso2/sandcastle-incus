@@ -138,31 +138,37 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 			}); err != nil {
 				return fmt.Errorf("auth-app deploy: %w", err)
 			}
-			fmt.Fprintf(config.stdout, "[2/2] deploying broker appliance %s...\n", brokerName)
-			if err := creator.BootstrapV2(cmd.Context(), incusx.BootstrapV2Request{
-				BaseImage:     baseImage,
-				BinaryPath:    binaryPath,
-				Bridge:        bridge,
-				StoragePool:   storagePool,
-				Hostname:      hostname,
-				CIDRPool:      cidrPool,
-				PublicPort:    brokerPort,
-				Project:       brokerName,
-				Instance:      brokerName,
-				ProjectPrefix: installV2Prefix(prefix),
-				// Tunnel-fronted installs need no inbound host port: the tenant
-				// plane rides the auth-app API, so the broker stays
-				// container-internal and cannot collide with other installs.
-				NoHostPort: ingressMode == incusx.IngressCloudflare,
-			}); err != nil {
-				return fmt.Errorf("broker bootstrap: %w", err)
+			// The broker appliance is only reachable — and therefore only useful
+			// — when it has a host port (acme/none ingress). With a Cloudflare
+			// tunnel there is no inbound host port and no tunnel route to it, and
+			// the tenant plane rides the auth-app's /api/projects, so the broker
+			// would be dead weight. Skip it entirely.
+			deployBroker := ingressMode != incusx.IngressCloudflare
+			if deployBroker {
+				fmt.Fprintf(config.stdout, "[2/2] deploying broker appliance %s...\n", brokerName)
+				if err := creator.BootstrapV2(cmd.Context(), incusx.BootstrapV2Request{
+					BaseImage:     baseImage,
+					BinaryPath:    binaryPath,
+					Bridge:        bridge,
+					StoragePool:   storagePool,
+					Hostname:      hostname,
+					CIDRPool:      cidrPool,
+					PublicPort:    brokerPort,
+					Project:       brokerName,
+					Instance:      brokerName,
+					ProjectPrefix: installV2Prefix(prefix),
+				}); err != nil {
+					return fmt.Errorf("broker bootstrap: %w", err)
+				}
+			} else {
+				fmt.Fprintf(config.stdout, "[2/2] skipping broker appliance (Cloudflare ingress: tenant plane is the auth-app /api/projects; no reachable broker)\n")
 			}
 			fmt.Fprintf(config.stdout, "sandcastle installed (prefix %q):\n", prefix)
 			fmt.Fprintf(config.stdout, "  auth-app: %s (project infrastructure), serving :9444 internally\n", authAppInstance)
-			if ingressMode == incusx.IngressCloudflare {
-				fmt.Fprintf(config.stdout, "  broker:   %s (project %s), container-internal :9443 (no host port)\n", brokerName, brokerName)
-			} else {
+			if deployBroker {
 				fmt.Fprintf(config.stdout, "  broker:   %s (project %s), :%s\n", brokerName, brokerName, brokerPort)
+			} else {
+				fmt.Fprintf(config.stdout, "  broker:   (not deployed — Cloudflare ingress uses the auth-app tenant plane)\n")
 			}
 			fmt.Fprintf(config.stdout, "  tenant CIDR pool: %s (shared; the allocator avoids other tenants' /24s)\n", cidrPool)
 			switch ingressMode {

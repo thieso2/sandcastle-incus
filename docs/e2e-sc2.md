@@ -79,7 +79,9 @@ Suffix. Validated **from scratch** (purged host → `install-incus` → two
 
 - **Server:** distinct appliances (`sc2-*` vs `id-*`); tunnel installs bind
   **no broker host port** (tenant plane = auth-app token-gated
-  `POST /api/projects`), so exactly one `:9443` on the host. Own-tenant lookup,
+  `POST /api/projects`), so with a Cloudflare tunnel the broker appliance is
+  **not deployed at all** and **nothing binds `:9443` on the host**. Own-tenant
+  lookup,
   `tenant.List`, and the DNS reconciler are all prefix-scoped (`meta.KeyV2Prefix`
   on the infra project), so same-named tenants of different installs are
   distinct and each auth-app only sweeps its own sidecars.

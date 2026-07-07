@@ -39,12 +39,11 @@ type BootstrapV2Request struct {
 	Hostname     string // DNS name for the self-signed broker cert SAN
 	CIDRPool     string // v2 CIDR pool (e.g. 10.249.0.0/16)
 	SidecarImage string // system-container base for tenant sidecars
-	PublicPort   string // host port to expose (default 9443; ignored with NoHostPort)
-	// NoHostPort skips the host proxy device entirely: the broker listens only
-	// inside its container (cloudflare-tunnel installs need no inbound host
-	// port; the tenant plane rides the auth-app API instead). Admins on the
-	// host reach it at the appliance's bridge IP :9443.
-	NoHostPort    bool
+	PublicPort   string // host port to expose (default 9443)
+	// The broker is only deployed when it has a reachable host port (acme/none
+	// ingress); Cloudflare-tunnel installs skip it entirely (the tenant plane is
+	// the auth-app's /api/projects), so there is no "container-internal only"
+	// mode here.
 	ProjectPrefix string // installation prefix baked into the appliance env (default sc2)
 	Project       string // Incus project for the appliance (default BrokerProjectName)
 	Instance      string // appliance instance name (default BrokerInstanceName)
@@ -155,12 +154,9 @@ func ensureBrokerInstance(server TenantResourceServer, req BootstrapV2Request, p
 		"eth0": {"type": "nic", "nictype": "bridged", "parent": req.Bridge},
 		// mount the host admin socket → the broker uses it with full rights
 		"incus-socket": {"type": "disk", "source": BrokerIncusSocket, "path": BrokerIncusSocket},
-	}
-	// Expose the broker on the host — unless the install is tunnel-fronted, in
-	// which case the tenant plane rides the auth-app API and the broker stays
-	// container-internal (no host port to collide with other installs).
-	if !req.NoHostPort {
-		devices["broker"] = map[string]string{"type": "proxy", "listen": "tcp:0.0.0.0:" + port, "connect": "tcp:" + BrokerListenInternal}
+		// expose the broker on the host (the broker is only deployed at all when
+		// a reachable host port is wanted — acme/none ingress)
+		"broker": {"type": "proxy", "listen": "tcp:0.0.0.0:" + port, "connect": "tcp:" + BrokerListenInternal},
 	}
 	op, err := server.CreateInstance(api.InstancesPost{
 		Name:   req.instance(),

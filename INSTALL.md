@@ -2,8 +2,9 @@
 
 This guide stands up the complete Sandcastle stack on one fresh Debian machine:
 Incus itself, the **auth-app** appliance (GitHub login + OIDC + tenant
-provisioning, with the public edge built in), and the **broker** appliance
-(admin provisioning plane). Tenants then run as native Incus projects; their
+provisioning, with the public edge built in). (An **acme**/**none**-ingress
+install also deploys a **broker** appliance for the tenant plane; the Cloudflare
+path in this guide does not — see §4.) Tenants then run as native Incus projects; their
 machines are plain Incus containers/VMs.
 
 It is the distilled, install-only path — two commands on the server plus a
@@ -149,12 +150,18 @@ sc-adm install \
   --cidr-pool 10.253.0.0/16
 ```
 
-This deploys **both appliances** from stock `images:debian/13` (pulled on
-demand), copying the **running binary** (`os.Executable()`) into each:
+This deploys the **auth-app appliance** from stock `images:debian/13` (pulled on
+demand), copying the **running binary** (`os.Executable()`) into it:
 
 - `sc2-auth-app` (project `infrastructure`) — auth-app on `:9444` internally,
   fronted by caddy + cloudflared *inside the same container* (no host ports)
-- `sc2-broker` (project `sc2-broker`) — admin provisioning plane on host `:9443`
+
+> **No broker with Cloudflare ingress.** The broker appliance is only deployed
+> for `--ingress acme`/`none`, where it needs a reachable host `:9443` for the
+> tenant plane. With a Cloudflare tunnel there is no inbound host port and no
+> route to the broker, and tenant self-service (`sc project create`) rides the
+> auth-app's `POST /api/projects` instead — so the broker is skipped entirely
+> and **nothing binds `:9443` on the host**.
 
 Both share the one `--cidr-pool` for tenant allocation — see §6 before
 picking it. `sc-adm install` refuses to run when an installation under the
@@ -177,8 +184,8 @@ On the host:
 ```bash
 incus exec sc2-auth-app --project infrastructure -- \
   systemctl is-active sandcastle-auth-app caddy cloudflared   # active ×3
-incus exec sc2-broker --project sc2-broker -- \
-  systemctl is-active sandcastle-broker                       # active
+# (acme/none ingress only — Cloudflare installs deploy no broker)
+# incus exec sc2-broker --project sc2-broker -- systemctl is-active sandcastle-broker
 ```
 
 The tunnel in the Cloudflare dashboard flips to **Healthy**. (In the
@@ -239,7 +246,8 @@ sc project create test2          # self-service project via the broker
 
 **Admin path (no browser):** admins can create tenants directly on the host —
 `sc-adm tenant create <name> --ssh-key "$(cat ~/.ssh/id_ed25519.pub)" --cidr-pool …`
-(or remotely via `--broker https://<host>:9443`). It prints an enrollment
+(remote `--broker https://<host>:9443` works only for acme/none installs that
+have a broker). It prints an enrollment
 token; the user runs `sc enroll <token>` on their client.
 
 ---
@@ -301,7 +309,7 @@ Rules:
 Incus host
 ├── project infrastructure
 │   └── sc2-auth-app   auth-app :9444 + caddy :8080 + cloudflared (outbound tunnel)
-├── project sc2-broker
+├── project sc2-broker            (acme/none ingress only — omitted with Cloudflare)
 │   └── sc2-broker     broker :9443  (admin provisioning plane)
 └── project sc2-<tenant> / sc2-<tenant>-default
     ├── sc2-<tenant>   per-tenant sidecar (CoreDNS + Tailscale on the TENANT's tailnet)
