@@ -187,6 +187,9 @@ func tenantState(plan Plan) (TenantState, error) {
 }
 
 func resolverContent(plan Plan) (string, error) {
+	if plan.ResolverStrategy == StrategySystemdResolve && resolverDirOverride() == "" {
+		return SystemdResolvedDropIn(plan.DNSSuffix, plan.DNSEndpoint)
+	}
 	host, port, err := net.SplitHostPort(plan.DNSEndpoint)
 	if err != nil {
 		return "", err

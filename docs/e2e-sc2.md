@@ -567,10 +567,20 @@ active on both.
 > ✅ **Auto-registration is now automatic.** A background reconciler in the auth-app
 > registers every running machine (incl. freeform `incus launch`) into the sidecar
 > CoreDNS zone as `<name>.<suffix>` (~30s). Manual A-record steps below are no longer
-> required — query CoreDNS by IP to verify (`dig @<sidecar-ip> <name>.<suffix>`). For a
-> client to resolve tenant names *automatically*, add a **Tailscale Split DNS** entry
-> routing the `<suffix>` domain to the sidecar's tailnet IP in the tailnet admin.
+> required — query CoreDNS by IP to verify (`dig @<sidecar-ip> <name>.<suffix>`).
+> The reconciler compares against the sidecar's **live** zone (not just an in-memory
+> cache), so if a sidecar restarts and loses its zone the next pass re-writes it.
 > The plain image has no cloud-init → no `dev` user / sshd; always use `images:debian/13/cloud` for tenant machines.
+>
+> ✅ **Client name resolution is automatic (no Tailscale Split DNS needed).** `sc login`
+> installs a systemd-resolved drop-in (`/etc/systemd/resolved.conf.d/10-sandcastle-<suffix>.conf`
+> on Linux, `/etc/resolver/<suffix>` on macOS) that routes `*.<suffix>` to the tenant
+> CoreDNS over the tailnet. **PASS:** after `sc login`, `getent hosts <machine>.<project>.<suffix>`
+> returns the machine's private IP with no manual config; `getent hosts <machine>.<project>.<other-suffix>`
+> is NXDOMAIN (per-install isolation); public names still resolve. A **Tailscale Split DNS**
+> entry (route `<suffix>` → the sidecar's tailnet IP) remains a valid fallback (e.g. if the
+> client can't run privileged resolver setup). The `10-` filename prefix matters: it sorts the
+> tenant CoreDNS ahead of the public upstream so an authoritative NXDOMAIN can't mask a tenant name.
 
 > ✅ **The `sc` CLI now speaks the v2 topology (2026-07-04, validated on `igel`).**
 > From an enrolled client, `sc list` shows every instance across the tenant's v2

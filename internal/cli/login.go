@@ -87,10 +87,12 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	config.localTrust = incusx.LocalTrustManager{Remote: request.RemoteName, ConfigPath: incusConfigFile, Store: localtrust.NewPlatformStore()}
 	config.tailscale = incusx.TailscaleManager{Remote: request.RemoteName, ConfigPath: incusConfigFile}
 
-	// v2 tenant: DNS records auto-register in the sidecar CoreDNS and resolve via
-	// Tailscale Split DNS; the client is on its own (BYO) tailnet. So the only
-	// client-side setup is ensuring the tenant subnet route is accepted + reachable
-	// — the v1 local-DNS/trust/tailscale-up steps below don't apply (and their v1
+	// v2 tenant: DNS records auto-register in the sidecar CoreDNS; the client is
+	// on its own (BYO) tailnet. Client-side setup is (1) ensure the tenant subnet
+	// route is accepted + reachable, and (2) install the local split-DNS resolver
+	// so `<machine>.<project>.<suffix>` resolves automatically — no manual
+	// Tailscale Split DNS entry required (that remains available as a fallback).
+	// The v1 local-DNS/trust/tailscale-up steps below don't apply (and their v1
 	// tenant lookup can't even see a v2 tenant).
 	if strings.TrimSpace(request.TenantPrivateCIDR) != "" {
 		if err := steps.run("verify tenant routing", func() error {
@@ -98,6 +100,10 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 		}); err != nil {
 			return loginSetupResult{}, err
 		}
+		_ = steps.run("install local resolver", func() error {
+			installV2LocalResolver(ctx, config, r.config.stdout, request.Tenant, request.TenantPrivateCIDR)
+			return nil
+		})
 		return loginSetupResult{}, nil
 	}
 

@@ -5,6 +5,49 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-07 — client-side split-DNS for v2 + reconciler self-heal
+
+Surfaced while chasing "why doesn't `<machine>.<project>.<suffix>` resolve on the
+client" during the coexistence e2e. Four linked fixes:
+
+- **systemd-resolved: drop-in, not `resolvectl … lo`.** The old strategy ran
+  `resolvectl dns lo <ip>` / `domain lo ~<suffix>`; modern systemd-resolved (257
+  on Debian 13) rejects it outright — "Link lo is loopback device." Pinning to a
+  real link (`tailscale0`) works but *replaces* Tailscale's MagicDNS servers on
+  that link. Chosen fix: a global `resolved.conf.d` drop-in
+  (`DNS=<endpoint>` + `Domains=~<suffix>`) so the kernel routes the query to the
+  tenant CoreDNS over the tailnet and every link is left alone. macOS keeps its
+  `/etc/resolver/<domain>` file. Alternatives rejected: dummy interface (query
+  binds to the link's egress, which can't route to the tenant subnet); per-link
+  tailscale0 (clobbers MagicDNS).
+- **`10-` filename prefix is load-bearing.** systemd merges `resolved.conf.d`
+  into ONE flat global server list in lexical order and does NOT fall through on
+  an authoritative NXDOMAIN. So the tenant CoreDNS must sort before the public
+  upstream (`50-public-upstream.conf`): CoreDNS answers its own zone and REFUSEs
+  everything else (fall-through covers public + other tenants), whereas a public
+  server would NXDOMAIN a tenant name first and win. Verified live: with the
+  tenant server last, resolution failed; first, it worked.
+- **v2 login installs the resolver automatically.** The v2 login path previously
+  only verified tenant routing and left client name resolution to a *manual*
+  Tailscale Split DNS console entry — exactly the kind of shortcut the e2e is
+  meant to avoid. It now also installs the local split-DNS drop-in, using the
+  CIDR the device response already carries (a restricted client can't read its
+  infra project's CIDR via the store — see `internal/tenant/list.go` — so
+  `localdns.PlanForV2` takes it directly) and the suffix visible on the app
+  projects. Best-effort: a failure warns and points at the Tailscale Split DNS
+  fallback rather than failing the login.
+- **Elevation executes the exact plan.** `runLocalDNSWithSudoFallback` used to
+  re-run `sc dns <action> <tenant>` under sudo, which rebuilt the plan from the
+  store (empty CIDR → `ParsePrefix("")`). It now serializes the resolved plan and
+  a hidden `dns apply-elevated` runs it verbatim across the privilege boundary.
+- **DNS reconciler self-heals an externally-reset sidecar.** The auth-app
+  reconciler skipped writing when the rendered zone matched an in-memory
+  `lastZone` cache. But a sidecar can restart and lose its zone (back to SOA+ns)
+  while the auth-app keeps running — the cache then masks the loss forever
+  (observed live: a machine's A-record vanished and only an auth-app restart,
+  which clears the cache, brought it back). Fixed by comparing against the
+  sidecar's ACTUAL zone file (serial-normalized) instead of the cache.
+
 ## 2026-07-07 — enrollment hang on a second install (trusted-client project pin)
 
 - **Cert-based remote-add fallback now pins `--project`.** Found live during a

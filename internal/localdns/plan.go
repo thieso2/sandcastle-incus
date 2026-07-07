@@ -58,6 +58,39 @@ func PlanUninstall(ctx context.Context, admin config.Admin, store tenant.IncusTe
 	return plan(ctx, admin, store, request)
 }
 
+// PlanForV2 builds an install/uninstall plan from values the caller already
+// holds, rather than reading them from the tenant store. A v2 restricted client
+// cannot see its infra project, so `tenant.List` reports an empty PrivateCIDR
+// (see internal/tenant/list.go) — but `sc login` receives the CIDR in the device
+// response and the Tenant DNS Suffix is visible on the app projects, so the
+// login flow can drive the local resolver directly. This is what makes tenant
+// machine names resolve on the client without a manual Tailscale Split DNS entry.
+func PlanForV2(reference string, dnsSuffix string, privateCIDR string) (Plan, error) {
+	ref, err := naming.ParseTenantRef(reference)
+	if err != nil {
+		return Plan{}, err
+	}
+	suffix := strings.TrimSuffix(strings.TrimSpace(dnsSuffix), ".")
+	if suffix == "" {
+		return Plan{}, fmt.Errorf("empty DNS suffix for tenant %q", ref.Tenant)
+	}
+	endpoint, err := dnsEndpoint(privateCIDR)
+	if err != nil {
+		return Plan{}, err
+	}
+	platform := runtime.GOOS
+	return Plan{
+		Reference:        ref.String(),
+		DNSSuffix:        suffix,
+		DNSEndpoint:      endpoint,
+		StatePath:        statePath(),
+		ResolverPath:     ResolverPath(platform, suffix),
+		Platform:         platform,
+		ResolverStrategy: ResolverStrategy(platform),
+		ResolverCommands: ResolverCommands(platform, suffix, endpoint),
+	}, nil
+}
+
 func plan(ctx context.Context, admin config.Admin, store tenant.IncusTenantStore, request Request) (Plan, error) {
 	if err := admin.Validate(); err != nil {
 		return Plan{}, err

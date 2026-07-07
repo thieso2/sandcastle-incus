@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -27,6 +30,34 @@ func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.AddCommand(newDNSInstallCommand(config, opts))
 	command.AddCommand(newDNSRefreshCommand(config, opts))
 	command.AddCommand(newDNSUninstallCommand(config, opts))
+	command.AddCommand(newDNSApplyElevatedCommand())
+	return command
+}
+
+// newDNSApplyElevatedCommand is the hidden worker that runElevatedDNSPlan
+// invokes under sudo. It reads a fully-resolved localdns.Plan as JSON on stdin
+// and executes it verbatim — no tenant-store lookup — so the CIDR/suffix the
+// unprivileged parent resolved survive the privilege boundary.
+func newDNSApplyElevatedCommand() *cobra.Command {
+	var action string
+	command := &cobra.Command{
+		Use:    "apply-elevated",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			data, err := io.ReadAll(cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
+			var plan localdns.Plan
+			if err := json.Unmarshal(data, &plan); err != nil {
+				return fmt.Errorf("decode plan: %w", err)
+			}
+			_, err = runLocalDNSAction(cmd.Context(), localdns.FileManager{}, action, plan)
+			return err
+		},
+	}
+	command.Flags().StringVar(&action, "action", "install", "install|refresh|uninstall")
 	return command
 }
 
@@ -102,6 +133,33 @@ func runDNSSetup(ctx context.Context, config commandConfig, reference string) (d
 		Refresh:   refreshResult,
 		Elevated:  elevatedActions([]string{"install", "refresh"}, installElevated, refreshElevated),
 	}, nil
+}
+
+// installV2LocalResolver installs the client-side split-DNS resolver for a v2
+// tenant from values the login flow already holds (the device response carries
+// the tenant CIDR; the Tenant DNS Suffix is visible on the app projects). This
+// is what makes `<machine>.<project>.<suffix>` resolve on the client without a
+// manual Tailscale Split DNS entry. Best-effort: a failure (no privileges, an
+// unsupported resolver) is reported but does not fail the login — the tenant
+// can still fall back to a Tailscale Split DNS entry.
+func installV2LocalResolver(ctx context.Context, config commandConfig, out io.Writer, tenant string, privateCIDR string) {
+	if config.localDNS == nil {
+		return
+	}
+	suffix := strings.TrimSpace(tenant)
+	if summary, err := findTenantSummary(ctx, config.tenantStore, tenant); err == nil && strings.TrimSpace(summary.DNSSuffix) != "" {
+		suffix = strings.TrimSpace(summary.DNSSuffix)
+	}
+	installPlan, err := localdns.PlanForV2(tenant, suffix, privateCIDR)
+	if err != nil {
+		fmt.Fprintf(out, "  ⚠ local resolver skipped: %v (use a Tailscale Split DNS entry for *.%s)\n", err, suffix)
+		return
+	}
+	if _, _, err := runLocalDNSWithSudoFallback(ctx, config, "install", installPlan); err != nil {
+		fmt.Fprintf(out, "  ⚠ local resolver not configured: %v\n     names still resolve via `dig @%s` or a Tailscale Split DNS entry for *.%s\n", err, installPlan.DNSEndpoint, suffix)
+		return
+	}
+	fmt.Fprintf(out, "  ✓ local resolver: *.%s → tenant CoreDNS at %s\n", suffix, installPlan.DNSEndpoint)
 }
 
 func newDNSTeardownCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -336,7 +394,7 @@ func runLocalDNSWithSudoFallback(ctx context.Context, config commandConfig, acti
 	if !isPermissionError(err) {
 		return localdns.Result{}, false, err
 	}
-	if err := runElevatedDNSSubcommand(ctx, config, action, plan.Reference); err != nil {
+	if err := runElevatedDNSPlan(ctx, config, action, plan); err != nil {
 		return localdns.Result{}, false, fmt.Errorf("%s local DNS requires privileges and sudo failed: %w", action, err)
 	}
 	return localdns.Result{
@@ -367,8 +425,18 @@ func isPermissionError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "permission denied")
 }
 
-func runElevatedDNSSubcommand(ctx context.Context, config commandConfig, action string, reference string) error {
+// runElevatedDNSPlan re-runs the *exact* plan under sudo. The elevated child
+// must NOT re-derive the plan from the tenant store: a v2 restricted client
+// can't see its infra project, so a store-derived plan has an empty CIDR (the
+// same reason `sc dns setup` can't stand alone). Instead the parent serializes
+// the fully-resolved plan and the hidden `dns apply-elevated` command executes
+// it verbatim.
+func runElevatedDNSPlan(ctx context.Context, config commandConfig, action string, plan localdns.Plan) error {
 	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	planJSON, err := json.Marshal(plan)
 	if err != nil {
 		return err
 	}
@@ -376,11 +444,9 @@ func runElevatedDNSSubcommand(ctx context.Context, config commandConfig, action 
 	for _, entry := range sudoPassthroughEnv(config) {
 		args = append(args, entry)
 	}
-	args = append(args, executable, "dns", action, reference)
+	args = append(args, executable, "dns", "apply-elevated", "--action", action)
 	command := exec.CommandContext(ctx, "sudo", args...)
-	if config.stdin != nil {
-		command.Stdin = config.stdin
-	}
+	command.Stdin = bytes.NewReader(planJSON)
 	if config.stderr != nil {
 		command.Stdout = config.stderr
 		command.Stderr = config.stderr

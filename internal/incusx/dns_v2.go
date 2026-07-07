@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -133,20 +134,32 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 	if err != nil {
 		return err
 	}
-	// Skip the sidecar write + CoreDNS reload when the rendered zone (which is
-	// serial-free at this point) is identical to the last one we wrote.
-	desired := ""
-	for _, file := range result.Files {
-		if strings.Contains(file.Path, "/zones/db.") {
-			desired = file.Content
-		}
-	}
-	if lastZone != nil && lastZone[infraProject] == desired {
-		return nil
-	}
 	// The v2 sidecar instance is named after the infra project (SidecarInstance ==
 	// infraProject), not the v1 "sc-dns" instance writeDNSFiles targets.
 	sidecar := server.UseProject(infraProject)
+
+	// Skip the sidecar write + CoreDNS reload only when the sidecar's ACTUAL zone
+	// already matches the rendered one (both serial-normalized). The in-memory
+	// lastZone cache alone is unsafe: a sidecar can restart and lose its zone
+	// (back to SOA+ns) while the auth-app — and its cache — keep running, so a
+	// pure cache check would leave that sidecar stuck on the stale/empty zone
+	// forever. Comparing against the live file lets an external reset self-heal.
+	desired, zonePath := "", ""
+	for _, file := range result.Files {
+		if strings.Contains(file.Path, "/zones/db.") {
+			desired, zonePath = file.Content, file.Path
+		}
+	}
+	if zonePath != "" {
+		if actual, err := readInstanceFileString(sidecar, infraProject, zonePath); err == nil {
+			if normalizeZoneSerialToOne(actual, suffix) == desired {
+				if lastZone != nil {
+					lastZone[infraProject] = desired
+				}
+				return nil
+			}
+		}
+	}
 	for _, dir := range []string{"/etc/coredns", "/etc/coredns/zones"} {
 		if err := sidecar.CreateInstanceFile(infraProject, dir, incus.InstanceFileArgs{Type: "directory", Mode: 0o755}); err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
 			return fmt.Errorf("create %s: %w", dir, err)
@@ -191,6 +204,41 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 		lastZone[infraProject] = desired
 	}
 	return nil
+}
+
+// readInstanceFileString reads a file from an instance into a string.
+func readInstanceFileString(server incus.InstanceServer, instance, path string) (string, error) {
+	reader, _, err := server.GetInstanceFile(instance, path)
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// normalizeZoneSerialToOne rewrites the SOA serial back to 1 so a zone written
+// with a monotonic (unix-time) serial compares equal to the freshly rendered
+// zone (which always carries serial 1). Only the digits immediately after
+// `hostmaster.<suffix>. ` are touched.
+func normalizeZoneSerialToOne(zone, suffix string) string {
+	marker := "hostmaster." + suffix + ". "
+	idx := strings.Index(zone, marker)
+	if idx < 0 {
+		return zone
+	}
+	start := idx + len(marker)
+	end := start
+	for end < len(zone) && zone[end] >= '0' && zone[end] <= '9' {
+		end++
+	}
+	if end == start {
+		return zone
+	}
+	return zone[:start] + "1" + zone[end:]
 }
 
 // instanceTenantIPv4 returns the instance's eth0 IPv4 that falls inside the tenant

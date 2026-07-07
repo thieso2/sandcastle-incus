@@ -108,7 +108,7 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	}
 }
 
-func TestFileManagerRunsLinuxResolverSyncCommands(t *testing.T) {
+func TestFileManagerInstallWritesDropInAndReloads(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
 	dir := t.TempDir()
 	runner := &recordingServiceRunner{}
@@ -118,25 +118,27 @@ func TestFileManagerRunsLinuxResolverSyncCommands(t *testing.T) {
 		DNSSuffix:        "acme",
 		DNSEndpoint:      "10.248.0.3:53",
 		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
-		ResolverPath:     filepath.Join(dir, "resolver", "acme"),
+		ResolverPath:     filepath.Join(dir, "resolved.conf.d", "sandcastle-acme.conf"),
 		ResolverStrategy: StrategySystemdResolve,
-		ResolverCommands: []Command{{Args: []string{"resolvectl", "dns", "lo", "10.248.0.3:53"}}},
 	}
 	if _, err := manager.Install(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.commands) != 2 {
+	// A single reload — the drop-in file carries the routing, not a resolvectl
+	// command against the loopback link.
+	if len(runner.commands) != 1 || joinArgs(runner.commands[0]) != "systemctl restart systemd-resolved" {
 		t.Fatalf("commands = %#v", runner.commands)
 	}
-	if got := joinArgs(runner.commands[0]); got != "resolvectl dns lo 10.248.0.3:53" {
-		t.Fatalf("dns command = %q", got)
+	content, err := os.ReadFile(plan.ResolverPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~acme" {
-		t.Fatalf("domain command = %q", got)
+	if !strings.Contains(string(content), "DNS=10.248.0.3") || !strings.Contains(string(content), "Domains=~acme") {
+		t.Fatalf("drop-in content = %q", content)
 	}
 }
 
-func TestFileManagerUninstallSyncsRemainingLinuxResolverDomains(t *testing.T) {
+func TestFileManagerUninstallRemovesDropInAndReloads(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
 	dir := t.TempDir()
 	runner := &recordingServiceRunner{}
@@ -153,21 +155,15 @@ func TestFileManagerUninstallSyncsRemainingLinuxResolverDomains(t *testing.T) {
 	if _, err := manager.Uninstall(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.commands) != 2 {
+	// alpha's drop-in is gone; beta's survives; resolved is reloaded.
+	if _, err := os.Stat(first.ResolverPath); !os.IsNotExist(err) {
+		t.Fatalf("alpha drop-in should be removed, stat err = %v", err)
+	}
+	if _, err := os.Stat(second.ResolverPath); err != nil {
+		t.Fatalf("beta drop-in should survive: %v", err)
+	}
+	if len(runner.commands) != 1 || joinArgs(runner.commands[0]) != "systemctl restart systemd-resolved" {
 		t.Fatalf("commands = %#v", runner.commands)
-	}
-	if got := joinArgs(runner.commands[1]); got != "resolvectl domain lo ~beta" {
-		t.Fatalf("domain command = %q", got)
-	}
-	runner.commands = nil
-	if _, err := manager.Uninstall(context.Background(), second); err != nil {
-		t.Fatal(err)
-	}
-	if len(runner.commands) != 1 {
-		t.Fatalf("commands = %#v", runner.commands)
-	}
-	if got := joinArgs(runner.commands[0]); got != "resolvectl revert lo" {
-		t.Fatalf("revert command = %q", got)
 	}
 }
 
