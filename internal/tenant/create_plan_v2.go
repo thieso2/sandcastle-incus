@@ -144,6 +144,15 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 			return CreatePlanV2{}, fmt.Errorf("parse preferred CIDR %q: %w", pref, err)
 		}
 		tenantCIDR = tenantCIDR.Masked()
+		// A reused CIDR must still come from this install's pool: anything
+		// else means the reuse scan picked up a foreign install's tenant (or
+		// the pool changed), and provisioning it would stand up a bridge on
+		// address space this install doesn't own.
+		if pool, perr := netip.ParsePrefix(strings.TrimSpace(admin.CIDRPool)); perr == nil {
+			if !pool.Contains(tenantCIDR.Addr()) || tenantCIDR.Bits() < pool.Bits() {
+				return CreatePlanV2{}, fmt.Errorf("preferred CIDR %s is outside the tenant CIDR pool %s", tenantCIDR, pool)
+			}
+		}
 	} else if tenantCIDR, err = cidr.Allocate(admin.CIDRPool, cidr.DefaultTenantPrefixBits, request.OccupiedCIDRs); err != nil {
 		return CreatePlanV2{}, err
 	}

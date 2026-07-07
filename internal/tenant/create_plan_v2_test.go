@@ -61,6 +61,19 @@ func TestPlanCreateV2PreferredCIDRReused(t *testing.T) {
 	}
 }
 
+func TestPlanCreateV2PreferredCIDROutsidePoolRejected(t *testing.T) {
+	// A preferred CIDR outside the install's pool means the reuse scan picked
+	// up a foreign install's tenant (e.g. a v1 bridge on the same host) — that
+	// must fail at planning, not as a dnsmasq bind error at bridge creation.
+	_, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", PreferredCIDR: "10.248.1.0/24"})
+	if err == nil {
+		t.Fatal("want error for preferred CIDR outside pool 10.249.0.0/16")
+	}
+	if !strings.Contains(err.Error(), "outside the tenant CIDR pool") {
+		t.Fatalf("err = %v, want pool-containment error", err)
+	}
+}
+
 func TestPlanCreateV2RoleAddresses(t *testing.T) {
 	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
 	if err != nil {

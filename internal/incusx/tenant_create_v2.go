@@ -587,18 +587,29 @@ func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKe
 			"set -e",
 			"systemctl unmask tailscaled.service 2>/dev/null || true",
 			"systemctl enable --now tailscaled.service",
-			"for i in $(seq 1 30); do tailscale status >/dev/null 2>&1 && break; sleep 1; done",
+			// Wait for the daemon socket. `status --json` answers as soon as
+			// tailscaled is up even while logged out — plain `status` exits
+			// non-zero in NeedsLogin and would burn the whole 30s on every
+			// awaiting-tailnet poll.
+			"for i in $(seq 1 30); do tailscale status --json >/dev/null 2>&1 && break; sleep 1; done",
 			// Already authenticated (the user completed the interactive login,
 			// or an earlier run joined): finish the Reach and report the IP.
 			"if tailscale ip -4 >/dev/null 2>&1; then\n" + finish + "\nexit 0\nfi",
-			// `tailscale up` blocks until the user authenticates, so run it as a
-			// detached transient unit and read the login URL it prints to a file.
-			"printf '#!/bin/sh\\nexec tailscale up " + base + " > " + log + " 2>&1\\n' > /usr/local/bin/sandcastle-tsup.sh",
-			"chmod +x /usr/local/bin/sandcastle-tsup.sh",
-			": > " + log,
-			"systemctl reset-failed sandcastle-tsup.service 2>/dev/null || true",
-			"systemd-run --unit=sandcastle-tsup --collect /usr/local/bin/sandcastle-tsup.sh >/dev/null 2>&1 || true",
-			"for i in $(seq 1 30); do url=$(grep -Eom1 'https://login\\.tailscale\\.com/[A-Za-z0-9._/-]+' " + log + " || true); [ -n \"$url\" ] && { printf 'TSLOGINURL=%s\\n' \"$url\"; exit 0; }; sleep 1; done",
+			// `tailscale up` blocks until the user authenticates, so it runs as a
+			// detached transient unit that writes its login URL to a log. The URL
+			// must survive re-ensure passes and `sc login` re-runs, so a healthy
+			// waiting unit is left alone (its log is never truncated); the unit is
+			// (re)started only when it is not running or its log lost the URL.
+			"if ! systemctl is-active sandcastle-tsup.service >/dev/null 2>&1 || ! grep -qF 'https://login.tailscale.com/' " + log + " 2>/dev/null; then " +
+				"systemctl stop sandcastle-tsup.service 2>/dev/null || true; " +
+				"printf '#!/bin/sh\\nexec tailscale up " + base + " > " + log + " 2>&1\\n' > /usr/local/bin/sandcastle-tsup.sh; " +
+				"chmod +x /usr/local/bin/sandcastle-tsup.sh; " +
+				": > " + log + "; " +
+				"systemctl reset-failed sandcastle-tsup.service 2>/dev/null || true; " +
+				"systemd-run --unit=sandcastle-tsup --collect /usr/local/bin/sandcastle-tsup.sh >/dev/null 2>&1 || true; " +
+				"fi",
+			// Report the newest URL in the log (each `tailscale up` mints a fresh one).
+			"for i in $(seq 1 30); do url=$(grep -Eo 'https://login\\.tailscale\\.com/[A-Za-z0-9._/-]+' " + log + " 2>/dev/null | tail -n 1); [ -n \"$url\" ] && { printf 'TSLOGINURL=%s\\n' \"$url\"; exit 0; }; sleep 1; done",
 			"exit 0",
 		}, "\n")
 		out, err := execSidecarCapture(server, plan.SidecarInstance, script)
@@ -654,12 +665,17 @@ func parseTailscaleLoginURL(out string) string {
 	return ""
 }
 
+// writeInstanceDir prepares filePath for an Incus file push: it creates the
+// parent directory and clears any symlink at the path itself. The file API
+// follows symlinks, and pushing through a dangling one fails with a spurious
+// "Not Found" — /etc/resolv.conf on a stock image links to systemd-resolved's
+// stub under /run, which does not exist until resolved has started.
 func writeInstanceDir(server TenantResourceServer, instance string, filePath string) error {
 	dir := filePath[:strings.LastIndex(filePath, "/")]
 	if dir == "" {
 		return nil
 	}
-	return execSidecar(server, instance, "mkdir -p "+dir)
+	return execSidecar(server, instance, "mkdir -p "+dir+" && { [ ! -L "+filePath+" ] || rm -f "+filePath+"; }")
 }
 
 // execSidecarCapture runs a script in the sidecar and returns its stdout.

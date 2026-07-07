@@ -223,3 +223,29 @@ func TestProvisionReuseInputsScopedToInstallPrefix(t *testing.T) {
 		t.Fatalf("occupied = %v", occupied)
 	}
 }
+
+// A v1 (kind=tenant) project with the SAME tenant name is still a foreign
+// install's tenant: its /24 must come back as occupied, never as own —
+// treating it as own made provisioning reuse the CIDR and collide with the
+// live v1 bridge's dnsmasq on the gateway IP ("Address already in use").
+func TestProvisionReuseInputsNeverOwnsV1CIDR(t *testing.T) {
+	v1Config, err := meta.TenantConfig(meta.Tenant{Tenant: "thieso2", PrivateCIDR: "10.248.1.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "sc-thieso2", Config: v1Config},
+	}}
+	for _, prefix := range []string{"tc2", "sc", ""} {
+		own, suffix, occupied, err := ProvisionReuseInputs(context.Background(), store, prefix, "thieso2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if own != "" || suffix != "" {
+			t.Fatalf("prefix %q: own = %q/%q, want empty (v1 CIDR must not be reused)", prefix, own, suffix)
+		}
+		if len(occupied) != 1 || occupied[0] != "10.248.1.0/24" {
+			t.Fatalf("prefix %q: occupied = %v, want the v1 /24", prefix, occupied)
+		}
+	}
+}

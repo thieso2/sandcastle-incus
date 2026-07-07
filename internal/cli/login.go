@@ -639,9 +639,14 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			awaitingTailnet := false
 			approvedAnnounced := false
 			tailnetJoinPrinted := false
+			tailnetLoginURLPrinted := ""
 			for attempt := 0; attempt < maxPolls; attempt++ {
 				var result authapp.DevicePollResult
 				var pollErr error
+				// The poll that observes the approval blocks while the server
+				// provisions the tenant (1-2 minutes on first login) — emit a
+				// heartbeat so a long poll doesn't look like a hang.
+				stopHeartbeat := startLoginHeartbeat(config.stderr, 15*time.Second)
 				result, pollErr = client.Poll(cmd.Context(), start.DeviceCode, authapp.DevicePollRequest{
 					SSHPublicKey:         sshKey.PublicKey,
 					LocalUnixUser:        defaultLocalUnixUsername(),
@@ -650,6 +655,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					DNSSuffix:            strings.TrimSpace(dnsSuffix),
 					ClientCertificatePEM: sharedClientCertificatePEM(),
 				})
+				stopHeartbeat()
 				if pollErr != nil {
 					return pollErr
 				}
@@ -712,14 +718,18 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					// login URL and keep polling until it has a tailnet address (the
 					// server re-ensures provisioning on each awaiting poll).
 					if !skipSetup && result.Token != "" && strings.TrimSpace(result.TenantPrivateCIDR) != "" && strings.TrimSpace(result.IncusRemoteAddress) == "" {
+						// Print the interactive join URL whenever the server reports a
+						// new one — the first approved poll may not carry it yet, and
+						// the sidecar mints a fresh URL when the old one went stale.
+						if url := strings.TrimSpace(result.TailscaleLoginURL); url != "" && url != tailnetLoginURLPrinted {
+							fmt.Fprintf(config.stdout, "\nYour tenant sidecar is not on a tailnet yet.\n"+
+								"  1. Open  %s\n"+
+								"     and log in — that joins the sidecar to YOUR tailnet.\n"+
+								"  2. Approve its advertised subnet route (unless a tag autoApprover covers it).\n"+
+								"  (unattended/CI installs pass `sc login --tailscale-auth-key tskey-...` instead)\n", url)
+							tailnetLoginURLPrinted = url
+						}
 						if !tailnetJoinPrinted {
-							if url := strings.TrimSpace(result.TailscaleLoginURL); url != "" {
-								fmt.Fprintf(config.stdout, "\nYour tenant sidecar is not on a tailnet yet.\n"+
-									"  1. Open  %s\n"+
-									"     and log in — that joins the sidecar to YOUR tailnet.\n"+
-									"  2. Approve its advertised subnet route (unless a tag autoApprover covers it).\n"+
-									"  (tip: `sc login --tailscale-auth-key tskey-...` does this unattended)\n", url)
-							}
 							fmt.Fprintln(config.stdout, "Waiting for the sidecar to join the tailnet...")
 							tailnetJoinPrinted = true
 						}
@@ -1011,8 +1021,15 @@ func newVerboseStepLogger(prefix string, enabled bool, stderr io.Writer) verbose
 }
 
 func (l verboseStepLogger) run(label string, fn func() error) error {
-	if !l.enabled || l.stderr == nil {
+	if l.stderr == nil {
 		return fn()
+	}
+	// Step progress always prints — a login that sits silent for a minute
+	// reads as hung. VERBOSE=1 only changes the framing (the "[verbose]"
+	// tag), it no longer gates the progress lines themselves.
+	tag := ""
+	if l.enabled {
+		tag = "[verbose] "
 	}
 	start := time.Now()
 	// The completion line repeats the step label on its own line: nested steps
@@ -1020,13 +1037,38 @@ func (l verboseStepLogger) run(label string, fn func() error) error {
 	// step's start and its completion, so a bare " done"/" failed" would be
 	// ambiguous — two nested failures used to print two identical " failed"
 	// lines with no hint which step each belonged to.
-	fmt.Fprintf(l.stderr, "[verbose] %s: %s ...\n", l.prefix, label)
+	fmt.Fprintf(l.stderr, "%s%s: %s ...\n", tag, l.prefix, label)
 	if err := fn(); err != nil {
-		fmt.Fprintf(l.stderr, "[verbose] %s: %s failed (%s)\n", l.prefix, label, formatVerboseStepDuration(time.Since(start)))
+		fmt.Fprintf(l.stderr, "%s%s: %s failed (%s)\n", tag, l.prefix, label, formatVerboseStepDuration(time.Since(start)))
 		return err
 	}
-	fmt.Fprintf(l.stderr, "[verbose] %s: %s done (%s)\n", l.prefix, label, formatVerboseStepDuration(time.Since(start)))
+	fmt.Fprintf(l.stderr, "%s%s: %s done (%s)\n", tag, l.prefix, label, formatVerboseStepDuration(time.Since(start)))
 	return nil
+}
+
+// startLoginHeartbeat prints "still working" lines every interval until the
+// returned stop function is called. Quick polls (the pending loop answers in
+// well under a second) never reach the first tick, so only a genuinely long
+// server-side operation produces output.
+func startLoginHeartbeat(stderr io.Writer, interval time.Duration) func() {
+	if stderr == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	start := time.Now()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				fmt.Fprintf(stderr, "login: still working (%s elapsed — server is provisioning)\n", time.Since(start).Round(time.Second))
+			}
+		}
+	}()
+	return func() { close(done) }
 }
 
 func formatVerboseStepDuration(duration time.Duration) string {

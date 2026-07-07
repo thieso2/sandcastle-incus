@@ -113,6 +113,35 @@ Suffix. Validated **from scratch** (purged host → `install-incus` → two
   bleed** (`web.default.e2e` resolves in the sc zone and is NXDOMAIN in the id
   zone, and vice-versa for `api.default.idefix`).
 
+**One client, several sandcastles on the SAME Incus daemon (validated live
+2026-07-07, prefixes `tc2` + `tc3`).** Every sidecar's Incus Reach proxies to
+the *same* host Incus API, and the shared client cert's trust entry unions the
+projects of every install the user enrolled in — so from the daemon's point of
+view all of one user's remotes are interchangeable, and only the
+`INCUS_PROJECT` pin separates the installs. The CLI therefore scopes every
+tenant lookup to the install the **configured remote** belongs to: the remote
+name encodes the install (`sc-<prefix>-<tenant>`, `sc-<tenant>` for the
+default prefix; inverted by `installPrefixFromRemoteName`, regression test
+`TestInstallPrefixFromRemoteName`). Without that scoping, `sc incus`,
+`sc create`, and `sc connect` matched the first same-named tenant on the daemon
+and silently operated on the *other* install's project.
+- **Protocol:** install two sandcastles on one Incus host with distinct
+  `--prefix`, distinct `--auth-hostname`, distinct `--cidr-pool`, and log the
+  same GitHub user into BOTH from one client machine, choosing a different
+  Tenant DNS Suffix per login (e.g. `sc login https://<host-a> --dns-suffix=tcA`,
+  `sc login https://<host-b> --dns-suffix=tcB`). Switch installs with
+  `sc config set remote sc-<prefix>-<tenant>` (note: `sc incus remote switch`
+  only moves the *raw* incus CLI's current remote; `sc`'s own remote — and the
+  project pin derived from it — comes from `~/.config/sandcastle/config.yml`).
+- **PASS:** with a machine created in only one install,
+  `VERBOSE=1 sc incus ls` under each remote prints
+  `INCUS_PROJECT=<that-install's-prefix>-<tenant>-default` and lists only that
+  install's machines (the other install's view is empty — no cross-install
+  bleed). `sc create`/`sc connect`/`sc delete` land in the install the current
+  remote belongs to. Each login installed its own resolver zone
+  (`/etc/resolver/tcA`, `/etc/resolver/tcB` on darwin) pointing at its own
+  tenant's CoreDNS, and each tenant got a /24 from its own install's pool.
+
 Keep CIDR pools distinct across installs sharing a tailnet. Robustness fixes the
 from-scratch run surfaced (all in `internal/incusx` + the auth-app): tolerate
 the spurious "already running" on a cached-image create; wait for RUNNING
@@ -377,12 +406,23 @@ Stock image is the default (`--base-image images:debian/13`, pulled on demand �
 > installer-created tunnel); `--cloudflare-tunnel-token` uses a
 > dashboard-created tunnel; `acme` binds host :80/:443 with Let's Encrypt.
 > The standalone sc-edge recipe is no longer needed for the auth hostname.
-> Tailscale keys are now **optional on the server**: the tenant brings their own
-> at login (`sc login --tailscale-auth-key tskey-…`), or logs in with no key and
-> gets the sidecar's interactive `login.tailscale.com` URL — login prints it and
-> **waits** for the join, then finishes enrollment automatically. The old
-> separate `auth-app deploy` + `bootstrap` commands still exist for piecewise
-> installs.
+> First-login provisioning must succeed on its **first pass** — a
+> `Personal Tenant provisioning failed: write /etc/resolv.conf to sidecar: Not
+> Found` message is a regression (the sidecar's `/etc/resolv.conf` is a symlink
+> on the stock image; file pushes must clear it first).
+> The **interactive `login.tailscale.com` URL is the primary join path**: the
+> tenant logs in with no key, `sc login` prints the sidecar's URL and **waits**
+> for the join, then finishes enrollment automatically.
+> (`--tailscale-auth-key tskey-…` at login is for unattended/CI runs only.)
+> The URL is durable: the sidecar keeps its pending `tailscale up` (and the URL)
+> across awaiting-tailnet polls and across `sc login` re-runs, re-mints a fresh
+> URL if the recorded one is lost or stale, and login re-prints whenever the URL
+> changes. **PASS:** with no auth key, `sc login` prints a
+> `https://login.tailscale.com/…` URL; Ctrl-C + `sc login --force` prints a URL
+> again (same one while the pending join is healthy); awaiting polls cycle in
+> seconds, not minutes; opening the URL and approving the route lets the waiting
+> login complete enrollment on its next poll. The old separate
+> `auth-app deploy` + `bootstrap` commands still exist for piecewise installs.
 
 **Simulated GitHub (recommended for e2e — no OAuth app):**
 ```bash

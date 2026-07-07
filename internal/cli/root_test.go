@@ -49,10 +49,25 @@ func envContains(env []string, value string) bool {
 func executeForTestWithConfig(t *testing.T, config commandConfig, args ...string) (string, error) {
 	t.Helper()
 	stdout, stderr, err := executeForTestWithConfigAndStderr(t, config, args...)
-	if stderr != "" {
-		t.Fatalf("unexpected stderr: %s", stderr)
+	if rest := stripLoginProgressLines(stderr); rest != "" {
+		t.Fatalf("unexpected stderr: %s", rest)
 	}
 	return stdout, err
+}
+
+// stripLoginProgressLines drops the always-on login step/heartbeat progress
+// lines so the helpers still catch genuinely unexpected stderr.
+func stripLoginProgressLines(stderr string) string {
+	var kept []string
+	for _, line := range strings.Split(stderr, "\n") {
+		if line == "" ||
+			strings.HasPrefix(line, "login: ") ||
+			strings.HasPrefix(line, "login setup: ") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 func executeForTestWithConfigAndStderr(t *testing.T, config commandConfig, args ...string) (string, string, error) {

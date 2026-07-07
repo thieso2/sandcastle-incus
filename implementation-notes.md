@@ -5,6 +5,77 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-07 — tenant lookup scoped to the current remote's install (same-daemon multi-install)
+
+- With two installs on one Incus daemon (tc2 + tc3) and one user logged into
+  both, `sc incus ls` connected over the tc3 remote but pinned
+  `INCUS_PROJECT=tc2-thieso2-default` — every sidecar's Incus Reach lands on
+  the same host API and the shared client cert sees BOTH installs' projects, so
+  `v2TenantSummary`'s first-match-by-tenant-name picked whichever install
+  sorted first. All summary consumers (`sc incus`, `create`, `connect`,
+  machine lifecycle) inherited the wrong project.
+- Fix: `v2TenantSummary` now scopes `tenant.ListForPrefix` by the install
+  prefix recovered from the configured remote's name
+  (`installPrefixFromRemoteName`: `sc-<prefix>-<tenant>` → prefix,
+  `sc-<tenant>` → default). Chose the remote name as the source of truth
+  because it is the one client-side datum that is per-install by construction
+  (server-generated via `usertrust.RemoteInstallName`); unparseable remote
+  names fall back to the old unscoped behavior. Note `sc incus remote switch`
+  moves only the raw incus CLI's current remote — `sc`'s own install selection
+  is `sc config set remote …`.
+
+## 2026-07-07 — first-login "write /etc/resolv.conf to sidecar: Not Found" root-caused (dangling symlink, not a boot race)
+
+- Every fresh v2 tenant provisioning failed once with `write /etc/resolv.conf
+  to sidecar: Not Found` and only succeeded on the re-ensure pass. The earlier
+  `waitInstanceRunning` guard assumed a boot race, but the real cause is that
+  `/etc/resolv.conf` on the stock Debian sidecar image is a **symlink** to
+  systemd-resolved's stub under `/run`; the Incus file API follows symlinks, and
+  pushing through a dangling one returns "Not Found". It never hit the other DNS
+  files (real paths), and the retry only worked because the package-install
+  bootstrap had meanwhile written through the symlink, creating the target.
+  The machine-create path already guarded this with `rm -f /etc/resolv.conf`
+  before writing; the sidecar path didn't.
+- Fix: `writeInstanceDir` (the prep step before every sidecar/appliance file
+  push) now also clears a symlink at the target path (`[ ! -L p ] || rm -f p`),
+  so pushes always land on a regular file. Chose the generic prep-step fix over
+  a resolv.conf special case since any pushed path could be a symlink on a
+  future base image.
+
+## 2026-07-07 — interactive tailnet-join URL made durable (primary path; auth key is CI-only)
+
+- **Context.** `sc login` without a Tailscale auth key looked like an infinite
+  loop: after approval it polled "waiting to join your tailnet" for hours with
+  ~70s per poll. Root causes were all in the interactive branch of
+  `v2TailscaleUp` (re-run by the server on every awaiting-tailnet poll):
+  (1) each pass truncated `/var/lib/sandcastle-tsup.log` and then failed
+  silently to restart the already-running `sandcastle-tsup` unit, so the login
+  URL was destroyed and could never be re-obtained — a Ctrl-C + re-login printed
+  no URL at all; (2) `tailscale status` exits non-zero while logged out, so the
+  daemon-wait loop burned its full 30s on every pass, plus another 30s grepping
+  the now-empty log. Design decision confirmed with the operator: the
+  **interactive URL is the primary join path**; `--tailscale-auth-key` at login
+  is for unattended/CI only — so the fix makes the URL durable rather than
+  pushing users toward keys.
+- **Fix (sidecar script).** The pending `tailscale up` unit is now left alone
+  while healthy: the script (re)starts it only when the unit is not running *or*
+  its log no longer contains a `login.tailscale.com` URL (which also self-heals
+  sidecars stuck by the old truncation bug). The log is truncated only when a
+  fresh unit is started. Daemon readiness uses `tailscale status --json`, which
+  answers as soon as tailscaled is up even when logged out. The URL grep takes
+  the *newest* match (`tail -n 1`) since each `up` mints a fresh URL. Awaiting
+  polls now answer in seconds.
+- **Fix (client).** `sc login` printed the join instructions only on the first
+  approved poll — if that poll carried no URL (or the URL changed later), the
+  user never saw it. It now prints the instruction block whenever the reported
+  URL is new, and prints "Waiting for the sidecar…" once. The tip line now
+  frames `--tailscale-auth-key` as unattended/CI, matching the intended design.
+- **Not changed (deliberate).** The server still never uses its deployment-wide
+  `--tailscale-auth-key` for sidecar provisioning (it only echoes it to clients)
+  and approved device logins still don't expire while awaiting the tailnet join
+  — acceptable now that polls are cheap and the client's `--max-polls` bounds
+  the wait (~25 min at the 5s cadence).
+
 ## 2026-07-07 — per-install infra project `<prefix>-infra` + install resource inventory
 
 - **The auth-app appliance now lives in `<prefix>-infra`, not the generic

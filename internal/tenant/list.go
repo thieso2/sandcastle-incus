@@ -230,10 +230,14 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 		own := false
 		switch incusProject.Config[meta.KeyKind] {
 		case meta.KindTenant:
+			// v1 tenants are always a legacy install's, never this one's —
+			// this code path never creates kind=tenant projects, and the v1
+			// bridge (with its dnsmasq on the gateway IP) may still be live,
+			// so reusing its /24 as PreferredCIDR collides at bridge creation.
+			// Same-named or not: occupied, never own.
 			if t, e := meta.ParseTenantConfig(incusProject.Config); e == nil {
-				cidr, owner = strings.TrimSpace(t.PrivateCIDR), strings.TrimSpace(t.Tenant)
+				cidr = strings.TrimSpace(t.PrivateCIDR)
 			}
-			own = tenantName != "" && owner == tenantName
 		case meta.KindInfra:
 			cidr = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
 			suffix = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])

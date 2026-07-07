@@ -253,3 +253,43 @@ func TestLoginWaitsForSidecarTailnetJoin(t *testing.T) {
 		t.Fatalf("installer requests = %#v", installer.requests)
 	}
 }
+
+// The interactive tailnet-join URL may only surface on a later awaiting poll
+// (the first approved poll can return before the sidecar's `tailscale up` has
+// printed one). The login must still show it to the user when it arrives.
+func TestLoginPrintsLateTailnetJoinURL(t *testing.T) {
+	useLoginHomeForTest(t)
+	installer := &fakeLoginRemoteInstaller{}
+	approved := authapp.DevicePollResult{
+		Status:            authapp.DeviceStatusApproved,
+		UserKey:           "octocat",
+		Token:             "token",
+		RemoteName:        "sandcastle-octocat",
+		TenantPrivateCIDR: "10.250.0.0/24",
+		AccessibleTenants: []string{"octocat"},
+	}
+	withURL := approved
+	withURL.TailscaleLoginURL = "https://login.tailscale.com/a/late456"
+	done := approved
+	done.IncusRemoteAddress = "100.90.124.119"
+	device := &fakeAuthDeviceClient{
+		start: authapp.DeviceStartResult{DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://auth.example.com/device", Interval: 1},
+		polls: []authapp.DevicePollResult{approved, withURL, done},
+	}
+	setup := &fakeLoginSetupRunner{}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		authDevice:  device,
+		loginRemote: installer,
+		loginSetup:  setup,
+	}, "login", "https://auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "https://login.tailscale.com/a/late456") {
+		t.Fatalf("stdout missing late join URL:\n%s", stdout)
+	}
+	if strings.Count(stdout, "Waiting for the sidecar to join the tailnet...") != 1 {
+		t.Fatalf("waiting line should print once:\n%s", stdout)
+	}
+}

@@ -26,7 +26,10 @@ func v2TenantSummary(ctx context.Context, config commandConfig) (tenant.Summary,
 	if name == "" || config.tenantStore == nil {
 		return tenant.Summary{}, false
 	}
-	tenants, err := tenant.List(ctx, config.tenantStore)
+	// Several installs can share one Incus daemon (every sidecar's Incus Reach
+	// lands on the same host API), so a same-named tenant may exist once per
+	// install. Scope the lookup to the install the current remote belongs to.
+	tenants, err := tenant.ListForPrefix(ctx, config.tenantStore, installPrefixFromRemoteName(config.adminConfig.Remote, name))
 	if err != nil {
 		return tenant.Summary{}, false
 	}
@@ -36,6 +39,27 @@ func v2TenantSummary(ctx context.Context, config commandConfig) (tenant.Summary,
 		}
 	}
 	return tenant.Summary{}, false
+}
+
+// installPrefixFromRemoteName inverts usertrust.RemoteInstallName: the enrolled
+// remote is named "sc-<prefix>-<tenant>" (or "sc-<tenant>" for the default
+// prefix), so the remote name identifies which install's projects this CLI is
+// pointed at. Returns "" (no scoping) when the remote name has another shape.
+func installPrefixFromRemoteName(remote string, tenantName string) string {
+	remote = strings.TrimSpace(remote)
+	tenantName = strings.TrimSpace(tenantName)
+	if tenantName == "" {
+		return ""
+	}
+	if remote == "sc-"+tenantName {
+		return naming.DefaultIncusProjectPrefix
+	}
+	if rest, ok := strings.CutPrefix(remote, "sc-"); ok {
+		if prefix, ok := strings.CutSuffix(rest, "-"+tenantName); ok && prefix != "" {
+			return prefix
+		}
+	}
+	return ""
 }
 
 // parseV2MachineReference splits "[tenant/][project:]machine" for a v2 create.

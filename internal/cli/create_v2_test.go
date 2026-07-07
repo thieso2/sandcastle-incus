@@ -83,3 +83,26 @@ func TestResolveV2MachineReference(t *testing.T) {
 		}
 	})
 }
+
+// Several installs share one Incus daemon; the enrolled remote's name
+// ("sc-<prefix>-<tenant>", or "sc-<tenant>" for the default prefix) is what
+// tells the CLI which install's projects to scope tenant lookups to.
+func TestInstallPrefixFromRemoteName(t *testing.T) {
+	cases := []struct {
+		remote, tenant, want string
+	}{
+		{"sc-tc3-thieso2", "thieso2", "tc3"},
+		{"sc-tc2-thieso2", "thieso2", "tc2"},
+		{"sc-thieso2", "thieso2", "sc"},
+		{"sc-tc3-foo-bar", "foo-bar", "tc3"},
+		{"sc-foo-bar", "foo-bar", "sc"},
+		{"custom-remote", "thieso2", ""},
+		{"sc-tc3-thieso2", "", ""},
+		{"", "thieso2", ""},
+	}
+	for _, c := range cases {
+		if got := installPrefixFromRemoteName(c.remote, c.tenant); got != c.want {
+			t.Errorf("installPrefixFromRemoteName(%q, %q) = %q, want %q", c.remote, c.tenant, got, c.want)
+		}
+	}
+}
