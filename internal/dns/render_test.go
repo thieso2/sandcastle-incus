@@ -25,6 +25,12 @@ func TestRenderInitial(t *testing.T) {
 	if !strings.Contains(corefile.Content, "force_tcp") {
 		t.Fatalf("Corefile missing TCP upstream forwarding: %q", corefile.Content)
 	}
+	// Tailnet clients must get REFUSED (not upstream NXDOMAIN) outside the
+	// tenant zone, so their resolver falls through to other tenants' servers
+	// and the public upstream. Machines (bridge sources) keep recursion.
+	if !strings.Contains(corefile.Content, "block net 100.64.0.0/10") {
+		t.Fatalf("Corefile catch-all must REFUSE tailnet clients: %q", corefile.Content)
+	}
 	// ADR-0018: the zone is the only authority under the suffix — no dnsmasq
 	// fallthrough, no gateway forwarding inside the suffix zone.
 	if strings.Contains(corefile.Content, "fallthrough") {

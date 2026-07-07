@@ -331,6 +331,39 @@ client" during the coexistence e2e. Four linked fixes:
   in place once — always `rm -f` the target first and verify `sha256sum`
   after pushing a binary.
 
+## 2026-07-07 — multi-suffix client DNS: global resolved drop-ins replaced by per-suffix link scopes
+
+- **Bug (coexistence e2e, two installs on one Linux client):** only one Tenant
+  DNS Suffix ever resolved via `getent` even though `dig @<sidecar>` answered
+  for both. Two layered causes:
+  1. The sidecar Corefile's catch-all `.:53` FORWARDED foreign names upstream,
+     so a tailnet client asking the wrong tenant's server got an authoritative
+     NXDOMAIN instead of the REFUSED the client-resolver design depended on.
+  2. Even with REFUSED, systemd-resolved's GLOBAL scope (where the
+     resolved.conf.d drop-ins landed every tenant server) asks only its
+     rotating "current server" — the REFUSED answers rotate it onto the
+     public upstream and then BOTH tenant zones die with public NXDOMAINs.
+     Per-domain routing in resolved only works ACROSS link scopes; the `10-`
+     filename-ordering trick was never sufficient.
+- **Fix, server side:** the Corefile catch-all now REFUSES tailnet sources
+  (`acl { block net 100.64.0.0/10 }`) — machines on the tenant bridge keep
+  full recursion (that server is their only DNS), clients get the terminal
+  REFUSED.
+- **Fix, client side (the real one):** each suffix gets its own resolved link
+  scope: `sandcastle-dns-<suffix>.service` creates a dummy link
+  (`scdns-<fnv32-hash>`, name ≤ IFNAMSIZ) with a deterministic 169.254/16
+  link-local address — resolved does NOT activate a link's DNS scope until
+  the link carries an address (found empirically; a bare `up` dummy stays
+  "Current Scopes: none") — and pins `DNS=<CoreDNS>` `Domains=~<suffix>` via
+  resolvectl. `PartOf=systemd-resolved.service` re-applies the runtime scope
+  whenever resolved restarts (validated live: restart → scopes re-form,
+  both zones + public resolve). Install removes any legacy drop-in (plus one
+  resolved restart to flush its global servers). Alternatives considered:
+  systemd-networkd .network files (only work where networkd manages links)
+  and putting tenant servers on the tailscale0 link (same flat-list problem,
+  plus clobbers MagicDNS).
+- macOS is untouched: `/etc/resolver/<suffix>` is natively per-domain.
+
 ## Running Notes
 
 - Started implementation from the committed domain docs (`CONTEXT.md`,

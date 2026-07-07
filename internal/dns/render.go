@@ -79,12 +79,23 @@ ns IN A %s
 		{
 			Path: "/etc/coredns/Corefile",
 			Mode: 0o644,
+			// The catch-all recursion exists for tenant MACHINES (this server
+			// is their only DNS). Tailnet clients (100.64/10) must get REFUSED
+			// for names outside the tenant zone instead: their local resolver
+			// merges every tenant's server into one flat list and only falls
+			// through to the next server on REFUSED — an upstream-forwarded
+			// NXDOMAIN for another tenant's name (or a public name) would end
+			// the lookup and mask the answering server. The zone block above
+			// still answers tailnet queries for this tenant's own names.
 			Content: fmt.Sprintf(`%s:53 {
     errors
     file %s %s
 }
 .:53 {
     errors
+    acl {
+        block net 100.64.0.0/10
+    }
     forward . %s {
         force_tcp
     }

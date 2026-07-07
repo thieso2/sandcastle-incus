@@ -694,14 +694,22 @@ active on both.
 > The plain image has no cloud-init → no `dev` user / sshd; always use `images:debian/13/cloud` for tenant machines.
 >
 > ✅ **Client name resolution is automatic (no Tailscale Split DNS needed).** `sc login`
-> installs a systemd-resolved drop-in (`/etc/systemd/resolved.conf.d/10-sandcastle-<suffix>.conf`
-> on Linux, `/etc/resolver/<suffix>` on macOS) that routes `*.<suffix>` to the tenant
-> CoreDNS over the tailnet. **PASS:** after `sc login`, `getent hosts <machine>.<project>.<suffix>`
-> returns the machine's private IP with no manual config; `getent hosts <machine>.<project>.<other-suffix>`
-> is NXDOMAIN (per-install isolation); public names still resolve. A **Tailscale Split DNS**
-> entry (route `<suffix>` → the sidecar's tailnet IP) remains a valid fallback (e.g. if the
-> client can't run privileged resolver setup). The `10-` filename prefix matters: it sorts the
-> tenant CoreDNS ahead of the public upstream so an authoritative NXDOMAIN can't mask a tenant name.
+> gives each Tenant DNS Suffix its **own systemd-resolved link scope** on Linux: a
+> persistent unit (`/etc/systemd/system/sandcastle-dns-<suffix>.service`) creates a dummy
+> link `scdns-<hash>` (with a 169.254/16 link-local address — resolved only activates a
+> link's DNS scope once it carries an address) and pins `DNS=<tenant CoreDNS>`
+> `Domains=~<suffix>` to it; macOS uses `/etc/resolver/<suffix>` (natively per-domain).
+> Per-domain DNS routing in systemd-resolved only works ACROSS link scopes — the earlier
+> global resolved.conf.d drop-in merged every tenant's server into one flat list where
+> only the rotating "current server" is asked, so with two installs one zone always died
+> (see appendix). The unit is `PartOf=systemd-resolved.service`, so a resolved restart
+> re-applies the scope automatically. **PASS:** after `sc login`,
+> `getent hosts <machine>.<project>.<suffix>` returns the machine's private IP with no
+> manual config — **for every enrolled suffix simultaneously** — public names still
+> resolve, `getent hosts <machine>.<project>.<other-suffix>` is NXDOMAIN (per-install
+> isolation), and all of this still holds after `systemctl restart systemd-resolved`.
+> A **Tailscale Split DNS** entry (route `<suffix>` → the sidecar's tailnet IP) remains a
+> valid fallback (e.g. if the client can't run privileged resolver setup).
 
 > ✅ **The `sc` CLI now speaks the v2 topology (2026-07-04, validated on `igel`).**
 > From an enrolled client, `sc list` shows every instance across the tenant's v2
@@ -992,6 +1000,7 @@ stays truthful and self-healing.
 | `sc create dev` succeeds but the machine does NOT show in `sc list` (two installs, same tenant name on one daemon) | `sc list` (also `sc project`, `sc dns/trust`, `sc status`) resolved the tenant by NAME only over the unscoped `tenant.List` — the other install's same-named tenant sorts first and shadows this one; only create/connect/lifecycle/incus were install-scoped | **Fixed:** those commands resolve via `scopedListTenants` (`tenant.ListForPrefix` keyed on the current remote's install prefix); regression test `TestListMachinesScopedToCurrentInstall` |
 | Shared `/home` silently NOT shared (VM can't see the CT's `/home` writes); `home` volume exists but is attached to no profile | `SupportsIdmappedMounts` keyed on `kernel_features["idmapped_mounts"] == "true"`, and **Incus 7.x stopped populating `kernel_features`** (always `{}`) — so every 7.x host looked idmapped-less and provisioning omitted the shared `/home` (and created both volumes unshifted) | **Fixed:** an ABSENT `idmapped_mounts` entry now means supported (the Incus 7.x kernel floor ≥ 5.15 includes it); only an explicit `"false"` disables the shared `/home`. Regression test `TestKernelFeaturesSupportIdmappedMounts`. **e2e check:** after provisioning, `incus profile show default --project <prefix>-<tenant>-default` lists BOTH `home` and `workspace` devices and both volumes have `security.shifted=true` |
 | `sc login --force --dns-suffix other` prints the immutable-suffix error, then hangs polling for ~10 min ("device login polling timed out") while the server re-attempts provisioning every poll | A provisioning failure always left the device login `pending` (correct for transient bring-up errors, wrong for deterministic user-input errors) | **Fixed:** terminal errors (`tenant.TerminalProvisionError`: immutable-suffix conflict, rejected suffix) DENY the device login; the client fails fast with `device login denied: <message>` and exit 1. Regression test `TestDevicePollDeniesLoginOnTerminalProvisioningError` |
+| Two installs on one client (Linux): only ONE suffix ever resolves via `getent` — direct `dig @<sidecar>` works for both, and which zone dies varies | Per-domain DNS routing in systemd-resolved only works ACROSS link scopes; the global resolved.conf.d drop-ins merged both tenant servers + public upstreams into ONE flat list where only the rotating "current server" is asked — an authoritative NXDOMAIN from the wrong server ends the lookup (and the tenant servers' REFUSED responses rotate the current server onto the public upstream, killing both zones) | **Fixed:** per-suffix link scopes — `sandcastle-dns-<suffix>.service` creates a dummy link (`scdns-<hash>`, 169.254/16 addr — no address = no active scope) pinned to `DNS=<CoreDNS> Domains=~<suffix>`, `PartOf=systemd-resolved.service` so a resolved restart re-applies it; login removes any legacy drop-in. The sidecar CoreDNS also now REFUSES tailnet (100.64/10) sources outside its zone instead of forwarding them upstream (`acl` block) — machines on the bridge keep recursion. Tests: `TestSystemdResolvedUnitCreatesPerSuffixLinkScope`, `TestRenderInitial` |
 
 ---
 

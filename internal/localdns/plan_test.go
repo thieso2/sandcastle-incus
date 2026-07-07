@@ -108,7 +108,7 @@ func TestFileManagerInstallRefreshAndUninstall(t *testing.T) {
 	}
 }
 
-func TestFileManagerInstallWritesDropInAndReloads(t *testing.T) {
+func TestFileManagerInstallWritesUnitAndEnablesIt(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
 	dir := t.TempDir()
 	runner := &recordingServiceRunner{}
@@ -118,27 +118,36 @@ func TestFileManagerInstallWritesDropInAndReloads(t *testing.T) {
 		DNSSuffix:        "acme",
 		DNSEndpoint:      "10.248.0.3:53",
 		StatePath:        filepath.Join(dir, "state", "dns.yaml"),
-		ResolverPath:     filepath.Join(dir, "resolved.conf.d", "sandcastle-acme.conf"),
+		ResolverPath:     filepath.Join(dir, "system", "sandcastle-dns-acme.service"),
 		ResolverStrategy: StrategySystemdResolve,
 	}
 	if _, err := manager.Install(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	// A single reload — the drop-in file carries the routing, not a resolvectl
-	// command against the loopback link.
-	if len(runner.commands) != 1 || joinArgs(runner.commands[0]) != "systemctl restart systemd-resolved" {
+	want := []string{
+		"systemctl daemon-reload",
+		"systemctl enable sandcastle-dns-acme.service",
+		"systemctl restart sandcastle-dns-acme.service",
+	}
+	if len(runner.commands) != len(want) {
 		t.Fatalf("commands = %#v", runner.commands)
+	}
+	for index, command := range runner.commands {
+		if joinArgs(command) != want[index] {
+			t.Fatalf("command[%d] = %q, want %q", index, joinArgs(command), want[index])
+		}
 	}
 	content, err := os.ReadFile(plan.ResolverPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), "DNS=10.248.0.3") || !strings.Contains(string(content), "Domains=~acme") {
-		t.Fatalf("drop-in content = %q", content)
+	link := resolvedLinkName("acme")
+	if !strings.Contains(string(content), "resolvectl dns "+link+" 10.248.0.3") || !strings.Contains(string(content), `"~acme"`) {
+		t.Fatalf("unit content = %q", content)
 	}
 }
 
-func TestFileManagerUninstallRemovesDropInAndReloads(t *testing.T) {
+func TestFileManagerUninstallStopsUnitAndRemovesIt(t *testing.T) {
 	t.Setenv("SANDCASTLE_RESOLVER_DIR", "")
 	dir := t.TempDir()
 	runner := &recordingServiceRunner{}
@@ -155,15 +164,25 @@ func TestFileManagerUninstallRemovesDropInAndReloads(t *testing.T) {
 	if _, err := manager.Uninstall(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
-	// alpha's drop-in is gone; beta's survives; resolved is reloaded.
+	// alpha's unit is stopped (tearing down its link scope) BEFORE its file is
+	// removed; beta's survives; systemd re-reads unit files.
 	if _, err := os.Stat(first.ResolverPath); !os.IsNotExist(err) {
-		t.Fatalf("alpha drop-in should be removed, stat err = %v", err)
+		t.Fatalf("alpha unit should be removed, stat err = %v", err)
 	}
 	if _, err := os.Stat(second.ResolverPath); err != nil {
-		t.Fatalf("beta drop-in should survive: %v", err)
+		t.Fatalf("beta unit should survive: %v", err)
 	}
-	if len(runner.commands) != 1 || joinArgs(runner.commands[0]) != "systemctl restart systemd-resolved" {
+	want := []string{
+		"systemctl disable --now sandcastle-dns-alpha.service",
+		"systemctl daemon-reload",
+	}
+	if len(runner.commands) != len(want) {
 		t.Fatalf("commands = %#v", runner.commands)
+	}
+	for index, command := range runner.commands {
+		if joinArgs(command) != want[index] {
+			t.Fatalf("command[%d] = %q, want %q", index, joinArgs(command), want[index])
+		}
 	}
 }
 

@@ -53,23 +53,40 @@ type EndpointState struct {
 }
 
 func (m FileManager) Install(ctx context.Context, plan Plan) (Result, error) {
-	if err := writeLocalDNS(plan); err != nil {
-		return Result{}, err
-	}
-	if err := m.syncPlatformResolver(ctx, plan); err != nil {
+	if err := m.installOrRefresh(ctx, plan); err != nil {
 		return Result{}, err
 	}
 	return Result{Reference: plan.Reference, Action: "install", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
 }
 
 func (m FileManager) Refresh(ctx context.Context, plan Plan) (Result, error) {
-	if err := writeLocalDNS(plan); err != nil {
-		return Result{}, err
-	}
-	if err := m.syncPlatformResolver(ctx, plan); err != nil {
+	if err := m.installOrRefresh(ctx, plan); err != nil {
 		return Result{}, err
 	}
 	return Result{Reference: plan.Reference, Action: "refresh", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
+}
+
+func (m FileManager) installOrRefresh(ctx context.Context, plan Plan) error {
+	legacyRemoved, err := writeLocalDNS(plan)
+	if err != nil {
+		return err
+	}
+	runner := m.runner()
+	if legacyRemoved {
+		// The pre-link-scope drop-in put the tenant server in resolved's
+		// GLOBAL list; only a resolved restart drops it. The restart cascades
+		// to every enabled per-suffix unit (PartOf), which re-apply their
+		// link scopes.
+		if err := runner.Run(ctx, []string{"systemctl", "restart", "systemd-resolved"}); err != nil {
+			return err
+		}
+	}
+	for _, command := range resolverInstallCommands(plan.ResolverStrategy, plan.DNSSuffix) {
+		if err := runner.Run(ctx, command.Args); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m FileManager) Uninstall(ctx context.Context, plan Plan) (Result, error) {
@@ -81,6 +98,14 @@ func (m FileManager) Uninstall(ctx context.Context, plan Plan) (Result, error) {
 	if err := writeState(plan.StatePath, state); err != nil {
 		return Result{}, err
 	}
+	// Stop + disable while the unit file still exists — its ExecStop tears
+	// down the dummy link and with it the resolved scope.
+	runner := m.runner()
+	for _, command := range ResolverPreUninstallCommands(plan.ResolverStrategy, plan.DNSSuffix) {
+		if err := runner.Run(ctx, command.Args); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := os.Remove(plan.ResolverPath); err != nil && !os.IsNotExist(err) {
 		return Result{}, err
 	}
@@ -90,16 +115,20 @@ func (m FileManager) Uninstall(ctx context.Context, plan Plan) (Result, error) {
 	return Result{Reference: plan.Reference, Action: "uninstall", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
 }
 
+func (m FileManager) runner() CommandRunner {
+	if m.Runner != nil {
+		return m.Runner
+	}
+	return ExecCommandRunner{}
+}
+
 func (m FileManager) syncPlatformResolver(ctx context.Context, plan Plan) error {
 	state, err := readState(plan.StatePath)
 	if err != nil {
 		return err
 	}
 	commands := ResolverSyncCommands(plan.ResolverStrategy, state)
-	runner := m.Runner
-	if runner == nil {
-		runner = ExecCommandRunner{}
-	}
+	runner := m.runner()
 	for _, command := range commands {
 		if err := runner.Run(ctx, command.Args); err != nil {
 			return err
@@ -108,27 +137,35 @@ func (m FileManager) syncPlatformResolver(ctx context.Context, plan Plan) error 
 	return nil
 }
 
-func writeLocalDNS(plan Plan) error {
+func writeLocalDNS(plan Plan) (legacyRemoved bool, err error) {
 	state, err := readState(plan.StatePath)
 	if err != nil {
-		return err
+		return false, err
 	}
 	entry, err := tenantState(plan)
 	if err != nil {
-		return err
+		return false, err
 	}
 	state.Tenants = upsertTenant(state.Tenants, entry)
 	if err := writeState(plan.StatePath, state); err != nil {
-		return err
+		return false, err
 	}
 	if err := os.MkdirAll(filepath.Dir(plan.ResolverPath), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	resolver, err := resolverContent(plan)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return os.WriteFile(plan.ResolverPath, []byte(resolver), 0o644)
+	if err := os.WriteFile(plan.ResolverPath, []byte(resolver), 0o644); err != nil {
+		return false, err
+	}
+	if plan.ResolverStrategy == StrategySystemdResolve && resolverDirOverride() == "" {
+		if err := os.Remove(legacyResolvedDropInPath(plan.DNSSuffix)); err == nil {
+			legacyRemoved = true
+		}
+	}
+	return legacyRemoved, nil
 }
 
 func readState(path string) (State, error) {
@@ -188,7 +225,7 @@ func tenantState(plan Plan) (TenantState, error) {
 
 func resolverContent(plan Plan) (string, error) {
 	if plan.ResolverStrategy == StrategySystemdResolve && resolverDirOverride() == "" {
-		return SystemdResolvedDropIn(plan.DNSSuffix, plan.DNSEndpoint)
+		return SystemdResolvedUnit(plan.DNSSuffix, plan.DNSEndpoint)
 	}
 	host, port, err := net.SplitHostPort(plan.DNSEndpoint)
 	if err != nil {
