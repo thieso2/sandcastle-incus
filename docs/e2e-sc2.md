@@ -100,7 +100,14 @@ Suffix. Validated **from scratch** (purged host → `install-incus` → two
   natively. Each remote is pinned to its install's default project (the shared
   cert's server-side default is ambiguous). Because Incus keys trust by
   fingerprint, `sc login` sends the client's existing cert and each install
-  **unions** its projects into that one trust entry.
+  **unions** its projects into that one trust entry. Enrolling the *second*
+  install can't redeem the join token (the daemon already trusts the keypair —
+  `Client is already trusted`), so `sc login` falls back to a certificate-based
+  `incus remote add … --auth-type=tls --accept-certificate --project
+  <install-default>`. The explicit `--project` is load-bearing: without it
+  `incus remote add` sees both installs' projects through the shared cert and
+  **prompts interactively**, which EOFs and hangs the login. Regression test:
+  `TestTrustedClientRemoteAddArgsPinsProject`.
 - **Proven green:** native `incus launch sc-e2e:web` and `sc-id-e2e:api` both
   RUNNING from the one client; per-install DNS zones with **zero cross-zone
   bleed** (`web.default.e2e` resolves in the sc zone and is NXDOMAIN in the id
