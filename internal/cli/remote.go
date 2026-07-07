@@ -139,7 +139,7 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 		// remote certificate-based (with the SAME project pin) instead.
 		if strings.Contains(addErr.String(), "already trusted") && strings.TrimSpace(incusAddress) != "" {
 			url := "https://" + net.JoinHostPort(strings.TrimSpace(incusAddress), "8443")
-			certAdd := exec.CommandContext(ctx, "incus", "remote", "add", name, url, "--auth-type=tls", "--accept-certificate")
+			certAdd := exec.CommandContext(ctx, "incus", trustedClientRemoteAddArgs(name, url, incusProject)...)
 			certAdd.Env = env
 			certAdd.Stdout = ioConfig.stdout
 			certAdd.Stderr = ioConfig.stderr
@@ -189,6 +189,21 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 		return remoteAddResult{}, err
 	}
 	return remoteAddResult{RemoteName: name, IncusConfig: incusDir, Tenant: tenant, DefaultRemoteSet: defaultRemoteSet}, nil
+}
+
+// trustedClientRemoteAddArgs builds the `incus remote add` argv for the
+// shared-identity fallback: when this daemon already trusts our keypair (another
+// install on the same host enrolled it), the token is refused and we add the
+// remote certificate-based instead. The trusted cert can see several installs'
+// projects, so without an explicit --project `incus remote add` prompts
+// interactively ("Name of the project to use for this remote:") and fails on EOF
+// in any non-interactive login. Pin this install's project up front.
+func trustedClientRemoteAddArgs(name string, url string, incusProject string) []string {
+	args := []string{"remote", "add", name, url, "--auth-type=tls", "--accept-certificate"}
+	if p := strings.TrimSpace(incusProject); p != "" {
+		args = append(args, "--project", p)
+	}
+	return args
 }
 
 // setRemoteProject writes remotes[name].project into an incus config.yml,

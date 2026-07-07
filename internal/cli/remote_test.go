@@ -16,6 +16,28 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 )
 
+func TestTrustedClientRemoteAddArgsPinsProject(t *testing.T) {
+	// Shared identity across installs: the cert-based fallback MUST pass
+	// --project, or `incus remote add` prompts interactively for the project
+	// (the trusted cert can see several installs' projects) and fails on EOF in
+	// a non-interactive login. Regression for the sc-id enrollment hang.
+	args := trustedClientRemoteAddArgs("sc-id-e2edns", "https://100.122.93.37:8443", "id-e2edns-default")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--project id-e2edns-default") {
+		t.Fatalf("cert-based remote add must pin the project, got: %q", joined)
+	}
+	if !strings.Contains(joined, "--auth-type=tls") || !strings.Contains(joined, "--accept-certificate") {
+		t.Fatalf("cert-based remote add must use the trusted-cert path, got: %q", joined)
+	}
+}
+
+func TestTrustedClientRemoteAddArgsOmitsEmptyProject(t *testing.T) {
+	args := trustedClientRemoteAddArgs("sc-acme", "https://10.0.0.2:8443", "  ")
+	if strings.Contains(strings.Join(args, " "), "--project") {
+		t.Fatalf("no project pin when none is given, got: %v", args)
+	}
+}
+
 func TestNormalizedRemoteURLUsesCertificateDNSNameForIPRemote(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yml")

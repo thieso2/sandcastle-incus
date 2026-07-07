@@ -5,6 +5,21 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-07 — enrollment hang on a second install (trusted-client project pin)
+
+- **Cert-based remote-add fallback now pins `--project`.** Found live during a
+  full-suite e2e: enrolling a *second* install on a client that already trusts
+  the shared keypair failed. The token path is refused (`Client is already
+  trusted`), so we fall back to `incus remote add … --auth-type=tls
+  --accept-certificate`; but the shared cert can see *both* installs' projects,
+  so `incus remote add` prompted interactively (`Name of the project to use for
+  this remote:`) and died on EOF in the non-interactive login — the login hung
+  and never enrolled `sc-id-<tenant>`. Fix: pass `--project <install-default>`
+  to that fallback so it never prompts. Extracted `trustedClientRemoteAddArgs`
+  for a pure unit-test (the shell-out itself resists mocking because
+  `setRemoteProject` expects the remote already in `config.yml`). Validated live:
+  second install now enrolls cleanly, project pins correct, no cross-leak.
+
 ## 2026-07-07 — multi-install coexistence, shared identity, appliance bridge
 
 - **Each install owns its appliance bridge `<prefix>-net`** (was: appliances on
