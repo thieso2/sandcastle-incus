@@ -176,6 +176,42 @@ func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 	})
 }
 
+// EnsureApplianceBridge creates the per-install bridge the appliances
+// (auth-app, broker) attach to, so an install owns its own network object
+// instead of sharing incusbr0. It is NATed (appliances only need outbound —
+// image pulls, cloudflared, tailscale; provisioning rides the mounted host
+// socket, not L3), and its subnet is auto-picked by Incus (ipv4.address=auto)
+// so it can't overlap the tenant pool, incusbr0, or another install's bridge.
+// Idempotent: a bridge that already exists is left as-is. Tagged with the
+// install prefix so teardown can find it.
+func (c TenantCreator) EnsureApplianceBridge(ctx context.Context, name string, installPrefix string) error {
+	server, err := c.resolveV2Server()
+	if err != nil {
+		return err
+	}
+	def := server.UseProject(naming.DefaultProjectName)
+	if _, _, err := def.GetNetwork(name); err == nil {
+		return nil
+	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
+		return fmt.Errorf("get appliance bridge %s: %w", name, err)
+	}
+	return def.CreateNetwork(api.NetworksPost{
+		Name: name,
+		Type: "bridge",
+		NetworkPut: api.NetworkPut{
+			Description: "Sandcastle appliance bridge for install " + installPrefix,
+			Config: api.ConfigMap{
+				"ipv4.address":   "auto",
+				"ipv4.nat":       "true",
+				"ipv6.address":   "none",
+				meta.KeyKind:     "appliance-network",
+				meta.KeyV2Prefix: installPrefix,
+				meta.KeyVersion:  "2",
+			},
+		},
+	})
+}
+
 // ensureV2Project creates an infra or app project that references the shared
 // bridge via features.networks=false. Infra shares the default image store
 // (features.images=false) to avoid copying the base; app projects keep their

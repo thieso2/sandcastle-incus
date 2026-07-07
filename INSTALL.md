@@ -156,6 +156,16 @@ demand), copying the **running binary** (`os.Executable()`) into it:
 - `sc2-auth-app` (project `infrastructure`) — auth-app on `:9444` internally,
   fronted by caddy + cloudflared *inside the same container* (no host ports)
 
+> **The install owns its own appliance bridge.** By default `sc-adm install`
+> creates a NATed bridge `<prefix>-net` (e.g. `sc2-net`) with an auto-picked
+> subnet and puts the appliances on it — so an install shares **no** network
+> object with v1 or with other installs (the only thing shared is the Incus
+> daemon). Appliances need only outbound (image pulls, cloudflared, tailscale);
+> provisioning rides the mounted host socket, not L3. Pass `--bridge incusbr0`
+> (or any existing bridge) to opt out and put the appliances on the host bridge
+> instead. Per-**tenant** bridges are unaffected — each tenant still owns its
+> own `/24`.
+
 > **No broker with Cloudflare ingress.** The broker appliance is only deployed
 > for `--ingress acme`/`none`, where it needs a reachable host `:9443` for the
 > tenant plane. With a Cloudflare tunnel there is no inbound host port and no

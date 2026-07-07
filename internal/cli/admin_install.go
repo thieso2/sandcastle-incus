@@ -114,13 +114,29 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				return fmt.Errorf("unknown --ingress %q (none, acme, cloudflare)", ingressMode)
 			}
 
+			// Appliance bridge: by default each install creates and owns its own
+			// bridge (<prefix>-net), so nothing but the daemon is shared with v1
+			// or with other installs. --bridge overrides to an existing bridge
+			// (e.g. incusbr0) for operators who want the appliances on the host
+			// bridge.
+			applianceBridge := strings.TrimSpace(bridge)
+			if applianceBridge == "" {
+				applianceBridge = v2Prefix + "-net"
+				fmt.Fprintf(config.stdout, "[0/2] creating appliance bridge %s (own, NATed)...\n", applianceBridge)
+				if err := creator.EnsureApplianceBridge(cmd.Context(), applianceBridge, v2Prefix); err != nil {
+					return fmt.Errorf("create appliance bridge %s: %w", applianceBridge, err)
+				}
+			} else {
+				fmt.Fprintf(config.stdout, "  appliance bridge: using existing %s (--bridge)\n", applianceBridge)
+			}
+
 			fmt.Fprintf(config.stdout, "[1/2] deploying auth-app appliance %s...\n", authAppInstance)
 			if err := creator.BootstrapAuthApp(cmd.Context(), incusx.BootstrapAuthAppRequest{
 				Project:             "infrastructure",
 				Instance:            authAppInstance,
 				BaseImage:           baseImage,
 				BinaryPath:          binaryPath,
-				Bridge:              bridge,
+				Bridge:              applianceBridge,
 				StoragePool:         storagePool,
 				Hostname:            hostname,
 				GitHubClientID:      githubClientID,
@@ -149,7 +165,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				if err := creator.BootstrapV2(cmd.Context(), incusx.BootstrapV2Request{
 					BaseImage:     baseImage,
 					BinaryPath:    binaryPath,
-					Bridge:        bridge,
+					Bridge:        applianceBridge,
 					StoragePool:   storagePool,
 					Hostname:      hostname,
 					CIDRPool:      cidrPool,
@@ -169,6 +185,11 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				fmt.Fprintf(config.stdout, "  broker:   %s (project %s), :%s\n", brokerName, brokerName, brokerPort)
 			} else {
 				fmt.Fprintf(config.stdout, "  broker:   (not deployed — Cloudflare ingress uses the auth-app tenant plane)\n")
+			}
+			if strings.TrimSpace(bridge) == "" {
+				fmt.Fprintf(config.stdout, "  appliance bridge: %s (own, NATed — nothing shared with other installs or v1)\n", applianceBridge)
+			} else {
+				fmt.Fprintf(config.stdout, "  appliance bridge: %s (existing, via --bridge)\n", applianceBridge)
 			}
 			fmt.Fprintf(config.stdout, "  tenant CIDR pool: %s (shared; the allocator avoids other tenants' /24s)\n", cidrPool)
 			switch ingressMode {
@@ -197,7 +218,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "OPTIONAL default Tailscale auth key for tenants that don't bring their own (tenants normally supply theirs at sc login)")
 	command.Flags().StringVar(&baseImage, "base-image", incusx.DefaultApplianceImage, "system-container base image for the appliances")
 	command.Flags().StringVar(&binaryPath, "binary", "", "path to the fat binary to push (default: this binary)")
-	command.Flags().StringVar(&bridge, "bridge", "incusbr0", "bridge the appliance NICs attach to")
+	command.Flags().StringVar(&bridge, "bridge", "", "existing bridge for the appliance NICs; empty (default) creates a per-install bridge <prefix>-net so nothing is shared with other installs or v1")
 	command.Flags().StringVar(&storagePool, "storage-pool", "default", "storage pool for the appliance root disks")
 	command.Flags().StringVar(&tlsMode, "infra-tls-mode", "acme", "infrastructure TLS mode")
 	command.Flags().StringVar(&brokerPort, "broker-port", "9443", "host port the broker listens on")
