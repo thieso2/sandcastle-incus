@@ -63,11 +63,18 @@ func GetStatus(ctx context.Context, store IncusTenantStore, reference string) (S
 }
 
 func GetStatusWithTopology(ctx context.Context, store IncusTenantStore, topologyStore TopologyStore, topologyRequest TopologyRequest, reference string) (Status, error) {
+	return GetStatusWithTopologyForPrefix(ctx, store, topologyStore, topologyRequest, reference, "")
+}
+
+// GetStatusWithTopologyForPrefix scopes the tenant lookup to one installation
+// prefix — same-named tenants of different installs sharing an Incus daemon
+// are different tenants (see ListForPrefix). Empty prefix = no scoping.
+func GetStatusWithTopologyForPrefix(ctx context.Context, store IncusTenantStore, topologyStore TopologyStore, topologyRequest TopologyRequest, reference string, installPrefix string) (Status, error) {
 	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
 		return Status{}, err
 	}
-	tenants, err := List(ctx, store)
+	tenants, err := ListForPrefix(ctx, store, installPrefix)
 	if err != nil {
 		return Status{}, err
 	}

@@ -92,10 +92,6 @@ func optionalArg(args []string) string {
 }
 
 func listMachines(ctx context.Context, config commandConfig, request listMachinesRequest) (listPayload, error) {
-	tenants, err := listTenants(ctx, config.tenantStore)
-	if err != nil {
-		return listPayload{}, err
-	}
 	tenantName := strings.TrimSpace(config.adminConfig.Tenant)
 	projectFilter := strings.TrimSpace(request.Project)
 	if scopedTenant, scopedProject, ok := strings.Cut(projectFilter, "/"); ok {
@@ -105,6 +101,10 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	ref, err := naming.ParseTenantRef(tenantName)
 	if err != nil {
 		return listPayload{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
+	}
+	tenants, err := scopedListTenants(ctx, config, ref.Tenant)
+	if err != nil {
+		return listPayload{}, err
 	}
 	var summary tenant.Summary
 	found := false

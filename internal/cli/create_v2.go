@@ -41,6 +41,18 @@ func v2TenantSummary(ctx context.Context, config commandConfig) (tenant.Summary,
 	return tenant.Summary{}, false
 }
 
+// scopedListTenants lists tenant summaries scoped to the install the
+// configured remote belongs to. Several installs can share one Incus daemon
+// (every sidecar's Incus Reach lands on the same host API) and the shared
+// client certificate sees every enrolled install's projects, so a same-named
+// tenant may exist once per install — matching by tenant name alone can land
+// on the wrong install (e.g. `sc list` right after `sc create` showing the
+// OTHER install's empty machine set). Unscoped fallback (empty prefix) when
+// the remote name has another shape (admin remotes, v1).
+func scopedListTenants(ctx context.Context, config commandConfig, tenantName string) ([]tenant.Summary, error) {
+	return tenant.ListForPrefix(ctx, config.tenantStore, installPrefixFromRemoteName(config.adminConfig.Remote, tenantName))
+}
+
 // installPrefixFromRemoteName inverts usertrust.RemoteInstallName: the enrolled
 // remote is named "sc-<prefix>-<tenant>" (or "sc-<tenant>" for the default
 // prefix), so the remote name identifies which install's projects this CLI is

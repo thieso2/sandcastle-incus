@@ -37,12 +37,13 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if len(args) == 1 {
 				reference = args[0]
 			}
-			status, err := tenant.GetStatusWithTopology(
+			status, err := tenant.GetStatusWithTopologyForPrefix(
 				cmd.Context(),
 				config.tenantStore,
 				config.topologyStore,
 				tenant.TopologyRequest{},
 				reference,
+				installPrefixFromRemoteName(config.adminConfig.Remote, reference),
 			)
 			if err != nil {
 				return err

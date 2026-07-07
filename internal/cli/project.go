@@ -268,7 +268,7 @@ func currentTenantSummary(ctx context.Context, config commandConfig) (tenant.Sum
 	if err != nil {
 		return tenant.Summary{}, fmt.Errorf("tenant is required; set SANDCASTLE_TENANT or local tenant config")
 	}
-	tenants, err := listTenants(ctx, config.tenantStore)
+	tenants, err := scopedListTenants(ctx, config, ref.Tenant)
 	if err != nil {
 		return tenant.Summary{}, err
 	}

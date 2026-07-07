@@ -174,7 +174,9 @@ and silently operated on the *other* install's project.
   `INCUS_PROJECT=<that-install's-prefix>-<tenant>-default` and lists only that
   install's machines (the other install's view is empty — no cross-install
   bleed). `sc create`/`sc connect`/`sc delete` land in the install the current
-  remote belongs to. Each login installed its own resolver zone
+  remote belongs to, and **`sc list` / `sc project list` / `sc status` show that
+  same install** — a machine visible to `sc incus ls` but missing from `sc list`
+  under the same remote is the name-only-match regression (see appendix). Each login installed its own resolver zone
   (`/etc/resolver/tcA`, `/etc/resolver/tcB` on darwin) pointing at its own
   tenant's CoreDNS, and each tenant got a /24 from its own install's pool.
 
@@ -281,6 +283,21 @@ sc create web --detach                       # default project
 sc project create backend                    # NO flags: broker URL + cert from the login
 sc create backend:api --detach
 sc list                                      # FQDN column shows canonical names
+# PASS: EVERY machine created above appears in `sc list` immediately (list is
+#       scoped to the current remote's install — a same-named tenant of another
+#       install on the same daemon must never shadow this one)
+
+# 2b. shared $HOME + /workspace across the project (CT ↔ VM)
+sc create vm1 --vm --detach                  # a VM next to the CTs in default
+#    wait for both to be RUNNING (sc list), then:
+sc incus exec web -- sh -c 'echo from-ct > /workspace/marker; echo home-ct > /home/$USER/hmarker'
+sc incus exec vm1 -- sh -c 'cat /workspace/marker; cat /home/$USER/hmarker'   # → from-ct / home-ct
+sc incus exec vm1 -- sh -c 'echo from-vm >> /workspace/marker'
+sc incus exec web -- cat /workspace/marker   # → from-ct then from-vm
+# PASS: the VM reads what the CT wrote on BOTH volumes and vice-versa (one
+#       shared home+workspace volume pair per project, security.shifted);
+#       the login user can write /workspace; ~/.ssh/authorized_keys lives on
+#       the shared /home
 
 # 3. the ADR-0018 DNS battery (sidecar CoreDNS = tenant CIDR .3)
 DNS=10.254.0.3
@@ -972,6 +989,7 @@ stays truthful and self-healing.
 | `sc list`/`sc c` on a enroll-enrolled client → `tenant is required` | `enroll` never persisted `tenant`/`remote` into `~/.config/sandcastle/config.yml` (only the login path did) | **Fixed:** `enroll` saves the tenant + base remote as local defaults |
 | Second `sc login` re-runs the whole device flow instead of `Already logged in` | `/api/tenants` filtered accessibility through the v1 `ListTenantUsers` metadata, which v2 tenants don't have — the saved-token check concluded the tenant was "no longer accessible" | **Fixed:** a v2 personal tenant is accessible to the user whose key names it; also fixes `sc tenant list` for v2 |
 | Tenant CIDR ignores `bootstrap --cidr-pool` when created via `incus exec … tenant create` | The flag lands in the broker **service** env (`/etc/sandcastle/broker/env`), but a direct `incus exec` CLI call doesn't inherit an EnvironmentFile | Source it in the exec: `incus exec sc2-broker … -- sh -c '. /etc/sandcastle/broker/env && export SANDCASTLE_CIDR_POOL && sandcastle-admin tenant create …'` |
+| `sc create dev` succeeds but the machine does NOT show in `sc list` (two installs, same tenant name on one daemon) | `sc list` (also `sc project`, `sc dns/trust`, `sc status`) resolved the tenant by NAME only over the unscoped `tenant.List` — the other install's same-named tenant sorts first and shadows this one; only create/connect/lifecycle/incus were install-scoped | **Fixed:** those commands resolve via `scopedListTenants` (`tenant.ListForPrefix` keyed on the current remote's install prefix); regression test `TestListMachinesScopedToCurrentInstall` |
 
 ---
 

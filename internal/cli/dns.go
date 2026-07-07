@@ -100,7 +100,7 @@ func runDNSSetup(ctx context.Context, config commandConfig, reference string) (d
 	if err != nil {
 		return dnsSetupResult{}, err
 	}
-	summary, err := findTenantSummary(ctx, config.tenantStore, installPlan.Reference)
+	summary, err := findTenantSummary(ctx, config, installPlan.Reference)
 	if err != nil {
 		return dnsSetupResult{}, err
 	}
@@ -147,7 +147,7 @@ func installV2LocalResolver(ctx context.Context, config commandConfig, out io.Wr
 		return
 	}
 	suffix := strings.TrimSpace(tenant)
-	if summary, err := findTenantSummary(ctx, config.tenantStore, tenant); err == nil && strings.TrimSpace(summary.DNSSuffix) != "" {
+	if summary, err := findTenantSummary(ctx, config, tenant); err == nil && strings.TrimSpace(summary.DNSSuffix) != "" {
 		suffix = strings.TrimSpace(summary.DNSSuffix)
 	}
 	installPlan, err := localdns.PlanForV2(tenant, suffix, privateCIDR)
@@ -197,7 +197,7 @@ func newDNSApplyCommand(config commandConfig, opts *rootOptions) *cobra.Command 
 		Short: "Render and apply tenant CoreDNS records",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findTenantSummary(cmd.Context(), config.tenantStore, args[0])
+			summary, err := findTenantSummary(cmd.Context(), config, args[0])
 			if err != nil {
 				return err
 			}
@@ -219,7 +219,7 @@ func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command
 		Short: "Render tenant DNS status without applying it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findTenantSummary(cmd.Context(), config.tenantStore, args[0])
+			summary, err := findTenantSummary(cmd.Context(), config, args[0])
 			if err != nil {
 				return err
 			}
@@ -316,12 +316,12 @@ func newDNSUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	return command
 }
 
-func findTenantSummary(ctx context.Context, store tenant.IncusTenantStore, reference string) (tenant.Summary, error) {
+func findTenantSummary(ctx context.Context, config commandConfig, reference string) (tenant.Summary, error) {
 	ref, err := naming.ParseTenantRef(reference)
 	if err != nil {
 		return tenant.Summary{}, err
 	}
-	tenants, err := tenant.List(ctx, store)
+	tenants, err := scopedListTenants(ctx, config, ref.Tenant)
 	if err != nil {
 		return tenant.Summary{}, err
 	}

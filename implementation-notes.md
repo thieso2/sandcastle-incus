@@ -271,6 +271,29 @@ client" during the coexistence e2e. Four linked fixes:
   all three provisioning paths (device login, `sc-adm tenant create`, project
   broker) — they all call `ProvisionReuseInputs`.
 
+## 2026-07-07 — `sc list` (and project/dns/status) matched same-named tenants unscoped
+
+- **Bug (witnessed live):** with two installs sharing one Incus daemon and the
+  same tenant name in both (the standard coexistence shape — one GitHub user,
+  two installs), `sc create dev` succeeded but `sc list` came back without the
+  machine. The earlier cross-install scoping fix covered `sc create`,
+  `sc connect`, lifecycle, and `sc incus*` (via `v2TenantSummary` →
+  `tenant.ListForPrefix`), but `sc list`, `sc project *`, the dns/trust
+  commands, and `sc status` still resolved the tenant by NAME only over the
+  unscoped `tenant.List` — and the other install's same-named tenant sorts
+  first (`id-…` < `sc2-…` in the project scan), so those commands silently
+  operated on the other install.
+- **Fix:** one shared `scopedListTenants` helper (prefix from
+  `installPrefixFromRemoteName`, i.e. the current remote is the single source
+  of truth), used by `listMachines`, `currentTenantSummary` (project.go), and
+  `findTenantSummary` (dns.go); `tenant.GetStatusWithTopologyForPrefix` for
+  `sc status`. Unscoped fallback (empty prefix) is preserved for admin remotes
+  and v1 shapes. Alternative considered: filter inside `tenant.List` by a
+  store-carried prefix — rejected as it would push CLI remote-name semantics
+  into the tenant package's store abstraction.
+- Regression test: `TestListMachinesScopedToCurrentInstall` (two installs,
+  same tenant name, each remote must see its own machine set).
+
 ## Running Notes
 
 - Started implementation from the committed domain docs (`CONTEXT.md`,
