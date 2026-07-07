@@ -5765,7 +5765,10 @@ func TestLoginSendsClientCertificate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USER", "loginuser")
-	// Seed the shared incus dir with a client cert (as a prior install's login would).
+	// Seed the shared incus dir with a client cert (as a prior install's login
+	// would). AdoptNativeIncusDirIfChosen drops the ownership marker so the dir
+	// resolves stably to the native dir even after a client cert lives in it.
+	scconfig.AdoptNativeIncusDirIfChosen()
 	shared := scconfig.SharedIncusDir()
 	if err := os.MkdirAll(shared, 0o700); err != nil {
 		t.Fatal(err)

@@ -32,12 +32,70 @@ func DefaultConfigPath() string {
 	return filepath.Join(DefaultConfigDir(), "config.yml")
 }
 
-// SharedIncusDir returns the ONE incus config directory holding every
-// sandcastle enrollment: a single client keypair shared across installs, and
-// one remote per install (sc-<tenant>, sc-<prefix>-<tenant>) — so plain
-// `incus remote switch` moves between sandcastles.
-func SharedIncusDir() string {
+// sharedIncusMarker records, inside the native ~/.config/incus dir, that
+// Sandcastle has adopted it — so resolution stays on that dir even after
+// enrollment writes a client cert into it (which would otherwise look like a
+// pre-existing foreign identity on the next call).
+const sharedIncusMarker = ".sandcastle-owned"
+
+// NativeIncusDir returns ~/.config/incus — the dir plain `incus` uses with no
+// INCUS_CONF set.
+func NativeIncusDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "incus")
+}
+
+// DedicatedIncusDir returns ~/.config/sandcastle/incus — Sandcastle's own dir,
+// used when the native dir must not be touched (it holds an admin/other cert).
+func DedicatedIncusDir() string {
 	return filepath.Join(DefaultConfigDir(), "incus")
+}
+
+// SharedIncusDir returns the ONE incus config directory holding every
+// sandcastle enrollment (a single client keypair shared across installs; one
+// remote per install — sc-<tenant>, sc-<prefix>-<tenant>). It auto-detects:
+// prefer the NATIVE ~/.config/incus so plain `incus remote switch` works with
+// no wrapper, but only when that dir has no foreign identity to clobber;
+// otherwise use the dedicated Sandcastle dir. See SharedIncusDirExplained for
+// the reasoning strings.
+func SharedIncusDir() string {
+	dir, _ := SharedIncusDirExplained()
+	return dir
+}
+
+// SharedIncusDirExplained resolves the shared incus dir and returns a one-line
+// human explanation of the choice, for verbose enrollment output.
+func SharedIncusDirExplained() (dir string, reason string) {
+	native := NativeIncusDir()
+	dedicated := DedicatedIncusDir()
+	switch {
+	case fileExists(filepath.Join(native, sharedIncusMarker)):
+		return native, "native Incus config dir " + native + " (already Sandcastle-managed) — plain `incus` sees your Sandcastle remotes"
+	case fileExists(filepath.Join(dedicated, "config.yml")):
+		return dedicated, "dedicated Sandcastle dir " + dedicated + " (prior enrollments live here)"
+	case fileExists(filepath.Join(native, "client.crt")):
+		return dedicated, "dedicated Sandcastle dir " + dedicated + " — " + native + " already holds a client certificate (admin/other identity) that must not be overwritten"
+	default:
+		return native, "native Incus config dir " + native + " (no existing identity there) — plain `incus remote switch` works with no wrapper"
+	}
+}
+
+// AdoptNativeIncusDirIfChosen drops the ownership marker when the resolved
+// shared dir is the native one, so subsequent resolutions stay on it even after
+// enrollment writes a client cert. No-op when the dedicated dir is in use.
+// Call this at enrollment BEFORE writing the client cert.
+func AdoptNativeIncusDirIfChosen() {
+	if SharedIncusDir() != NativeIncusDir() {
+		return
+	}
+	dir := NativeIncusDir()
+	_ = os.MkdirAll(dir, 0o700)
+	_ = os.WriteFile(filepath.Join(dir, sharedIncusMarker), []byte("Sandcastle shared-identity config — safe to delete to unmanage.\n"), 0o600)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // RemoteIncusDir returns the legacy per-remote incus config directory

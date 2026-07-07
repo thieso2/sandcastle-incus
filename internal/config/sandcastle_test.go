@@ -172,3 +172,54 @@ func TestResolveConfigPathSharedFirst(t *testing.T) {
 		t.Fatalf("unknown -> %q, want empty", got)
 	}
 }
+
+func TestSharedIncusDirAutoDetect(t *testing.T) {
+	native := func() string { return NativeIncusDir() }
+	dedicated := func() string { return DedicatedIncusDir() }
+
+	t.Run("native when free", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if got := SharedIncusDir(); got != native() {
+			t.Fatalf("free host: got %q, want native %q", got, native())
+		}
+	})
+
+	t.Run("dedicated when native holds a foreign cert", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := os.MkdirAll(native(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// an admin/other client identity already lives in ~/.config/incus
+		if err := os.WriteFile(filepath.Join(native(), "client.crt"), []byte("ADMIN"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := SharedIncusDir(); got != dedicated() {
+			t.Fatalf("foreign cert: got %q, want dedicated %q", got, dedicated())
+		}
+	})
+
+	t.Run("native stays native after adoption + own cert", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		AdoptNativeIncusDirIfChosen() // free host → adopts native, drops marker
+		// Sandcastle's own cert now lives in native — must NOT flip to dedicated.
+		if err := os.WriteFile(filepath.Join(native(), "client.crt"), []byte("OWN"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := SharedIncusDir(); got != native() {
+			t.Fatalf("post-adoption: got %q, want native %q", got, native())
+		}
+	})
+
+	t.Run("dedicated wins when prior enrollment lives there", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := os.MkdirAll(dedicated(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dedicated(), "config.yml"), []byte("remotes: {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := SharedIncusDir(); got != dedicated() {
+			t.Fatalf("prior dedicated: got %q, want dedicated %q", got, dedicated())
+		}
+	})
+}

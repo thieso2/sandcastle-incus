@@ -37,7 +37,10 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 			}
 			dir := strings.TrimSpace(configDir)
 			if dir == "" {
-				dir = scconfig.SharedIncusDir()
+				scconfig.AdoptNativeIncusDirIfChosen()
+				var reason string
+				dir, reason = scconfig.SharedIncusDirExplained()
+				fmt.Fprintf(config.stdout, "Incus config: %s\n", reason)
 			}
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return fmt.Errorf("create config dir: %w", err)

@@ -104,8 +104,11 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 	// it is the shared identity across installs, and each install is just a
 	// remote (`incus remote switch sc-id-<tenant>`). Never wipe the dir —
 	// other installs' remotes and the shared keypair live here; replace only
-	// THIS remote.
-	incusDir := scconfig.SharedIncusDir()
+	// THIS remote. The dir is auto-detected (native ~/.config/incus when free,
+	// else the dedicated Sandcastle dir); adopt + announce the choice.
+	scconfig.AdoptNativeIncusDirIfChosen()
+	incusDir, reason := scconfig.SharedIncusDirExplained()
+	fmt.Fprintf(ioConfig.stdout, "Incus config: %s\n", reason)
 	if err := os.MkdirAll(incusDir, 0o700); err != nil {
 		return remoteAddResult{}, fmt.Errorf("create incus config dir: %w", err)
 	}
