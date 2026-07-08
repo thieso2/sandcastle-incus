@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sandcastle Internals — Commands, State &amp; Flows</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #14161f;
+      --border: #2a2d3e;
+      --accent: #6c8ef5;   /* periwinkle — actors, headings, links */
+      --accent2: #5dd8a0;  /* mint — code, created state */
+      --warn: #e8a75d;     /* amber — mutated state */
+      --danger: #e06c75;   /* red — deleted state */
+      --read: #7a7f99;     /* muted — read-only */
+      --text: #d4d8f0;
+      --muted: #7a7f99;
+      --tag-bg: #1e2233;
+      --code-bg: #131620;
+    }
+    html { scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      padding: 2rem;
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover, a:focus-visible { text-decoration: underline; outline: none; }
+    a:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+    .page-header { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+    .page-header h1 { font-size: 1.6rem; color: var(--accent); letter-spacing: 0.03em; text-wrap: balance; }
+    .page-header p  { color: var(--muted); margin-top: 0.4rem; max-width: 72ch; }
+
+    nav.toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 2.5rem; }
+    nav.toc h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 0.75rem; border: 0; }
+    nav.toc ol { padding-left: 1.4rem; columns: 2; column-gap: 3rem; }
+    nav.toc li { margin: 0.25rem 0; break-inside: avoid; }
+    @media (max-width: 760px) { nav.toc ol { columns: 1; } }
+
+    section { margin-bottom: 3.5rem; }
+    section > h2 {
+      font-size: 1.15rem; color: var(--accent2);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem; margin-bottom: 1.25rem;
+    }
+    section > h2 .secno { color: var(--muted); margin-right: 0.6rem; }
+    h3 { font-size: 0.95rem; color: var(--accent); margin: 1.75rem 0 0.75rem; }
+    h4 { font-size: 0.85rem; color: var(--text); margin: 1.25rem 0 0.5rem; }
+    p  { margin-bottom: 0.85rem; max-width: 88ch; }
+    p.lede { color: var(--text); }
+    ul, ol { padding-left: 1.5rem; margin-bottom: 0.85rem; }
+    li { margin: 0.3rem 0; }
+    li::marker { color: var(--muted); }
+
+    pre {
+      background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.85rem 1rem; overflow-x: auto; margin: 0.5rem 0 1rem;
+    }
+    code { color: var(--accent2); }
+    pre code { color: inherit; }
+    .cmd { color: var(--accent); font-weight: bold; }
+    .arg { color: var(--text); }
+    .flag { color: var(--warn); }
+    .comment { color: var(--muted); }
+
+    table { border-collapse: collapse; width: 100%; margin: 0.5rem 0 1.25rem; font-size: 13px; }
+    .tablewrap { overflow-x: auto; margin-bottom: 1rem; }
+    th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+    th { background: var(--tag-bg); color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    td code { font-size: 12.5px; }
+    tbody tr:nth-child(even) { background: var(--surface2); }
+    td.num { font-variant-numeric: tabular-nums; }
+
+    /* ── command cards ─────────────────────────────────────────── */
+    .cmdcard {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 1.1rem 1.4rem; margin-bottom: 1rem;
+    }
+    .cmdcard > h4 {
+      margin: 0 0 0.5rem; font-size: 0.92rem; color: var(--text);
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem;
+    }
+    .cmdcard > h4 code { color: var(--accent); font-weight: bold; font-size: 0.92rem; }
+    .cmdcard p { color: var(--muted); margin-bottom: 0.6rem; }
+    .cmdcard p strong { color: var(--text); }
+    .impl { color: var(--muted); font-size: 0.75rem; }
+    .impl code { color: var(--muted); font-size: 0.75rem; }
+
+    /* state ledger */
+    .ledger { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.6rem 0 0.4rem; }
+    .ledger-row { display: flex; gap: 0.7rem; align-items: baseline; }
+    .chip {
+      flex: 0 0 5.4rem; text-align: center; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.08em; border-radius: 4px; padding: 0.1rem 0.4rem; border: 1px solid;
+    }
+    .chip.create { color: var(--accent2); border-color: var(--accent2); background: rgba(93,216,160,0.08); }
+    .chip.mutate { color: var(--warn); border-color: var(--warn); background: rgba(232,167,93,0.08); }
+    .chip.delete { color: var(--danger); border-color: var(--danger); background: rgba(224,108,117,0.08); }
+    .chip.read   { color: var(--read); border-color: var(--read); background: rgba(122,127,153,0.08); }
+    .chip.call   { color: var(--accent); border-color: var(--accent); background: rgba(108,142,245,0.08); }
+    .chip.local  { color: var(--text); border-color: var(--muted); background: rgba(122,127,153,0.06); }
+    .ledger-row > div { color: var(--muted); font-size: 13px; }
+    .ledger-row > div code { font-size: 12.5px; }
+
+    /* badges (role markers, same as usage.html vocabulary) */
+    .badge { display: inline-block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
+      border-radius: 4px; padding: 0.05rem 0.45rem; vertical-align: middle; }
+    .badge-admin { background: rgba(232,167,93,0.12); color: var(--warn); border: 1px solid var(--warn); }
+    .badge-user  { background: rgba(108,142,245,0.12); color: var(--accent); border: 1px solid var(--accent); }
+    .badge-ro    { background: rgba(122,127,153,0.12); color: var(--read); border: 1px solid var(--read); }
+    .badge-svc   { background: rgba(93,216,160,0.12); color: var(--accent2); border: 1px solid var(--accent2); }
+
+    /* diagrams */
+    figure { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 1rem; margin: 1rem 0 1.5rem; overflow-x: auto; }
+    figure svg { display: block; margin: 0 auto; min-width: 640px; }
+    figcaption { color: var(--muted); font-size: 0.78rem; margin-top: 0.6rem; text-align: center; }
+
+    .callout { border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 6px 6px 0;
+      padding: 0.7rem 1rem; margin: 0.75rem 0 1rem; color: var(--muted); max-width: 88ch; }
+    .callout strong { color: var(--text); }
+    .callout.warn { border-left-color: var(--warn); }
+    .callout.danger { border-left-color: var(--danger); }
+
+    footer { border-top: 1px solid var(--border); margin-top: 3rem; padding-top: 1rem; color: var(--muted); font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1>Sandcastle Internals</h1>
+  <p>The engineering reference for the <code>sc</code> / <code>sc-adm</code> CLI: what every command does,
+     exactly which Incus state it creates, mutates, or deletes, and how the Auth App and the
+     infrastructure components fit together. Companion to the task-oriented
+     <a href="usage.html">usage guide</a>; decisions are recorded in <a href="#adr">ADRs</a>.</p>
+</header>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#binary">One fat binary, three faces</a></li>
+    <li><a href="#topology">Anatomy of an installation</a></li>
+    <li><a href="#objects">The Incus object model</a></li>
+    <li><a href="#authapp">The Auth App</a></li>
+    <li><a href="#provisioning">Tenant provisioning, step by step</a></li>
+    <li><a href="#network">Networking &amp; DNS</a></li>
+    <li><a href="#flows">End-to-end flows</a></li>
+    <li><a href="#sc">Command reference — <code>sc</code> (user)</a></li>
+    <li><a href="#scadm">Command reference — <code>sc-adm</code> (admin)</a></li>
+    <li><a href="#adr">ADR index</a></li>
+  </ol>
+</nav>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="binary">
+  <h2><span class="secno">1</span>One fat binary, three faces</h2>
+  <p class="lede">Everything is one executable built from <code>cmd/sandcastle</code>. The invocation
+  name selects the role (<code>main.go</code> dispatches on <code>argv[0]</code>), and the same binary is
+  what the admin deploy commands copy into every appliance — an appliance always runs its
+  service from the exact build the operator installed.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Invocation</th><th>Tree</th><th>Incus credentials</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>sc</code> / <code>sandcastle</code></td>
+        <td>User CLI (<code>cli.Execute</code>)</td>
+        <td>Per-remote <em>restricted</em> cert — <code>Execute</code> points <code>INCUS_CONF</code> at the
+            Sandcastle-managed incus config dir, so plain <code>incus</code> semantics apply to the
+            enrolled remotes</td>
+        <td>The <strong>current incus remote is the single source of truth</strong>: remote name
+            <code>sc-[&lt;prefix&gt;-]&lt;tenant&gt;</code> encodes which install every command targets
+            (<code>installPrefixFromRemoteName</code>)</td>
+      </tr>
+      <tr>
+        <td><code>sc-adm</code> / <code>sandcastle-admin</code></td>
+        <td>Admin CLI (<code>cli.ExecuteAdmin</code>)</td>
+        <td>Global <code>~/.config/incus</code> admin certs / local unix socket — <code>INCUS_CONF</code>
+            deliberately left alone</td>
+        <td>Also hosts the long-running services as subcommands
+            (<code>auth-app serve</code>, <code>project broker-serve</code>, route broker)</td>
+      </tr>
+      <tr>
+        <td><code>sc admin …</code></td>
+        <td>Admin tree reached through the user binary</td>
+        <td>as <code>sc-adm</code></td>
+        <td>Leading <code>admin</code> arg is stripped, then dispatches into <code>ExecuteAdmin</code></td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <p>Configuration resolves in a fixed order: <strong>CLI flags → <code>SANDCASTLE_*</code> env vars →
+  the Infrastructure Seed File → built-in defaults</strong>. The user CLI additionally reads
+  <code>~/.config/sandcastle/config.yml</code> (<code>tenant</code>, <code>remote</code>, <code>project</code>,
+  auth token, broker URL) — the durable half of a login session.</p>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="topology">
+  <h2><span class="secno">2</span>Anatomy of an installation</h2>
+  <p class="lede">One <code>sc-adm install --prefix &lt;p&gt;</code> creates one <em>installation</em> on an
+  Incus host. Several installations coexist on one daemon — distinct prefixes give distinct
+  appliance bridges, CIDR pools, project namespaces, and public hostnames; only the Incus daemon
+  is shared (<a href="adr/0015-v2-installs-beside-v1.md">ADR-0015</a>).</p>
+
+  <figure>
+    <svg viewBox="0 0 960 560" width="960" height="560" role="img" aria-label="Installation topology diagram">
+      <defs>
+        <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#6c8ef5"/>
+        </marker>
+        <marker id="arrg" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#5dd8a0"/>
+        </marker>
+      </defs>
+      <style>
+        .box { fill: #1a1d27; stroke: #2a2d3e; rx: 8; }
+        .boxg { fill: #131620; stroke: #5dd8a0; rx: 6; }
+        .boxb { fill: #131620; stroke: #6c8ef5; rx: 6; }
+        .boxm { fill: #131620; stroke: #7a7f99; rx: 6; }
+        .lbl { fill: #d4d8f0; font: 12px 'SF Mono', monospace; }
+        .lblB { fill: #d4d8f0; font: bold 12px 'SF Mono', monospace; }
+        .sub { fill: #7a7f99; font: 10.5px 'SF Mono', monospace; }
+        .mint { fill: #5dd8a0; font: 11px 'SF Mono', monospace; }
+        .peri { fill: #6c8ef5; font: 11px 'SF Mono', monospace; }
+        .amber { fill: #e8a75d; font: 10.5px 'SF Mono', monospace; }
+        .edge { stroke: #6c8ef5; stroke-width: 1.2; fill: none; }
+        .edgeg { stroke: #5dd8a0; stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+        .edgem { stroke: #7a7f99; stroke-width: 1; fill: none; stroke-dasharray: 2 3; }
+      </style>
+
+      <!-- Incus host -->
+      <rect class="box" x="230" y="16" width="710" height="470"/>
+      <text class="lblB" x="248" y="38">Incus host</text>
+      <text class="sub" x="248" y="54">one daemon, N installations</text>
+
+      <!-- install (prefix sc2) -->
+      <rect class="boxb" x="250" y="70" width="330" height="180"/>
+      <text class="peri" x="266" y="92">installation — prefix "sc" (projects "sc2-*")</text>
+      <rect class="boxm" x="266" y="104" width="140" height="58"/>
+      <text class="lbl" x="278" y="124">project sc2-infra</text>
+      <text class="mint" x="278" y="140">ct sc2-auth-app</text>
+      <text class="sub" x="278" y="154">authapp·caddy·cloudflared</text>
+      <rect class="boxm" x="420" y="104" width="144" height="58"/>
+      <text class="lbl" x="432" y="124">bridge sc2-net</text>
+      <text class="sub" x="432" y="140">NATed, auto subnet</text>
+      <text class="sub" x="432" y="154">appliances only</text>
+      <text class="amber" x="266" y="186">CIDR pool 10.212.0.0/16 · hostname obelix.example.dev</text>
+      <text class="sub" x="266" y="204">broker appliance only for --broker installs;</text>
+      <text class="sub" x="266" y="219">tunnel installs use the auth-app tenant plane</text>
+      <text class="sub" x="266" y="240">SQLite auth DB inside the appliance</text>
+
+      <!-- second install -->
+      <rect class="boxb" x="600" y="70" width="320" height="180"/>
+      <text class="peri" x="616" y="92">installation — prefix "id" (projects "id-*")</text>
+      <rect class="boxm" x="616" y="104" width="140" height="58"/>
+      <text class="lbl" x="628" y="124">project id-infra</text>
+      <text class="mint" x="628" y="140">ct id-auth-app</text>
+      <text class="sub" x="628" y="154">own tunnel + DB</text>
+      <rect class="boxm" x="770" y="104" width="134" height="58"/>
+      <text class="lbl" x="782" y="124">bridge id-net</text>
+      <text class="sub" x="782" y="140">nothing shared</text>
+      <text class="sub" x="782" y="154">with "sc" install</text>
+      <text class="amber" x="616" y="186">CIDR pool 10.213.0.0/16 · hostname idefix.example.dev</text>
+      <text class="sub" x="616" y="204">same-named tenants of different installs</text>
+      <text class="sub" x="616" y="219">are different tenants (prefix-scoped lookups)</text>
+
+      <!-- tenant -->
+      <rect class="boxg" x="250" y="270" width="670" height="200"/>
+      <text class="mint" x="266" y="292">one v2 tenant of install "sc" — e.g. GitHub user "alice"</text>
+
+      <rect class="boxm" x="266" y="306" width="180" height="140"/>
+      <text class="lbl" x="278" y="326">project sc2-alice</text>
+      <text class="sub" x="278" y="340">kind=infra · CIDR · suffix</text>
+      <text class="mint" x="278" y="360">ct sc2-alice (sidecar)</text>
+      <text class="sub" x="278" y="374">CoreDNS :53 (.3)</text>
+      <text class="sub" x="278" y="388">tailscaled — subnet router</text>
+      <text class="sub" x="278" y="402">tailscale serve :8443 →</text>
+      <text class="sub" x="278" y="416">host Incus API (Reach)</text>
+
+      <rect class="boxm" x="460" y="306" width="210" height="140"/>
+      <text class="lbl" x="472" y="326">project sc2-alice-default</text>
+      <text class="sub" x="472" y="340">kind=project · version=2</text>
+      <text class="mint" x="472" y="360">machines (CT + VM)</text>
+      <text class="sub" x="472" y="374">volumes home + workspace</text>
+      <text class="sub" x="472" y="388">(security.shifted, uid 2000)</text>
+      <text class="sub" x="472" y="402">default profile: cloud-init</text>
+      <text class="sub" x="472" y="416">user + SSH key + eth0 + vols</text>
+
+      <rect class="boxm" x="684" y="306" width="210" height="140"/>
+      <text class="lbl" x="696" y="326">project sc2-alice-&lt;proj&gt;</text>
+      <text class="sub" x="696" y="340">later app projects, same shape</text>
+      <text class="sub" x="696" y="360">own home/workspace pair</text>
+      <text class="sub" x="696" y="374">created via sc project create</text>
+      <text class="sub" x="696" y="388">(auth-app /api/projects or</text>
+      <text class="sub" x="696" y="402">broker tenant plane)</text>
+
+      <text class="amber" x="266" y="462">bridge sc2-alice = 10.212.0.0/24 · gateway .1 · sidecar/DNS .3 · machines DHCP</text>
+
+      <!-- client -->
+      <rect class="boxb" x="10" y="270" width="190" height="200"/>
+      <text class="peri" x="24" y="292">client machine</text>
+      <text class="sub" x="24" y="310">tailscale node</text>
+      <text class="sub" x="24" y="324">(--accept-routes)</text>
+      <text class="lbl" x="24" y="348">~/.config/incus</text>
+      <text class="sub" x="24" y="362">ONE keypair, remotes</text>
+      <text class="sub" x="24" y="376">sc-alice, sc-id-alice</text>
+      <text class="lbl" x="24" y="400">resolver units</text>
+      <text class="sub" x="24" y="414">sandcastle-dns-*.service</text>
+      <text class="sub" x="24" y="428">scdns-&lt;hash&gt; link scopes</text>
+      <text class="sub" x="24" y="452">~/.config/sandcastle</text>
+
+      <!-- cloudflare -->
+      <rect class="boxm" x="10" y="70" width="190" height="120"/>
+      <text class="lbl" x="24" y="92">Cloudflare edge</text>
+      <text class="sub" x="24" y="110">tunnel per install,</text>
+      <text class="sub" x="24" y="124">proxied DNS record,</text>
+      <text class="sub" x="24" y="138">public TLS</text>
+      <text class="sub" x="24" y="158">no inbound host ports</text>
+
+      <!-- edges -->
+      <path class="edge" d="M200,120 L266,130" marker-end="url(#arr)"/>
+      <text class="sub" x="196" y="108">https</text>
+      <path class="edgeg" d="M105,270 L105,205 M105,205 L105,190" marker-end="url(#arrg)"/>
+      <path class="edgeg" d="M200,360 L266,376" marker-end="url(#arrg)"/>
+      <text class="mint" x="204" y="352">tailnet</text>
+      <path class="edgem" d="M356,446 L520,446 L520,446"/>
+    </svg>
+    <figcaption>Two installations sharing one Incus daemon, one v2 tenant expanded. The client reaches the
+    tenant only over its own tailnet (subnet route via the sidecar); the public edge reaches only the auth-app.</figcaption>
+  </figure>
+
+  <p>The install itself binds <strong>no host ports</strong> in tunnel mode: <code>cloudflared</code> runs
+  <em>inside</em> the auth-app appliance and dials out. <code>--ingress acme</code> instead binds host
+  :80/:443 with Let's Encrypt; <code>--broker</code> installs additionally deploy the project-broker
+  appliance with a host port for the client-certificate tenant plane.</p>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="objects">
+  <h2><span class="secno">3</span>The Incus object model</h2>
+  <p class="lede">Sandcastle never keeps its own inventory database for tenants — <strong>live Incus
+  state is the source of truth</strong>. Every managed object carries <code>user.sandcastle.*</code>
+  metadata keys, and the CLI reconstructs the tenant topology by listing projects and reading
+  those keys (<code>internal/tenant/list.go</code>, <code>internal/meta</code>).</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Incus object</th><th>Name shape</th><th>Key metadata</th><th>Created by</th></tr></thead>
+    <tbody>
+      <tr><td>Project (install infra)</td><td><code>&lt;prefix&gt;-infra</code></td>
+        <td><code>kind=infra</code>, <code>v2.prefix</code></td><td><code>sc-adm install</code></td></tr>
+      <tr><td>Network (appliance bridge)</td><td><code>&lt;prefix&gt;-net</code></td>
+        <td>NATed, Incus auto-subnet</td><td><code>sc-adm install</code></td></tr>
+      <tr><td>Instance (auth-app appliance)</td><td><code>&lt;prefix&gt;-auth-app</code></td>
+        <td>systemd CT from stock <code>images:debian/13</code></td><td><code>sc-adm install</code> / <code>auth-app deploy</code></td></tr>
+      <tr><td>Project (tenant infra)</td><td><code>&lt;prefix&gt;-&lt;tenant&gt;</code></td>
+        <td><code>kind=infra</code>, <code>v2.cidr</code>, <code>v2.suffix</code>, <code>v2.prefix</code>, <code>tenant</code></td>
+        <td>provisioning (login / <code>tenant create</code>)</td></tr>
+      <tr><td>Project (app project)</td><td><code>&lt;prefix&gt;-&lt;tenant&gt;-&lt;project&gt;</code></td>
+        <td><code>kind=project</code>, <code>version=2</code>, <code>tenant</code>; <code>features.images=true</code></td>
+        <td>provisioning / <code>sc project create</code></td></tr>
+      <tr><td>Network (tenant bridge)</td><td><code>&lt;prefix&gt;-&lt;tenant&gt;</code></td>
+        <td>the tenant /24: gateway .1, sidecar+DNS .3</td><td>provisioning</td></tr>
+      <tr><td>Instance (sidecar)</td><td><code>&lt;prefix&gt;-&lt;tenant&gt;</code> in the infra project</td>
+        <td>CoreDNS + tailscaled + Incus Reach</td><td>provisioning</td></tr>
+      <tr><td>Storage volumes</td><td><code>home</code>, <code>workspace</code> per app project</td>
+        <td><code>security.shifted=true</code>, <code>initial.uid/gid=2000</code>, mode 0775</td><td>provisioning / <code>sc project create</code></td></tr>
+      <tr><td>Profile (app default)</td><td><code>default</code> in each app project</td>
+        <td>cloud-init user-data (login user, SSH key, sshd), eth0 on the tenant bridge, home+workspace disks</td>
+        <td>provisioning; SSH key re-baked on every login</td></tr>
+      <tr><td>Machine instances</td><td>free-form names in app projects</td>
+        <td>stock <code>images:debian/13/cloud</code> unless overridden</td><td><code>sc create</code> / <code>sc connect</code> / native <code>incus launch</code></td></tr>
+      <tr><td>Certificate (restricted)</td><td>one per client keypair</td>
+        <td>trust entry restricted to the union of the user's projects across installs</td>
+        <td>provisioning (<code>CreateToken</code> / <code>EnsureClientCertificate</code>)</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout"><strong>v1 objects</strong> (<code>kind=tenant</code> projects named
+  <code>sc-&lt;tenant&gt;</code>) are recognized everywhere for coexistence — their /24s count as
+  <em>occupied</em> for the allocator and are never adopted — but the v2 path never creates them.</div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="authapp">
+  <h2><span class="secno">4</span>The Auth App</h2>
+  <p class="lede">A single Go HTTPS service (<code>sc-adm auth-app serve</code>, package
+  <code>internal/authapp</code>) running inside the appliance, fronted by caddy + the install's public
+  ingress. It owns identity (GitHub), the CLI Device Login, tenant provisioning, the token-gated
+  tenant plane, workload identity (OIDC), and the DNS reconciler. State lives in a SQLite database
+  inside the appliance (<a href="adr/0002-go-auth-app-with-sqlite.md">ADR-0002</a>).</p>
+
+  <h3>Endpoint surface</h3>
+  <div id="authapp-endpoints" class="tablewrap"><table>
+    <thead><tr><th>Path</th><th>Auth</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>/healthz</code></td><td>none</td><td>DB-ping health check</td></tr>
+      <tr><td><code>/</code> · <code>/machines</code></td><td>session</td><td>Status/onboarding page; web machine list</td></tr>
+      <tr><td><code>/login/github</code> → <code>/oauth/github/callback</code></td><td>OAuth state</td>
+        <td>GitHub OAuth (scope <code>read:user user:email</code>); callback requires the user to be
+            <strong>allowlisted</strong>, then mints a 24&nbsp;h session cookie</td></tr>
+      <tr><td><code>/oauth/github/simulate</code></td><td>shared secret</td>
+        <td>e2e/dev backdoor, registered <em>only</em> with <code>--simulate-github-token</code>:
+            constant-time token compare, synthetic profile, auto-allowlists <code>--as</code>, can approve a
+            pending device code</td></tr>
+      <tr><td><code>/admin/allowlist[/remove]</code> · <code>/admin/access[/grant|/revoke]</code></td><td>admin session</td>
+        <td>Allowlist management (remove also deletes the restricted cert + revokes SSH everywhere);
+            tenant access grant/revoke on restricted certificates</td></tr>
+      <tr><td><code>/device</code></td><td>allowlisted session</td><td>Browser approve/deny page for a device code</td></tr>
+      <tr><td><code>/api/device/start</code> · <code>/api/device/poll</code></td><td>device code</td>
+        <td>The CLI Device Login: start issues codes; poll drives provisioning and returns the CLI auth
+            token, Incus enrollment token, remote name, sidecar tailnet address, tenant CIDR</td></tr>
+      <tr><td><code>/debug/device/approve</code></td><td>debug user</td><td>Test-only auto-approve, gated by <code>--debug-device-user</code></td></tr>
+      <tr><td><code>/api/tenants</code></td><td>CLI bearer token</td><td>Accessible tenants (+ <code>private_cidr</code> so a saved login can re-verify routing)</td></tr>
+      <tr><td><code>/api/projects</code></td><td>CLI bearer token</td>
+        <td>The tunnel-friendly <strong>tenant plane</strong>: creates an app project and unions it into the
+            caller's restricted certificate — replaces the broker host port on Cloudflare installs</td></tr>
+      <tr><td><code>/api/shares*</code></td><td>session / bearer</td><td>Tenant Storage Share broker (ADR-0009): create, list, accept, decline, revoke, delete, reconcile</td></tr>
+      <tr><td><code>/api/workload/enable</code></td><td>bearer or device code</td><td>Registers a machine for Workload Identity, mints the Machine Runtime Secret (returned once)</td></tr>
+      <tr><td><code>/internal/workload/token</code></td><td>runtime secret</td><td>Exchanges the secret for a 15-minute RS256 JWT (<code>sub=machine:&lt;t&gt;/&lt;p&gt;/&lt;m&gt;</code>)</td></tr>
+      <tr><td><code>/.well-known/openid-configuration</code> · <code>/jwks.json</code> · <code>/t/&lt;tenant&gt;/.well-known/…</code></td><td>none</td>
+        <td>OIDC discovery + JWKS — default issuer and per-tenant issuer <code>…/t/&lt;tenant&gt;</code></td></tr>
+      <tr><td><code>/cloud-identities</code> · <code>/api/cloud-identities</code></td><td>session / bearer</td><td>GCP Workload Identity Federation configs</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>The CLI Device Login state machine</h3>
+  <figure>
+    <svg viewBox="0 0 900 300" width="900" height="300" role="img" aria-label="Device login state machine">
+      <defs>
+        <marker id="arr2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#6c8ef5"/>
+        </marker>
+        <marker id="arr2r" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#e06c75"/>
+        </marker>
+        <marker id="arr2g" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#5dd8a0"/>
+        </marker>
+      </defs>
+      <style>
+        .st { fill: #1a1d27; stroke: #6c8ef5; rx: 8; }
+        .stg { fill: #1a1d27; stroke: #5dd8a0; rx: 8; }
+        .str { fill: #1a1d27; stroke: #e06c75; rx: 8; }
+        .stm { fill: #1a1d27; stroke: #7a7f99; rx: 8; }
+        .t { fill: #d4d8f0; font: bold 12px 'SF Mono', monospace; text-anchor: middle; }
+        .s { fill: #7a7f99; font: 10.5px 'SF Mono', monospace; text-anchor: middle; }
+        .e { stroke: #6c8ef5; stroke-width: 1.2; fill: none; }
+        .er { stroke: #e06c75; stroke-width: 1.2; fill: none; }
+        .eg { stroke: #5dd8a0; stroke-width: 1.2; fill: none; }
+      </style>
+      <rect class="st" x="30" y="110" width="150" height="56"/>
+      <text class="t" x="105" y="134">pending</text>
+      <text class="s" x="105" y="150">device_logins row</text>
+
+      <rect class="stg" x="330" y="40" width="170" height="56"/>
+      <text class="t" x="415" y="64">approved</text>
+      <text class="s" x="415" y="80">browser / simulate</text>
+
+      <rect class="str" x="330" y="180" width="170" height="56"/>
+      <text class="t" x="415" y="204">denied</text>
+      <text class="s" x="415" y="220">operator deny · terminal error</text>
+
+      <rect class="stm" x="620" y="180" width="150" height="56"/>
+      <text class="t" x="695" y="204">expired</text>
+      <text class="s" x="695" y="220">TTL sweep</text>
+
+      <rect class="stg" x="620" y="40" width="250" height="72"/>
+      <text class="t" x="745" y="62">provisioned</text>
+      <text class="s" x="745" y="78">poll returns token + remote +</text>
+      <text class="s" x="745" y="92">CLI auth token + tenant CIDR</text>
+
+      <path class="e" d="M180,128 C240,120 270,90 328,72" marker-end="url(#arr2)"/>
+      <text class="s" x="240" y="84">approve</text>
+      <path class="er" d="M180,148 C240,160 270,190 328,204" marker-end="url(#arr2r)"/>
+      <text class="s" x="238" y="196">deny</text>
+      <path class="eg" d="M500,68 L618,72" marker-end="url(#arr2g)"/>
+      <text class="s" x="558" y="58">EnsurePersonalTenant</text>
+      <path class="er" d="M430,96 C450,140 440,150 430,178" marker-end="url(#arr2r)"/>
+      <text class="s" x="540" y="146">TerminalProvisionError → deny</text>
+      <path class="e" d="M180,166 C300,260 500,240 618,214" marker-end="url(#arr2)"/>
+      <text class="s" x="330" y="256">15 min TTL</text>
+      <path class="e" d="M500,52 C540,30 560,26 560,52 C560,74 540,80 506,64" marker-end="url(#arr2)"/>
+      <text class="s" x="586" y="26">transient provision error → stays approved, retried each poll</text>
+    </svg>
+    <figcaption>Device login states. Transient provisioning failures keep the code approved and retry on the
+    next poll; a <code>tenant.TerminalProvisionError</code> (immutable-suffix conflict, rejected suffix) denies
+    the login so the client fails fast with the server's message.</figcaption>
+  </figure>
+
+  <div id="authapp-detail">
+
+  <p>Three details of the poll handler are load-bearing. <strong>Detached provisioning:</strong> tenant
+  bring-up (image pull, package install, tailscale join) takes minutes, and a poll arriving through a
+  flaky Cloudflare edge can be cancelled long before that — so provisioning runs on a detached
+  <code>context.Background()</code> with an 8-minute budget, serialized per device code by a mutex.
+  <strong>Retry vs. deny:</strong> a transient provisioning error leaves the code <code>approved</code> and the
+  next poll re-attempts; a <code>tenant.TerminalProvisionError</code> (immutable-suffix conflict, rejected
+  suffix) flips it to <code>denied</code> so the client exits immediately with the message.
+  <strong>Awaiting-tailnet polls:</strong> when the tenant supplied no auth key, the poll keeps re-ensuring
+  provisioning and carries the sidecar's durable <code>login.tailscale.com</code> join URL until the sidecar
+  gets a tailnet address.</p>
+
+  <h3>CLI auth tokens &amp; the SQLite database</h3>
+  <p>A successful poll mints a <strong>CLI auth token</strong> (90-day TTL, stored as a SHA-256 verifier) —
+  the bearer credential for <code>/api/tenants</code>, <code>/api/projects</code>, <code>/api/shares*</code> and
+  <code>/api/workload/enable</code>. The database (<code>PRAGMA foreign_keys=ON</code>, dir mode 0700,
+  additive migrations) holds:</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Holds</th></tr></thead>
+    <tbody>
+      <tr><td><code>users</code></td><td><code>user_key</code> (GitHub username), <code>allowlisted</code>, <code>sandcastle_admin</code>, stored SSH public key + fingerprint</td></tr>
+      <tr><td><code>web_sessions</code> · <code>oauth_states</code></td><td>24 h browser sessions; one-time OAuth state nonces</td></tr>
+      <tr><td><code>cli_tokens</code></td><td>SHA-256 verifiers of CLI auth tokens, <code>last_used_at</code></td></tr>
+      <tr><td><code>device_logins</code></td><td>device/user codes, status, <code>user_key</code>, <code>provisioned_at</code>, message</td></tr>
+      <tr><td><code>oidc_signing_keys</code></td><td>per-tenant RSA-2048 keys, PKCS8 encrypted with an AES-256-GCM master key kept in <code>auth_app_meta</code></td></tr>
+      <tr><td><code>machine_runtime_secrets</code></td><td>PK <code>(tenant, project, machine)</code>, secret verifier, enabled flag</td></tr>
+      <tr><td><code>cloud_identity_configs</code></td><td>named GCP federation configs per user/tenant</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Workload Identity (ADR-0005)</h3>
+  <p>Each tenant gets its own OIDC issuer <code>https://&lt;auth-host&gt;/t/&lt;tenant&gt;</code> with a lazily
+  generated RSA key (KID = SHA-256 of the public key). <code>workload enable</code> mints a 32-byte
+  <strong>Machine Runtime Secret</strong>, drops it into the machine at
+  <code>/var/lib/sandcastle/workload/</code>, and stores only its verifier. The machine exchanges the
+  secret at <code>/internal/workload/token</code> for a 15-minute JWT
+  (<code>sub=machine:&lt;tenant&gt;/&lt;project&gt;/&lt;machine&gt;</code>, plus <code>tenant/project/machine/github_username</code>
+  claims) — which a cloud's Workload Identity Federation (e.g. GCP, wired by
+  <code>sc cloud-identity gcp setup</code>) accepts against the per-tenant issuer.</p>
+
+  <h3>The V2 DNS reconciler (ADR-0018)</h3>
+  <p>Because the appliance mounts the host socket, the serving auth-app also keeps every sidecar's DNS
+  zone true to live Incus state. Triggers: an <strong>event subscription</strong> over
+  <code>GetEventsAllProjects</code> filtered to <code>instance-*</code> actions (with settle re-passes at
+  +3 s/+8 s to catch the DHCP lease that lands after the event), plus a <strong>30-second sweep</strong>.
+  Each pass is <strong>prefix-scoped</strong> (<code>user.sandcastle.v2.prefix</code> on the infra project) —
+  one install's auth-app never touches another install's sidecars. It renders the zone from live
+  machine IPs, compares against the <em>live</em> zone in the sidecar (a wiped sidecar self-heals),
+  bumps the SOA serial monotonically (unix time), writes <code>/etc/coredns/zones/db.&lt;suffix&gt;</code>
+  and reloads CoreDNS — records appear seconds after any <code>incus launch</code>, including freeform ones.</p>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="provisioning">
+  <h2><span class="secno">5</span>Tenant provisioning, step by step</h2>
+  <div id="provisioning-detail">
+
+  <p class="lede">Every way a v2 tenant comes to exist — first CLI Device Login, <code>sc-adm tenant
+  create</code>, or the broker admin plane — converges on one chain:
+  <code>EnsurePersonalTenant → PlanCreateV2 → CreateTenantV2</code>
+  (<code>internal/incusx/tenant_create_v2.go</code>). Each step is idempotent; re-provisioning an existing
+  tenant converges instead of failing.</p>
+
+  <h3>Before the plan: what gets reused</h3>
+  <ul>
+    <li><strong><code>ProvisionReuseInputs</code></strong> scans all managed projects and returns the tenant's
+      <em>own</em> /24 + suffix (idempotent re-login keeps both) and every <em>other</em> tenant's CIDR as
+      occupied. Scoping rules: a <code>kind=infra</code> project is "own" only when the owner matches
+      <em>and</em> its <code>v2.prefix</code> matches this install; <strong>v1 <code>kind=tenant</code> projects
+      are always occupied, never own</strong> — their bridge dnsmasq may still be live on the gateway IP.</li>
+    <li><strong>CIDR allocation</strong> (<code>internal/cidr</code>): walk the pool in /24 steps, skip overlaps.
+      Role octets inside the tenant /24: <code>.1</code> gateway, <code>.2</code> reserved (tailscale),
+      <code>.3</code> the sidecar/DNS address.</li>
+    <li><strong>Suffix immutability</strong>: a requested <code>--dns-suffix</code> that contradicts the stored
+      one is a <code>TerminalProvisionError</code> → the device login is denied, nothing half-provisioned.</li>
+  </ul>
+
+  <h3>CreateTenantV2 — the ordered mutation list</h3>
+  <ol>
+    <li><strong>Tenant bridge</strong> <code>&lt;prefix&gt;-&lt;tenant&gt;</code> (default project):
+      <code>ipv4.address=&lt;.1&gt;/24</code>, NAT, <code>dns.domain=&lt;suffix&gt;</code>, and
+      <code>raw.dnsmasq=dhcp-option=6,&lt;.3&gt;</code> — guests get the <em>sidecar CoreDNS</em> as resolver
+      via DHCP, never the bridge dnsmasq (ADR-0018).</li>
+    <li><strong>Infra project</strong> <code>&lt;prefix&gt;-&lt;tenant&gt;</code> — the durable tenant record
+      lives in its metadata: bridge, pool, suffix, CIDR, unix user, SSH key, install prefix.</li>
+    <li><strong>App project</strong> <code>&lt;prefix&gt;-&lt;tenant&gt;-default</code> — own image store
+      (<code>features.images=true</code>), suffix metadata.</li>
+    <li><strong>Shared volumes</strong> <code>workspace</code> + <code>home</code> in the app project —
+      <code>initial.uid/gid=2000</code>, mode 0775, <code>security.shifted=true</code> when the host supports
+      idmapped mounts (Incus 7.x reports an empty <code>kernel_features</code> map, which counts as
+      supported); without idmapped mounts the shared <code>/home</code> is omitted so VM sshd keeps working.</li>
+    <li><strong>Default profile</strong> in the app project — root disk, <code>eth0</code> on the tenant
+      bridge, both volume disks, and <code>cloud-init.user-data</code> creating the login user (UID 2000,
+      sudo, the User SSH Public Key, <code>openssh-server</code>) with
+      <code>fqdn: {{hostname}}.&lt;project&gt;.&lt;suffix&gt;</code>. The key is re-baked on every login —
+      key rotation is just <code>sc login --force</code>.</li>
+    <li><strong>Sidecar profile + instance</strong> <code>&lt;prefix&gt;-&lt;tenant&gt;</code> in the infra
+      project — stock <code>images:debian/13</code> pulled on demand, NIC pinned to <code>.3</code>; an
+      existing stopped sidecar is started, then waited to RUNNING.</li>
+    <li><strong>Sidecar software</strong> — CoreDNS release binary (arch-matched, not in apt), Tailscale
+      from its official apt repo, a <code>sandcastle-sidecar-network</code> oneshot pinning the static
+      <code>.3</code>, Corefile + zone + <code>/etc/resolv.conf</code> (symlink cleared first), CoreDNS unit,
+      <code>systemd-resolved</code> masked.</li>
+    <li><strong>Tailnet join</strong> — <code>tailscale up --advertise-routes=&lt;/24&gt;
+      --advertise-tags=tag:sandcastle --accept-dns=false</code>. With an auth key: unattended, hard-gated
+      on a tailnet IP. Without: a detached unit runs the interactive join and the login URL is carried
+      back through awaiting-tailnet polls until the tenant approves. Then <strong>Incus Reach</strong>
+      (ADR-0017): <code>tailscale serve --bg --tcp=8443 tcp://&lt;gateway&gt;:8443</code> — raw TCP, so the
+      host's own Incus certificate is what the client pins.</li>
+    <li><strong>Trust</strong> — the restricted certificate: either mint a certificate-add token
+      (<code>CreateToken</code>, restricted to the tenant's projects) for first-time enrollment, or — shared
+      client identity — <code>EnsureClientCertificate</code> unions this install's projects into the client's
+      already-trusted certificate and the token goes unused.</li>
+  </ol>
+
+  <figure>
+    <svg viewBox="0 0 940 400" width="940" height="400" role="img" aria-label="Provisioning sequence">
+      <defs>
+        <marker id="arr3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#6c8ef5"/>
+        </marker>
+        <marker id="arr3g" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#5dd8a0"/>
+        </marker>
+      </defs>
+      <style>
+        .actor { fill: #1a1d27; stroke: #6c8ef5; rx: 6; }
+        .life { stroke: #2a2d3e; stroke-width: 1; stroke-dasharray: 3 3; }
+        .at { fill: #d4d8f0; font: bold 11.5px 'SF Mono', monospace; text-anchor: middle; }
+        .msg { stroke: #6c8ef5; stroke-width: 1.1; fill: none; }
+        .msgg { stroke: #5dd8a0; stroke-width: 1.1; fill: none; }
+        .mt { fill: #7a7f99; font: 10.5px 'SF Mono', monospace; }
+        .mtg { fill: #5dd8a0; font: 10.5px 'SF Mono', monospace; }
+      </style>
+      <!-- actors -->
+      <rect class="actor" x="20"  y="14" width="130" height="30"/><text class="at" x="85"  y="34">sc login</text>
+      <rect class="actor" x="230" y="14" width="130" height="30"/><text class="at" x="295" y="34">auth-app</text>
+      <rect class="actor" x="440" y="14" width="130" height="30"/><text class="at" x="505" y="34">Incus daemon</text>
+      <rect class="actor" x="650" y="14" width="120" height="30"/><text class="at" x="710" y="34">sidecar</text>
+      <rect class="actor" x="810" y="14" width="110" height="30"/><text class="at" x="865" y="34">tailnet</text>
+      <line class="life" x1="85"  y1="44" x2="85"  y2="386"/>
+      <line class="life" x1="295" y1="44" x2="295" y2="386"/>
+      <line class="life" x1="505" y1="44" x2="505" y2="386"/>
+      <line class="life" x1="710" y1="44" x2="710" y2="386"/>
+      <line class="life" x1="865" y1="44" x2="865" y2="386"/>
+
+      <path class="msg" d="M85,64 L293,64" marker-end="url(#arr3)"/>
+      <text class="mt" x="100" y="58">device/start → codes; user approves (browser / simulate)</text>
+
+      <path class="msg" d="M85,94 L293,94" marker-end="url(#arr3)"/>
+      <text class="mt" x="100" y="88">device/poll (SSH key + client cert PEM) — every 2s</text>
+
+      <path class="msgg" d="M295,124 L503,124" marker-end="url(#arr3g)"/>
+      <text class="mtg" x="310" y="118">bridge → infra project → app project → volumes → profiles</text>
+
+      <path class="msgg" d="M295,154 L503,154" marker-end="url(#arr3g)"/>
+      <text class="mtg" x="310" y="148">launch sidecar CT (stock debian/13, pinned .3)</text>
+
+      <path class="msgg" d="M295,184 L708,184" marker-end="url(#arr3g)"/>
+      <text class="mtg" x="310" y="178">install CoreDNS + tailscale, write Corefile/zone, static-net unit</text>
+
+      <path class="msgg" d="M710,214 L863,214" marker-end="url(#arr3g)"/>
+      <text class="mtg" x="718" y="208">tailscale up: advertise /24, tag:sandcastle</text>
+
+      <path class="msgg" d="M710,244 L863,244" marker-end="url(#arr3g)"/>
+      <text class="mtg" x="718" y="238">serve :8443 → host Incus (Reach)</text>
+
+      <path class="msgg" d="M295,274 L503,274" marker-end="url(#arr3g)"/>
+      <text class="mtg" x="310" y="268">union client cert / mint restricted token</text>
+
+      <path class="msg" d="M293,304 L87,304" marker-end="url(#arr3)"/>
+      <text class="mt" x="100" y="298">poll → token, remote sc-&lt;tenant&gt;, sidecar tailnet IP, CIDR, CLI auth token</text>
+
+      <path class="msg" d="M85,334 L863,334" marker-end="url(#arr3)"/>
+      <text class="mt" x="100" y="328">enroll remote https://&lt;sidecar-IP&gt;:8443 · verify routing (4 layers) · install resolver unit</text>
+
+      <text class="mt" x="100" y="368">total: ~1–2 min on first login; later logins short-circuit to "Already logged in"</text>
+    </svg>
+    <figcaption>First-login provisioning. The auth-app mutates Incus over the mounted host socket; the client
+    only ever talks HTTPS to the auth-app and, after enrollment, to the sidecar's Incus Reach.</figcaption>
+  </figure>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="network">
+  <h2><span class="secno">6</span>Networking &amp; DNS</h2>
+  <div id="network-detail">
+
+  <h3>The tailnet path (ADR-0006 / ADR-0017)</h3>
+  <p class="lede">Tenants bring their <em>own</em> tailnet; the server holds no Tailscale API key and the
+  host itself is on no tailnet. The sidecar is the tenant's entire network presence: it advertises the
+  tenant /24 as a subnet route (tagged <code>tag:sandcastle</code>, so an <code>autoApprovers</code> ACL rule
+  approves it with zero touch) and proxies the host Incus API onto the tenant tailnet as a raw-TCP
+  <code>tailscale serve</code> on :8443 — <strong>Incus Reach</strong>. The client's enrolled remote URL is
+  <code>https://&lt;sidecar-tailnet-IP&gt;:8443</code>; because the proxy is raw TCP, the host daemon's own
+  certificate is pinned end to end.</p>
+
+  <div class="callout"><strong>Subnet-to-subnet does not route.</strong> A machine that is merely
+  <em>resident</em> in a subnet advertised by some other router can never reach the tenant /24 — the
+  client must itself be a tailnet node with <code>--accept-routes</code>. <code>sc login</code> refuses to
+  start the device flow otherwise.</div>
+
+  <h3>Login routing verification — the five checks</h3>
+  <ol>
+    <li><code>tailscale</code> binary present;</li>
+    <li>backend state <code>Running</code> (after <code>tailscale set --accept-routes=true</code>);</li>
+    <li>accept-routes actually enabled;</li>
+    <li>the tenant /24 is offered by a peer <em>and</em> a primary subnet router is elected
+        (stale duplicate sidecar devices lose the election and blackhole the route — the check catches it);</li>
+    <li>the real gate: TCP dial <code>&lt;gateway&gt;:8443</code> and confirm the connection's <em>local</em>
+        address is this machine's own CGNAT (100.64/10) address — proof the packet egressed via the
+        tailnet and not a coincidentally-routable LAN with an overlapping /24.</li>
+  </ol>
+
+  <h3>DNS, server side: the sidecar CoreDNS (ADR-0018)</h3>
+  <p>The tenant zone is the <strong>only authority</strong> under the suffix — no fallthrough to bridge
+  dnsmasq (guest-asserted, single-label lease names cannot express the project). Record shapes: the
+  canonical <code>&lt;machine&gt;.&lt;project&gt;.&lt;suffix&gt;</code> (+ wildcard) for every machine;
+  the short alias <code>&lt;machine&gt;.&lt;suffix&gt;</code> only for default-project machines — never
+  first-wins across projects. The <code>.:53</code> catch-all serves recursion to tenant
+  <em>machines</em> (it is their only resolver, handed out via the bridge's
+  <code>dhcp-option=6,&lt;.3&gt;</code>) but answers <strong>REFUSED to tailnet sources</strong>
+  (<code>acl { block net 100.64.0.0/10 }</code>) — an upstream-forwarded NXDOMAIN for another tenant's
+  name would otherwise end a client's lookup and mask the answering server.</p>
+  <pre><code><span class="comment"># /etc/coredns/Corefile (rendered per tenant)</span>
+castle:53 {
+    errors
+    file /etc/coredns/zones/db.castle castle
+}
+.:53 {
+    errors
+    acl { block net 100.64.0.0/10 }      <span class="comment"># tailnet clients: REFUSED outside the zone</span>
+    forward . /etc/coredns/upstream-resolv.conf { force_tcp }
+}</code></pre>
+
+  <h3>DNS, client side: one resolved link scope per suffix</h3>
+  <p>Per-domain routing in systemd-resolved only works <em>across link scopes</em> — a global
+  <code>resolved.conf.d</code> drop-in merges every tenant's server into one flat list where only the
+  rotating "current server" is asked, so a second install kills the first zone. Each suffix therefore
+  gets a persistent unit <code>sandcastle-dns-&lt;suffix&gt;.service</code> that creates a dummy link
+  <code>scdns-&lt;hash&gt;</code>, gives it a deterministic 169.254/16 link-local address (resolved never
+  activates an addressless link's scope), and pins <code>DNS=&lt;CoreDNS&gt;</code>
+  <code>Domains=~&lt;suffix&gt;</code> to it. <code>PartOf=systemd-resolved.service</code> re-applies the
+  runtime scope whenever resolved restarts. macOS needs none of this —
+  <code>/etc/resolver/&lt;suffix&gt;</code> is natively per-domain.</p>
+
+  <figure>
+    <svg viewBox="0 0 920 250" width="920" height="250" role="img" aria-label="Client DNS routing">
+      <style>
+        .nb { fill: #1a1d27; stroke: #2a2d3e; rx: 6; }
+        .nbg { fill: #131620; stroke: #5dd8a0; rx: 6; }
+        .nbb { fill: #131620; stroke: #6c8ef5; rx: 6; }
+        .nt { fill: #d4d8f0; font: bold 11.5px 'SF Mono', monospace; }
+        .ns { fill: #7a7f99; font: 10.5px 'SF Mono', monospace; }
+        .ng { fill: #5dd8a0; font: 10.5px 'SF Mono', monospace; }
+        .ne { stroke: #6c8ef5; stroke-width: 1.1; fill: none; }
+        .neg { stroke: #5dd8a0; stroke-width: 1.1; fill: none; }
+      </style>
+      <defs>
+        <marker id="arr4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#5dd8a0"/>
+        </marker>
+        <marker id="arr4b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#6c8ef5"/>
+        </marker>
+      </defs>
+      <rect class="nb" x="14" y="80" width="180" height="86"/>
+      <text class="nt" x="28" y="102">getent hosts</text>
+      <text class="ns" x="28" y="120">web.default.castle</text>
+      <text class="ns" x="28" y="136">rex.default.idefix</text>
+      <text class="ns" x="28" y="152">example.com</text>
+
+      <rect class="nb" x="250" y="80" width="190" height="86"/>
+      <text class="nt" x="264" y="102">systemd-resolved</text>
+      <text class="ns" x="264" y="120">routes by best-match</text>
+      <text class="ns" x="264" y="136">routing domain,</text>
+      <text class="ns" x="264" y="152">ACROSS link scopes</text>
+
+      <rect class="nbg" x="510" y="16" width="200" height="60"/>
+      <text class="ng" x="524" y="38">link scdns-9ac2a459</text>
+      <text class="ns" x="524" y="54">DNS=10.212.0.3 ~castle</text>
+
+      <rect class="nbg" x="510" y="96" width="200" height="60"/>
+      <text class="ng" x="524" y="118">link scdns-d7ccbaaa</text>
+      <text class="ns" x="524" y="134">DNS=10.213.0.3 ~idefix</text>
+
+      <rect class="nb" x="510" y="176" width="200" height="56"/>
+      <text class="nt" x="524" y="198">default route links</text>
+      <text class="ns" x="524" y="214">public upstreams</text>
+
+      <rect class="nbb" x="760" y="16" width="146" height="60"/>
+      <text class="nt" x="772" y="38">sc2-e2ea :53</text>
+      <text class="ns" x="772" y="54">zone castle</text>
+      <rect class="nbb" x="760" y="96" width="146" height="60"/>
+      <text class="nt" x="772" y="118">id-e2ea :53</text>
+      <text class="ns" x="772" y="134">zone idefix</text>
+
+      <path class="ne" d="M194,123 L248,123" marker-end="url(#arr4b)"/>
+      <path class="neg" d="M440,102 L508,50" marker-end="url(#arr4)"/>
+      <text class="ns" x="446" y="66">~castle</text>
+      <path class="neg" d="M440,123 L508,124" marker-end="url(#arr4)"/>
+      <text class="ns" x="446" y="116">~idefix</text>
+      <path class="ne" d="M440,148 L508,200" marker-end="url(#arr4b)"/>
+      <text class="ns" x="438" y="186">everything else</text>
+      <path class="neg" d="M710,44 L758,44" marker-end="url(#arr4)"/>
+      <text class="ns" x="714" y="36">tailnet</text>
+      <path class="neg" d="M710,126 L758,126" marker-end="url(#arr4)"/>
+    </svg>
+    <figcaption>Two enrolled installs on one Linux client: each suffix resolves deterministically at its own
+    tenant's CoreDNS via a dedicated link scope; public names never touch tenant servers.</figcaption>
+  </figure>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="flows">
+  <h2><span class="secno">7</span>End-to-end flows</h2>
+  <div id="flows-detail">
+
+  <h3>Flow: <code>sc create web</code> → running, named, reachable</h3>
+  <figure>
+    <svg viewBox="0 0 940 330" width="940" height="330" role="img" aria-label="Machine create flow">
+      <defs>
+        <marker id="arr5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#6c8ef5"/>
+        </marker>
+        <marker id="arr5g" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#5dd8a0"/>
+        </marker>
+      </defs>
+      <style>
+        .f-actor { fill: #1a1d27; stroke: #6c8ef5; rx: 6; }
+        .f-life { stroke: #2a2d3e; stroke-width: 1; stroke-dasharray: 3 3; }
+        .f-at { fill: #d4d8f0; font: bold 11.5px 'SF Mono', monospace; text-anchor: middle; }
+        .f-msg { stroke: #6c8ef5; stroke-width: 1.1; fill: none; }
+        .f-msgg { stroke: #5dd8a0; stroke-width: 1.1; fill: none; }
+        .f-mt { fill: #7a7f99; font: 10.5px 'SF Mono', monospace; }
+        .f-mtg { fill: #5dd8a0; font: 10.5px 'SF Mono', monospace; }
+      </style>
+      <rect class="f-actor" x="20"  y="14" width="120" height="30"/><text class="f-at" x="80"  y="34">sc create</text>
+      <rect class="f-actor" x="220" y="14" width="170" height="30"/><text class="f-at" x="305" y="34">Incus (via Reach)</text>
+      <rect class="f-actor" x="470" y="14" width="150" height="30"/><text class="f-at" x="545" y="34">auth-app reconciler</text>
+      <rect class="f-actor" x="700" y="14" width="130" height="30"/><text class="f-at" x="765" y="34">sidecar CoreDNS</text>
+      <line class="f-life" x1="80"  y1="44" x2="80"  y2="316"/>
+      <line class="f-life" x1="305" y1="44" x2="305" y2="316"/>
+      <line class="f-life" x1="545" y1="44" x2="545" y2="316"/>
+      <line class="f-life" x1="765" y1="44" x2="765" y2="316"/>
+
+      <path class="f-msg" d="M80,66 L303,66" marker-end="url(#arr5)"/>
+      <text class="f-mt" x="92" y="60">CreateInstance "web" in sc2-&lt;t&gt;-default (images:debian/13/cloud, Start:true)</text>
+      <path class="f-msgg" d="M305,96 L305,96 L303,96"/>
+      <text class="f-mtg" x="316" y="96">default profile applies: bridge NIC, home+workspace, cloud-init user+key</text>
+      <path class="f-msg" d="M303,126 L82,126" marker-end="url(#arr5)"/>
+      <text class="f-mt" x="92" y="120">wait for IPv4 lease → prints IP + FQDN + SSH hint</text>
+      <path class="f-msgg" d="M305,156 L543,156" marker-end="url(#arr5g)"/>
+      <text class="f-mtg" x="316" y="150">lifecycle event (instance-created / started)</text>
+      <path class="f-msgg" d="M545,186 L763,186" marker-end="url(#arr5g)"/>
+      <text class="f-mtg" x="556" y="180">re-render zone: web IN A &lt;ip&gt; (+ wildcard, + short alias if default project)</text>
+      <path class="f-msgg" d="M545,216 L763,216" marker-end="url(#arr5g)"/>
+      <text class="f-mtg" x="556" y="210">settle passes +3s/+8s catch the late DHCP lease · SOA serial = unix time · reload</text>
+      <path class="f-msg" d="M80,252 L763,252" marker-end="url(#arr5)"/>
+      <text class="f-mt" x="92" y="246">client resolves web.default.&lt;suffix&gt; via its link scope → SSH over the subnet route</text>
+      <text class="f-mt" x="92" y="292">cloud-init inside the guest: creates login user, installs sshd — `sc connect` waits for :22</text>
+    </svg>
+    <figcaption>Machine records appear in DNS within seconds of any launch — including native
+    <code>incus launch</code> — because registration is reconciled from live Incus state, not from the CLI.</figcaption>
+  </figure>
+
+  <h3>Flow: <code>sc project create backend</code> (tenant plane)</h3>
+  <ol>
+    <li>Client calls the auth-app <code>POST /api/projects</code> with the saved CLI auth token
+      (tunnel installs), or the broker <code>POST /v2/projects</code> authenticated by the tenant's
+      client certificate (broker installs). No flags needed — login recorded both.</li>
+    <li>Server-side, over the host socket: create project <code>&lt;prefix&gt;-&lt;tenant&gt;-backend</code>,
+      its <code>home</code>/<code>workspace</code> volumes, its default profile — then <strong>extend the
+      caller's restricted certificate</strong> to cover the new project.</li>
+    <li>Client writes the per-project remote <code>&lt;tenant&gt;-backend</code> into the shared incus config
+      (pinned to the new Incus project) — <code>sc create backend:api</code> works immediately over the
+      same certificate, no re-login.</li>
+  </ol>
+
+  <h3>Flow: <code>sc-adm tenant delete &lt;t&gt; --yes --purge</code> (v2)</h3>
+  <ol>
+    <li>Scoped plan: only this install's projects (<code>PlanDeleteV2</code>); refuse without
+      <code>--purge</code> (shared volumes live inside the app projects — no runtime-only subset).</li>
+    <li>Per app project: force-stop + delete instances → detach volume devices from the default profile →
+      delete <code>home</code>/<code>workspace</code> → delete images/profiles → delete project.</li>
+    <li>Infra project: delete sidecar instance + profile → delete project. Then delete the tenant bridge.</li>
+    <li>Left behind on purpose: the sidecar's tailnet device (BYO tailnet — remove in the Tailscale
+      console or use ephemeral keys) and the client's resolver unit/remotes (stale until next login).</li>
+    <li>A later login by the same user re-provisions from scratch — fresh /24 from the pool, suffix
+      freely choosable again (the immutability record died with the infra project).</li>
+  </ol>
+
+  <h3>Flow: two installs, one client (shared identity)</h3>
+  <ol>
+    <li>All enrollments share <strong>one incus config dir and one client keypair</strong>; each install is
+      one remote (<code>sc-&lt;tenant&gt;</code>, <code>sc-&lt;prefix&gt;-&lt;tenant&gt;</code>), each pinned to
+      its install's default project.</li>
+    <li>Enrolling the second install can't redeem a token (the daemon already trusts the keypair) —
+      login falls back to a cert-based <code>incus remote add --auth-type=tls</code>, and the server
+      <strong>unions</strong> the new install's projects into the one trust entry.</li>
+    <li>Every tenant lookup in the CLI is scoped to the install the <em>current remote</em> belongs to
+      (<code>installPrefixFromRemoteName</code>) — a same-named tenant of the other install can never
+      shadow yours in <code>sc list</code>, <code>create</code>, <code>connect</code>, <code>status</code>,
+      <code>project</code>, or <code>dns</code>.</li>
+    <li>DNS is per-suffix, not per-remote: both zones resolve simultaneously through their own link
+      scopes; switching installs is just <code>incus remote switch</code>.</li>
+  </ol>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="sc">
+  <h2><span class="secno">8</span>Command reference — <code>sc</code> <span class="badge badge-user">user</span></h2>
+  <div id="sc-commands">
+
+  <p class="lede">Every <code>sc</code> command runs with the tenant's <strong>restricted certificate</strong>
+  (<code>Execute</code> forces <code>INCUS_CONF</code> to the Sandcastle-managed config dir), reaching Incus
+  through the sidecar's Incus Reach. Machine references are
+  <code>[tenant/][project:]machine</code>; the project defaults to the Current Project, then
+  <code>default</code>. Commands branch v1/v2 on the tenant's generation; the v2 behaviour is documented
+  here (v1 is legacy). State chips: what the command <em>creates</em>, <em>mutates</em>, <em>deletes</em>,
+  touches <em>locally</em>, or <em>calls</em> remotely.</p>
+
+  <h3>Session</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc login &lt;auth-host&gt;</code> <span class="badge badge-user">user</span></h4>
+    <p>The CLI Device Login (<a href="#flows">flow above</a>). Idempotent: with a working saved token,
+    enrolled remote, and healthy tenant routing it prints <code>Already logged in</code>. Flags:
+    <code class="flag">--force</code>, <code class="flag">--dns-suffix</code> (first login only — immutable),
+    <code class="flag">--tailscale-auth-key</code> (unattended sidecar join),
+    <code class="flag">--skip-setup</code>, <code class="flag">--simulate-token</code> +
+    <code class="flag">--as</code> (e2e), <code class="flag">--ssh-public-key</code>. Refuses to start when
+    this machine is not a tailnet node (unless <code>--skip-setup</code>).</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip call">auth-app</span><div><code>/api/device/start</code> + polls (uploads User SSH Public Key + shared client cert PEM) — the server side provisions the tenant (<a href="#provisioning">§5</a>) and reconciles the key into the profile</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div>prepares/creates the SSH key; enrolls remote <code>sc-[&lt;prefix&gt;-]&lt;tenant&gt;</code> into the shared incus dir (token, or cert-based fallback when already trusted); saves <code>auth_hostname</code>/<code>auth_token</code>/<code>broker</code>/<code>tenant</code>/<code>remote</code> in <code>config.yml</code>; installs the per-suffix resolver unit; runs the 5-layer routing verification</div></div>
+      <div class="ledger-row"><span class="chip read">incus</span><div>no direct mutation from the client — everything server-side over the host socket</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/login.go</code> · <code>internal/localdns</code> · <code>internal/cli/remote.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc enroll &lt;tenant&gt; --token …</code> · <code>sc remote add &lt;name&gt; &lt;join-token&gt;</code> <span class="badge badge-user">user</span></h4>
+    <p>Token-based enrollment without the device flow (broker/admin-issued tokens). Regenerates the local
+    incus config: base remote from the token, one cert-pinned remote per visible project; idempotent
+    re-runs need no token. <code class="flag">--incus-endpoint</code> when the host isn't the default.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip local">client</span><div>shared incus dir + keypair; <code>incus remote add/switch</code>; saves <code>remote</code>+<code>tenant</code> defaults in <code>config.yml</code></div></div>
+      <div class="ledger-row"><span class="chip mutate">trust</span><div>token redemption registers the client cert in the daemon's trust store (server-side effect of the handshake)</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/connect_v2.go</code> · <code>internal/cli/remote.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc config show|set|unset</code> · <code>sc tenant list|switch</code> · <code>sc cache clear</code> <span class="badge badge-ro">local</span></h4>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip local">client</span><div><code>config</code> rewrites <code>~/.config/sandcastle/config.yml</code> (<code>set remote</code> also switches the shared incus current remote); <code>tenant switch</code> sets the Current Tenant (validated via <code>GET /api/tenants</code> unless <code>--local-only</code>); <code>cache clear</code> drops connect-plan cache entries</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/config_cmd.go</code> · <code>internal/cli/tenant.go</code> · <code>internal/incusx/connect_cache.go</code></p>
+  </div>
+
+  <h3>Machines</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc create [project:]&lt;machine&gt;</code> <span class="badge badge-user">user</span></h4>
+    <p>Launches a machine into the tenant's app project and (unless <code class="flag">--detach</code>)
+    connects. v2 flags: <code class="flag">--vm</code> (virtual machine),
+    <code class="flag">--image</code> (default <code>images:debian/13/cloud</code> — the /cloud variant is
+    load-bearing: cloud-init applies the profile's login user).</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">incus</span><div><code>CreateInstance</code> (Start:true) named <code>&lt;machine&gt;</code> in <code>&lt;prefix&gt;-&lt;tenant&gt;-&lt;project&gt;</code> via the default profile (bridge NIC + shared volumes + cloud-init); waits for the IPv4 lease</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div>known-hosts refresh + connect-plan cache under <code>~/.config/sandcastle/&lt;remote&gt;/</code></div></div>
+      <div class="ledger-row"><span class="chip read">dns</span><div>no explicit registration — the auth-app reconciler picks up the lifecycle event within seconds</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/create_v2.go</code> · <code>internal/incusx/machine_create_v2.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc connect [project:]&lt;machine&gt; [-- cmd]</code> (alias <code>c</code>) <span class="badge badge-user">user</span></h4>
+    <p>The ensure-and-attach verb: creates a missing machine (<code class="flag">--vm</code> respected),
+    starts a stopped one, waits for sshd, then SSHes to the private IP as the profile login user.
+    Uses the connect-plan cache; invalidates + re-resolves on stale-cache failures.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip mutate">incus</span><div>may <code>CreateInstance</code> and/or <code>UpdateInstanceState start</code>; otherwise session-only</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div>shells <code>ssh</code>/<code>mosh</code>; known-hosts + cache maintenance</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/connect.go</code>, <code>connect_v2.go</code> · <code>internal/incusx/machine_connect.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc start|stop|restart|delete [project:]&lt;machine&gt;</code> <span class="badge badge-user">user</span></h4>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>UpdateInstanceState</code> (stop/restart are forced); <code>start</code>/<code>restart</code> self-heal the machine's static-network unit</div></div>
+      <div class="ledger-row"><span class="chip delete">incus</span><div><code>delete --yes</code>: force-stop + <code>DeleteInstance</code>; the DNS record disappears on the reconciler's next pass</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div>delete invalidates the machine's connect-cache + keyscan entries</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/machine_lifecycle.go</code> · <code>internal/incusx/machine_lifecycle.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc list [project]</code> (alias <code>ls</code>) · <code>sc status [machine|tenant]</code> <span class="badge badge-ro">read-only</span></h4>
+    <p>Both resolve the tenant <strong>scoped to the current remote's install</strong> — a same-named tenant
+    of another install on the same daemon never shadows this one. <code>list</code> shows canonical FQDNs +
+    live IPs across the tenant's projects (<code class="flag">-a</code> for all projects); <code>status</code>
+    adds topology checks and a share-reconcile dry-run.</p>
+    <p class="impl"><code>internal/cli/list.go</code> · <code>internal/cli/status.go</code> · <code>internal/tenant/list.go</code> (<code>ListForPrefix</code>)</p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc incus|incus-native|incus-infra [args…]</code> <span class="badge badge-user">passthrough</span></h4>
+    <p>Runs the real <code>incus</code> binary with <code>INCUS_CONF</code> + <code>INCUS_PROJECT</code>
+    pre-scoped: <code>incus</code> → the app project of the current remote's install;
+    <code>incus-infra</code> → the infra project (sidecar). State changes are whatever the passed
+    arguments do, limited by the restricted certificate.</p>
+    <p class="impl"><code>internal/cli/incus_cmd.go</code></p>
+  </div>
+
+  <h3>Projects &amp; keys</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc project create|list|status|delete|set-cloud-identity|set-docker-autostart</code> <span class="badge badge-user">user</span></h4>
+    <p><code>create</code> is fully flagless after login (<a href="#flows">flow above</a>).
+    <code>delete</code> removes an <em>empty</em> project namespace from tenant metadata (the Incus project
+    object itself is admin-plane).</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip call">auth-app</span><div><code>create</code>: <code>POST /api/projects</code> (or broker <code>POST /v2/projects</code> via client cert) — server creates the Incus project + volumes + profile and extends the restricted cert</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div><code>create</code> adds the per-project remote <code>&lt;tenant&gt;-&lt;project&gt;</code> pinned to the new Incus project</div></div>
+      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>delete</code>/<code>set-*</code> rewrite the tenant's projects metadata (workspace-volume file via <code>SetTenantProjects</code>)</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/project_v2.go</code> · <code>internal/incusx/project_create_v2.go</code>, <code>tenant_update.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc ssh-key set</code> · <code>sc password set</code> · <code>sc port set &lt;machine&gt; &lt;port&gt;</code> <span class="badge badge-user">user</span></h4>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>ssh-key set</code> stores the tenant SSH key in tenant metadata (machines pick it up at next login's profile re-bake); <code>password set</code> execs <code>chpasswd</code>+<code>smbpasswd</code> in every tenant machine; <code>port set</code> rewrites the machine's App Port metadata + in-guest Caddyfile and restarts caddy</div></div>
+    </div>
+    <p class="impl"><code>internal/incusx/tenant_update.go</code>, <code>machine_password.go</code>, <code>machine_port.go</code></p>
+  </div>
+
+  <h3>DNS, trust &amp; host</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc dns setup|apply|status|install|refresh|uninstall|teardown</code> <span class="badge badge-user">user</span></h4>
+    <p>Tenant lookups are install-scoped. <code>apply</code>/<code>setup</code> re-render the sidecar zone
+    explicitly (normally the reconciler's job); <code>install/refresh/uninstall/teardown</code> manage only
+    the <em>local</em> resolver. Escalates via a hidden <code>dns apply-elevated</code> sudo worker when
+    resolver paths need root.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip mutate">sidecar</span><div><code>apply</code>/<code>setup</code>: writes <code>/etc/coredns/**</code> into the sidecar and restarts CoreDNS</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div>resolver state file + per-suffix unit <code>/etc/systemd/system/sandcastle-dns-&lt;suffix&gt;.service</code> (Linux) or <code>/etc/resolver/&lt;suffix&gt;</code> (macOS); enable/restart or disable/remove</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/dns.go</code> · <code>internal/localdns</code> · <code>internal/incusx/dns.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc trust install|uninstall</code> · <code>sc host override create|list|delete</code> <span class="badge badge-user">user</span></h4>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip local">client</span><div><code>trust</code>: installs/removes the Tenant CA in the OS trust store (Linux <code>/usr/local/share/ca-certificates</code> + <code>update-ca-certificates</code>; macOS login keychain), caches CA under <code>~/.config/sandcastle/tenant-ca/…</code>; <code>host override</code> edits the local hosts file</div></div>
+      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>host override</code> also records the extra SAN in machine metadata and re-issues the machine TLS cert in-guest</div></div>
+    </div>
+    <p class="impl"><code>internal/localtrust</code> · <code>internal/incusx/localtrust.go</code>, <code>hostoverride.go</code></p>
+  </div>
+
+  <h3>Sharing, routes &amp; identity</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc share create|list|status|offers|accept|decline|revoke|delete|reconcile</code> <span class="badge badge-user">user</span></h4>
+    <p>Tenant Storage Shares (ADR-0009): offer a <code>/workspace</code> subtree to another tenant; the
+    recipient accepts and every accepted share is reconciled as a <strong>read-only disk device</strong>
+    at <code>/shared/&lt;src-tenant&gt;/&lt;src-project&gt;/&lt;name&gt;</code> on the recipient's machines.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip call">auth-app</span><div>all verbs are <code>POST /api/shares*</code> — the privileged broker mutates both tenants' metadata server-side</div></div>
+      <div class="ledger-row"><span class="chip mutate">incus</span><div>server-side reconcile attaches/detaches the read-only disk devices on recipient instances</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/share.go</code> · <code>internal/authapp/shares.go</code> · <code>internal/incusx/share_reconcile.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc route create|list|status|delete</code> <span class="badge badge-user">user</span></h4>
+    <p>Public HTTPS routes on the shared edge (ADR-0013): DNS proof-of-ownership first, then the shared
+    infrastructure Caddy fronts <code>&lt;hostname&gt;</code> → the machine's App Port. Brokered through the
+    Route Broker (mTLS, tenant cert) when configured.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">incus</span><div>route profile in the infrastructure project; ingress NIC attached to the target machine; tenant project backlink; infra Caddyfile rewrite + reload (all reversed on <code>delete</code>)</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/route.go</code> · <code>internal/incusx/route.go</code> · <code>internal/routebroker</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc workload enable &lt;machine&gt;</code> · <code>sc cloud-identity gcp setup</code> · <code>sc tailscale up|status|down</code> <span class="badge badge-user">user</span></h4>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip call">auth-app</span><div><code>workload enable</code>: <code>POST /api/workload/enable</code> rotates the Machine Runtime Secret; the files land in the machine at <code>/var/lib/sandcastle/workload/…</code></div></div>
+      <div class="ledger-row"><span class="chip call">external</span><div><code>cloud-identity gcp setup</code> drives <code>gcloud</code>: workload-identity pool + OIDC provider trusting <code>…/t/&lt;tenant&gt;</code>, service account, IAM bindings; records the config via <code>POST /api/cloud-identities</code></div></div>
+      <div class="ledger-row"><span class="chip mutate">sidecar</span><div><code>tailscale up|down</code> exec <code>tailscale</code> in the sidecar and persist the resulting state into tenant project metadata</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/workload.go</code>, <code>cloud_identity.go</code>, <code>tailscale.go</code> · <code>internal/incusx/tailscale.go</code></p>
+  </div>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="scadm">
+  <h2><span class="secno">9</span>Command reference — <code>sc-adm</code> <span class="badge badge-admin">admin</span></h2>
+  <div id="scadm-commands">
+
+  <p class="lede">The admin tree always talks to Incus with <strong>admin credentials</strong>
+  (global <code>~/.config/incus</code> or the local unix socket — inside appliances, the mounted host
+  socket). <code>sc admin …</code> is the identical tree reached through the user binary. Every
+  command takes <code>--output text|json</code>; destructive commands prompt unless <code>--yes</code>;
+  anything with <code>--dry-run</code> renders its plan and touches nothing.</p>
+
+  <h3>Host &amp; installation</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm install-incus</code> <span class="badge badge-admin">root</span></h4>
+    <p>Bootstraps a bare Debian-family host into an Incus server (Zabbly stable), idempotently.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip local">host</span><div>writes apt keyring <code>/etc/apt/keyrings/zabbly.asc</code> + repo <code>/etc/apt/sources.list.d/zabbly-incus-stable.sources</code>; <code>apt-get install incus</code>; adds <code>$SUDO_USER</code> to <code>incus-admin</code></div></div>
+      <div class="ledger-row"><span class="chip mutate">incus</span><div>runs <code>incus admin init --minimal</code> when the daemon is uninitialized (skip with <code>--skip-init</code>)</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/admin_install_incus.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm install</code> <span class="badge badge-admin">admin</span></h4>
+    <p>The one-shot server install: everything one installation needs, scoped by <code>--prefix</code>
+    (default <code>sc</code> → project prefix <code>sc2</code>). Refuses to run when the prefix is already
+    installed; warns when <code>--cidr-pool</code> overlaps a host address. Key flags:
+    <code class="flag">--auth-hostname</code>, <code class="flag">--ingress none|acme|cloudflare</code>,
+    <code class="flag">--cloudflare-api-token</code> / <code class="flag">--cloudflare-tunnel-token</code>,
+    <code class="flag">--cidr-pool</code>, <code class="flag">--simulate-github-token</code>,
+    <code class="flag">--admin-github-users</code>, <code class="flag">--broker-port</code>.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip call">external</span><div><code>--ingress cloudflare</code> + API token: creates/reuses a named <strong>Cloudflare tunnel</strong>, sets its ingress (<code>hostname → http://localhost:8080</code>), creates the proxied CNAME <code>&lt;hostname&gt; → &lt;tunnelID&gt;.cfargotunnel.com</code></div></div>
+      <div class="ledger-row"><span class="chip create">incus</span><div>network <code>&lt;prefix&gt;-net</code> (NATed appliance bridge, auto subnet) unless <code>--bridge</code> points at an existing one</div></div>
+      <div class="ledger-row"><span class="chip create">incus</span><div>project <code>&lt;prefix&gt;-infra</code> + <strong>privileged</strong> CT <code>&lt;prefix&gt;-auth-app</code> with the <strong>host Incus socket mounted</strong> (<code>incus-socket</code> disk device); ACME ingress adds host <code>:80</code>/<code>:443</code> proxy devices</div></div>
+      <div class="ledger-row"><span class="chip create">incus</span><div>non-Cloudflare installs: project <code>&lt;prefix&gt;-broker</code> + privileged CT <code>&lt;prefix&gt;-broker</code> with host socket + host-port proxy <code>:9443</code>; Cloudflare installs skip the broker entirely (tenant plane = auth-app <code>/api/projects</code>)</div></div>
+      <div class="ledger-row"><span class="chip local">appliance</span><div>pushes this exact binary as <code>/usr/local/bin/sandcastle-admin</code>, <code>/etc/sandcastle/auth-app/env</code> (bakes <code>SANDCASTLE_CIDR_POOL</code>, <code>SANDCASTLE_INCUS_PROJECT_PREFIX</code>, auth secrets), systemd units; ingress builds push <code>caddy</code> (+ <code>cloudflared</code> + tunnel token)</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/admin_install.go</code> · <code>internal/incusx/authapp_bootstrap.go</code>, <code>broker_bootstrap.go</code> · <code>internal/cli/cloudflare_tunnel.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm auth-app deploy</code> <span class="badge badge-admin">admin</span></h4>
+    <p>Piecewise installer for just the Auth App appliance (the older path; <code>install</code> wraps it).
+    Same appliance shape as above: privileged CT, host socket mount, env file, systemd unit, optional
+    caddy/cloudflared ingress files.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">incus</span><div>project <code>infrastructure</code> (default) if missing; instance <code>sc2-auth-app</code> (privileged, <code>kind=auth-app</code>, host-socket disk)</div></div>
+      <div class="ledger-row"><span class="chip local">appliance</span><div><code>/usr/local/bin/sandcastle-admin</code>, <code>/etc/sandcastle/auth-app/env</code> (0600), <code>/etc/systemd/system/sandcastle-auth-app.service</code>, DB dir <code>/var/lib/sandcastle/auth</code></div></div>
+    </div>
+    <p class="impl"><code>internal/cli/authapp_deploy.go</code> · <code>internal/incusx/authapp_bootstrap.go</code>, <code>authapp_ingress.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm bootstrap</code> <span class="badge badge-admin">admin</span></h4>
+    <p>Piecewise installer for just the broker appliance (ADR-0016). Generates self-signed server TLS
+    (SANs: hostname, instance, localhost).</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">incus</span><div>project <code>sc2-broker</code> (<code>kind=broker</code>, <code>version=2</code>); privileged CT <code>sc2-broker</code> with host-socket disk + <code>broker</code> proxy device (host <code>:9443</code> → <code>127.0.0.1:9443</code>)</div></div>
+      <div class="ledger-row"><span class="chip local">appliance</span><div><code>/usr/local/bin/sandcastle-admin</code>, <code>/etc/sandcastle/broker/tls.{crt,key}</code>, <code>/etc/sandcastle/broker/env</code>, <code>/etc/systemd/system/sandcastle-broker.service</code></div></div>
+    </div>
+    <p class="impl"><code>internal/incusx/broker_bootstrap.go</code> · <code>internal/certs</code></p>
+  </div>
+
+  <h3>Tenants</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm tenant list [tenant]</code> · <code>tenant status &lt;tenant&gt;</code> · <code>tenant users &lt;tenant&gt;</code> <span class="badge badge-ro">read-only</span></h4>
+    <p>Reconstruct tenant summaries from live project metadata (<code>tenant.List</code>); <code>status</code> adds
+    the live topology read (<code>GetStatusWithTopology</code>, install-prefix-scoped) and share-reconciliation
+    health; <code>users</code> lists the restricted certificates holding access to the tenant's projects.</p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm tenant create &lt;tenant&gt;</code> <span class="badge badge-admin">admin</span></h4>
+    <p>Provisions a v2 tenant directly against Incus — the same <code>CreateTenantV2</code> chain the Auth App
+    runs on first login (<a href="#provisioning">§5</a>). Flags:
+    <code class="flag">--ssh-key</code>, <code class="flag">--tailscale-authkey</code>,
+    <code class="flag">--sidecar-image</code>, <code class="flag">--cidr-pool</code>,
+    <code class="flag">--unix-user</code> (default <code>dev</code>), <code class="flag">--dns-suffix</code>,
+    <code class="flag">--dry-run</code>. With <code class="flag">--broker</code> it instead POSTs
+    <code>/v2/tenants</code> to the broker admin plane and touches no Incus state itself.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">incus</span><div>tenant bridge (the /24: <code>ipv4.address=&lt;gw&gt;/24</code>, NAT, <code>raw.dnsmasq=dhcp-option=6,&lt;.3&gt;</code>), infra project <code>&lt;prefix&gt;-&lt;tenant&gt;</code>, app project <code>&lt;prefix&gt;-&lt;tenant&gt;-default</code>, volumes <code>home</code>+<code>workspace</code>, default + sidecar profiles, the sidecar CT</div></div>
+      <div class="ledger-row"><span class="chip local">sidecar</span><div>CoreDNS binary + Corefile/zone + unit, tailscale apt install, static-net unit, <code>tailscale up</code> (tag:sandcastle, advertises the /24), <code>tailscale serve --tcp=8443</code> → host Incus (Incus Reach)</div></div>
+      <div class="ledger-row"><span class="chip create">trust</span><div>restricted certificate-add token scoped to the tenant's projects — printed as the <code>sc enroll</code> line</div></div>
+    </div>
+    <p class="impl"><code>internal/tenant/create_plan_v2.go</code> · <code>internal/incusx/tenant_create_v2.go</code> · <code>internal/usertrust</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm tenant delete &lt;tenant&gt; --yes [--purge]</code> <span class="badge badge-admin">destructive</span></h4>
+    <p>Detects v2 vs v1 (install-prefix-scoped — a same-named tenant of another install is never touched).
+    <strong>v2 is all-or-nothing</strong>: the shared volumes live inside the app projects, so without
+    <code>--purge</code> the command refuses. v1 keeps durable volumes unless purged.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip delete">incus (v2)</span><div>every instance in every app project → shared volume devices detached from the default profile → volumes <code>home</code>/<code>workspace</code> → app projects → infra project (sidecar + profiles) → tenant bridge</div></div>
+      <div class="ledger-row"><span class="chip delete">incus (v1)</span><div>instances, profiles, private network; with <code>--purge</code> also durable volumes + project; then share-cleanup re-reconciles affected recipients</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div>invalidates the connect cache and the cached tenant CA for the remote</div></div>
+      <div class="ledger-row"><span class="chip read">not touched</span><div>the sidecar's tailnet device (BYO tailnet, no server-side API key by design) — remove it in the Tailscale console or use ephemeral keys</div></div>
+    </div>
+    <p class="impl"><code>internal/tenant/delete_plan_v2.go</code> · <code>internal/incusx/tenant_delete_v2.go</code>, <code>tenant_delete.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm tenant grant|revoke &lt;tenant&gt; &lt;user&gt;</code> · <code>tenant set-ssh-key &lt;tenant&gt; &lt;key&gt;</code> <span class="badge badge-admin">admin</span></h4>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip mutate">trust</span><div><code>grant</code>/<code>revoke</code> add/remove the tenant's Incus project on the restricted certificate's <code>restricted.projects</code> list (<code>--dry-run</code> supported)</div></div>
+      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>set-ssh-key</code> writes the tenant SSH public key into the project's <code>user.sandcastle.*</code> metadata</div></div>
+    </div>
+    <p class="impl"><code>internal/usertrust</code> · <code>internal/incusx</code></p>
+  </div>
+
+  <h3>Users &amp; machines</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm user create|token &lt;user&gt;</code> · <code>user delete &lt;user&gt; --yes</code> <span class="badge badge-admin">admin</span></h4>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">trust</span><div><code>create</code>/<code>token</code> mint a restricted certificate-add token (optionally pre-granting <code class="flag">--tenant</code> projects); prints the client bootstrap line</div></div>
+      <div class="ledger-row"><span class="chip delete">trust</span><div><code>delete</code> removes the restricted user's trust certificate from the daemon</div></div>
+    </div>
+    <p class="impl"><code>internal/usertrust</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm list|create|connect|status|delete &lt;tenant&gt;[/&lt;project&gt;]/&lt;machine&gt;</code> <span class="badge badge-admin">admin</span></h4>
+    <p>Cross-tenant machine operations by fully-qualified reference. <code>create</code> supports
+    <code class="flag">--template ai|base</code>, <code class="flag">--app-port</code>,
+    <code class="flag">--detach</code>; <code>connect</code> starts a stopped machine first.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">incus</span><div><code>create</code>: launches the instance in the tenant's app project (bridge NIC + shared volumes via the default profile, cloud-init), then refreshes the sidecar CoreDNS zone + local known-hosts</div></div>
+      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>connect</code>: starts a stopped instance, then opens the session</div></div>
+      <div class="ledger-row"><span class="chip delete">incus</span><div><code>delete</code>: force-stops + deletes the instance, re-renders the CoreDNS zone</div></div>
+      <div class="ledger-row"><span class="chip read">read</span><div><code>list</code> / <code>status</code> are read-only</div></div>
+    </div>
+    <p class="impl"><code>internal/cli/admin_machine.go</code> · <code>internal/machine</code> · <code>internal/incusx/machine_*.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm workload enable [project:]&lt;machine&gt; --database &lt;auth.db&gt;</code> <span class="badge badge-admin">admin</span></h4>
+    <p>Arms a machine with Workload Identity (<a href="adr/0005-sandcastle-oidc-provider-for-machine-workload-identity.md">ADR-0005</a>):
+    registers it in the auth database and drops the Machine Runtime Secret into the instance.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip mutate">auth db</span><div>inserts/updates the machine's workload-identity registration + runtime secret in the SQLite DB</div></div>
+      <div class="ledger-row"><span class="chip local">machine</span><div>pushes <code>/var/lib/sandcastle/workload/{runtime-secret,token-endpoint,tenant,project,machine}</code> — the machine exchanges the secret for short-lived OIDC tokens at the Auth Hostname</div></div>
+    </div>
+    <p class="impl"><code>internal/authapp/workload.go</code> · <code>internal/machine</code></p>
+  </div>
+
+  <h3>Projects &amp; the brokers</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm project create &lt;tenant&gt; &lt;project&gt;</code> <span class="badge badge-admin">admin</span></h4>
+    <p>Admin shortcut that scaffolds an additional app project for an existing v2 tenant — reading
+    bridge/suffix/user/key from the infra project's metadata. Unlike the broker/auth-app plane it does
+    <strong>not</strong> extend the tenant's restricted certificate.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">incus</span><div>project <code>&lt;prefix&gt;-&lt;tenant&gt;-&lt;project&gt;</code> (own image store), its <code>home</code>+<code>workspace</code> volumes, its default profile</div></div>
+    </div>
+    <p class="impl"><code>internal/incusx/project_create_v2.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm project broker-serve</code> <span class="badge badge-svc">service</span></h4>
+    <p>The Sandcastle Broker (ADR-0016): TLS on <code>:9443</code>, both planes. Tenant plane
+    <code>POST /v2/projects</code> authenticates the caller's <em>client certificate</em> against the trust
+    map and scaffolds a project <em>plus</em> extends that certificate to cover it; admin plane
+    <code>POST /v2/tenants</code> runs full tenant provisioning. Runs from the broker appliance over the
+    mounted host socket.</p>
+    <p class="impl"><code>internal/projectbroker/serve.go</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm route-broker serve --cert … --key …</code> <span class="badge badge-svc">service</span></h4>
+    <p>The public-route broker: mTLS on <code>:9443</code>; <code>GET /routes</code>,
+    <code>POST /routes</code>, <code>DELETE /routes/{hostname}</code>. Maps the client certificate to its
+    tenant, authorizes the hostname (DNS proof-of-ownership), then mutates the shared edge
+    (<a href="adr/0013-public-routes-stay-shared-infrastructure.md">ADR-0013</a>): reverse-proxy vhosts in
+    the infrastructure project via <code>RouteManager</code>.</p>
+    <p class="impl"><code>internal/routebroker</code> · <code>internal/incusx/route*.go</code> · <code>internal/route</code></p>
+  </div>
+
+  <h3>The Auth App service</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm auth-app serve --database &lt;path&gt;</code> <span class="badge badge-svc">service</span></h4>
+    <p>The login/provisioning server (<a href="#authapp">§4</a>): HTTP on <code>:9444</code> behind the
+    appliance's caddy. Because the appliance mounts the host socket, this process also runs the
+    <strong>V2 DNS reconciler</strong> — an Incus lifecycle-event subscription across all projects plus a
+    30-second sweep, re-rendering per-tenant CoreDNS zones into the sidecars (prefix-scoped, so each
+    install's auth-app only touches its own tenants) — and the token-gated <code>/api/projects</code>
+    tenant plane used by tunnel installs.</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip mutate">auth db</span><div>SQLite: users, allowlist, device logins, CLI tokens, workload identities</div></div>
+      <div class="ledger-row"><span class="chip create">incus</span><div>on first login per user: the full <code>CreateTenantV2</code> mutation set (detached context, 8-minute budget, serialized per device code)</div></div>
+      <div class="ledger-row"><span class="chip local">sidecar</span><div>reconciler writes <code>/etc/coredns/zones/db.&lt;suffix&gt;</code> + restarts CoreDNS on machine lifecycle events</div></div>
+    </div>
+    <p class="impl"><code>internal/authapp/app.go</code> · <code>internal/cli/admin_dns_events.go</code> · <code>internal/incusx/dns_v2.go</code></p>
+  </div>
+
+  <h3>Images, TLDs, config</h3>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm image build|build-remote|import|sync</code> · <code>image builder provision|status|destroy</code> <span class="badge badge-admin">admin</span></h4>
+    <p>The image pipeline (<a href="adr/0010-image-builder-appliance.md">ADR-0010</a>): local OCI builds
+    (<code>build</code>, docker on the host), or remote builds inside the Image Builder appliance with a
+    GHCR publish (<code>build-remote</code>, env <code>SANDCASTLE_GHCR_TOKEN</code>).</p>
+    <div class="ledger">
+      <div class="ledger-row"><span class="chip create">incus</span><div><code>builder provision</code> / <code>build-remote</code>: project <code>sc-build</code>, instance <code>sc-builder</code>, cache volume <code>sc-builder-cache</code>; podman builds run inside, token at <code>/run/ghcr-token</code></div></div>
+      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>import</code> pulls an OCI ref into Incus and sets the Sandcastle alias; <code>sync</code> repoints an alias to an existing fingerprint</div></div>
+      <div class="ledger-row"><span class="chip delete">incus</span><div><code>builder destroy --yes</code> removes instance + project (+ cache volume unless <code>--keep-cache</code>)</div></div>
+      <div class="ledger-row"><span class="chip call">external</span><div>GHCR push/pull on <code>build-remote</code></div></div>
+    </div>
+    <p class="impl"><code>internal/images</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm tld refresh</code> <span class="badge badge-admin">codegen</span></h4>
+    <p>Developer tool: fetches the IANA TLD + special-use lists and regenerates the embedded deny-list Go
+    sources used to validate Tenant DNS Suffixes. Writes repo files only; no Incus state.</p>
+    <p class="impl"><code>internal/domain</code></p>
+  </div>
+
+  <div class="cmdcard">
+    <h4><code>sc-adm config show|set|unset</code> · <code>sc-adm version</code> <span class="badge badge-ro">local</span></h4>
+    <p>Local CLI configuration (<code>tenant</code>, <code>project</code>, <code>remote</code>,
+    <code>auth.hostname</code>, <code>admin_remote</code>) in <code>~/.config/sandcastle/config.yml</code>.
+    <code>set remote</code> also writes through to the shared incus config's current remote, keeping the
+    two knobs one. No server-side effect.</p>
+    <p class="impl"><code>internal/cli/config_cmd.go</code> · <code>internal/config</code></p>
+  </div>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section id="adr">
+  <h2><span class="secno">10</span>ADR index</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>ADR</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0001</td><td><a href="adr/0001-tenant-as-incus-project-boundary.md">Tenant as the Incus Project Boundary</a></td></tr>
+      <tr><td class="num">0002</td><td><a href="adr/0002-go-auth-app-with-sqlite.md">Go Auth App with SQLite</a></td></tr>
+      <tr><td class="num">0003</td><td><a href="adr/0003-github-username-identity-for-personal-tenants.md">GitHub Username Identity for Personal Tenants</a></td></tr>
+      <tr><td class="num">0004</td><td><a href="adr/0004-cli-login-provisions-personal-tenant.md">CLI Login Provisions Personal Tenant</a></td></tr>
+      <tr><td class="num">0005</td><td><a href="adr/0005-sandcastle-oidc-provider-for-machine-workload-identity.md">Sandcastle OIDC Provider for Machine Workload Identity</a></td></tr>
+      <tr><td class="num">0006</td><td><a href="adr/0006-tenant-tailnet-per-tenant.md">Tenant Tailnet per Tenant</a></td></tr>
+      <tr><td class="num">0007</td><td><a href="adr/0007-infrastructure-network-architecture.md">Infrastructure Network Architecture</a></td></tr>
+      <tr><td class="num">0008</td><td><a href="adr/0008-secret-bearing-infrastructure-seed-files.md">Secret-Bearing Infrastructure Seed Files</a></td></tr>
+      <tr><td class="num">0009</td><td><a href="adr/0009-tenant-storage-share-broker.md">Tenant Storage Shares use a privileged broker</a></td></tr>
+      <tr><td class="num">0010</td><td><a href="adr/0010-image-builder-appliance.md">Image Builder Appliance</a></td></tr>
+      <tr><td class="num">0011</td><td><a href="adr/0011-user-boundary-project-as-incus-project.md">User as the Owning Boundary; Project as the Incus Project</a></td></tr>
+      <tr><td class="num">0012</td><td><a href="adr/0012-per-user-sidecar-and-machine-project-dns.md">Per-User Subnet-Router Sidecar; Machines Reachable as <code>machine.project</code></a></td></tr>
+      <tr><td class="num">0013</td><td><a href="adr/0013-public-routes-stay-shared-infrastructure.md">Public Routes Stay Shared Infrastructure</a></td></tr>
+      <tr><td class="num">0014</td><td><a href="adr/0014-v2-migration-preserve-volumes-recreate.md">v2 Migration: Preserve Home/Workspace Volumes, Recreate Everything Else</a></td></tr>
+      <tr><td class="num">0015</td><td><a href="adr/0015-v2-installs-beside-v1.md">v2 Installs as a Parallel Deployment Beside v1</a></td></tr>
+      <tr><td class="num">0016</td><td><a href="adr/0016-v2-mvp-admin-provisioned-native-incus.md">v2 MVP: Admin-Provisioned Tenants, Native Incus Access</a></td></tr>
+      <tr><td class="num">0017</td><td><a href="adr/0017-byo-tenant-tailnet-sidecar-incus-reach.md">BYO Per-Tenant Tailnets; Sidecar Incus Reach</a></td></tr>
+      <tr><td class="num">0018</td><td><a href="adr/0018-machine-private-hostnames.md">Machine Private Hostnames: <code>&lt;machine&gt;.&lt;project&gt;.&lt;suffix&gt;</code></a></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>
+  Generated from source at the commit noted in git history. Domain vocabulary per <code>CONTEXT.md</code>;
+  behaviour cross-checked against the live e2e protocol in <code>docs/e2e-sc2.md</code>.
+</footer>
+
+</body>
+</html>
