@@ -31,6 +31,13 @@ type CreateV2Options struct {
 	// once it joins (auth-key path only). The client's Incus remote is pointed at
 	// this address:8443 — the sidecar proxies it to the host's Incus (ADR-0017).
 	OnSidecarTailnetIP func(ip string)
+	// SidecarTailnetHostname overrides the sidecar's tailnet device hostname.
+	// The Incus instance is a plain "sidecar" (unique only within the tenant's
+	// infra project), but its tailnet name lives in a global namespace and must
+	// be unique across every tenant and install — the auth-app supplies the
+	// install-scoped name (sc-<install>-<tenant>). Empty falls back to the infra
+	// project name, preserving the pre-rename behavior for callers that don't set it.
+	SidecarTailnetHostname string
 }
 
 // CreateTenantV2 executes a CreatePlanV2 against Incus, reproducing the v2 MVP
@@ -90,8 +97,16 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	if err := configureV2Sidecar(server.UseProject(plan.InfraProject), plan); err != nil {
 		return err
 	}
-	c.log("tailscale up (advertise " + plan.PrivateCIDR + ")")
-	loginURL, sidecarIP, err := v2TailscaleUp(server.UseProject(plan.InfraProject), plan, strings.TrimSpace(opts.TailscaleAuthKey))
+	// The sidecar's tailnet hostname must be globally unique (it is a tailnet
+	// device name), so it carries the install+tenant identity even though the
+	// Incus instance is a plain "sidecar". Fall back to the infra project name
+	// (the pre-rename hostname) when the caller supplies none.
+	tailnetHostname := strings.TrimSpace(opts.SidecarTailnetHostname)
+	if tailnetHostname == "" {
+		tailnetHostname = plan.InfraProject
+	}
+	c.log("tailscale up (advertise " + plan.PrivateCIDR + ", hostname " + tailnetHostname + ")")
+	loginURL, sidecarIP, err := v2TailscaleUp(server.UseProject(plan.InfraProject), plan, tailnetHostname, strings.TrimSpace(opts.TailscaleAuthKey))
 	if err != nil {
 		return err
 	}
@@ -568,8 +583,8 @@ func configureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2) e
 // removing the need for manual admin approval or a Tailscale API key.
 const sidecarTailnetTag = "tag:sandcastle"
 
-func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, authKey string) (string, string, error) {
-	base := "--advertise-routes=" + plan.PrivateCIDR + " --hostname=" + plan.SidecarInstance + " --accept-dns=false --advertise-tags=" + sidecarTailnetTag
+func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, tailnetHostname string, authKey string) (string, string, error) {
+	base := "--advertise-routes=" + plan.PrivateCIDR + " --hostname=" + tailnetHostname + " --accept-dns=false --advertise-tags=" + sidecarTailnetTag
 	gateway, err := gatewayIPFromCIDR(plan.PrivateCIDR)
 	if err != nil {
 		return "", "", err

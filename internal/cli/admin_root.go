@@ -16,6 +16,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
+	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 // ExecuteAdmin runs the Sandcastle admin CLI and returns a process exit code.
@@ -228,11 +229,22 @@ func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(co
 		if key == "" {
 			key = strings.TrimSpace(admin.AuthTailscaleAuthKey)
 		}
+		// Name the sidecar's tailnet device after the install + tenant
+		// (sc-<install>-<tenant>), so it is globally unique on the tailnet even
+		// though the Incus instance is a plain project-scoped "sidecar". The
+		// install label comes from the Auth Hostname (the same URL the client's
+		// Incus remote is named after); empty auth hostname → the creator falls
+		// back to the infra project name.
+		var tailnetHostname string
+		if remote := usertrust.RemoteNameForAuthHostname(admin.AuthHostname); remote != "" {
+			tailnetHostname = remote + "-" + plan.Tenant
+		}
 		var result authapp.V2CreateResult
 		err := creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
-			TailscaleAuthKey:    key,
-			OnSidecarTailnetIP:  func(ip string) { result.SidecarTailnetIP = ip },
-			OnTailscaleLoginURL: func(url string) { result.TailscaleLoginURL = url },
+			TailscaleAuthKey:       key,
+			SidecarTailnetHostname: tailnetHostname,
+			OnSidecarTailnetIP:     func(ip string) { result.SidecarTailnetIP = ip },
+			OnTailscaleLoginURL:    func(url string) { result.TailscaleLoginURL = url },
 		})
 		return result, err
 	}
