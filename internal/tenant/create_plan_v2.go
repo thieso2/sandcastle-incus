@@ -101,13 +101,26 @@ curl -fsS "$SIGNER/tls/ca" -o /usr/local/share/ca-certificates/sandcastle-tenant
 curl -fsS "$SIGNER/tls/leaf?fqdn=$FQDN" | python3 -c 'import json,sys;d=json.load(sys.stdin);open("/etc/sandcastle/tls/cert.pem","w").write(d["cert"]);open("/etc/sandcastle/tls/key.pem","w").write(d["key"])'
 chmod 600 /etc/sandcastle/tls/key.pem
 
-# Caddyfile: HTTPS with our leaf (auto HTTP->HTTPS redirect), /_r browses /, /_w
-# browses /workspace, everything else proxies to :3000 with Host preserved.
+# Caddy's file_server cannot BROWSE the filesystem root when its root is literally
+# "/" (it 404s the root listing, though it serves files and browses subdirs fine).
+# Bind-mount / at a stable path and root /_r there so the root listing works. A
+# systemd oneshot recreates the bind mount on boot (/run is tmpfs), ordered before
+# Caddy.
+mkdir -p /run/sandcastle-rootfs
+printf '%s\n' '[Unit]' 'Description=Sandcastle rootfs bind mount (Caddy /_r browsing)' 'Before=caddy.service' '[Service]' 'Type=oneshot' 'RemainAfterExit=yes' 'ExecStartPre=/bin/mkdir -p /run/sandcastle-rootfs' 'ExecStart=/bin/sh -c "mountpoint -q /run/sandcastle-rootfs || mount --bind / /run/sandcastle-rootfs"' 'ExecStop=/bin/sh -c "umount /run/sandcastle-rootfs 2>/dev/null || true"' '[Install]' 'WantedBy=multi-user.target' > /etc/systemd/system/sandcastle-rootfs.service
+systemctl daemon-reload
+systemctl enable --now sandcastle-rootfs.service
+
+# Caddyfile: HTTPS with our leaf (auto HTTP->HTTPS redirect), /_r browses / (via
+# the bind mount), /_w browses /workspace, everything else proxies to :3000 with
+# Host preserved. redir handles the bare /_r and /_w (no trailing slash).
 cat > /etc/caddy/Caddyfile <<EOF
 $FQDN, *.$FQDN {
     tls /etc/sandcastle/tls/cert.pem /etc/sandcastle/tls/key.pem
+    redir /_r /_r/
+    redir /_w /_w/
     handle_path /_r/* {
-        root * /
+        root * /run/sandcastle-rootfs
         file_server browse
     }
     handle_path /_w/* {
@@ -120,8 +133,9 @@ $FQDN, *.$FQDN {
 }
 EOF
 
-# Caddy runs as root so /_r can browse the whole filesystem and bind :443.
-printf '%s\n' '[Service]' 'User=root' 'Group=root' 'AmbientCapabilities=' > /etc/systemd/system/caddy.service.d/override.conf
+# Caddy runs as root so /_r can browse the whole filesystem and bind :443, and
+# waits for the rootfs bind mount.
+printf '%s\n' '[Unit]' 'After=sandcastle-rootfs.service' 'Wants=sandcastle-rootfs.service' '[Service]' 'User=root' 'Group=root' 'AmbientCapabilities=' > /etc/systemd/system/caddy.service.d/override.conf
 systemctl daemon-reload
 systemctl enable caddy
 systemctl restart caddy
