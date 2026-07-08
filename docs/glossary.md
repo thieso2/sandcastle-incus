@@ -74,3 +74,17 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
   login and provisions the caller's tenant; `sc login` drives it.
 - **Restricted certificate** — The tenant's project-scoped Incus TLS client
   certificate, extended (never re-minted) when a new project is created.
+
+## TLS / Machine Ingress
+
+- **Tenant CA** — Per-tenant certificate authority generated at provisioning; its
+  private key resides only on the tenant's sidecar. Trust root for all HTTPS on
+  the tenant's machines.
+- **Leaf cert** — A per-machine TLS certificate signed by the Tenant CA for the
+  machine's own DNS names (e.g. `ct1.default.idefix`, `*.ct1.default.idefix`).
+- **Machine name zone** — The DNS names the sidecar will sign for a tenant:
+  everything under `*.default.<suffix>`. The sidecar signs any name in its own
+  zone; it does not scope per machine.
+- **caddy profile** — An Incus profile that installs Caddy on a machine to
+  terminate HTTPS, force HTTP→HTTPS, reverse-proxy the app, and serve the
+  built-in `/_r` and `/_w` file routes.
