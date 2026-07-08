@@ -896,9 +896,56 @@ sc trust install $TENANT --dry-run  # preview the per-OS plan without changing t
 ```
 **PASS (target):** after install, `curl https://<machine>.<suffix>/` over the private
 tenant path validates **without `-k`**.
-⚠️ **Depends on the per-tenant tenant-CA cert path**, which the v2 sidecar does not yet
-issue (see remaining work). The public `sc-edge` path in Phase 7 needs **no** CA install
-(Let's Encrypt is already trusted).
+
+**v2 (ADR-0011):** the tenant CA is now issued by the **sidecar leaf signer**
+(`sandcastle-admin sidecar tls-sign`), and `sc login` **auto-installs** it — the
+v2 login branch fetches `http://<tenant .3>:9443/tls/ca` over the tenant subnet
+route and installs it into the local trust store, naming the entry after the
+CA's CN (`Sandcastle <suffix> tenant CA`) so same-named tenants of different
+installs don't collide. The public `sc-edge` path in Phase 7 needs **no** CA
+install (Let's Encrypt is already trusted).
+
+---
+
+## Phase 8c — Machine HTTPS ingress: Caddy + per-machine tenant leaf (ADR-0011) ✅
+
+Every v2 machine terminates HTTPS locally with Caddy, using a per-machine leaf
+signed by the tenant CA. The **sidecar** runs `sandcastle-admin sidecar tls-sign`
+on `<tenant .3>:9443` — it self-generates the tenant CA on first start (key stays
+on the sidecar) and signs leaves for names in its zone. The **default-profile
+cloud-init** installs Caddy, fetches this machine's leaf (`GET
+/tls/leaf?fqdn=<fqdn>` → `{cert,key}`) *before* starting Caddy, and serves:
+HTTP→HTTPS redirect, `/_r`→browse `/`, `/_w`→browse `/workspace`, everything else
+reverse-proxied to `localhost:3000` (Host preserved, so `*.<machine>` vhosts).
+Caddy runs as root.
+
+```bash
+# On a fresh machine, from any tailnet-connected client (CA already trusted by sc login):
+curl -sS https://<machine>.<project>.<suffix>/            # 200, no -k → chains to tenant CA
+curl -sI  http://<machine>.<project>.<suffix>/ | head -1  # 308 → https (redirect)
+curl -sS https://<machine>.<project>.<suffix>/_r/etc/hostname   # serves the machine's real /
+curl -so /dev/null -w '%{http_code}\n' https://<machine>.<project>.<suffix>/_w/  # 200 (/workspace)
+curl -sS https://foo.<machine>.<project>.<suffix>/         # wildcard vhost → :3000
+```
+
+Server-side sanity (no client trust needed):
+
+```bash
+# signer up + CA CN is suffix-scoped
+incus exec sidecar --project <infra> -- systemctl is-active sandcastle-tls-sign
+incus exec sidecar --project <infra> -- openssl x509 -in /etc/sandcastle/ca/ca.crt -noout -subject
+#   → CN=Sandcastle <suffix> tenant CA
+# leaf SANs cover the machine + wildcard
+incus exec <machine> --project <default> -- openssl x509 -in /etc/sandcastle/tls/cert.pem -noout -ext subjectAltName
+#   → DNS:<machine>.<project>.<suffix>, DNS:*.<machine>.<project>.<suffix>
+```
+
+**PASS (validated 2026-07-08 on idefix `ct2`):** signer self-generated
+`Sandcastle idefix tenant CA`; `ct2` fetched a leaf with SANs
+`[ct2.default.idefix, *.ct2.default.idefix]`; Caddy served valid HTTPS chained to
+the CA (no `-k`), 308-redirected HTTP→HTTPS, proxied to `:3000`, vhosted
+`*.ct2.default.idefix`, and `/_r` browsed `/` (fetched `/etc/hostname`) while
+`/_w` browsed `/workspace`.
 
 ---
 
