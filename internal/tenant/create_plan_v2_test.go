@@ -136,6 +136,51 @@ func TestPlanCreateV2RejectsBadTenant(t *testing.T) {
 	}
 }
 
+// The boot cloud-init generalizes per-instance identity BEFORE sshd starts, so a
+// machine launched from an `sc image save` base gets fresh SSH host keys /
+// machine-id rather than the source machine's. Order matters: generalize, then
+// ssh enable, then caddy setup.
+func TestV2DefaultProfileUserDataGeneralizesBeforeSSH(t *testing.T) {
+	data := V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "default", "acme", "http://10.0.0.3:9443")
+
+	for _, want := range []string{
+		"/usr/local/sbin/sandcastle-generalize",
+		"- [/usr/local/sbin/sandcastle-generalize]",
+		"- [systemctl, enable, --now, ssh]",
+		"- [/usr/local/sbin/sandcastle-caddy-setup]",
+	} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("user-data missing %q:\n%s", want, data)
+		}
+	}
+
+	genRun := strings.Index(data, "- [/usr/local/sbin/sandcastle-generalize]")
+	sshRun := strings.Index(data, "- [systemctl, enable, --now, ssh]")
+	caddyRun := strings.Index(data, "- [/usr/local/sbin/sandcastle-caddy-setup]")
+	if !(genRun < sshRun && sshRun < caddyRun) {
+		t.Fatalf("runcmd order wrong: generalize=%d ssh=%d caddy=%d", genRun, sshRun, caddyRun)
+	}
+
+	// The generalize script must regenerate host identity and drop the stale leaf.
+	for _, want := range []string{"ssh-keygen -A", "/etc/machine-id", "/etc/ssh/ssh_host_", "/etc/sandcastle/tls/cert.pem"} {
+		if !strings.Contains(machineGeneralizeScript, want) {
+			t.Fatalf("generalize script missing %q", want)
+		}
+	}
+}
+
+// Without a signer URL (identity unknown) there is no Caddy/generalize wiring —
+// just ssh — so the fallback path stays minimal.
+func TestV2DefaultProfileUserDataNoSignerIsMinimal(t *testing.T) {
+	data := V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "", "", "")
+	if strings.Contains(data, "sandcastle-generalize") || strings.Contains(data, "sandcastle-caddy-setup") {
+		t.Fatalf("fallback user-data should not wire generalize/caddy:\n%s", data)
+	}
+	if !strings.Contains(data, "- [systemctl, enable, --now, ssh]") {
+		t.Fatalf("fallback user-data should still enable ssh:\n%s", data)
+	}
+}
+
 // ADR-0018: the Tenant DNS Suffix is tenant-chosen (default: tenant name) and
 // immutable across re-provisioning.
 func TestPlanCreateV2DNSSuffix(t *testing.T) {

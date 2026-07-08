@@ -48,6 +48,12 @@ type TenantResourceServer interface {
 	GetImageAlias(name string) (*api.ImageAliasesEntry, string, error)
 	CreateImageAlias(alias api.ImageAliasesPost) error
 	CopyImageFrom(source TenantCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error)
+	GetImages() ([]api.Image, error)
+	DeleteImage(fingerprint string) (incus.Operation, error)
+	DeleteImageAlias(name string) error
+	CreateImage(image api.ImagesPost, args *incus.ImageCreateArgs) (incus.Operation, error)
+	CreateInstanceSnapshot(instanceName string, snapshot api.InstanceSnapshotsPost) (incus.Operation, error)
+	DeleteInstanceSnapshot(instanceName string, name string) (incus.Operation, error)
 }
 
 type TenantCreator struct {
@@ -374,4 +380,28 @@ func (s sdkResourceServer) CreateImageAlias(alias api.ImageAliasesPost) error {
 
 func (s sdkResourceServer) CopyImageFrom(source TenantCreateServer, image api.Image, aliases []api.ImageAlias) (incus.RemoteOperation, error) {
 	return s.inner.CopyImage(source.imageServer(), image, &incus.ImageCopyArgs{Aliases: aliases, Mode: "relay"})
+}
+
+func (s sdkResourceServer) GetImages() ([]api.Image, error) {
+	return s.inner.GetImages()
+}
+
+func (s sdkResourceServer) DeleteImage(fingerprint string) (incus.Operation, error) {
+	return s.inner.DeleteImage(fingerprint)
+}
+
+func (s sdkResourceServer) DeleteImageAlias(name string) error {
+	return s.inner.DeleteImageAlias(name)
+}
+
+func (s sdkResourceServer) CreateImage(image api.ImagesPost, args *incus.ImageCreateArgs) (incus.Operation, error) {
+	return s.inner.CreateImage(image, args)
+}
+
+func (s sdkResourceServer) CreateInstanceSnapshot(instanceName string, snapshot api.InstanceSnapshotsPost) (incus.Operation, error) {
+	return s.inner.CreateInstanceSnapshot(instanceName, snapshot)
+}
+
+func (s sdkResourceServer) DeleteInstanceSnapshot(instanceName string, name string) (incus.Operation, error) {
+	return s.inner.DeleteInstanceSnapshot(instanceName, name)
 }

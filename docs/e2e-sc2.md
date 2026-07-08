@@ -1022,6 +1022,32 @@ path and end state as Phase 9a.
 
 ---
 
+## Phase 8d — Base images from a running machine (`sc image`) ✅
+
+Turn a hand-customized machine into a reusable base, no image build recipe
+(ADR-0019). Save snapshots the rootfs only — the shared `/home` and `/workspace`
+volumes are attached devices and are excluded by `incus publish`.
+
+```bash
+# customize a machine however you like, then:
+sc image save <machine> <name>          # snapshot rootfs → local base alias (machine keeps running)
+sc image list                           # NAME / FINGERPRINT / SIZE / SOURCE / CREATED
+sc create <new> --image <name>          # launch a fresh machine from the base (fast: packages baked)
+sc image rm <name>                      # delete the base
+```
+
+Children are generalized on first boot (`sandcastle-generalize`, before sshd):
+fresh SSH host keys + machine-id, stale TLS leaf dropped; the caddy-setup then
+re-fetches a leaf and rewrites `machine.env`/Caddyfile for the new FQDN.
+
+**PASS (validated 2026-07-08 on obelix):** planted a rootfs marker on `test`,
+`sc image save test mybase` → 309.7 MB image (re-save replaced it idempotently),
+`sc create probe --image mybase` launched in ~11 s. `probe` carried the marker,
+got a fresh SSH host key + its own `probe.default.obelix` FQDN and `probe.*` TLS
+leaf; the corrected machine-id reset was validated live (old→new random id).
+
+---
+
 ## Summary
 **Green today (validated live 2026-07-02):** Phases 0–9 — teardown, auth-app deploy, sc-edge
 front, v2 tenant provision (stock Debian sidecar: CoreDNS + Tailscale), client enrollment,

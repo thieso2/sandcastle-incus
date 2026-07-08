@@ -88,3 +88,12 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
 - **caddy profile** — An Incus profile that installs Caddy on a machine to
   terminate HTTPS, force HTTP→HTTPS, reverse-proxy the app, and serve the
   built-in `/_h` (browse `$HOME`) and `/_w` (browse `/workspace`) file routes.
+- **Base image** — A reusable local Incus image published from a running machine
+  with `sc image save <machine> <name>`. It captures only the instance rootfs
+  (installed software), not the shared `/home` / `/workspace` volumes. Launch new
+  machines from it with `sc create <machine> --image <name>`; manage with
+  `sc image list` / `sc image rm`. See ADR-0019.
+- **Generalize (machine)** — The first-boot step (`sandcastle-generalize`) that
+  freshens a cloned machine's identity — regenerates SSH host keys + machine-id
+  and drops the stale TLS leaf — so children of a base image don't share the
+  source machine's identity.

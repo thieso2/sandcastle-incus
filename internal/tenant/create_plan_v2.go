@@ -54,6 +54,7 @@ packages:
 	// carries the per-machine FQDN (jinja) and signer URL.
 	if jinja && signerURL != "" {
 		script := base64.StdEncoding.EncodeToString([]byte(caddyIngressSetupScript))
+		generalize := base64.StdEncoding.EncodeToString([]byte(machineGeneralizeScript))
 		body += fmt.Sprintf(`write_files:
   - path: /etc/sandcastle/machine.env
     permissions: '0644'
@@ -61,14 +62,19 @@ packages:
       FQDN={{ v1.local_hostname }}.%s.%s
       SIGNER=%s
       HOME=/home/%s
+  - path: /usr/local/sbin/sandcastle-generalize
+    permissions: '0755'
+    encoding: b64
+    content: %s
   - path: /usr/local/sbin/sandcastle-caddy-setup
     permissions: '0755'
     encoding: b64
     content: %s
 runcmd:
+  - [/usr/local/sbin/sandcastle-generalize]
   - [systemctl, enable, --now, ssh]
   - [/usr/local/sbin/sandcastle-caddy-setup]
-`, project, suffix, signerURL, user, script)
+`, project, suffix, signerURL, user, generalize, script)
 		return header + identity + body
 	}
 
@@ -76,6 +82,26 @@ runcmd:
   - [systemctl, enable, --now, ssh]
 `
 }
+
+// machineGeneralizeScript freshens per-instance identity so a machine launched
+// from an `sc image save` base image does NOT inherit the source machine's SSH
+// host keys, machine-id, or stale TLS leaf. It runs once per instance (cloud-init
+// per-instance runcmd) before sshd is (re)started. On a fresh stock machine the
+// identity is already unique, so every step is a harmless no-op — correctness
+// lives here in one place rather than at save time.
+const machineGeneralizeScript = `#!/bin/bash
+set -u
+# Drop the source machine's host identity + stale leaf (re-fetched by caddy-setup).
+rm -f /etc/ssh/ssh_host_* /etc/sandcastle/tls/cert.pem /etc/sandcastle/tls/key.pem
+ssh-keygen -A >/dev/null 2>&1 || true
+# Remove (not truncate) machine-id so systemd-machine-id-setup mints a fresh one;
+# a leftover empty read-only file is not reliably regenerated in a container.
+rm -f /etc/machine-id /var/lib/dbus/machine-id
+systemd-machine-id-setup >/dev/null 2>&1 || true
+# A cloned image had sshd enabled, so it is already serving the now-deleted keys;
+# restart it (if running) to pick up the freshly generated host keys.
+systemctl try-restart ssh >/dev/null 2>&1 || true
+`
 
 // caddyIngressSetupScript installs Caddy, trusts the tenant CA, fetches this
 // machine's leaf from the sidecar signer, writes the Caddyfile, and (re)starts
