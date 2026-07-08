@@ -721,10 +721,17 @@ active on both.
 >
 > ✅ **Client name resolution is automatic (no Tailscale Split DNS needed).** `sc login`
 > gives each Tenant DNS Suffix its **own systemd-resolved link scope** on Linux: a
-> persistent unit (`/etc/systemd/system/sandcastle-dns-<suffix>.service`) creates a dummy
-> link `scdns-<hash>` (with a 169.254/16 link-local address — resolved only activates a
-> link's DNS scope once it carries an address) and pins `DNS=<tenant CoreDNS>`
-> `Domains=~<suffix>` to it; macOS uses `/etc/resolver/<suffix>` (natively per-domain).
+> persistent unit (`/etc/systemd/system/sandcastle-dns-<suffix>.service`) runs the
+> **`sc dns-proxy` daemon**, which creates a dummy link `scdns-<hash>` with a 169.254/16
+> link-local address (resolved only activates a link's DNS scope once it carries an
+> address), listens on that address (UDP+TCP :53), pins `DNS=<that address>`
+> `Domains=~<suffix>` to the link, and forwards every query to the tenant CoreDNS.
+> The scope's server must be **on the dummy link itself**: resolved binds a link
+> scope's UDP sockets to the link, so pointing the scope straight at the (off-link)
+> tenant CoreDNS blackholed UDP — resolved silently degraded that server to TCP and
+> then failed ONE lookup after every ~5-min idle period when it re-probed UDP (caught
+> live on majestix 2026-07-08; see appendix). macOS uses `/etc/resolver/<suffix>`
+> (natively per-domain, no daemon).
 > Per-domain DNS routing in systemd-resolved only works ACROSS link scopes — the earlier
 > global resolved.conf.d drop-in merged every tenant's server into one flat list where
 > only the rotating "current server" is asked, so with two installs one zone always died
@@ -733,7 +740,9 @@ active on both.
 > `getent hosts <machine>.<project>.<suffix>` returns the machine's private IP with no
 > manual config — **for every enrolled suffix simultaneously** — public names still
 > resolve, `getent hosts <machine>.<project>.<other-suffix>` is NXDOMAIN (per-install
-> isolation), and all of this still holds after `systemctl restart systemd-resolved`.
+> isolation), and the FIRST lookup still succeeds both right after
+> `systemctl restart systemd-resolved` (wait for the unit to be active again) and after
+> a 10-minute DNS-idle period (the resolved re-probe window that used to fail).
 > A **Tailscale Split DNS** entry (route `<suffix>` → the sidecar's tailnet IP) remains a
 > valid fallback (e.g. if the client can't run privileged resolver setup).
 
@@ -1028,6 +1037,9 @@ stays truthful and self-healing.
 | `sc login --force --dns-suffix other` prints the immutable-suffix error, then hangs polling for ~10 min ("device login polling timed out") while the server re-attempts provisioning every poll | A provisioning failure always left the device login `pending` (correct for transient bring-up errors, wrong for deterministic user-input errors) | **Fixed:** terminal errors (`tenant.TerminalProvisionError`: immutable-suffix conflict, rejected suffix) DENY the device login; the client fails fast with `device login denied: <message>` and exit 1. Regression test `TestDevicePollDeniesLoginOnTerminalProvisioningError` |
 | Two installs on one client (Linux): only ONE suffix ever resolves via `getent` — direct `dig @<sidecar>` works for both, and which zone dies varies | Per-domain DNS routing in systemd-resolved only works ACROSS link scopes; the global resolved.conf.d drop-ins merged both tenant servers + public upstreams into ONE flat list where only the rotating "current server" is asked — an authoritative NXDOMAIN from the wrong server ends the lookup (and the tenant servers' REFUSED responses rotate the current server onto the public upstream, killing both zones) | **Fixed:** per-suffix link scopes — `sandcastle-dns-<suffix>.service` creates a dummy link (`scdns-<hash>`, 169.254/16 addr — no address = no active scope) pinned to `DNS=<CoreDNS> Domains=~<suffix>`, `PartOf=systemd-resolved.service` so a resolved restart re-applies it; login removes any legacy drop-in. The sidecar CoreDNS also now REFUSES tailnet (100.64/10) sources outside its zone instead of forwarding them upstream (`acl` block) — machines on the bridge keep recursion. Tests: `TestSystemdResolvedUnitCreatesPerSuffixLinkScope`, `TestRenderInitial` |
 | `sc-adm tenant delete <v2-tenant> --yes` prints "Deleted runtime resources … durable state preserved" but deletes NOTHING (all v2 projects, machines, sidecar, bridge survive) | `PlanDelete` is v1-shaped: it computes `sc-<tenant>` resource names that don't exist for a v2 tenant, and every per-resource delete is ignore-not-found — a silent no-op reported as success | **Fixed:** `tenant delete` detects a v2 tenant (install-prefix-scoped, `PlanDeleteV2`) and tears down app projects (machines, images, shared volumes, profiles), infra project (sidecar), and bridge via `DeleteTenantV2`; without `--purge` it REFUSES (v2 deletion is all-or-nothing — the shared volumes live in the app projects). Validated live on the `id` install with the `sc2` install's same-named tenant untouched. Tests: `TestPlanDeleteV2` |
+| First `sc login` fails at the device poll with `store User SSH Public Key … database is locked (5) (SQLITE_BUSY)` | The new svclog sink writes a request/span row per request into the SAME SQLite DB as the device poll; `OpenDatabase` configured pragmas via a one-off `Exec` (one pooled connection only) and left the default rollback journal with no busy timeout | **Fixed:** pragmas moved into the DSN so every pooled connection gets them — `busy_timeout(10000)`, `journal_mode(WAL)`, `foreign_keys(1)`, `synchronous(NORMAL)`. Test: `TestOpenDatabaseConfiguresWALAndBusyTimeoutOnEveryConnection` |
+| Client `getent hosts <machine>.<project>.<suffix>` fails ONE lookup after every resolved restart AND after every ~5-min DNS-idle period, while direct `dig @<CoreDNS>` always works; journal shows `Using degraded feature set UDP…`/`…TCP…` for the tenant server | systemd-resolved binds a link scope's UDP sockets to the scope's interface; the Sandcastle scope lives on a **dummy** link, so resolved's UDP queries to the off-link tenant CoreDNS were transmitted into the dummy and dropped (tcpdump: zero packets on any real interface). resolved only worked after silently degrading the server to TCP — and it re-probes UDP after each idle grace period, failing the caller's lookup each time | **Fixed:** the per-suffix unit now runs the long-lived **`sc dns-proxy`** daemon: it owns the dummy link, listens on the link's OWN 169.254 address (bound-to-link delivery of an on-link address works), pins the resolved scope to that address, and forwards UDP+TCP to the tenant CoreDNS over normal routing — UDP+EDNS0 works natively, no degradation ladder at all. Tests: `TestSystemdResolvedUnitCreatesPerSuffixLinkScope`, `TestServeDNSProxyForwardsUDPAndTCP` |
+| Two installs, one client, URL-named remotes (`sc-<install-label>`): `sc list`/`sc incus`/`sc status` under install A's remote show install B's machines/project (`INCUS_PROJECT=<other-install>-…`) | `installPrefixFromRemoteName` only inverts the LEGACY remote shape `sc-<prefix>-<tenant>`; the URL-based names carry no prefix, so it returned "" and every tenant lookup ran **unscoped** — the other install's same-named tenant won, resurrecting the cross-install shadowing | **Fixed:** the install prefix is now derived from the remote's **pinned project** in the shared incus config (`remotes[<remote>].project` = `<prefix>-<tenant>[-<app>]`), with the legacy name-shape inversion as fallback. Test: `TestInstallPrefixFromRemotePinnedProject` |
 
 ---
 

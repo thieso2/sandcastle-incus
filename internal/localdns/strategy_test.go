@@ -84,7 +84,7 @@ func TestResolverPreUninstallStopsTheUnit(t *testing.T) {
 // dies (authoritative NXDOMAIN from the wrong server). Each suffix therefore
 // gets its own dummy link + scope via a persistent systemd unit.
 func TestSystemdResolvedUnitCreatesPerSuffixLinkScope(t *testing.T) {
-	got, err := SystemdResolvedUnit("E2Edns.", "10.251.1.3:53")
+	got, err := systemdResolvedUnitForExecutable("E2Edns.", "10.251.1.3:53", "/usr/local/bin/sandcastle")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,14 +92,18 @@ func TestSystemdResolvedUnitCreatesPerSuffixLinkScope(t *testing.T) {
 	if len(link) > 15 {
 		t.Fatalf("link name %q exceeds IFNAMSIZ", link)
 	}
+	address := strings.TrimSuffix(resolvedLinkAddress("e2edns"), "/32")
 	for _, want := range []string{
-		"ip link add " + link + " type dummy",
-		// resolved only activates a link's DNS scope once the link has an
-		// address — a bare up dummy stays "Current Scopes: none".
-		"ip addr replace " + resolvedLinkAddress("e2edns") + " dev " + link,
-		"resolvectl dns " + link + " 10.251.1.3",
-		`resolvectl domain ` + link + ` "~e2edns"`,
-		"ip link delete " + link,
+		// The scope's DNS server is the dns-proxy on the dummy link's OWN
+		// address, never the tenant CoreDNS directly: resolved binds a link
+		// scope's UDP sockets to the link, and a dummy link blackholes any
+		// off-link destination — resolved then silently degrades the server
+		// to TCP and fails one lookup after every idle period (seen live on
+		// majestix). Only an on-link address works over UDP.
+		"ExecStart=/usr/local/bin/sandcastle dns-proxy --link " + link +
+			" --address " + address + " --domain e2edns --upstream 10.251.1.3:53",
+		"ExecStopPost=/bin/sh -c 'ip link delete " + link + " 2>/dev/null || true'",
+		"Restart=on-failure",
 		// A resolved restart wipes per-link config; PartOf propagates the
 		// restart here so the scope is re-applied.
 		"PartOf=systemd-resolved.service",
@@ -109,19 +113,22 @@ func TestSystemdResolvedUnitCreatesPerSuffixLinkScope(t *testing.T) {
 			t.Fatalf("unit missing %q:\n%s", want, got)
 		}
 	}
-	// A non-default port is preserved in systemd's IP:port form.
-	withPort, err := SystemdResolvedUnit("e2edns", "10.251.1.3:5353")
+	// A non-default port is preserved in the upstream endpoint.
+	withPort, err := systemdResolvedUnitForExecutable("e2edns", "10.251.1.3:5353", "/usr/local/bin/sandcastle")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(withPort, "resolvectl dns "+link+" 10.251.1.3:5353") {
+	if !strings.Contains(withPort, "--upstream 10.251.1.3:5353") {
 		t.Fatalf("non-default port must be preserved: %q", withPort)
 	}
-	if _, err := SystemdResolvedUnit("", "10.251.1.3:53"); err == nil {
+	if _, err := systemdResolvedUnitForExecutable("", "10.251.1.3:53", "/x"); err == nil {
 		t.Fatal("empty suffix must error")
 	}
-	if _, err := SystemdResolvedUnit("e2edns", "not-an-ip:53"); err == nil {
+	if _, err := systemdResolvedUnitForExecutable("e2edns", "not-an-ip:53", "/x"); err == nil {
 		t.Fatal("invalid endpoint IP must error")
+	}
+	if _, err := systemdResolvedUnitForExecutable("e2edns", "10.251.1.3:53", ""); err == nil {
+		t.Fatal("empty executable must error")
 	}
 	// Distinct suffixes must get distinct links (scopes must not collide).
 	if resolvedLinkName("castle") == resolvedLinkName("idefix") {

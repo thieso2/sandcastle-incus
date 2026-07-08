@@ -276,13 +276,14 @@ func OpenDatabase(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create auth database directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	// Pragmas go in the DSN so they apply to EVERY pooled connection, not just
+	// the one an Exec happens to run on. WAL + busy_timeout let concurrent
+	// writers (device poll, svclog sink, reconcilers) wait instead of failing
+	// with SQLITE_BUSY.
+	db, err := sql.Open("sqlite", path+
+		"?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open auth database: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("configure auth database: %w", err)
 	}
 	return db, nil
 }

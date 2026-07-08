@@ -1111,3 +1111,48 @@ func (p *fakePersonalTenantProvisioner) EnsurePersonalTenant(ctx context.Context
 		Projects:          []string{"sc-" + user.UserKey},
 	}, nil
 }
+
+// Regression: the device poll failed live with "database is locked (5)
+// (SQLITE_BUSY)" once the svclog sink started writing request rows
+// concurrently with user writes — OpenDatabase configured pragmas via a
+// one-off Exec, which only applied to a single pooled connection and left the
+// default rollback journal with no busy timeout. The pragmas must hold on
+// every pooled connection.
+func TestOpenDatabaseConfiguresWALAndBusyTimeoutOnEveryConnection(t *testing.T) {
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "auth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(4)
+
+	ctx := context.Background()
+	for i := 0; i < 4; i++ {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		var mode string
+		if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.EqualFold(mode, "wal") {
+			t.Fatalf("conn %d journal_mode = %q, want wal", i, mode)
+		}
+		var timeout int
+		if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+			t.Fatal(err)
+		}
+		if timeout < 1000 {
+			t.Fatalf("conn %d busy_timeout = %d, want >= 1000", i, timeout)
+		}
+		var fk int
+		if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+			t.Fatal(err)
+		}
+		if fk != 1 {
+			t.Fatalf("conn %d foreign_keys = %d, want 1", i, fk)
+		}
+	}
+}

@@ -5,6 +5,53 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-08 — majestix e2e run: three live-caught fixes
+
+All three surfaced running the full `docs/e2e-sc2.md` protocol from scratch on
+a fresh VM (`majestix`, two installs `sc`+`id` on one Incus 7.2 daemon, nested
+client VM). Each was fixed, regression-tested, redeployed, and re-verified live
+in the same run.
+
+- **Auth DB `SQLITE_BUSY` on first login.** The new svclog sink writes a row
+  per request into the same SQLite DB the device poll writes users to;
+  `OpenDatabase` set pragmas via a one-off `Exec` (one pooled connection) and
+  left the default rollback journal with no busy timeout, so the very first
+  `sc login` died with `database is locked (5)`. Fix: pragmas in the DSN
+  (`busy_timeout(10000)`, `journal_mode(WAL)`, `foreign_keys(1)`,
+  `synchronous(NORMAL)`) so every pooled connection gets them. Alternative
+  considered: `SetMaxOpenConns(1)` — rejected, it serializes reads too.
+- **`sc dns-proxy`: the resolved link scope now points at an on-link forwarder,
+  not at the tenant CoreDNS.** systemd-resolved binds a link scope's UDP
+  sockets to the scope's interface; our scope lives on a dummy link, so UDP to
+  the off-link CoreDNS was transmitted into the dummy and dropped (tcpdump:
+  zero packets on any real interface). resolved silently degraded the server
+  to TCP and then re-probed UDP after each ~5-min idle grace period — failing
+  exactly one `getent` per idle period, forever. Alternatives considered:
+  (a) a primer query in the unit — shipped first, but only fixes the first
+  cycle, not the idle re-probe; (b) a keepalive timer — shrinks but keeps the
+  window, masks the defect; (c) attaching the scope to `tailscale0` —
+  tailscaled owns that link's resolved settings and clobbers them; (d) socat —
+  new client dependency. Chosen: a ~100-line UDP+TCP forwarder inside the fat
+  binary (`sc dns-proxy`, hidden), run by the per-suffix unit as a daemon
+  (`Type=exec`, `Restart=on-failure`, `PartOf=systemd-resolved.service`): it
+  owns the dummy link, listens on the link's own 169.254 address (bound-to-link
+  delivery of an on-link address is local), pins the scope there, forwards to
+  the CoreDNS over normal routing. UDP+EDNS0 works natively; the degradation
+  ladder is gone; the resolver-install step dropped from ~21s (probe cost) to
+  ~0.4s. The unit embeds `os.Executable()` at render time — moving the binary
+  needs a re-login (documented tradeoff).
+- **Install scoping for URL-named remotes.** The naming-url-install-identity
+  merge renamed enrolled remotes to `sc-<install-label>` (from the Auth
+  Hostname), but `installPrefixFromRemoteName` still only inverted the legacy
+  `sc-<prefix>-<tenant>` shape — every lookup under a URL-named remote ran
+  unscoped and the cross-install shadowing returned (`sc list` under install A
+  showed install B's machines). Fix: derive the prefix from the remote's
+  pinned project in the shared incus config (`remotes[<remote>].project` =
+  `<prefix>-<tenant>[-<app>]`), which login writes for every enrollment; the
+  legacy name-shape inversion stays as fallback. Considered extending the
+  `installs:` map in `config.yml` to carry the prefix — rejected: the pin
+  already exists for every enrollment (old and new) and needs no schema change.
+
 ## 2026-07-08 — verbose service logging + per-user log browser
 
 - Added a shared `internal/svclog` package (the repo had no logging layer at

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,7 +89,54 @@ func TestResolveV2MachineReference(t *testing.T) {
 // Several installs share one Incus daemon; the enrolled remote's name
 // ("sc-<prefix>-<tenant>", or "sc-<tenant>" for the default prefix) is what
 // tells the CLI which install's projects to scope tenant lookups to.
+// URL-named remotes (sc-<install-label>) carry no prefix in the name; the
+// remote's pinned project in the shared incus config is what identifies the
+// install. Regression: without the pin lookup, lookups under such remotes ran
+// unscoped and `sc list`/`sc incus` under install A showed install B's
+// machines (live on majestix, two installs sc+id on one daemon).
+func TestInstallPrefixFromRemotePinnedProject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	incusDir := filepath.Join(home, ".config", "incus")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Mark the native dir Sandcastle-owned so SharedIncusDir resolves to it.
+	if err := os.WriteFile(filepath.Join(incusDir, ".sandcastle-owned"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := `remotes:
+  sc-majestix-71607f9d-thieso2-dev:
+    addr: https://100.92.39.49:8443
+    project: sc2-e2edns-default
+  sc-majestix2-71607f9d-thieso2-dev:
+    addr: https://100.74.64.82:8443
+    project: id-e2edns-default
+  sc-infra-pin:
+    addr: https://100.74.64.82:8443
+    project: id2-e2edns
+`
+	if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		remote, tenant, want string
+	}{
+		{"sc-majestix-71607f9d-thieso2-dev", "e2edns", "sc2"},
+		{"sc-majestix2-71607f9d-thieso2-dev", "e2edns", "id"},
+		{"sc-infra-pin", "e2edns", "id2"},                 // pinned to the infra project
+		{"sc-unknown-remote", "e2edns", ""},               // not enrolled: no pin, no legacy shape
+		{"sc-majestix-71607f9d-thieso2-dev", "other", ""}, // pin doesn't contain the tenant
+	}
+	for _, c := range cases {
+		if got := installPrefixFromRemoteName(c.remote, c.tenant); got != c.want {
+			t.Errorf("installPrefixFromRemoteName(%q, %q) = %q, want %q", c.remote, c.tenant, got, c.want)
+		}
+	}
+}
+
 func TestInstallPrefixFromRemoteName(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no shared incus config: exercise the legacy name-shape fallback
 	cases := []struct {
 		remote, tenant, want string
 	}{

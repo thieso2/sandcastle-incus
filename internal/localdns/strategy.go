@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -88,23 +89,41 @@ func legacyResolvedDropInPath(domain string) string {
 	return filepath.Join("/etc/systemd/resolved.conf.d", "10-sandcastle-"+domain+".conf")
 }
 
-// SystemdResolvedUnit renders the per-suffix unit. The unit is
-// PartOf=systemd-resolved.service: per-link DNS config is runtime state that a
-// resolved restart wipes, and PartOf propagates that restart here so the scope
-// is re-applied automatically.
+// SystemdResolvedUnit renders the per-suffix unit. It runs the long-lived
+// `dns-proxy` daemon from this executable: systemd-resolved binds a link
+// scope's UDP sockets to the scope's interface, and this scope lives on a
+// dummy link — pointing the scope directly at the tenant CoreDNS meant
+// resolved's UDP queries were transmitted into the dummy and dropped, leaving
+// only a fragile TCP degradation that failed one lookup after every idle
+// period. The daemon owns the dummy link, listens on the link's own 169.254
+// address (bound-to-link delivery of a link-local address IS local), pins the
+// scope to that address, and forwards UDP+TCP to the tenant CoreDNS.
+//
+// The unit is PartOf=systemd-resolved.service: per-link DNS config is runtime
+// state that a resolved restart wipes, and PartOf propagates that restart here
+// so the scope is re-applied automatically.
 func SystemdResolvedUnit(domain string, endpoint string) (string, error) {
+	return systemdResolvedUnitForExecutable(domain, endpoint, currentExecutable())
+}
+
+func systemdResolvedUnitForExecutable(domain string, endpoint string, executable string) (string, error) {
 	domain = strings.TrimSuffix(strings.ToLower(domain), ".")
 	if domain == "" {
 		return "", fmt.Errorf("empty DNS suffix")
 	}
-	server, err := resolvedDNSServer(endpoint)
+	upstream, err := resolvedDNSServerEndpoint(endpoint)
 	if err != nil {
 		return "", err
 	}
+	if strings.TrimSpace(executable) == "" {
+		return "", fmt.Errorf("cannot resolve the sandcastle executable path for the DNS unit")
+	}
 	link := resolvedLinkName(domain)
-	address := resolvedLinkAddress(domain)
+	address := strings.TrimSuffix(resolvedLinkAddress(domain), "/32")
 	return fmt.Sprintf(`# Managed by Sandcastle — routes *.%s to the tenant CoreDNS at %s
-# via a dedicated systemd-resolved link scope (dummy link %s).
+# via a dedicated systemd-resolved link scope (dummy link %s). The dns-proxy
+# daemon listens on the link's own address and forwards to the tenant CoreDNS;
+# resolved's link-bound UDP cannot reach an off-link server through a dummy.
 [Unit]
 Description=Sandcastle tenant DNS for *.%s (%s)
 Wants=systemd-resolved.service
@@ -112,19 +131,28 @@ After=systemd-resolved.service network.target
 PartOf=systemd-resolved.service
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/sh -c 'ip link show %s >/dev/null 2>&1 || ip link add %s type dummy'
-ExecStart=/bin/sh -c 'ip link set %s up && ip addr replace %s dev %s'
-ExecStart=/bin/sh -c 'resolvectl dns %s %s && resolvectl domain %s "~%s"'
-ExecStop=/bin/sh -c 'ip link delete %s 2>/dev/null || true'
+Type=exec
+ExecStart=%s dns-proxy --link %s --address %s --domain %s --upstream %s
+ExecStopPost=/bin/sh -c 'ip link delete %s 2>/dev/null || true'
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
-`, domain, server, link, domain, server, link, link, link, address, link, link, server, link, domain, link), nil
+`, domain, upstream, link, domain, upstream, executable, link, address, domain, upstream, link), nil
 }
 
-func resolvedDNSServer(endpoint string) (string, error) {
+func currentExecutable() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return exe
+}
+
+// resolvedDNSServerEndpoint validates the endpoint and returns it as IP:port
+// (defaulting the port to 53) — the form the dns-proxy --upstream flag takes.
+func resolvedDNSServerEndpoint(endpoint string) (string, error) {
 	host, port, err := net.SplitHostPort(endpoint)
 	if err != nil {
 		return "", err
@@ -132,8 +160,8 @@ func resolvedDNSServer(endpoint string) (string, error) {
 	if net.ParseIP(host) == nil {
 		return "", fmt.Errorf("invalid DNS endpoint IP %q", host)
 	}
-	if port == "" || port == "53" {
-		return host, nil
+	if port == "" {
+		port = "53"
 	}
 	return net.JoinHostPort(host, port), nil
 }

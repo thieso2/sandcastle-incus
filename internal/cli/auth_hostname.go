@@ -132,6 +132,48 @@ func recordedInstallHostname(remote string) string {
 	return normalizeAuthHostname(cfg.AuthHostnameForRemote(remote))
 }
 
+// installPrefixFromRemotePin derives the install prefix from the enrolled
+// remote's pinned Incus project (remotes[<remote>].project in the shared incus
+// config). URL-named remotes ("sc-<install-label>", the current naming) carry
+// no prefix in the name, but every enrollment pins its remote to one of the
+// install's projects — "<prefix>-<tenant>" or "<prefix>-<tenant>-<app>" — so
+// the pin identifies the install. Returns "" when the remote has no pin or the
+// pin doesn't contain the tenant.
+func installPrefixFromRemotePin(remote string, tenantName string) string {
+	remote = strings.TrimSpace(remote)
+	tenantName = strings.TrimSpace(tenantName)
+	if remote == "" || tenantName == "" {
+		return ""
+	}
+	incusDir := resolveIncusDir(remote)
+	if incusDir == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(incusDir, "config.yml"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Remotes map[string]struct {
+			Project string `yaml:"project"`
+		} `yaml:"remotes"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	project := strings.TrimSpace(cfg.Remotes[remote].Project)
+	if project == "" {
+		return ""
+	}
+	if prefix, ok := strings.CutSuffix(project, "-"+tenantName); ok && prefix != "" {
+		return prefix
+	}
+	if idx := strings.Index(project, "-"+tenantName+"-"); idx > 0 {
+		return project[:idx]
+	}
+	return ""
+}
+
 func inferAuthHostnameFromRemote(remote string) string {
 	remote = strings.TrimSpace(remote)
 	if remote == "" {

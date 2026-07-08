@@ -142,7 +142,8 @@ func TestFileManagerInstallWritesUnitAndEnablesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	link := resolvedLinkName("acme")
-	if !strings.Contains(string(content), "resolvectl dns "+link+" 10.248.0.3") || !strings.Contains(string(content), `"~acme"`) {
+	if !strings.Contains(string(content), "dns-proxy --link "+link) ||
+		!strings.Contains(string(content), "--domain acme --upstream 10.248.0.3:53") {
 		t.Fatalf("unit content = %q", content)
 	}
 }

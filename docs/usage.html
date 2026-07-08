@@ -1073,6 +1073,7 @@ Bootstrap:
         <tr><td>sandcastle trust uninstall [tenant]</td><td>Remove tenant CA trust</td></tr>
         <tr><td>sandcastle dns setup [tenant]</td><td>Apply tenant DNS and install local resolver config</td></tr>
         <tr><td>sandcastle dns teardown [tenant]</td><td>Remove local resolver config</td></tr>
+        <tr><td>sandcastle dns-proxy</td><td>Hidden daemon behind the per-suffix <code>sandcastle-dns-&lt;suffix&gt;.service</code> unit on Linux: owns the <code>scdns-*</code> dummy link, listens on its 169.254 address, pins the systemd-resolved scope there, and forwards UDP+TCP DNS to the tenant CoreDNS (resolved's link-bound UDP cannot reach an off-link server through a dummy link). Not for interactive use.</td></tr>
         <tr><td>sandcastle tailscale up [tenant]</td><td>Attach Tailscale to tenant</td></tr>
         <tr><td>sandcastle tailscale status [tenant]</td><td>Check Tailscale state</td></tr>
         <tr><td>sandcastle tailscale down [tenant]</td><td>Detach Tailscale</td></tr>

@@ -302,6 +302,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newProjectCommand(config, opts))
 	root.AddCommand(newSSHKeyCommand(config, opts))
 	root.AddCommand(newDNSCommand(config, opts))
+	root.AddCommand(newDNSProxyCommand(config, opts))
 	root.AddCommand(newTailscaleCommand(config, opts))
 	root.AddCommand(newHostCommand(config, opts))
 	root.AddCommand(newTrustCommand(config, opts))

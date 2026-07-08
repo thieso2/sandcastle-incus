@@ -89,15 +89,24 @@ func installPrefixFromProject(project string, tenantName string) string {
 	return project[:idx]
 }
 
-// installPrefixFromRemoteName inverts usertrust.RemoteInstallName: the enrolled
-// remote is named "sc-<prefix>-<tenant>" (or "sc-<tenant>" for the default
-// prefix), so the remote name identifies which install's projects this CLI is
-// pointed at. Returns "" (no scoping) when the remote name has another shape.
+// installPrefixFromRemoteName maps the enrolled remote to its install's
+// project prefix. The authoritative source is the remote's pinned project in
+// the shared incus config (installPrefixFromRemotePin) — URL-named remotes
+// ("sc-<install-label>", usertrust.RemoteNameForAuthHostname) carry no prefix
+// in the name at all, and without the pin every lookup silently went unscoped,
+// resurrecting the cross-install shadowing this scoping exists to prevent
+// (seen live on majestix: `sc list` under install A showed install B's
+// machines). Fallback: invert the legacy usertrust.RemoteInstallName shape
+// "sc-<prefix>-<tenant>" / "sc-<tenant>". Returns "" (no scoping) when
+// neither source identifies the install.
 func installPrefixFromRemoteName(remote string, tenantName string) string {
 	remote = strings.TrimSpace(remote)
 	tenantName = strings.TrimSpace(tenantName)
 	if tenantName == "" {
 		return ""
+	}
+	if prefix := installPrefixFromRemotePin(remote, tenantName); prefix != "" {
+		return prefix
 	}
 	if remote == "sc-"+tenantName {
 		return naming.DefaultIncusProjectPrefix
