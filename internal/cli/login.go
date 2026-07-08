@@ -744,6 +744,13 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					if result.Token != "" {
 						tenant := defaultLoginTenant(result.AccessibleTenants)
 						remoteName := result.RemoteName
+						if remoteName == "" {
+							// The server names the remote after the install's Auth
+							// Hostname (the URL just logged into); fall back to
+							// deriving it from that URL, then to the legacy
+							// tenant-based name only as a last resort.
+							remoteName = usertrust.RemoteNameForAuthHostname(args[0])
+						}
 						if remoteName == "" && result.UserKey != "" {
 							remoteName = usertrust.RemoteInstallName("", result.UserKey)
 						}
@@ -767,6 +774,12 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 							return err
 						}
 						fmt.Fprintf(config.stdout, "Remote %q enrolled.\n", installed.RemoteName)
+						// Remember which install this remote belongs to (remote
+						// name → Auth Hostname), so `sc config set remote <name>`
+						// can re-point the auth plane without a re-login.
+						if err := recordInstall(installed.RemoteName, args[0]); err != nil {
+							fmt.Fprintf(config.stderr, "Note: could not record install mapping: %v\n", err)
+						}
 						switch len(result.AccessibleTenants) {
 						case 0:
 							fmt.Fprintln(config.stdout, "No default tenant set; no accessible tenants were returned.")

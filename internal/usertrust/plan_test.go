@@ -144,3 +144,30 @@ func TestRemoteInstallName(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestInstallLabelFromAuthHostname(t *testing.T) {
+	cases := map[string]string{
+		"https://obelix.thieso2.dev":      "obelix-thieso2-dev",
+		"https://idefix.thieso2.dev/":     "idefix-thieso2-dev",
+		"http://big.example.com:8443":     "big-example-com",
+		"obelix.thieso2.dev":              "obelix-thieso2-dev",
+		"https://Obelix.Thieso2.DEV":      "obelix-thieso2-dev",
+		"https://my-host.example.dev":     "my-host-example-dev",
+		"":                                "",
+		"https://":                        "",
+	}
+	for in, want := range cases {
+		if got := InstallLabelFromAuthHostname(in); got != want {
+			t.Errorf("InstallLabelFromAuthHostname(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRemoteNameForAuthHostname(t *testing.T) {
+	if got := RemoteNameForAuthHostname("https://obelix.thieso2.dev"); got != "sc-obelix-thieso2-dev" {
+		t.Errorf("RemoteNameForAuthHostname = %q, want sc-obelix-thieso2-dev", got)
+	}
+	if got := RemoteNameForAuthHostname(""); got != "" {
+		t.Errorf("RemoteNameForAuthHostname(\"\") = %q, want empty", got)
+	}
+}
