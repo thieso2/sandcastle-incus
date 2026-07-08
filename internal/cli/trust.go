@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"net/netip"
+	"net/url"
+	"strings"
 
 	"github.com/spf13/cobra"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 )
 
@@ -24,24 +29,28 @@ func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 		Short: "Install a tenant CA into local trust",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localtrust.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: optionalReference(args)})
-			if err != nil {
-				return err
-			}
-			if dryRun {
+			reference := optionalReference(args)
+			plan, planErr := localtrust.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: reference})
+			if planErr == nil && dryRun {
 				return writeOutput(config.stdout, opts.output, formatTrustPlan("Install", plan), plan)
 			}
-			if config.localTrust == nil {
-				return fmt.Errorf("local trust executor is not configured")
+			if planErr == nil && config.localTrust != nil {
+				if err := writeTrustWarning(config, opts, plan); err != nil {
+					return err
+				}
+				if result, err := config.localTrust.Install(cmd.Context(), plan); err == nil {
+					return writeOutput(config.stdout, opts.output, formatTrustResult(result), result)
+				}
 			}
-			if err := writeTrustWarning(config, opts, plan); err != nil {
+			// v2 fallback: v2 tenants have no sc-ca volume — the CA is served by the
+			// sidecar leaf signer (ADR-0011). Fetch it over the tenant subnet route.
+			if err := trustInstallFromSigner(cmd.Context(), config, plan.Reference, reference); err != nil {
+				if planErr != nil {
+					return fmt.Errorf("%v (v2 signer fallback: %v)", planErr, err)
+				}
 				return err
 			}
-			result, err := config.localTrust.Install(cmd.Context(), plan)
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatTrustResult(result), result)
+			return nil
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the trust install plan without changing local trust")
@@ -74,6 +83,46 @@ func newTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Co
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the trust uninstall plan without changing local trust")
 	return command
+}
+
+// trustInstallFromSigner installs the tenant CA by fetching it from the sidecar
+// leaf signer (v2 path). The signer sits at the tenant subnet's .3; the tenant
+// gateway (.1) is recoverable from the saved broker URL in config.
+func trustInstallFromSigner(ctx context.Context, config commandConfig, planTenant, argTenant string) error {
+	tenant := strings.TrimSpace(planTenant)
+	if tenant == "" {
+		tenant = strings.TrimSpace(argTenant)
+	}
+	if tenant == "" {
+		tenant = strings.TrimSpace(config.adminConfig.Tenant)
+	}
+	if tenant == "" {
+		return fmt.Errorf("a tenant is required")
+	}
+	cfg, _ := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath())
+	dnsAddr, err := signerAddrFromBroker(cfg.Broker)
+	if err != nil {
+		return fmt.Errorf("cannot locate the tenant CA signer: %w", err)
+	}
+	return fetchAndInstallTenantCAFromSigner(ctx, config.stdout, tenant, dnsAddr)
+}
+
+// signerAddrFromBroker derives the sidecar signer address (.3) from the saved
+// broker URL (its host is the tenant gateway .1).
+func signerAddrFromBroker(broker string) (netip.Addr, error) {
+	broker = strings.TrimSpace(broker)
+	if broker == "" {
+		return netip.Addr{}, fmt.Errorf("no broker URL in config to derive the tenant subnet (log in first)")
+	}
+	u, err := url.Parse(broker)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	host := u.Hostname()
+	if _, err := netip.ParseAddr(host); err != nil {
+		return netip.Addr{}, fmt.Errorf("broker host %q is not an IP", host)
+	}
+	return signerAddrFromCIDR(host + "/24")
 }
 
 func optionalReference(args []string) string {

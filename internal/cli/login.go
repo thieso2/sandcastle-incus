@@ -177,46 +177,57 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 // the browser trusts https://<machine>.<project>.<suffix> that Caddy serves on
 // the machines (ADR-0011). Best-effort: a failure only warns, never blocks login.
 func installV2TenantCATrust(ctx context.Context, stdout, stderr io.Writer, tenantName, privateCIDR string) {
+	dnsAddr, err := signerAddrFromCIDR(privateCIDR)
+	if err != nil {
+		return
+	}
+	if err := fetchAndInstallTenantCAFromSigner(ctx, stdout, tenantName, dnsAddr); err != nil {
+		fmt.Fprintf(stderr, "Note: %v. Run `sc trust install %s` once the tenant subnet is reachable.\n", err, tenantName)
+	}
+}
+
+// signerAddrFromCIDR returns the sidecar leaf-signer's tenant-bridge address
+// (the .3 role address) for a tenant /24.
+func signerAddrFromCIDR(privateCIDR string) (netip.Addr, error) {
 	prefix, err := netip.ParsePrefix(strings.TrimSpace(privateCIDR))
 	if err != nil {
-		return
+		return netip.Addr{}, err
 	}
-	dnsAddr, err := cidr.RoleAddress(prefix, cidr.DNSHostOctet)
-	if err != nil {
-		return
-	}
+	return cidr.RoleAddress(prefix, cidr.DNSHostOctet)
+}
+
+// fetchAndInstallTenantCAFromSigner fetches the tenant CA from the sidecar
+// signer at dnsAddr and installs it into the local trust store, naming the entry
+// after the CA's CN (suffix-scoped) so same-named tenants don't collide. Returns
+// an error so callers can decide whether to surface it (trust command) or warn
+// (best-effort login).
+func fetchAndInstallTenantCAFromSigner(ctx context.Context, out io.Writer, tenantName string, dnsAddr netip.Addr) error {
 	url := fmt.Sprintf("http://%s:%d/tls/ca", dnsAddr, incusx.SidecarTLSSignPort)
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		fmt.Fprintf(stderr, "Note: could not reach the tenant CA signer (%v); browser trust not installed.\n", err)
-		return
+		return fmt.Errorf("could not reach the tenant CA signer at %s (%v)", dnsAddr, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(stderr, "Note: tenant CA fetch returned %s; browser trust not installed.\n", resp.Status)
-		return
+		return fmt.Errorf("tenant CA fetch returned %s", resp.Status)
 	}
 	certPEM, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil || len(certPEM) == 0 {
-		return
+		return fmt.Errorf("tenant CA response was empty")
 	}
-	// Name the trust entry after the CA's actual CN (suffix-scoped, e.g.
-	// "Sandcastle idefix tenant CA"), so two installs sharing the tenant name
-	// (GitHub user) do not collide in the keychain.
 	trustName := "Sandcastle " + tenantName + " tenant CA"
 	if block, _ := pem.Decode(certPEM); block != nil {
 		if c, err := x509.ParseCertificate(block.Bytes); err == nil && strings.TrimSpace(c.Subject.CommonName) != "" {
 			trustName = c.Subject.CommonName
 		}
 	}
-	plan := localtrust.Plan{Reference: tenantName, TrustName: trustName}
-	result, err := localtrust.NewPlatformStore().InstallCA(ctx, plan, certPEM)
+	result, err := localtrust.NewPlatformStore().InstallCA(ctx, localtrust.Plan{Reference: tenantName, TrustName: trustName}, certPEM)
 	if err != nil {
-		fmt.Fprintf(stderr, "Note: tenant CA trust install failed: %v\n", err)
-		return
+		return fmt.Errorf("tenant CA trust install failed: %w", err)
 	}
-	fmt.Fprintf(stdout, "Tenant CA trusted (%s → %s).\n", result.Platform, result.Target)
+	fmt.Fprintf(out, "Tenant CA %q trusted (%s → %s).\n", trustName, result.Platform, result.Target)
+	return nil
 }
 
 // ensureTenantRouting makes this client accept the tenant's advertised subnet
