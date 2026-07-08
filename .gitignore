@@ -17,3 +17,4 @@
 *.swo
 *~
 logs/
+env.e2e
