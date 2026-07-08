@@ -46,7 +46,7 @@ func newProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.C
 			// hostname, authenticated by the saved login token — works through
 			// a tunnel, needs no broker port and no client certificate. The
 			// broker path below remains for --broker/BYO setups.
-			if strings.TrimSpace(broker) == "" && strings.TrimSpace(config.adminConfig.AuthToken) != "" && normalizeAuthHostname(config.adminConfig.AuthHostname) != "" {
+			if strings.TrimSpace(broker) == "" && strings.TrimSpace(config.adminConfig.AuthToken) != "" && commandAuthHostname(config, "") != "" {
 				return runProjectCreateViaAuthApp(cmd.Context(), config, opts, project, writeRemote, incusEndpoint, incusConf, remoteName)
 			}
 			conn, err := resolveBrokerConnection(config.adminConfig, broker, certFile, keyFile, incusConf)
@@ -124,9 +124,13 @@ func newProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.C
 func runProjectCreateViaAuthApp(ctx context.Context, config commandConfig, opts *rootOptions, project string, writeRemote bool, incusEndpoint, incusConf, remoteName string) error {
 	client := config.authProjects
 	if client == nil {
-		// The saved Auth Hostname (written by sc login) — NOT the v1-era
-		// remote-derived inference, which would point at the sidecar IP.
-		client = authapp.DeviceClient{BaseURL: normalizeAuthHostname(config.adminConfig.AuthHostname), AuthToken: config.adminConfig.AuthToken}
+		// Resolve the Auth Hostname the same way the rest of the CLI does:
+		// flag → env → installs[<current-remote>] (recorded by sc login) →
+		// inferred → top-level config fallback. This tracks the active install
+		// after `incus remote switch` instead of trusting the raw top-level
+		// config.AuthHostname, which is a stale placeholder on installs where
+		// login recorded the real hostname only in the installs map.
+		client = authapp.DeviceClient{BaseURL: commandAuthHostname(config, ""), AuthToken: config.adminConfig.AuthToken}
 	}
 	result, err := client.CreateProject(ctx, project)
 	if err != nil {

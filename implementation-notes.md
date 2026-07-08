@@ -5,6 +5,21 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-08 — `sc project create` dialed the placeholder Auth Hostname
+
+`sc project create` (the v2 auth-app path in `internal/cli/project_v2.go`) read
+the Auth Hostname straight from `config.adminConfig.AuthHostname` — the raw
+top-level `auth_hostname` in `config.yml` — both for the gate that decides
+whether to use the auth-app path and for the `DeviceClient.BaseURL`. On installs
+where `sc login` recorded the real hostname only in the per-remote `installs`
+map (leaving the top-level field at its `https://auth.example.com` default), the
+command POSTed to `auth.example.com` and failed DNS. Every other command uses
+`commandAuthHostname(config, "")` (flag → env → `installs[<current-remote>]` →
+inferred → top-level fallback), so the stale top-level value was masked
+everywhere except here. Fix: route both call sites through
+`commandAuthHostname`. No CLI surface change; correct-by-construction since the
+resolver's result equals `sc config show`'s `auth.hostname.effective`.
+
 ## 2026-07-08 — majestix e2e run: three live-caught fixes
 
 All three surfaced running the full `docs/e2e-sc2.md` protocol from scratch on
