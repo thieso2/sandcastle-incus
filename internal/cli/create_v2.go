@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -29,7 +30,7 @@ func v2TenantSummary(ctx context.Context, config commandConfig) (tenant.Summary,
 	// Several installs can share one Incus daemon (every sidecar's Incus Reach
 	// lands on the same host API), so a same-named tenant may exist once per
 	// install. Scope the lookup to the install the current remote belongs to.
-	tenants, err := tenant.ListForPrefix(ctx, config.tenantStore, installPrefixFromRemoteName(config.adminConfig.Remote, name))
+	tenants, err := tenant.ListForPrefix(ctx, config.tenantStore, installPrefixForRemote(config, name))
 	if err != nil {
 		return tenant.Summary{}, false
 	}
@@ -50,7 +51,42 @@ func v2TenantSummary(ctx context.Context, config commandConfig) (tenant.Summary,
 // OTHER install's empty machine set). Unscoped fallback (empty prefix) when
 // the remote name has another shape (admin remotes, v1).
 func scopedListTenants(ctx context.Context, config commandConfig, tenantName string) ([]tenant.Summary, error) {
-	return tenant.ListForPrefix(ctx, config.tenantStore, installPrefixFromRemoteName(config.adminConfig.Remote, tenantName))
+	return tenant.ListForPrefix(ctx, config.tenantStore, installPrefixForRemote(config, tenantName))
+}
+
+// installPrefixForRemote resolves which install's projects the CLI is pointed
+// at. It prefers the active remote's PINNED PROJECT (robust for URL-based remote
+// names like sc-obelix-thieso2-dev, which don't encode the install prefix),
+// deriving the prefix from <prefix>-<tenant>-<project>, and falls back to
+// inverting a legacy sc-<prefix>-<tenant> remote name. Without this scoping,
+// two installs sharing a tenant name (same GitHub user) collapse together and
+// switching the remote fails to switch what sc shows.
+func installPrefixForRemote(config commandConfig, tenantName string) string {
+	if prefix := installPrefixFromProject(scconfig.SharedIncusRemoteProject(config.adminConfig.Remote), tenantName); prefix != "" {
+		return prefix
+	}
+	return installPrefixFromRemoteName(config.adminConfig.Remote, tenantName)
+}
+
+// installPrefixFromProject extracts the install prefix from a pinned project
+// name shaped <prefix>-<tenant>-<project> (or <prefix>-<tenant>): the segment
+// before "-<tenant>". Returns "" when the project does not belong to tenantName.
+func installPrefixFromProject(project string, tenantName string) string {
+	project = strings.TrimSpace(project)
+	tenantName = strings.TrimSpace(tenantName)
+	if project == "" || tenantName == "" {
+		return ""
+	}
+	marker := "-" + tenantName
+	idx := strings.Index(project, marker)
+	if idx <= 0 {
+		return ""
+	}
+	rest := project[idx+len(marker):]
+	if rest != "" && !strings.HasPrefix(rest, "-") {
+		return "" // "-<tenant>" is a substring, not a real boundary
+	}
+	return project[:idx]
 }
 
 // installPrefixFromRemoteName inverts usertrust.RemoteInstallName: the enrolled

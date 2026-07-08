@@ -43,7 +43,7 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				config.topologyStore,
 				tenant.TopologyRequest{},
 				reference,
-				installPrefixFromRemoteName(config.adminConfig.Remote, reference),
+				installPrefixForRemote(config, reference),
 			)
 			if err != nil {
 				return err

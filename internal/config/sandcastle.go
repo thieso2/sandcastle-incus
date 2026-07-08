@@ -209,6 +209,31 @@ func SharedIncusDefaultRemote() string {
 	return name
 }
 
+// SharedIncusRemoteProject returns the project pinned on a remote in the shared
+// incus config dir (remotes[name].project), or "" when the remote or its project
+// is absent. The pinned project (e.g. tc3-thieso2-default) identifies which
+// install the remote targets even when the remote NAME does not encode the
+// install prefix (URL-based names like sc-obelix-thieso2-dev).
+func SharedIncusRemoteProject(remote string) string {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(SharedIncusDir(), "config.yml"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Remotes map[string]struct {
+			Project string `yaml:"project"`
+		} `yaml:"remotes"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Remotes[remote].Project)
+}
+
 // SetSharedIncusDefaultRemote points the shared incus config dir's current
 // remote at name (the write-through for `sc config set remote`). The remote
 // must already be enrolled there.
