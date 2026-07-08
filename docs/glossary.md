@@ -87,4 +87,4 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
   zone; it does not scope per machine.
 - **caddy profile** — An Incus profile that installs Caddy on a machine to
   terminate HTTPS, force HTTP→HTTPS, reverse-proxy the app, and serve the
-  built-in `/_r` and `/_w` file routes.
+  built-in `/_h` (browse `$HOME`) and `/_w` (browse `/workspace`) file routes.

@@ -915,15 +915,15 @@ on `<tenant .3>:9443` — it self-generates the tenant CA on first start (key st
 on the sidecar) and signs leaves for names in its zone. The **default-profile
 cloud-init** installs Caddy, fetches this machine's leaf (`GET
 /tls/leaf?fqdn=<fqdn>` → `{cert,key}`) *before* starting Caddy, and serves:
-HTTP→HTTPS redirect, `/_r`→browse `/`, `/_w`→browse `/workspace`, everything else
-reverse-proxied to `localhost:3000` (Host preserved, so `*.<machine>` vhosts).
-Caddy runs as root.
+HTTP→HTTPS redirect, `/_h`→browse the login user's `$HOME`, `/_w`→browse
+`/workspace`, everything else reverse-proxied to `localhost:3000` (Host preserved,
+so `*.<machine>` vhosts). Caddy runs as root.
 
 ```bash
 # On a fresh machine, from any tailnet-connected client (CA already trusted by sc login):
 curl -sS https://<machine>.<project>.<suffix>/            # 200, no -k → chains to tenant CA
 curl -sI  http://<machine>.<project>.<suffix>/ | head -1  # 308 → https (redirect)
-curl -sS https://<machine>.<project>.<suffix>/_r/etc/hostname   # serves the machine's real /
+curl -so /dev/null -w '%{http_code}\n' https://<machine>.<project>.<suffix>/_h/  # 200 ($HOME)
 curl -so /dev/null -w '%{http_code}\n' https://<machine>.<project>.<suffix>/_w/  # 200 (/workspace)
 curl -sS https://foo.<machine>.<project>.<suffix>/         # wildcard vhost → :3000
 ```
@@ -944,8 +944,9 @@ incus exec <machine> --project <default> -- openssl x509 -in /etc/sandcastle/tls
 `Sandcastle idefix tenant CA`; `ct2` fetched a leaf with SANs
 `[ct2.default.idefix, *.ct2.default.idefix]`; Caddy served valid HTTPS chained to
 the CA (no `-k`), 308-redirected HTTP→HTTPS, proxied to `:3000`, vhosted
-`*.ct2.default.idefix`, and `/_r` browsed `/` (fetched `/etc/hostname`) while
-`/_w` browsed `/workspace`.
+`*.ct2.default.idefix`, and (at the time) `/_r` browsed `/` while `/_w` browsed
+`/workspace`. The file routes were later scoped to `/_h`→`$HOME` (+ `/_w`), which
+also dropped the `/`-root bind-mount workaround.
 
 ---
 

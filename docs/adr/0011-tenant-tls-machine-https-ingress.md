@@ -51,18 +51,17 @@ machine never holds a signing key.
 
 ## Routing / file-server decisions (locked)
 
-7. **Caddy runs as root; routes are open (no auth).** `/_r` → `file_server
-   browse` rooted at the machine's real `/`; `/_w` → `/workspace`; everything
-   else reverse-proxies to `localhost:3000`; unconditional HTTP→HTTPS. Justified
-   by the single-owner model. **Known acceptance:** `/_r` at `/` exposes the
-   machine's entire filesystem — including the pushed leaf private key and SSH
-   host keys — read-only to every device on the tenant's tailnet.
-
-   **Impl note:** Caddy's `file_server browse` cannot list the filesystem root
-   when its root is literally `/` (404 on the bare root listing; files and
-   subdirs are fine). So `/_r` roots at a **bind mount of `/`**
-   (`/run/sandcastle-rootfs`, recreated on boot by a systemd oneshot ordered
-   before Caddy), and `redir /_r /_r/` handles the bare path.
+7. **Caddy runs as root; routes are open (no auth).** `/_h` → `file_server
+   browse` rooted at the login user's `$HOME` (`/home/<user>`); `/_w` →
+   `/workspace`; everything else reverse-proxies to `localhost:3000`;
+   unconditional HTTP→HTTPS. Justified by the single-owner model. **Known
+   acceptance:** `/_h` exposes the login user's home directory read-only to every
+   device on the tenant's tailnet. (Superseded an earlier `/_r`→`/` that browsed
+   the whole filesystem incl. the leaf key + SSH host keys; scoping to `$HOME`
+   keeps those out of the browse tree and needs no bind-mount workaround, since
+   `file_server browse` only 404s the listing when its root is literally `/`.)
+   Caddy still runs as root so it can read files under `$HOME` regardless of
+   owner and bind `:443`; `redir /_h /_h/` handles the bare path.
 
 8. **No separate profile — extend the existing v2 default profile's cloud-init.**
    `V2DefaultProfileUserData` (already `## template: jinja`) gains the Caddy
@@ -82,16 +81,16 @@ machine never holds a signing key.
 10. **Cert delivery detail: keygen-on-sidecar (no CSR).** The `tls-sign` endpoint
     mints key+cert and returns both; the machine writes them and starts Caddy.
     Simplest on both ends. The leaf key crosses the tenant bridge in cleartext
-    HTTP — accepted because it is strictly less exposure than decision 7 (which
-    already serves that key over `/_r` to the whole tailnet). CSR (key never
-    leaves the machine) was rejected as more code for a property already given
-    away.
+    HTTP — accepted in the single-owner model (the bridge is the operator's own
+    tenant network). CSR (key never leaves the machine) was rejected as more code
+    for little gain here. (The leaf key lives in `/etc/sandcastle/tls`, which is
+    outside the `/_h`→`$HOME` browse tree.)
 
 11. **Wildcard routes to the app.** Caddy's site line is
     `<machine>.<project>.<suffix>, *.<machine>.<project>.<suffix>`, both reverse-
     proxied to `localhost:3000`; the app vhosts on `Host`. `reverse_proxy`
     preserves the incoming `Host` by default — no `header_up Host` override, or
-    subdomains are lost. `/_r` and `/_w` take precedence over the proxy; all
+    subdomains are lost. `/_h` and `/_w` take precedence over the proxy; all
     `/_…` is reserved for Sandcastle.
 
 ## Resulting shape
@@ -102,7 +101,7 @@ machine never holds a signing key.
   keychain via `sudo`.
 - **Machine (default profile cloud-init, jinja):** installs Caddy; fetches its
   leaf (key+cert) from the sidecar before starting Caddy; runs Caddy as root
-  with a site that force-redirects HTTP→HTTPS, serves `/_r`→`/` and
+  with a site that force-redirects HTTP→HTTPS, serves `/_h`→`$HOME` and
   `/_w`→`/workspace` via `file_server browse`, and reverse-proxies everything
   else (Host preserved) to `localhost:3000`.
 
@@ -133,5 +132,6 @@ cloud-init installs Caddy + fetches its leaf. Endpoint: `GET /tls/ca`,
 `Sandcastle idefix tenant CA`; the machine fetched a leaf with SANs
 `[ct2.default.idefix, *.ct2.default.idefix]`; Caddy (root) served valid HTTPS
 chained to the CA (no `-k`), redirected HTTP→HTTPS (308), proxied to `:3000`,
-vhosted the wildcard subdomain, and `/_r` browsed `/` while `/_w` browsed
-`/workspace`.
+vhosted the wildcard subdomain, and `/_h` browsed the login user's `$HOME` while
+`/_w` browsed `/workspace`. (The routes were originally `/_r`→`/`; later scoped to
+`/_h`→`$HOME`.)
