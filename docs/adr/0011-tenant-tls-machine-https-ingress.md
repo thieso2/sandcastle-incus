@@ -58,6 +58,12 @@ machine never holds a signing key.
    machine's entire filesystem — including the pushed leaf private key and SSH
    host keys — read-only to every device on the tenant's tailnet.
 
+   **Impl note:** Caddy's `file_server browse` cannot list the filesystem root
+   when its root is literally `/` (404 on the bare root listing; files and
+   subdirs are fine). So `/_r` roots at a **bind mount of `/`**
+   (`/run/sandcastle-rootfs`, recreated on boot by a systemd oneshot ordered
+   before Caddy), and `redir /_r /_r/` handles the bare path.
+
 8. **No separate profile — extend the existing v2 default profile's cloud-init.**
    `V2DefaultProfileUserData` (already `## template: jinja`) gains the Caddy
    install + Caddyfile, rendering the per-machine site address from
