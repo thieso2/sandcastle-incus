@@ -16,7 +16,14 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/share"
 )
 
-const defaultDeviceClientTimeout = 2 * time.Minute
+// defaultDeviceClientTimeout bounds each device poll. The poll that observes
+// approval blocks while the server provisions the tenant, and first-login
+// provisioning from a stock base image (download + install CoreDNS and
+// Tailscale) can take a couple of minutes — a 2-minute budget lost that race by
+// seconds. Keep it comfortably above the server's provisioning time so a single
+// poll can await a first-login bring-up instead of erroring with a client
+// timeout while the (detached) server work keeps running.
+const defaultDeviceClientTimeout = 5 * time.Minute
 
 type DeviceClient struct {
 	BaseURL    string
