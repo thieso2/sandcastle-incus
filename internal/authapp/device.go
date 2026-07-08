@@ -144,6 +144,12 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		provisionCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 		// Attribute the span to the polling request (r.Context()) while the work
 		// itself runs on the detached provisionCtx so it survives client cancels.
+		// Name the user now (the login is approved) and carry the request's log
+		// record onto provisionCtx, so the verbose per-phase provisioning lines
+		// emitted deep in tenant bring-up are attributed to this user and show at
+		// /logs alongside the span.
+		svclog.SetUser(r.Context(), login.UserKey)
+		provisionCtx = svclog.WithRecord(r.Context(), provisionCtx)
 		err = svclog.Span(r.Context(), "provision.personal_tenant", func() error {
 			var provErr error
 			login, provErr = h.provisionPersonalTenant(provisionCtx, login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)

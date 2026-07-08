@@ -193,6 +193,19 @@ func recordFrom(ctx context.Context) *requestRecord {
 	return rr
 }
 
+// WithRecord returns a context derived from base that carries src's request-scoped
+// logging record. Use it to hand the record to a DETACHED context that outlives
+// the originating request — e.g. the minutes-long tenant provisioning that runs
+// on a background context so a client cancel cannot abort it — so its Logf/Span
+// lines keep the request id and user and land in the same /logs stream. It shares
+// the same record pointer, so a later SetUser on either context is visible to both.
+func WithRecord(src, base context.Context) context.Context {
+	if rr := recordFrom(src); rr != nil {
+		return withRecord(base, rr)
+	}
+	return base
+}
+
 // SetUser attributes the current request (and any subsequent spans on it) to the
 // given user key. It is a no-op outside an instrumented request or for an empty
 // key, so it is safe to call unconditionally from identity-resolution helpers.

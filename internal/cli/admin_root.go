@@ -15,6 +15,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
@@ -239,8 +240,13 @@ func authAppV2Create(admin scconfig.Admin, creator incusx.TenantCreator) func(co
 		if remote := usertrust.RemoteNameForAuthHostname(admin.AuthHostname); remote != "" {
 			tailnetHostname = remote + "-" + plan.Tenant
 		}
+		// Stream the tenant bring-up's per-phase progress into svclog so it lands
+		// in the login's /logs view (ctx carries the request record from the
+		// device poll). Each c.log phase becomes a message entry for this user.
+		c := creator
+		c.Log = func(msg string) { svclog.Logf(ctx, "%s", msg) }
 		var result authapp.V2CreateResult
-		err := creator.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
+		err := c.CreateTenantV2(ctx, plan, incusx.CreateV2Options{
 			TailscaleAuthKey:       key,
 			SidecarTailnetHostname: tailnetHostname,
 			OnSidecarTailnetIP:     func(ip string) { result.SidecarTailnetIP = ip },
