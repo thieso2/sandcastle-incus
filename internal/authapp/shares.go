@@ -8,6 +8,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/share"
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -448,6 +449,7 @@ func (h handler) requireTenantAccess(r *http.Request, userKey string, tenantName
 	if h.tenantAccess == nil {
 		return fmt.Errorf("tenant access manager is not configured")
 	}
+	svclog.SetUser(r.Context(), userKey)
 	summary, err := h.findTenantSummary(r, tenantName)
 	if err != nil {
 		return err

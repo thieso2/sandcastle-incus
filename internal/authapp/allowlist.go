@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
@@ -25,6 +26,7 @@ func (h handler) requireAdmin(r *http.Request) (User, error) {
 	if !user.SandcastleAdmin {
 		return User{}, fmt.Errorf("Sandcastle Admin access is required")
 	}
+	svclog.SetUser(r.Context(), user.UserKey)
 	return user, nil
 }
 
@@ -124,6 +126,7 @@ var allowlistTemplate = template.Must(template.New("allowlist").Parse(`<!doctype
 <body>
   <main>
     <h1>Login Allowlist</h1>
+    <p><a href="/">Home</a> · <a href="/logs">Activity log</a> · <a href="/admin/access">Tenant Access</a></p>
     <form method="post" action="/admin/allowlist">
       <label>GitHub Username <input name="github_username"></label>
       <button type="submit">Add</button>

@@ -5,6 +5,47 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-08 — verbose service logging + per-user log browser
+
+- Added a shared `internal/svclog` package (the repo had no logging layer at
+  all — only two `log.Printf` calls in the auth-app). It emits one verbose,
+  timestamped line per HTTP request plus named work spans, each with a duration,
+  to stderr (journald under systemd), and optionally to a `Sink`.
+- **Identity attribution via request-scoped context, not middleware guessing.**
+  The HTTP middleware knows method/path/status/duration but not *who* — that is
+  resolved inside handlers (session cookie, CLI bearer token, cert fingerprint).
+  Rather than re-resolve identity in middleware (an extra DB hit, and impossible
+  for the machine-called workload-token path), the middleware installs a mutable
+  record in the context and handlers enrich it with `svclog.SetUser`. I
+  instrumented the existing identity choke points **once** each
+  (`requireAllowlistedSession`, `requireAdmin`, `requireBearerUser`,
+  `requireTenantAccess`, plus the broker principal resolvers) so every route is
+  attributed for free. Workload-token issuance is attributed to the machine's
+  owning `user_key` from the runtime-secret row, so it shows in that user's log.
+- **Async DB sink.** SQLite is a single writer; writing a log row synchronously
+  on every request would serialize request handling. The auth-app's `dbSink`
+  hands entries to a background goroutine over a buffered channel and **drops on
+  overflow** (best effort) — the verbose stderr line is never dropped, only the
+  persisted copy. `Close()` flushes the buffer at shutdown. Each drained write
+  uses a detached 5s-bounded context so a wedged DB can't block the drain.
+- **Scope decision (asked the user):** the browse UI covers auth-app activity
+  only. The brokers get the same verbose stderr logger but no DB sink — they are
+  a separate `sandcastle-broker` process on a separate appliance and don't share
+  the auth DB. Shipping broker logs into the UI was deferred; it would need an
+  authenticated internal endpoint.
+- **Retention: keep forever (user's choice).** No pruning job. The `logs` table
+  grows unbounded; flagged for the future. Indexes on `(user_key, ts)` and `ts`
+  keep the browse queries fast regardless.
+- `/logs` page: reuses the session guard `requireAllowlistedSession`, branches on
+  `user.SandcastleAdmin` (admin → `ListAllLogs`, else `ListLogsForUser`). System
+  rows (empty `user_key`, e.g. the DNS-reconcile error) are visible to admins
+  only. Styling copied from `machinesTemplate` (mobile-first inline CSS).
+- Verified with `go test ./internal/svclog ./internal/authapp` — unit tests for
+  middleware status/duration + span timing, the security-critical scoping
+  (`ListLogsForUser` vs `ListAllLogs`, and search can't escape a user's scope),
+  the `/logs` page rendered per viewer, and the full middleware→dbSink→DB→query
+  pipeline.
+
 ## 2026-07-07 — `sc connect --vm`: auto-create as a virtual machine
 
 - `sc c <name>` (v2) already auto-creates a missing machine, but always as a

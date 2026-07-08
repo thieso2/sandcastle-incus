@@ -18,6 +18,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 	_ "modernc.org/sqlite"
@@ -139,9 +140,19 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 		return err
 	}
 	defer db.Close()
+
+	// Verbose logging: every request + work span is written to stderr (journald
+	// under systemd) and persisted to the logs table via the async sink so the
+	// /logs browser can scope them per user.
+	sink := newDBSink(db, 0)
+	defer sink.Close()
+	logger := svclog.New("auth-app", os.Stderr, sink)
+
+	migrateStart := time.Now()
 	if err := Migrate(ctx, db); err != nil {
 		return err
 	}
+	logger.Message(ctx, "INFO", "auth database migrated in %dms", time.Since(migrateStart).Milliseconds())
 	if err := BootstrapAdmins(ctx, db, plan.BootstrapAdminUsers); err != nil {
 		return err
 	}
@@ -152,7 +163,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	}
 	server := &http.Server{
 		Addr: plan.Address,
-		Handler: NewHandler(db, HandlerOptions{
+		Handler: logger.HTTP(NewHandler(db, HandlerOptions{
 			AuthHostname:        plan.AuthHostname,
 			GitHubClientID:      plan.GitHubClientID,
 			GitHubClientSecret:  plan.GitHubClientSecret,
@@ -171,11 +182,11 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			DebugDeviceUser:     plan.DebugDeviceUser,
 			SimulateGitHubToken: plan.SimulateGitHubToken,
 			TailscaleAuthKey:    plan.TailscaleAuthKey,
-		}),
+		})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	if r.DNSReconcile != nil {
-		go r.runDNSReconcileLoop(ctx)
+		go r.runDNSReconcileLoop(ctx, logger)
 	}
 	errCh := make(chan error, 1)
 	go func() {
@@ -204,11 +215,11 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 // to catch the DHCP lease landing after the event), and a periodic pass every
 // 30s guarantees convergence across missed events and restarts. Errors are
 // logged and the loop continues; it stops when ctx is cancelled.
-func (r HTTPRunner) runDNSReconcileLoop(ctx context.Context) {
+func (r HTTPRunner) runDNSReconcileLoop(ctx context.Context, logger *svclog.Logger) {
 	const interval = 30 * time.Second
 	reconcile := func() {
 		if err := r.DNSReconcile(ctx); err != nil {
-			log.Printf("auth-app DNS reconcile: %v", err)
+			logger.Message(ctx, "ERROR", "auth-app DNS reconcile: %v", err)
 		}
 	}
 	if r.DNSEvents != nil {
@@ -365,6 +376,23 @@ CREATE TABLE IF NOT EXISTS cloud_identity_configs (
     updated_at TEXT NOT NULL,
     UNIQUE(user_key, tenant, name)
 );
+CREATE TABLE IF NOT EXISTS logs (
+    id TEXT PRIMARY KEY,
+    ts TEXT NOT NULL,
+    level TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    service TEXT NOT NULL,
+    event TEXT NOT NULL DEFAULT '',
+    request_id TEXT NOT NULL DEFAULT '',
+    user_key TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT '',
+    path TEXT NOT NULL DEFAULT '',
+    status INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    detail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS logs_user_ts ON logs(user_key, ts);
+CREATE INDEX IF NOT EXISTS logs_ts ON logs(ts);
 INSERT INTO auth_app_meta (key, value, updated_at)
 VALUES ('schema_version', '1', datetime('now'))
 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
@@ -583,6 +611,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/admin/access/revoke", app.adminTenantAccessRevoke)
 	mux.HandleFunc("/cloud-identities", app.cloudIdentities)
 	mux.HandleFunc("/cloud-identities/delete", app.cloudIdentityDelete)
+	mux.HandleFunc("/logs", app.logsWeb)
 	mux.HandleFunc("/api/cloud-identities", app.cloudIdentitiesAPI)
 	mux.HandleFunc("/api/tenants", app.tenantsAPI)
 	mux.HandleFunc("/api/projects", app.projectsAPI)
@@ -675,7 +704,12 @@ func (h handler) projectsAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	result, err := h.projects.CreateTenantProject(r.Context(), user.UserKey, project)
+	var result projectbroker.ProjectResult
+	err = svclog.Span(r.Context(), "project.create", func() error {
+		var createErr error
+		result, createErr = h.projects.CreateTenantProject(r.Context(), user.UserKey, project)
+		return createErr
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -768,6 +802,7 @@ var onboardingTemplate = template.Must(template.New("onboarding").Parse(`<!docty
     <h1>Sandcastle Onboarding</h1>
     <section>
       <p><a href="/machines">View your machines</a></p>
+      <p><a href="/logs">Activity log</a></p>
     </section>
     <section>
       <h2>GitHub identity</h2>

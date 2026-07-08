@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -132,6 +133,10 @@ func (h handler) mintWorkloadToken(ctx context.Context, tenantName string, proje
 	if runtimeSecretVerifier(secret) != enabled.SecretVerifier {
 		return "", fmt.Errorf("invalid machine runtime secret")
 	}
+	// Attribute this issuance to the machine's owner so it appears in that
+	// user's activity log (the caller is the machine, not a web session).
+	svclog.SetUser(ctx, enabled.UserKey)
+	svclog.Logf(ctx, "issue workload token for %s/%s/%s audience=%s", tenantName, projectName, machineName, audience)
 	summary, machineState, err := h.findEnabledMachine(ctx, tenantName, projectName, machineName)
 	if err != nil {
 		return "", err
