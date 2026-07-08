@@ -124,14 +124,21 @@ func (h handler) accessibleTenantSummaries(r *http.Request, user User) ([]tenant
 	return accessible, nil
 }
 
-// machineSSHUser mirrors the CLI's managedLinuxUser fallback: explicit machine
-// Linux user, else the tenant Unix user, else the tenant name.
+// machineSSHUser resolves the SSH login (user@host): the explicit machine Linux
+// user, else the tenant's Unix login user. For v2 tenants that is the profile
+// login user (from the infra project's KeyV2User, surfaced as summary.UnixUser);
+// if it is somehow absent, fall back to the v2 default login user — never the
+// tenant name, which is not a Unix account on the machine. v1 keeps the tenant
+// name as its last-resort user.
 func machineSSHUser(summary tenant.Summary, m meta.Machine) string {
 	if u := strings.TrimSpace(m.LinuxUser); u != "" {
 		return u
 	}
 	if u := strings.TrimSpace(summary.UnixUser); u != "" {
 		return u
+	}
+	if summary.Version == 2 {
+		return tenant.DefaultV2UnixUser
 	}
 	return strings.TrimSpace(summary.Tenant)
 }

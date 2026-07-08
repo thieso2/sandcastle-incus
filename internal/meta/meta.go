@@ -26,7 +26,11 @@ const (
 	KeyV2Suffix = Prefix + "v2.suffix"
 	// KeyV2Prefix is where v2 stores the installation prefix, on the kind=infra
 	// project — several sandcastles can share one Incus host (--prefix).
-	KeyV2Prefix  = Prefix + "v2.prefix"
+	KeyV2Prefix = Prefix + "v2.prefix"
+	// KeyV2User is where v2 stores the profile login (Unix) user, on the
+	// kind=infra project. It is the actual user@host for SSH — NOT the tenant
+	// name. Must match incusx's keyV2User.
+	KeyV2User    = Prefix + "v2.user"
 	KeyAppPort   = Prefix + "app_port"
 	KeyLinuxUser = Prefix + "linux_user"
 	KeyCreatedBy = Prefix + "created_by"

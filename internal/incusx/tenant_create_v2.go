@@ -244,7 +244,7 @@ const (
 	keyV2Pool   = "user.sandcastle.v2.pool"
 	keyV2Suffix = meta.KeyV2Suffix
 	keyV2CIDR   = "user.sandcastle.v2.cidr"
-	keyV2User   = "user.sandcastle.v2.user"
+	keyV2User   = meta.KeyV2User
 	keyV2SSHKey = "user.sandcastle.v2.sshkey"
 	keyV2Prefix = meta.KeyV2Prefix
 )

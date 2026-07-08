@@ -12,6 +12,48 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
+func TestMachineSSHUserPrefersUnixUserNotTenantName(t *testing.T) {
+	cases := []struct {
+		name    string
+		summary tenant.Summary
+		machine meta.Machine
+		want    string
+	}{
+		{
+			name:    "v2 uses the profile login user, not the tenant name",
+			summary: tenant.Summary{Tenant: "thieso2", Version: 2, UnixUser: "thies"},
+			machine: meta.Machine{PrivateIP: "10.0.0.5"},
+			want:    "thies",
+		},
+		{
+			name:    "v2 without a recorded user falls back to the v2 default, never the tenant name",
+			summary: tenant.Summary{Tenant: "thieso2", Version: 2},
+			machine: meta.Machine{PrivateIP: "10.0.0.5"},
+			want:    tenant.DefaultV2UnixUser,
+		},
+		{
+			name:    "explicit machine Linux user wins",
+			summary: tenant.Summary{Tenant: "thieso2", Version: 2, UnixUser: "thies"},
+			machine: meta.Machine{PrivateIP: "10.0.0.5", LinuxUser: "root"},
+			want:    "root",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := machineSSHUser(tc.summary, tc.machine); got != tc.want {
+				t.Fatalf("machineSSHUser = %q, want %q", got, tc.want)
+			}
+			url := string(machineSSHURL(tc.summary, tc.machine))
+			if want := "ssh://" + tc.want + "@10.0.0.5"; url != want {
+				t.Fatalf("machineSSHURL = %q, want %q", url, want)
+			}
+			if strings.Contains(url, "thieso2@") {
+				t.Fatalf("SSH URL must not use the tenant name as the user: %q", url)
+			}
+		})
+	}
+}
+
 func TestMachinesWebRedirectsWhenNotLoggedIn(t *testing.T) {
 	db := authDBForTest(t)
 	request := httptest.NewRequest(http.MethodGet, "/machines", nil)

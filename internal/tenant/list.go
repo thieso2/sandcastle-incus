@@ -110,10 +110,12 @@ func v2Summaries(projects []IncusProject, installPrefix string) []Summary {
 	// tenants of different installs are different tenants.
 	cidrByInfra := map[string]string{}
 	suffixByInfra := map[string]string{}
+	userByInfra := map[string]string{}
 	for _, incusProject := range projects {
 		if meta.IsManaged(incusProject.Config) && incusProject.Config[meta.KeyKind] == meta.KindInfra {
 			cidrByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
 			suffixByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
+			userByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2User])
 		}
 	}
 	byInfra := map[string]*Summary{}
@@ -157,6 +159,7 @@ func v2Summaries(projects []IncusProject, installPrefix string) []Summary {
 				Tenant:       tenantName,
 				Version:      2,
 				InfraProject: infraName,
+				UnixUser:     userByInfra[infraName],
 				DNSSuffix:    firstNonEmptyString(suffixByInfra[infraName], tenantName),
 				PrivateCIDR:  cidrByInfra[infraName],
 				DNSAddress:   dnsAddressFromCIDR(cidrByInfra[infraName]),
