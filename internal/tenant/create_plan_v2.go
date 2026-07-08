@@ -193,7 +193,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 		HomeVolume:         HomeVolumeName,
 		WorkspaceVolume:    WorkspaceVolumeName,
 		CAVolume:           CAVolumeName,
-		SidecarInstance:    infraProject,
+		SidecarInstance:    naming.V2SidecarInstanceName,
 		SidecarImage:       admin.Images.Base,
 		DefaultProfileUser: unixUser,
 		SSHPublicKey:       request.SSHPublicKey,

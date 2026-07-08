@@ -69,10 +69,25 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			if err := setConfigValue(&cfg, key, value); err != nil {
 				return err
 			}
+			// Switching the active remote re-points the auth plane at the same
+			// install: the URL-named remote identifies it, and the installs map
+			// (recorded at login) recovers its Auth Hostname. This keeps the
+			// Incus remote and the Auth App from drifting apart on hosts that run
+			// several installs sharing one tenant name.
+			var authSynced string
+			if key == "remote" {
+				if host := cfg.AuthHostnameForRemote(value); host != "" && host != cfg.AuthHostname {
+					cfg.AuthHostname = host
+					authSynced = host
+				}
+			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save config: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Set %s = %q in %s\n", key, value, cfgPath)
+			if authSynced != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Auth hostname re-pointed to %q for this install.\n", authSynced)
+			}
 			// The shared incus dir's current remote is the source of truth for
 			// the user CLI's remote — write through so `sc config set remote`
 			// and `incus remote switch` never disagree.

@@ -20,6 +20,22 @@ type SandcastleConfig struct {
 	// Broker is the Sandcastle Broker URL for tenant self-service (project
 	// create). Saved by `sc login`, derived from the tenant's private CIDR.
 	Broker string `yaml:"broker,omitempty"`
+	// Installs maps a Sandcastle Incus remote name to the install's public Auth
+	// Hostname (its global URL). Recorded by `sc login` so that switching the
+	// active remote (`sc config set remote …`) can re-point the auth plane at
+	// the matching install without a re-login: the URL-derived remote name
+	// identifies the install, and this map recovers its Auth App URL.
+	Installs map[string]string `yaml:"installs,omitempty"`
+}
+
+// AuthHostnameForRemote returns the recorded Auth Hostname (global URL) for a
+// Sandcastle remote, or "" when none was recorded.
+func (c SandcastleConfig) AuthHostnameForRemote(remote string) string {
+	remote = strings.TrimSpace(remote)
+	if remote == "" || c.Installs == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Installs[remote])
 }
 
 // DefaultConfigDir returns ~/.config/sandcastle.

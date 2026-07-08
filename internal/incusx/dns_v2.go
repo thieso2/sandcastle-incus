@@ -15,6 +15,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -134,9 +135,16 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 	if err != nil {
 		return err
 	}
-	// The v2 sidecar instance is named after the infra project (SidecarInstance ==
-	// infraProject), not the v1 "sc-dns" instance writeDNSFiles targets.
+	// The v2 sidecar instance is named "sidecar" inside the tenant's infra
+	// project (naming.V2SidecarInstanceName). Tenants provisioned before the
+	// rename still carry the legacy name (== infraProject), so prefer "sidecar"
+	// and fall back to the old name — DNS keeps flowing to both until the older
+	// ones are re-provisioned.
 	sidecar := server.UseProject(infraProject)
+	sidecarName := naming.V2SidecarInstanceName
+	if _, _, err := sidecar.GetInstance(sidecarName); err != nil {
+		sidecarName = infraProject
+	}
 
 	// Skip the sidecar write + CoreDNS reload only when the sidecar's ACTUAL zone
 	// already matches the rendered one (both serial-normalized). The in-memory
@@ -151,7 +159,7 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 		}
 	}
 	if zonePath != "" {
-		if actual, err := readInstanceFileString(sidecar, infraProject, zonePath); err == nil {
+		if actual, err := readInstanceFileString(sidecar, sidecarName, zonePath); err == nil {
 			if normalizeZoneSerialToOne(actual, suffix) == desired {
 				if lastZone != nil {
 					lastZone[infraProject] = desired
@@ -161,7 +169,7 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 		}
 	}
 	for _, dir := range []string{"/etc/coredns", "/etc/coredns/zones"} {
-		if err := sidecar.CreateInstanceFile(infraProject, dir, incus.InstanceFileArgs{Type: "directory", Mode: 0o755}); err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
+		if err := sidecar.CreateInstanceFile(sidecarName, dir, incus.InstanceFileArgs{Type: "directory", Mode: 0o755}); err != nil && !api.StatusErrorCheck(err, http.StatusConflict) {
 			return fmt.Errorf("create %s: %w", dir, err)
 		}
 	}
@@ -180,7 +188,7 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 				"hostmaster."+suffix+". 1 ",
 				fmt.Sprintf("hostmaster.%s. %d ", suffix, serial), 1)
 		}
-		if err := sidecar.CreateInstanceFile(infraProject, file.Path, incus.InstanceFileArgs{
+		if err := sidecar.CreateInstanceFile(sidecarName, file.Path, incus.InstanceFileArgs{
 			Content:   strings.NewReader(content),
 			Type:      "file",
 			Mode:      file.Mode,
@@ -190,7 +198,7 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 		}
 	}
 	// Reload CoreDNS to pick up the new zone.
-	op, err := sidecar.ExecInstance(infraProject, api.InstanceExecPost{
+	op, err := sidecar.ExecInstance(sidecarName, api.InstanceExecPost{
 		Command:   []string{"/bin/sh", "-c", "systemctl reload coredns 2>/dev/null || systemctl restart coredns"},
 		WaitForWS: true,
 	}, nil)

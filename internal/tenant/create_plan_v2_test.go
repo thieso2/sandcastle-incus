@@ -32,7 +32,7 @@ func TestPlanCreateV2Names(t *testing.T) {
 	if plan.Bridge != "sc2-acme" {
 		t.Fatalf("Bridge = %q", plan.Bridge)
 	}
-	if plan.SidecarInstance != "sc2-acme" {
+	if plan.SidecarInstance != "sidecar" {
 		t.Fatalf("SidecarInstance = %q", plan.SidecarInstance)
 	}
 	if plan.DNSSuffix != "acme" {

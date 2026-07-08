@@ -113,10 +113,19 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
+	// The client-facing remote name identifies the *install* by its Auth
+	// Hostname (the global URL), not the tenant — the GitHub username is the
+	// same on every install, so URL-based names (sc-obelix-thieso2-dev) keep two
+	// installs on one host from collapsing to one confusing remote. The
+	// certificate name stays prefix-keyed (server-side trust identity).
+	remoteName := usertrust.RemoteNameForAuthHostname(p.Admin.AuthHostname)
+	if remoteName == "" {
+		remoteName = usertrust.RemoteInstallName(plan.Prefix, plan.Tenant)
+	}
 	tokenPlan := usertrust.UserPlan{
 		User:            plan.Tenant,
 		CertificateName: usertrust.RestrictedInstallName(plan.Prefix, plan.Tenant),
-		RemoteName:      usertrust.RemoteInstallName(plan.Prefix, plan.Tenant),
+		RemoteName:      remoteName,
 		Restricted:      true,
 		Projects:        plan.RestrictedProjects,
 		Description:     "Sandcastle v2 tenant " + plan.Tenant,

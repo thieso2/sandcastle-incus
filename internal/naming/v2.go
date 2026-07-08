@@ -18,6 +18,14 @@ import (
 // same Incus host.
 const V2IncusProjectPrefix = "sc2"
 
+// V2SidecarInstanceName is the Incus instance name of every v2 tenant sidecar.
+// It is deliberately unqualified ("sidecar"): the instance lives inside the
+// tenant's own infra project, so the project already carries the identity and
+// repeating it in the instance name is redundant. The sidecar's *global* names
+// (its tailnet hostname) are set separately where cross-tenant uniqueness is
+// actually required.
+const V2SidecarInstanceName = "sidecar"
+
 // maxIncusProjectNameLen is Incus's practical instance/project name budget.
 const maxIncusProjectNameLen = 63
 
