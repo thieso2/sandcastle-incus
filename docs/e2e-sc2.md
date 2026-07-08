@@ -320,6 +320,20 @@ sc delete api:backend --yes # PASS: swapped-reference hint: did you mean "backen
 sc login "https://$E2E_HOSTNAME" --simulate-token "$SIMULATE_TOKEN" --as e2edns \
   --force --dns-suffix other
 # PASS: "the Tenant DNS Suffix is immutable: tenant … already uses \"castle\""
+
+# 6. verbose service logging + Activity Log (per-user scoping)
+#    a) server VM: every request + work span carries a timestamp and duration.
+#       journalctl -u sandcastle-auth-app -n 50 --no-pager
+#       journalctl -u sandcastle-broker  -n 50 --no-pager
+#       PASS: lines like "… auth-app request POST /api/device/poll status=200 dur=…"
+#             and spans "… span provision.personal_tenant dur=… user=<tenant>".
+#    b) auth-app /logs UI, signed in as a regular (non-admin) user:
+#       PASS: the page shows THIS user's requests/spans with timestamps + durations,
+#             and shows NO other user's rows and NO system rows.
+#    c) auth-app /logs UI, signed in as a Sandcastle Admin:
+#       PASS: the page shows ALL users' rows plus system rows (empty user);
+#             the ?q= filter narrows in place; a non-admin cannot reach another
+#             user's rows even with ?q=.
 ```
 
 Registration is event-driven: records appear **within seconds** of

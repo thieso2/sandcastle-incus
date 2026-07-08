@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -141,7 +142,13 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		// concurrent polls that arrive while one is still running.
 		unlock := lockDeviceProvisioning(request.DeviceCode)
 		provisionCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-		login, err = h.provisionPersonalTenant(provisionCtx, login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)
+		// Attribute the span to the polling request (r.Context()) while the work
+		// itself runs on the detached provisionCtx so it survives client cancels.
+		err = svclog.Span(r.Context(), "provision.personal_tenant", func() error {
+			var provErr error
+			login, provErr = h.provisionPersonalTenant(provisionCtx, login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)
+			return provErr
+		})
 		cancel()
 		unlock()
 		if err != nil {
@@ -498,6 +505,7 @@ func (h handler) requireAllowlistedSession(r *http.Request) (User, error) {
 	if !user.Allowlisted {
 		return User{}, fmt.Errorf("allowlisted GitHub login is required")
 	}
+	svclog.SetUser(r.Context(), user.UserKey)
 	return user, nil
 }
 

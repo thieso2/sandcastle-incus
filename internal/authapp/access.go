@@ -167,6 +167,7 @@ var tenantAccessTemplate = template.Must(template.New("tenant-access").Parse(`<!
 <body>
   <main>
     <h1>Tenant Access</h1>
+    <p><a href="/">Home</a> · <a href="/logs">Activity log</a> · <a href="/admin/allowlist">Login Allowlist</a></p>
     <form method="post" action="/admin/access/grant">
       <label>User <input name="user"></label>
       <label>Tenant <input name="tenant"></label>

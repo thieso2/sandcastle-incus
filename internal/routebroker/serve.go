@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
+
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 )
 
 type ServeRequest struct {
@@ -62,8 +65,9 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	if err != nil {
 		return fmt.Errorf("listen for route broker on %s: %w", plan.Address, err)
 	}
+	logger := svclog.New("route-broker", os.Stderr, nil)
 	server := &http.Server{
-		Handler: r.Server,
+		Handler: logger.HTTP(r.Server),
 		BaseContext: func(net.Listener) context.Context {
 			return ctx
 		},

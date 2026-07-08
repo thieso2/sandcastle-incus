@@ -15,10 +15,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 )
 
 // Principal identifies the caller by their restricted Incus certificate.
@@ -136,7 +138,13 @@ func (h Handler) handleProjectCreate(w http.ResponseWriter, r *http.Request, fin
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	result, err := h.Creator.CreateTenantProject(r.Context(), principal.Tenant, project)
+	svclog.SetUser(r.Context(), principal.Tenant)
+	var result ProjectResult
+	err = svclog.Span(r.Context(), "project.create", func() error {
+		var createErr error
+		result, createErr = h.Creator.CreateTenantProject(r.Context(), principal.Tenant, project)
+		return createErr
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -167,7 +175,13 @@ func (h Handler) handleTenantCreate(w http.ResponseWriter, r *http.Request, fing
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	result, err := h.Provisioner.CreateTenant(r.Context(), req)
+	svclog.SetUser(r.Context(), strings.TrimSpace(req.Tenant))
+	var result TenantResult
+	err = svclog.Span(r.Context(), "tenant.create", func() error {
+		var createErr error
+		result, createErr = h.Provisioner.CreateTenant(r.Context(), req)
+		return createErr
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -228,8 +242,9 @@ func Serve(ctx context.Context, plan ServePlan, handler Handler) error {
 	if err != nil {
 		return fmt.Errorf("listen for project broker on %s: %w", address, err)
 	}
+	logger := svclog.New("project-broker", os.Stderr, nil)
 	server := &http.Server{
-		Handler:     handler,
+		Handler:     logger.HTTP(handler),
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 	go func() {

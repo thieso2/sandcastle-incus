@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	machinepkg "github.com/thieso2/sandcastle-incus/internal/machine"
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 )
 
 type CloudIdentityConfig struct {
@@ -256,7 +257,12 @@ func (h handler) requireBearerUser(r *http.Request) (User, error) {
 	if token == "" {
 		return User{}, fmt.Errorf("bearer token is required")
 	}
-	return UserForCLIToken(r.Context(), h.db, token, timeNow())
+	user, err := UserForCLIToken(r.Context(), h.db, token, timeNow())
+	if err != nil {
+		return User{}, err
+	}
+	svclog.SetUser(r.Context(), user.UserKey)
+	return user, nil
 }
 
 func cloudIdentityAPIResponse(config CloudIdentityConfig) map[string]any {

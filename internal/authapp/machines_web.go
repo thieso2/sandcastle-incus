@@ -239,6 +239,8 @@ var machinesTemplate = template.Must(template.New("machines").Parse(`<!doctype h
     }
     .ssh.disabled { background: #c7c7cc; pointer-events: none; }
     .empty { text-align: center; opacity: 0.6; margin-top: 48px; }
+    .nav { font-size: 13px; margin: 8px; }
+    .nav a { color: #0071e3; text-decoration: none; }
     .error { background: #ffe5e5; color: #8a1f1f; border-radius: 10px; padding: 12px 14px; margin: 12px 8px; }
     @media (prefers-color-scheme: dark) { .error { background: #3a1212; color: #ff9d9d; } }
   </style>
@@ -249,6 +251,7 @@ var machinesTemplate = template.Must(template.New("machines").Parse(`<!doctype h
     <span class="who">{{.User.GitHubUsername}}</span>
   </header>
   <main>
+    <p class="nav"><a href="/">Home</a> · <a href="/logs">Activity log</a></p>
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     {{if not .Total}}
       {{if not .Error}}<p class="empty">No machines yet.</p>{{end}}

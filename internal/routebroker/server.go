@@ -16,6 +16,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/route"
+	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -91,7 +92,7 @@ func (s Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("route manager is required"))
 		return
 	}
-	if err := s.Routes.Create(r.Context(), plan); err != nil {
+	if err := svclog.Span(r.Context(), "route.create", func() error { return s.Routes.Create(r.Context(), plan) }); err != nil {
 		writeError(w, routeMutationErrorStatus(err), err)
 		return
 	}
@@ -162,7 +163,7 @@ func (s Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("route manager is required"))
 		return
 	}
-	if err := s.Routes.Delete(r.Context(), plan); err != nil {
+	if err := svclog.Span(r.Context(), "route.delete", func() error { return s.Routes.Delete(r.Context(), plan) }); err != nil {
 		writeError(w, routeMutationErrorStatus(err), err)
 		return
 	}
@@ -184,7 +185,12 @@ func (s Server) handleList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("route manager is required"))
 		return
 	}
-	result, err := s.Routes.List(r.Context(), plan)
+	var result route.ListResult
+	err = svclog.Span(r.Context(), "route.list", func() error {
+		var listErr error
+		result, listErr = s.Routes.List(r.Context(), plan)
+		return listErr
+	})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -230,7 +236,12 @@ func (s Server) principal(r *http.Request) (Principal, error) {
 	if err != nil {
 		return Principal{}, err
 	}
-	return PrincipalFromFingerprint(r.Context(), s.Trust, fingerprint)
+	principal, err := PrincipalFromFingerprint(r.Context(), s.Trust, fingerprint)
+	if err != nil {
+		return Principal{}, err
+	}
+	svclog.SetUser(r.Context(), principal.User)
+	return principal, nil
 }
 
 func certificateFingerprint(r *http.Request) (string, error) {
