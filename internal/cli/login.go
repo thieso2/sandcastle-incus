@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -16,6 +19,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
+	"github.com/thieso2/sandcastle-incus/internal/cidr"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
@@ -104,6 +108,10 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 			installV2LocalResolver(ctx, config, r.config.stdout, request.Tenant, request.TenantPrivateCIDR)
 			return nil
 		})
+		_ = steps.run("install tenant CA trust", func() error {
+			installV2TenantCATrust(ctx, r.config.stdout, r.config.stderr, request.Tenant, request.TenantPrivateCIDR)
+			return nil
+		})
 		return loginSetupResult{}, nil
 	}
 
@@ -162,6 +170,53 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 		return loginSetupResult{}, err
 	}
 	return loginSetupResult{DNS: dnsResult, Trust: trustResult, Tailscale: tailscalePlan}, nil
+}
+
+// installV2TenantCATrust fetches the tenant CA from the sidecar leaf signer
+// (over the tenant subnet route) and installs it into the local trust store, so
+// the browser trusts https://<machine>.<project>.<suffix> that Caddy serves on
+// the machines (ADR-0011). Best-effort: a failure only warns, never blocks login.
+func installV2TenantCATrust(ctx context.Context, stdout, stderr io.Writer, tenantName, privateCIDR string) {
+	prefix, err := netip.ParsePrefix(strings.TrimSpace(privateCIDR))
+	if err != nil {
+		return
+	}
+	dnsAddr, err := cidr.RoleAddress(prefix, cidr.DNSHostOctet)
+	if err != nil {
+		return
+	}
+	url := fmt.Sprintf("http://%s:%d/tls/ca", dnsAddr, incusx.SidecarTLSSignPort)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		fmt.Fprintf(stderr, "Note: could not reach the tenant CA signer (%v); browser trust not installed.\n", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(stderr, "Note: tenant CA fetch returned %s; browser trust not installed.\n", resp.Status)
+		return
+	}
+	certPEM, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || len(certPEM) == 0 {
+		return
+	}
+	// Name the trust entry after the CA's actual CN (suffix-scoped, e.g.
+	// "Sandcastle idefix tenant CA"), so two installs sharing the tenant name
+	// (GitHub user) do not collide in the keychain.
+	trustName := "Sandcastle " + tenantName + " tenant CA"
+	if block, _ := pem.Decode(certPEM); block != nil {
+		if c, err := x509.ParseCertificate(block.Bytes); err == nil && strings.TrimSpace(c.Subject.CommonName) != "" {
+			trustName = c.Subject.CommonName
+		}
+	}
+	plan := localtrust.Plan{Reference: tenantName, TrustName: trustName}
+	result, err := localtrust.NewPlatformStore().InstallCA(ctx, plan, certPEM)
+	if err != nil {
+		fmt.Fprintf(stderr, "Note: tenant CA trust install failed: %v\n", err)
+		return
+	}
+	fmt.Fprintf(stdout, "Tenant CA trusted (%s → %s).\n", result.Platform, result.Target)
 }
 
 // ensureTenantRouting makes this client accept the tenant's advertised subnet

@@ -317,6 +317,7 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminAuthAppCommand(config))
 	root.AddCommand(newAdminMachineWorkloadCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))
+	root.AddCommand(newSidecarCommand())
 
 	return root
 }

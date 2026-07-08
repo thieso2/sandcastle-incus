@@ -99,3 +99,33 @@ machine never holds a signing key.
   with a site that force-redirects HTTP→HTTPS, serves `/_r`→`/` and
   `/_w`→`/workspace` via `file_server browse`, and reverse-proxies everything
   else (Host preserved) to `localhost:3000`.
+
+## Implementation notes (post-audit)
+
+Primitives already exist: `certs.IssueMachineLeaf`, `certs.MachineDNSNames`,
+and `localtrust` (platform trust store — installs a CA into the macOS keychain,
+idempotent). Two adjustments to the ADR from what the code actually does:
+
+- **Trust keychain:** the existing `localtrust` darwin store targets the
+  **login keychain (no sudo)**, which is strictly nicer than the ADR's
+  system-keychain choice. Keep it (system keychain remains available via
+  `SANDCASTLE_DARWIN_TRUST_KEYCHAIN`). Supersedes decision 4's sudo note.
+- **CA storage in v2:** the signer **self-generates** the tenant CA on first
+  start (`/etc/sandcastle/ca/{ca.crt,ca.key}`) if absent — the key lives only on
+  the sidecar and everyone fetches the cert from `/tls/ca`, so nothing is pushed
+  and the CA stays stable across re-provisions. The CN is **suffix-scoped**
+  (`Sandcastle <suffix> tenant CA`) so two installs sharing a tenant name get
+  distinct roots; the client names its trust entry after the fetched CA's CN.
+
+Build order: (1) `internal/tlssign` handler + `sandcastle-admin sidecar tls-sign`
+command (self-inits CA); (2) sidecar setup ships binary + systemd unit; (3) v2
+login installs trust by fetching `ca.crt` from the signer; (4) default-profile
+cloud-init installs Caddy + fetches its leaf. Endpoint: `GET /tls/ca`,
+`GET /tls/leaf?fqdn=<name>` → `{cert,key}`, on the sidecar bridge IP.
+
+**Verified end-to-end** (idefix `ct2`): signer self-generated
+`Sandcastle idefix tenant CA`; the machine fetched a leaf with SANs
+`[ct2.default.idefix, *.ct2.default.idefix]`; Caddy (root) served valid HTTPS
+chained to the CA (no `-k`), redirected HTTP→HTTPS (308), proxied to `:3000`,
+vhosted the wildcard subdomain, and `/_r` browsed `/` while `/_w` browsed
+`/workspace`.

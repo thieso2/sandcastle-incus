@@ -1,6 +1,7 @@
 package tenant
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -24,16 +25,18 @@ import (
 // stamps each machine with its canonical Machine Private Hostname
 // <machine>.<project>.<suffix> (ADR-0018) — identity only; resolution comes
 // from the sidecar CoreDNS zone.
-func V2DefaultProfileUserData(user string, sshKey string, project string, suffix string) string {
+func V2DefaultProfileUserData(user string, sshKey string, project string, suffix string, signerURL string) string {
 	header := "#cloud-config\n"
 	identity := ""
 	project = strings.TrimSpace(project)
 	suffix = strings.TrimSpace(suffix)
-	if project != "" && suffix != "" {
+	signerURL = strings.TrimRight(strings.TrimSpace(signerURL), "/")
+	jinja := project != "" && suffix != ""
+	if jinja {
 		header = "## template: jinja\n#cloud-config\n"
 		identity = fmt.Sprintf("fqdn: {{ v1.local_hostname }}.%s.%s\nprefer_fqdn_over_hostname: true\n", project, suffix)
 	}
-	return header + identity + fmt.Sprintf(`users:
+	body := fmt.Sprintf(`users:
   - name: %s
     uid: 2000
     groups: [sudo]
@@ -43,10 +46,86 @@ func V2DefaultProfileUserData(user string, sshKey string, project string, suffix
       - %s
 packages:
   - openssh-server
+`, user, sshKey)
+
+	// Caddy HTTPS ingress (ADR-0011): only when we know the machine's identity
+	// (jinja) and where to fetch its leaf (the sidecar signer). The setup script
+	// is base64-embedded to sidestep YAML/indentation pitfalls; machine.env
+	// carries the per-machine FQDN (jinja) and signer URL.
+	if jinja && signerURL != "" {
+		script := base64.StdEncoding.EncodeToString([]byte(caddyIngressSetupScript))
+		body += fmt.Sprintf(`write_files:
+  - path: /etc/sandcastle/machine.env
+    permissions: '0644'
+    content: |
+      FQDN={{ v1.local_hostname }}.%s.%s
+      SIGNER=%s
+  - path: /usr/local/sbin/sandcastle-caddy-setup
+    permissions: '0755'
+    encoding: b64
+    content: %s
 runcmd:
   - [systemctl, enable, --now, ssh]
-`, user, sshKey)
+  - [/usr/local/sbin/sandcastle-caddy-setup]
+`, project, suffix, signerURL, script)
+		return header + identity + body
+	}
+
+	return header + identity + body + `runcmd:
+  - [systemctl, enable, --now, ssh]
+`
 }
+
+// caddyIngressSetupScript installs Caddy, trusts the tenant CA, fetches this
+// machine's leaf from the sidecar signer, writes the Caddyfile, and (re)starts
+// Caddy as root. It sources /etc/sandcastle/machine.env for FQDN + SIGNER.
+const caddyIngressSetupScript = `#!/bin/bash
+set -eu
+. /etc/sandcastle/machine.env
+export DEBIAN_FRONTEND=noninteractive
+install -d -m 0755 /etc/sandcastle/tls /usr/local/share/ca-certificates /etc/caddy /etc/systemd/system/caddy.service.d
+
+# Install Caddy from its official repo (not in stock Debian apt).
+if ! command -v caddy >/dev/null 2>&1; then
+  apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl gnupg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+  apt-get update -qq
+  apt-get install -y -qq caddy
+fi
+
+# Trust the tenant CA on this machine (machine-to-machine HTTPS).
+curl -fsS "$SIGNER/tls/ca" -o /usr/local/share/ca-certificates/sandcastle-tenant.crt && update-ca-certificates || true
+
+# Fetch this machine's leaf (key+cert) BEFORE Caddy serves.
+curl -fsS "$SIGNER/tls/leaf?fqdn=$FQDN" | python3 -c 'import json,sys;d=json.load(sys.stdin);open("/etc/sandcastle/tls/cert.pem","w").write(d["cert"]);open("/etc/sandcastle/tls/key.pem","w").write(d["key"])'
+chmod 600 /etc/sandcastle/tls/key.pem
+
+# Caddyfile: HTTPS with our leaf (auto HTTP->HTTPS redirect), /_r browses /, /_w
+# browses /workspace, everything else proxies to :3000 with Host preserved.
+cat > /etc/caddy/Caddyfile <<EOF
+$FQDN, *.$FQDN {
+    tls /etc/sandcastle/tls/cert.pem /etc/sandcastle/tls/key.pem
+    handle_path /_r/* {
+        root * /
+        file_server browse
+    }
+    handle_path /_w/* {
+        root * /workspace
+        file_server browse
+    }
+    handle {
+        reverse_proxy localhost:3000
+    }
+}
+EOF
+
+# Caddy runs as root so /_r can browse the whole filesystem and bind :443.
+printf '%s\n' '[Service]' 'User=root' 'Group=root' 'AmbientCapabilities=' > /etc/systemd/system/caddy.service.d/override.conf
+systemctl daemon-reload
+systemctl enable caddy
+systemctl restart caddy
+`
 
 // DefaultV2UnixUser is the login user baked into a v2 project's default
 // profile when the create request does not specify one. It matches the UID-2000

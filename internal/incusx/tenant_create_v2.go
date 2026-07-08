@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"os"
 	"strings"
 	"time"
 
@@ -95,6 +96,10 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	}
 	c.log("configure sidecar network + CoreDNS")
 	if err := configureV2Sidecar(server.UseProject(plan.InfraProject), plan); err != nil {
+		return err
+	}
+	c.log("configure tenant TLS leaf signer")
+	if err := configureV2TLSSigner(server.UseProject(plan.InfraProject), plan); err != nil {
 		return err
 	}
 	// The sidecar's tailnet hostname must be globally unique (it is a tailnet
@@ -369,7 +374,7 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, s
 	desired := api.ProfilePut{
 		Description: "Sandcastle v2 default profile for " + plan.Tenant,
 		Config: api.ConfigMap{
-			"cloud-init.user-data": tenant.V2DefaultProfileUserData(plan.DefaultProfileUser, plan.SSHPublicKey, projectShort, plan.DNSSuffix),
+			"cloud-init.user-data": tenant.V2DefaultProfileUserData(plan.DefaultProfileUser, plan.SSHPublicKey, projectShort, plan.DNSSuffix, fmt.Sprintf("http://%s:%d", plan.DNSAddress, SidecarTLSSignPort)),
 			meta.KeyKind:           "profile",
 			meta.KeyTenant:         plan.Tenant,
 			meta.KeyVersion:        "2",
@@ -563,6 +568,72 @@ func configureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2) e
 	}, " && ")
 	if err := execSidecar(server, plan.SidecarInstance, coredns); err != nil {
 		return fmt.Errorf("start CoreDNS: %w", err)
+	}
+	return nil
+}
+
+// SidecarTLSSignPort is the tenant-bridge port the leaf signer listens on (on
+// the sidecar's DNS address). Reachable by machines (bridge) and by the client
+// (tenant subnet route).
+const SidecarTLSSignPort = 9443
+
+// sidecarFileExists reports whether path is a regular file inside the sidecar.
+func sidecarFileExists(server TenantResourceServer, instance, path string) bool {
+	out, err := execSidecarCapture(server, instance, "test -f "+path+" && echo yes || echo no")
+	return err == nil && strings.TrimSpace(out) == "yes"
+}
+
+// configureV2TLSSigner stands up the tenant-CA leaf signer on the sidecar
+// (ADR-0011): it persists the tenant CA (once — so re-provisioning does not
+// rotate it), ships the Sandcastle binary if missing, and runs
+// `sandcastle-admin sidecar tls-sign` under systemd on the tenant bridge.
+func configureV2TLSSigner(server TenantResourceServer, plan tenant.CreatePlanV2) error {
+	// The signer self-generates the tenant CA on first start (CA key lives only
+	// on the sidecar; clients and machines fetch the cert from /tls/ca), so
+	// nothing CA-related needs pushing here.
+
+	// 1. Sandcastle binary (the running one — matches the sidecar's amd64) —
+	// ship if missing. Version updates are handled by removing it and re-running.
+	if !sidecarFileExists(server, plan.SidecarInstance, "/usr/local/bin/sandcastle-admin") {
+		exe, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("locate sandcastle binary: %w", err)
+		}
+		data, err := os.ReadFile(exe)
+		if err != nil {
+			return fmt.Errorf("read sandcastle binary: %w", err)
+		}
+		if err := server.CreateInstanceFile(plan.SidecarInstance, "/usr/local/bin/sandcastle-admin", incus.InstanceFileArgs{
+			Content:   strings.NewReader(string(data)),
+			Type:      "file",
+			Mode:      0o755,
+			WriteMode: "overwrite",
+		}); err != nil {
+			return fmt.Errorf("push sandcastle binary to sidecar: %w", err)
+		}
+	}
+
+	// 3. systemd unit for the signer, bound to the tenant bridge address.
+	listen := fmt.Sprintf("%s:%d", plan.DNSAddress, SidecarTLSSignPort)
+	exec := "/usr/local/bin/sandcastle-admin sidecar tls-sign" +
+		" --ca-cert /etc/sandcastle/ca/ca.crt --ca-key /etc/sandcastle/ca/ca.key" +
+		" --suffix " + plan.DNSSuffix + " --listen " + listen
+	unit := strings.Join([]string{
+		"printf '%s\\n'",
+		"'[Unit]'", "'Description=Sandcastle tenant TLS leaf signer'", "'After=sandcastle-sidecar-network.service'",
+		"''", "'[Service]'", "'ExecStart=" + exec + "'", "'Restart=on-failure'", "'RestartSec=2'",
+		"''", "'[Install]'", "'WantedBy=multi-user.target'",
+		"> /etc/systemd/system/sandcastle-tls-sign.service",
+	}, " ")
+	script := strings.Join([]string{
+		unit,
+		"systemctl daemon-reload",
+		"systemctl enable --now sandcastle-tls-sign.service",
+		"sleep 1",
+		"systemctl is-active sandcastle-tls-sign.service",
+	}, " && ")
+	if err := execSidecar(server, plan.SidecarInstance, script); err != nil {
+		return fmt.Errorf("start tenant TLS signer: %w", err)
 	}
 	return nil
 }
