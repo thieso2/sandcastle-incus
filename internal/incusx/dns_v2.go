@@ -136,15 +136,9 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 		return err
 	}
 	// The v2 sidecar instance is named "sidecar" inside the tenant's infra
-	// project (naming.V2SidecarInstanceName). Tenants provisioned before the
-	// rename still carry the legacy name (== infraProject), so prefer "sidecar"
-	// and fall back to the old name — DNS keeps flowing to both until the older
-	// ones are re-provisioned.
+	// project (naming.V2SidecarInstanceName).
 	sidecar := server.UseProject(infraProject)
 	sidecarName := naming.V2SidecarInstanceName
-	if _, _, err := sidecar.GetInstance(sidecarName); err != nil {
-		sidecarName = infraProject
-	}
 
 	// Skip the sidecar write + CoreDNS reload only when the sidecar's ACTUAL zone
 	// already matches the rendered one (both serial-normalized). The in-memory
