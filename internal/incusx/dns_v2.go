@@ -191,16 +191,30 @@ func reconcileOneV2TenantDNS(server incus.InstanceServer, infraProject, suffix, 
 			return fmt.Errorf("write %s: %w", file.Path, err)
 		}
 	}
-	// Reload CoreDNS to pick up the new zone.
+	// Reload CoreDNS to pick up the new zone. Capture stderr and check the
+	// command's exit code: op.Wait() alone succeeds even when the command
+	// fails (SDK semantics), and a silently-missed reload leaves CoreDNS
+	// serving the stale zone until its file-plugin timer (~1min) — seen live
+	// on majestix as flaky "record in the zone file but not resolving".
+	var reloadStderr strings.Builder
+	dataDone := make(chan bool)
 	op, err := sidecar.ExecInstance(sidecarName, api.InstanceExecPost{
 		Command:   []string{"/bin/sh", "-c", "systemctl reload coredns 2>/dev/null || systemctl restart coredns"},
 		WaitForWS: true,
-	}, nil)
+	}, &incus.InstanceExecArgs{
+		Stdin:    strings.NewReader(""),
+		Stderr:   &reloadStderr,
+		DataDone: dataDone,
+	})
 	if err != nil {
 		return fmt.Errorf("reload coredns: %w", err)
 	}
 	if err := op.Wait(); err != nil {
-		return err
+		return fmt.Errorf("reload coredns: %w (stderr: %s)", err, strings.TrimSpace(reloadStderr.String()))
+	}
+	<-dataDone
+	if err := execExitError(op, reloadStderr.String()); err != nil {
+		return fmt.Errorf("reload coredns: %w", err)
 	}
 	if lastZone != nil {
 		lastZone[infraProject] = desired

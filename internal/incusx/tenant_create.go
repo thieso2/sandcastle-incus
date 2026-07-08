@@ -113,6 +113,9 @@ func restartCoreDNS(server coreDNSRestarter) error {
 		return fmt.Errorf("wait for CoreDNS restart in %s (stderr: %s): %w", tenant.DNSName, stderr.String(), err)
 	}
 	<-dataDone
+	if err := execExitError(op, stderr.String()); err != nil {
+		return fmt.Errorf("restart CoreDNS in %s: %w", tenant.DNSName, err)
+	}
 	return nil
 }
 

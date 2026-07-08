@@ -52,6 +52,26 @@ in the same run.
   `installs:` map in `config.yml` to carry the prefix — rejected: the pin
   already exists for every enrollment (old and new) and needs no schema change.
 
+## 2026-07-08 — majestix e2e round 2: exec exit codes were silently swallowed everywhere
+
+The single most consequential find of the run: the incus SDK's `op.Wait()` on
+an exec operation succeeds as long as the *operation* ran — a command that
+exited nonzero is only visible in `Metadata["return"]`, which none of the
+sidecar exec helpers checked. Consequences caught live: `sc-adm tenant create`
+returned success in ~5s on a cached-image host while the whole package install
+had failed against a still-booting container (no CoreDNS, no Tailscale); the
+DNS reconciler's post-write CoreDNS reload failed invisibly and the live-file
+compare then skipped it forever (zone file right, served zone stale ~1min).
+Fixes: `execExitError` applied to `execSidecar`/`execSidecarCapture`, the v1
+`restartCoreDNS`, and the reconciler's reload (now with stderr capture);
+`waitV2SidecarBoot` (systemd settled + tenant IPv4 on eth0) between sidecar
+launch and provisioning execs. Deliberately NOT swept every other exec site in
+one go (machine connect/lifecycle/ssh-key paths) — those have their own
+error-observation semantics and deserve a separate pass; noted here so the
+sweep isn't forgotten. Also repaired `scripts/e2e-v2.sh` (pipefail early-exit,
+nss-myhostname false positives via `getent ahostsv4`, cleanup that now purges
+via the product path incl. shared volumes). `e2e-v2.sh` runs GREEN on majestix.
+
 ## 2026-07-08 — verbose service logging + per-user log browser
 
 - Added a shared `internal/svclog` package (the repo had no logging layer at

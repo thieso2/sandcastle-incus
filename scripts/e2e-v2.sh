@@ -44,12 +44,22 @@ fail() { printf 'FAIL: %s\n' "$*"; FAILED=1; }
 
 cleanup() {
   log "cleanup ${TENANT}"
+  # Product path first: tenant delete --purge tears down app projects (incl.
+  # the shared home/workspace volumes that block a bare project delete), the
+  # infra project, and the bridge, all-or-nothing.
+  "$SC_ADM" tenant delete "$TENANT" --yes --purge >/dev/null 2>&1 || true
+  # Manual sweep for partial states the product path refuses to touch.
   for p in "$DEF" "$BACK" "$INFRA"; do
     for i in $(incus list --project "$p" -c n --format csv 2>/dev/null); do
       incus delete "$i" --project "$p" --force 2>/dev/null || true
     done
-    # a project is only removable once empty: drop non-default profiles and any
-    # images it owns (app projects run features.images=true).
+    # a project is only removable once empty: drop non-default profiles, any
+    # images it owns (app projects run features.images=true), and the shared
+    # home/workspace volumes (detach from the default profile FIRST).
+    for v in home workspace; do
+      incus profile device remove default "$v" --project "$p" 2>/dev/null || true
+      incus storage volume delete default "$v" --project "$p" 2>/dev/null || true
+    done
     for prof in $(incus profile list --project "$p" --format csv -c n 2>/dev/null | grep -v '^default$'); do
       incus profile delete "$prof" --project "$p" 2>/dev/null || true
     done
@@ -71,8 +81,12 @@ trap cleanup EXIT
 # within seconds. Returns the A record, empty on NXDOMAIN.
 resolve_in_machine() {
   local host="$1" via="$2" proj="$3" ip="" i
-  for i in $(seq 1 15); do
-    ip="$(incus exec "$via" --project "$proj" -- getent hosts "$host" 2>/dev/null | awk '{print $1}' | head -1)"
+  # ahostsv4, not hosts: `getent hosts` prefers AAAA and nss-myhostname answers
+  # a machine's OWN canonical name with a useless fe80:: link-local, masking a
+  # missing zone record. Registration on a fresh tenant can take a full
+  # reconcile period plus sidecar exec time, so allow 60s.
+  for i in $(seq 1 30); do
+    ip="$(incus exec "$via" --project "$proj" -- getent ahostsv4 "$host" 2>/dev/null | awk 'NR==1{print $1}' || true)"
     [ -n "$ip" ] && break
     sleep 2
   done
@@ -82,7 +96,11 @@ resolve_in_machine() {
 # The full stack is required (ADR-0018: no harness shortcuts): DNS records are
 # registered ONLY by the auth-app reconciler; the dnsmasq fallthrough is gone.
 log "full stack present?"
-if incus exec sc2-auth-app --project infrastructure -- systemctl is-active sandcastle-auth-app >/dev/null 2>&1; then
+# sc-adm install puts the auth-app appliance in <prefix>-infra (default
+# sc2-infra); the plain "infrastructure" project is the pre-install legacy
+# layout — accept either.
+if incus exec sc2-auth-app --project sc2-infra -- systemctl is-active sandcastle-auth-app >/dev/null 2>&1 \
+  || incus exec sc2-auth-app --project infrastructure -- systemctl is-active sandcastle-auth-app >/dev/null 2>&1; then
   pass "auth-app is running (DNS reconciler active)"
 else
   fail "auth-app appliance is not running — deploy the full stack first (sc-adm install); DNS assertions cannot pass without its reconciler"
@@ -114,7 +132,7 @@ check_machine() {
   local wip; wip="$(resolve_in_machine "app1.${canonical}" "$name" "$proj")"
   [ "$wip" = "$ip" ] && pass "wildcard app1.${canonical} -> ${wip}" || fail "wildcard app1.${canonical} (got '${wip}')"
   # short alias: default project ONLY
-  local sip; sip="$(incus exec "$name" --project "$proj" -- getent hosts "${name}.${TENANT}" 2>/dev/null | awk '{print $1}' | head -1)"
+  local sip; sip="$(incus exec "$name" --project "$proj" -- getent ahostsv4 "${name}.${TENANT}" 2>/dev/null | awk 'NR==1{print $1}' || true)"
   if [ "$short" = "default" ]; then
     [ "$sip" = "$ip" ] && pass "short ${name}.${TENANT} -> ${sip} (default project alias)" || fail "short ${name}.${TENANT} (got '${sip}')"
   else

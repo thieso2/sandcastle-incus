@@ -415,7 +415,10 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 				return fmt.Errorf("wait for sidecar %s start: %w", plan.SidecarInstance, err)
 			}
 		}
-		return waitInstanceRunning(server, plan.SidecarInstance, 60*time.Second)
+		if err := waitInstanceRunning(server, plan.SidecarInstance, 60*time.Second); err != nil {
+			return err
+		}
+		return waitV2SidecarBoot(server, plan.SidecarInstance)
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
 		return fmt.Errorf("get sidecar %s: %w", plan.SidecarInstance, err)
 	}
@@ -444,7 +447,39 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 	}
 	// Start:true returns before the guest is actually up; wait for RUNNING so
 	// the subsequent exec/file-push steps don't race the boot ("Not Found").
-	return waitInstanceRunning(server, plan.SidecarInstance, 60*time.Second)
+	if err := waitInstanceRunning(server, plan.SidecarInstance, 60*time.Second); err != nil {
+		return err
+	}
+	return waitV2SidecarBoot(server, plan.SidecarInstance)
+}
+
+// waitV2SidecarBoot blocks until the sidecar has actually BOOTED: systemd
+// settled and eth0 holding its tenant DHCP address. Incus RUNNING is only
+// "processes exist" — with a cached image the container reaches RUNNING within
+// a second and the package-install exec then raced the boot: apt had no
+// network yet and failed. That failure was invisible while exec exit codes
+// were swallowed (see execSidecar), which is how `tenant create` shipped
+// sidecars with no CoreDNS/Tailscale at all (caught live on majestix).
+func waitV2SidecarBoot(server TenantResourceServer, instance string) error {
+	script := strings.Join([]string{
+		"s=offline",
+		"for i in $(seq 1 60); do",
+		"  s=$(systemctl is-system-running 2>/dev/null || true)",
+		"  case \"$s\" in running|degraded) break;; esac",
+		"  sleep 2",
+		"done",
+		"case \"$s\" in running|degraded) ;; *) echo \"sidecar systemd not ready after 120s (state: $s)\" >&2; exit 1;; esac",
+		"for i in $(seq 1 60); do",
+		"  ip -4 -o addr show eth0 2>/dev/null | grep -q ' inet 10\\.' && exit 0",
+		"  sleep 2",
+		"done",
+		"echo 'sidecar eth0 got no tenant IPv4 (DHCP) after 120s' >&2",
+		"exit 1",
+	}, "\n")
+	if err := execSidecar(server, instance, script); err != nil {
+		return fmt.Errorf("wait for sidecar boot: %w", err)
+	}
+	return nil
 }
 
 // waitInstanceRunning blocks until the instance reports RUNNING (or timeout).
@@ -784,7 +819,31 @@ func execSidecarCapture(server TenantResourceServer, instance string, script str
 		return "", fmt.Errorf("%w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
 	}
 	<-dataDone
+	if err := execExitError(op, stderr.String()); err != nil {
+		return "", err
+	}
 	return stdout.String(), nil
+}
+
+// execExitError surfaces a nonzero command exit code from an exec operation.
+// The SDK's op.Wait() only fails when the OPERATION fails (spawn error) — a
+// script that ran and exited nonzero still "succeeds", which silently masked
+// every sidecar provisioning failure (caught live on majestix: `tenant
+// create` returned success with the whole package install failed).
+func execExitError(op incus.Operation, stderr string) error {
+	metadata := op.Get().Metadata
+	if metadata == nil {
+		return nil
+	}
+	code, ok := metadata["return"].(float64)
+	if !ok || code == 0 {
+		return nil
+	}
+	detail := strings.TrimSpace(stderr)
+	if detail == "" {
+		detail = "no stderr"
+	}
+	return fmt.Errorf("command exited with status %d (stderr: %s)", int(code), detail)
 }
 
 func execSidecar(server TenantResourceServer, instance string, script string) error {
@@ -805,7 +864,7 @@ func execSidecar(server TenantResourceServer, instance string, script string) er
 		return fmt.Errorf("%w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
 	}
 	<-dataDone
-	return nil
+	return execExitError(op, stderr.String())
 }
 
 func boolStr(v bool) string {
