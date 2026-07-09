@@ -3232,7 +3232,7 @@ func TestMachineDeletePromptsOnTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr, "Delete machine codex? [y/N]") {
+	if !strings.Contains(stderr, "Delete machine default:codex? [y/N]") {
 		t.Fatalf("stderr = %q", stderr)
 	}
 	if !controller.called || controller.plan.Action != machine.ActionDelete {
@@ -3265,7 +3265,7 @@ func TestMachineDeletePromptCanCancel(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected cancel error")
 	}
-	if !strings.Contains(stderr, "Delete machine codex? [y/N]") {
+	if !strings.Contains(stderr, "Delete machine default:codex? [y/N]") {
 		t.Fatalf("stderr = %q", stderr)
 	}
 	if !strings.Contains(err.Error(), "delete canceled") {

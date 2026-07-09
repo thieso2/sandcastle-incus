@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -175,6 +176,72 @@ func resolveV2MachineReference(summary tenant.Summary, reference string, current
 			project, summary.Tenant, strings.Join(names, ", "), hint, project)
 	}
 	return project, machine, nil
+}
+
+// v2ReferenceHasProject reports whether the reference names its project
+// explicitly ("[tenant/]project:machine") rather than leaving it to be inferred.
+func v2ReferenceHasProject(reference string) bool {
+	reference = strings.TrimSpace(reference)
+	if _, rest, ok := strings.Cut(reference, "/"); ok {
+		reference = rest
+	}
+	return strings.Contains(reference, ":")
+}
+
+// resolveV2MachineTarget resolves a reference to a machine that must already
+// exist. An explicit "project:machine" is taken at its word. A bare machine
+// name is looked up across every project of the tenant instead of assuming the
+// Current Project: one hit resolves silently, several ask which one is meant.
+// No hit falls back to the inferred project so the caller's own "not found"
+// names the project it looked in.
+func resolveV2MachineTarget(ctx context.Context, config commandConfig, summary tenant.Summary, reference string) (project string, machine string, err error) {
+	project, machine, err = resolveV2MachineReference(summary, reference, config.adminConfig.Project)
+	if err != nil || v2ReferenceHasProject(reference) {
+		return project, machine, err
+	}
+	projects, err := v2MachineProjects(ctx, config, summary, machine)
+	if err != nil {
+		return "", "", err
+	}
+	switch len(projects) {
+	case 0:
+		return project, machine, nil
+	case 1:
+		return projects[0], machine, nil
+	}
+	qualified := make([]string, 0, len(projects))
+	for _, candidate := range projects {
+		qualified = append(qualified, candidate+":"+machine)
+	}
+	if !isTerminalInput(config) {
+		return "", "", fmt.Errorf("machine %q exists in %d projects (%s); name the one you mean as project:machine",
+			machine, len(projects), strings.Join(qualified, ", "))
+	}
+	choice, err := promptChoice(config, fmt.Sprintf("Machine %q exists in %d projects:", machine, len(projects)), qualified)
+	if err != nil {
+		return "", "", err
+	}
+	return projects[choice], machine, nil
+}
+
+// v2MachineProjects returns, sorted, the projects of the tenant that hold a
+// machine with the given name.
+func v2MachineProjects(ctx context.Context, config commandConfig, summary tenant.Summary, machine string) ([]string, error) {
+	if config.machineStore == nil {
+		return nil, fmt.Errorf("machine metadata store is not configured")
+	}
+	machines, err := config.machineStore.ListMachines(ctx, summary)
+	if err != nil {
+		return nil, err
+	}
+	projects := []string{}
+	for _, candidate := range machines {
+		if candidate.Name == machine {
+			projects = append(projects, candidate.Project)
+		}
+	}
+	sort.Strings(projects)
+	return projects, nil
 }
 
 type createV2Options struct {

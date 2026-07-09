@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"golang.org/x/term"
@@ -26,6 +27,31 @@ func confirmMissingYes(config commandConfig, prompt string, missingYesMessage st
 		return true, nil
 	}
 	return false, fmt.Errorf("delete canceled")
+}
+
+// promptChoice asks the user to pick one of the numbered options and returns
+// its index. Anything that is not one of the offered numbers cancels.
+func promptChoice(config commandConfig, prompt string, options []string) (int, error) {
+	if !isTerminalInput(config) {
+		return 0, fmt.Errorf("cannot ask which one was meant without a terminal")
+	}
+	if config.stderr != nil {
+		fmt.Fprintf(config.stderr, "%s\n", prompt)
+		for index, option := range options {
+			fmt.Fprintf(config.stderr, "  %d) %s\n", index+1, option)
+		}
+		fmt.Fprintf(config.stderr, "Which one? [1-%d] ", len(options))
+	}
+	answer, err := bufio.NewReader(config.stdin).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return 0, err
+	}
+	answer = strings.TrimSpace(answer)
+	choice, err := strconv.Atoi(answer)
+	if err != nil || choice < 1 || choice > len(options) {
+		return 0, fmt.Errorf("canceled: %q is not one of 1-%d", answer, len(options))
+	}
+	return choice - 1, nil
 }
 
 func isTerminalInput(config commandConfig) bool {

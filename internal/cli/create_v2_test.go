@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +84,105 @@ func TestResolveV2MachineReference(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), `did you mean "test2:dev"`) {
 			t.Fatalf("error %q missing the swap hint", err.Error())
+		}
+	})
+}
+
+// A bare machine name is ambiguous when several projects hold a machine by
+// that name — Incus lets them coexist, so `sc delete dev` has to ask rather
+// than silently pick the Current Project.
+func TestResolveV2MachineTarget(t *testing.T) {
+	summary := tenant.Summary{
+		Tenant:   "acme",
+		Projects: []meta.Project{{Name: "default"}, {Name: "io"}, {Name: "web"}},
+	}
+	store := fakeMachineStatusStore{machines: []meta.Machine{
+		{Project: "io", Name: "dev"},
+		{Project: "web", Name: "dev"},
+		{Project: "web", Name: "solo"},
+	}}
+	terminal := func(io.Reader) bool { return true }
+
+	t.Run("explicit project skips the search", func(t *testing.T) {
+		config := commandConfig{machineStore: store, stdinIsTerminal: terminal}
+		project, machineName, err := resolveV2MachineTarget(context.Background(), config, summary, "io:dev")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if project != "io" || machineName != "dev" {
+			t.Fatalf("got %q/%q", project, machineName)
+		}
+	})
+
+	t.Run("single match resolves outside the current project", func(t *testing.T) {
+		config := commandConfig{machineStore: store, stdinIsTerminal: terminal}
+		config.adminConfig.Project = "default"
+		project, machineName, err := resolveV2MachineTarget(context.Background(), config, summary, "solo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if project != "web" || machineName != "solo" {
+			t.Fatalf("got %q/%q", project, machineName)
+		}
+	})
+
+	t.Run("no match falls back to the inferred project", func(t *testing.T) {
+		config := commandConfig{machineStore: store, stdinIsTerminal: terminal}
+		config.adminConfig.Project = "io"
+		project, machineName, err := resolveV2MachineTarget(context.Background(), config, summary, "ghost")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if project != "io" || machineName != "ghost" {
+			t.Fatalf("got %q/%q", project, machineName)
+		}
+	})
+
+	t.Run("several matches ask which one is meant", func(t *testing.T) {
+		stderr := &strings.Builder{}
+		config := commandConfig{
+			machineStore:    store,
+			stdin:           strings.NewReader("2\n"),
+			stderr:          stderr,
+			stdinIsTerminal: terminal,
+		}
+		project, machineName, err := resolveV2MachineTarget(context.Background(), config, summary, "dev")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if project != "web" || machineName != "dev" {
+			t.Fatalf("got %q/%q", project, machineName)
+		}
+		for _, want := range []string{`Machine "dev" exists in 2 projects:`, "1) io:dev", "2) web:dev", "Which one? [1-2]"} {
+			if !strings.Contains(stderr.String(), want) {
+				t.Fatalf("prompt %q missing %q", stderr.String(), want)
+			}
+		}
+	})
+
+	t.Run("several matches without a terminal demand a qualified reference", func(t *testing.T) {
+		config := commandConfig{machineStore: store, stdinIsTerminal: func(io.Reader) bool { return false }}
+		_, _, err := resolveV2MachineTarget(context.Background(), config, summary, "dev")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		for _, want := range []string{`machine "dev" exists in 2 projects`, "io:dev, web:dev", "project:machine"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("error %q missing %q", err.Error(), want)
+			}
+		}
+	})
+
+	t.Run("an answer outside the offered range cancels", func(t *testing.T) {
+		config := commandConfig{
+			machineStore:    store,
+			stdin:           strings.NewReader("9\n"),
+			stderr:          &strings.Builder{},
+			stdinIsTerminal: terminal,
+		}
+		_, _, err := resolveV2MachineTarget(context.Background(), config, summary, "dev")
+		if err == nil || !strings.Contains(err.Error(), "canceled") {
+			t.Fatalf("error = %v", err)
 		}
 	})
 }

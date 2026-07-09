@@ -21,12 +21,13 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			// v2 tenants: freeform instances, plain names — apply the action
 			// directly instead of the v1 plan machinery.
 			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
-				project, machineName, err := resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
+				project, machineName, err := resolveV2MachineTarget(cmd.Context(), config, summary, args[0])
 				if err != nil {
 					return err
 				}
+				qualified := project + ":" + machineName
 				if requireYes && !yes {
-					confirmed, err := confirmMissingYes(config, "Delete machine "+machineName+"?", "refusing to delete machine without --yes")
+					confirmed, err := confirmMissingYes(config, "Delete machine "+qualified+"?", "refusing to delete machine without --yes")
 					if err != nil {
 						return err
 					}
@@ -43,7 +44,7 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 					Project string `json:"project"`
 					Machine string `json:"machine"`
 				}{string(action), summary.Tenant, project, machineName}
-				return writeOutput(config.stdout, opts.output, fmt.Sprintf("%s %s", action, machineName), payload)
+				return writeOutput(config.stdout, opts.output, fmt.Sprintf("%s %s", action, qualified), payload)
 			}
 			plan, err := machine.PlanLifecycle(cmd.Context(), config.adminConfig, config.tenantStore, config.machineStore, machine.LifecycleRequest{
 				Reference: args[0],
@@ -56,7 +57,7 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 				return fmt.Errorf("machine lifecycle executor is not configured")
 			}
 			if requireYes && !yes {
-				confirmed, err := confirmMissingYes(config, "Delete machine "+plan.Reference+"?", "refusing to delete machine without --yes")
+				confirmed, err := confirmMissingYes(config, "Delete machine "+plan.Project+":"+plan.Name+"?", "refusing to delete machine without --yes")
 				if err != nil {
 					return err
 				}
