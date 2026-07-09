@@ -128,3 +128,29 @@ Unmatched SNIs fall through and the connection closes; add a catch-all `route` i
   dashboard, then pass its token. The token is a secret (`/etc/default/cloudflared`,
   mode `600`); don't commit it. Cloudflare terminates TLS, so tunneled hosts are
   **mutually exclusive with SNI passthrough** and do not use ACME at all.
+
+## Agent skills
+
+`sc-edge` lives inside the `sandcastle-incus` repo and shares its issue tracker and
+triage vocabulary. Only the domain docs are local.
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues (`thieso2/sandcastle-incus`) — the same
+tracker as the parent project; there is no separate `sc-edge` tracker. External pull
+requests are also a triage surface. See [`../docs/agents/issue-tracker.md`](../docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The standard five-label triage vocabulary. See [`../docs/agents/triage-labels.md`](../docs/agents/triage-labels.md).
+
+### Domain docs
+
+`sc-edge` is a **child context** in a multi-context repo. Read both:
+
+- [`CONTEXT.md`](CONTEXT.md) — edge-appliance glossary (this context)
+- [`../CONTEXT.md`](../CONTEXT.md) → [`../docs/glossary.md`](../docs/glossary.md) — Sandcastle-wide vocabulary the child defers to
+
+ADRs likewise: [`docs/adr/`](docs/adr/) for edge decisions, [`../docs/adr/`](../docs/adr/)
+for system-wide ones. The root [`../CONTEXT-MAP.md`](../CONTEXT-MAP.md) indexes both.
+Consumer rules are in [`../docs/agents/domain.md`](../docs/agents/domain.md).
