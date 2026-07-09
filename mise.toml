@@ -1,5 +1,8 @@
 [tools]
-go = "1.25.6"
+go = "latest"
+node = "latest"
+npm = "latest"
+starship = "latest"
 
 [tasks.build]
 description = "Build the sandcastle CLI and sc alias"
