@@ -3,6 +3,7 @@ package tenant
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -85,18 +86,22 @@ func GetStatusWithTopologyForPrefix(ctx context.Context, store IncusTenantStore,
 				Shares:  shareHealth(summary, tenants),
 				Checks: []Check{
 					{Name: "metadata", Status: "ok", Detail: "Sandcastle tenant metadata is present"},
-					{Name: "cidr", Status: checkPresent(summary.PrivateCIDR), Detail: summary.PrivateCIDR},
+					cidrCheck(summary),
 					{Name: "dns", Status: checkPresent(summary.DNSSuffix), Detail: summary.DNSSuffix},
 					tailscaleRouteCheck(summary),
 				},
 			}
 			if topologyStore != nil {
 				topologyRequest.IncusProject = summary.IncusName
-				topologyRequest.InfraProject = naming.TenantInfraIncusProjectName(summary.IncusName)
+				// The infra project is on the summary already. Recomputing it as
+				// "<incus project>-infra" is the v1 rule, and under v2 the current
+				// project is an APP project (<prefix>-<tenant>-<project>), so it
+				// produced the nonexistent "<prefix>-<tenant>-default-infra".
+				topologyRequest.InfraProject = summary.InfraProject
 				topologyRequest.DNSSuffix = summary.DNSSuffix
 				topology, err := topologyStore.GetTopology(ctx, topologyRequest)
 				if err != nil {
-					status.Checks = append(status.Checks, Check{Name: "topology", Status: "error", Detail: err.Error()})
+					status.Checks = append(status.Checks, topologyErrorCheck(summary, err))
 					return status, nil
 				}
 				status.Checks = append(status.Checks, TopologyChecks(topology)...)
@@ -177,6 +182,47 @@ func checkPresent(value string) string {
 		return "missing"
 	}
 	return "ok"
+}
+
+// cidrCheck reports the tenant's private /24. A v2 tenant stores it only on the
+// kind=infra project, which a restricted tenant certificate cannot read — the
+// value is absent because it is out of reach, not because the tenant is broken,
+// so say "unknown" rather than "missing".
+func cidrCheck(summary Summary) Check {
+	if summary.PrivateCIDR != "" {
+		return Check{Name: "cidr", Status: "ok", Detail: summary.PrivateCIDR}
+	}
+	if summary.Version == 2 {
+		return Check{
+			Name:   "cidr",
+			Status: "unknown",
+			Detail: "stored on the infra project " + summary.InfraProject + ", which a tenant certificate cannot read",
+		}
+	}
+	return Check{Name: "cidr", Status: "missing"}
+}
+
+// topologyErrorCheck downgrades the one failure that is expected rather than
+// broken: a v2 tenant's sidecar lives in the infra project, and a restricted
+// tenant certificate is not granted that project. Reading topology needs an
+// admin remote.
+func topologyErrorCheck(summary Summary, err error) Check {
+	if summary.Version == 2 && isProjectPermissionError(err) {
+		return Check{
+			Name:   "topology",
+			Status: "unknown",
+			Detail: "infra project " + summary.InfraProject + " is not visible to this tenant certificate; run from an admin remote to check topology",
+		}
+	}
+	return Check{Name: "topology", Status: "error", Detail: err.Error()}
+}
+
+// isProjectPermissionError matches the Incus daemon's refusal to expose a
+// project a certificate is not granted ("User does not have permission for
+// project \"x\""). Incus returns the same error for a project that does not
+// exist, which is exactly the ambiguity a restricted client cannot resolve.
+func isProjectPermissionError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "does not have permission for project")
 }
 
 // TopologyChecks returns stable tenant resource checks for status and diagnostics output.

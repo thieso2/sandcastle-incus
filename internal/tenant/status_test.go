@@ -2,6 +2,8 @@ package tenant
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
@@ -196,4 +198,86 @@ type fakeTopologyStore struct {
 
 func (s fakeTopologyStore) GetTopology(ctx context.Context, request TopologyRequest) (Topology, error) {
 	return s.topology, nil
+}
+
+// Regression for #55: a v2 tenant's sidecar lives in the infra project
+// (<prefix>-<tenant>), not "<incus project>-infra". The v1 rule produced
+// "<prefix>-<tenant>-default-infra", which does not exist, so `sc status`
+// reported a topology error on a perfectly healthy tenant.
+func TestGetStatusUsesTheSummaryInfraProjectForTopology(t *testing.T) {
+	infraConfig := map[string]string{
+		meta.KeyKind:    meta.KindInfra,
+		meta.KeyTenant:  "alice",
+		meta.KeyVersion: "2",
+		meta.KeyV2CIDR:  "10.61.0.0/24",
+	}
+	appConfig := map[string]string{
+		meta.KeyKind:    meta.KindV2Project,
+		meta.KeyTenant:  "alice",
+		meta.KeyVersion: "2",
+	}
+	recorder := &recordingTopologyStore{}
+	_, err := GetStatusWithTopology(
+		context.Background(),
+		MemoryStore{Projects: []IncusProject{
+			{Name: "sc2-alice", Config: infraConfig},
+			{Name: "sc2-alice-default", Config: appConfig},
+		}},
+		recorder,
+		TopologyRequest{},
+		"alice",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recorder.request.InfraProject != "sc2-alice" {
+		t.Fatalf("InfraProject = %q, want %q (the v1 rule gave sc2-alice-default-infra)", recorder.request.InfraProject, "sc2-alice")
+	}
+}
+
+// The infra project is deliberately not granted to a restricted tenant
+// certificate, so the failure is expected rather than broken: report it as
+// unknown, not as an error on a healthy tenant.
+func TestTopologyPermissionErrorIsUnknownForV2(t *testing.T) {
+	summary := Summary{Tenant: "alice", Version: 2, InfraProject: "sc2-alice"}
+	check := topologyErrorCheck(summary, errors.New(`User does not have permission for project "sc2-alice"`))
+	if check.Status != "unknown" {
+		t.Fatalf("status = %q, want unknown (detail=%q)", check.Status, check.Detail)
+	}
+	if !strings.Contains(check.Detail, "sc2-alice") || !strings.Contains(check.Detail, "admin remote") {
+		t.Fatalf("detail = %q", check.Detail)
+	}
+	if real := topologyErrorCheck(summary, errors.New("sidecar container is missing")); real.Status != "error" {
+		t.Fatalf("a real failure must stay an error, got %q", real.Status)
+	}
+	// v1's infra project IS reachable, so a permission problem there is genuine
+	v1 := topologyErrorCheck(Summary{Tenant: "alice"}, errors.New(`User does not have permission for project "sc-alice-infra"`))
+	if v1.Status != "error" {
+		t.Fatalf("v1 status = %q, want error", v1.Status)
+	}
+}
+
+// The v2 CIDR is stored only on the infra project, so a tenant certificate
+// cannot read it. Absent-because-unreachable is "unknown", not "missing".
+func TestCIDRCheckIsUnknownWhenV2InfraIsUnreadable(t *testing.T) {
+	unknown := cidrCheck(Summary{Tenant: "alice", Version: 2, InfraProject: "sc2-alice"})
+	if unknown.Status != "unknown" || !strings.Contains(unknown.Detail, "sc2-alice") {
+		t.Fatalf("check = %#v", unknown)
+	}
+	present := cidrCheck(Summary{Tenant: "alice", Version: 2, InfraProject: "sc2-alice", PrivateCIDR: "10.61.0.0/24"})
+	if present.Status != "ok" || present.Detail != "10.61.0.0/24" {
+		t.Fatalf("check = %#v", present)
+	}
+	if missing := cidrCheck(Summary{Tenant: "alice"}); missing.Status != "missing" {
+		t.Fatalf("v1 without a CIDR is genuinely missing: %#v", missing)
+	}
+}
+
+type recordingTopologyStore struct {
+	request TopologyRequest
+}
+
+func (s *recordingTopologyStore) GetTopology(ctx context.Context, request TopologyRequest) (Topology, error) {
+	s.request = request
+	return Topology{}, nil
 }
