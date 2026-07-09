@@ -104,7 +104,7 @@ Keep a running `implementation-notes.md` at the repo root. As you work, append a
 
 ## Conventions
 
-- Issues and PRDs live in **GitHub Issues** (`thieso2/incus-sandcastle`) — use `gh` CLI. See `docs/agents/`.
+- Issues and PRDs live in **GitHub Issues** (`thieso2/sandcastle-incus`, this repo's own remote) — use `gh` CLI. See `docs/agents/`.
 - Domain terms from `CONTEXT.md` are canonical — use them in code, comments, and messages. ADRs under `docs/adr/` record resolved design decisions.
 - Generated artifacts (`server.crt`, `server.key`, `sandcastle-users.json`, `*.iso`, `*.seed.yml`) are gitignored — don't commit them.
 - `DOCKER_ARCHITECTURE.md` maps the original Docker+Sysbox design to Incus primitives — read it before changing topology or networking.
