@@ -22,6 +22,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # `sc login` shells out to `incus remote add`, so the login tests in
+      # internal/cli need an `incus` binary on PATH or they fail with
+      # "the incus client is required". incus-client is the client-only package.
+      - name: Install the Incus client
+        run: sudo apt-get update && sudo apt-get install -y incus-client
+
       - name: Unit tests
         run: scripts/e2e.sh unit
 
