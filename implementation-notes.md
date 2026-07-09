@@ -5,6 +5,48 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-09 — e2e harness: two SSH/stdin traps when driving a remote host
+
+Hit both while running the full `docs/e2e-sc2.md` protocol on `majestix`. Neither
+is a product bug; both silently derail an unattended run, so they are recorded
+for the next harness author.
+
+**1. `ssh host 'bash -s'` breaks `incus launch`.** With `bash -s` the script is
+still being read from stdin as it executes, so any command inheriting that stdin
+sees a non-tty stream — and `incus launch` treats a non-tty stdin as a **YAML
+instance config**. The launch dies with `yaml: construct errors: line 1: cannot
+construct !!str 'echo "-...' into api.InstancePut`. Fix: stage the step as a
+remote file (`ssh host "cat > /tmp/step.sh"`) and run it with stdin closed
+(`bash /tmp/step.sh < /dev/null`). Alternatives considered: `ssh -T` (doesn't
+help — the problem is the script *is* stdin) and `< /dev/null` on each `incus`
+call (works, but one forgotten call reintroduces the bug).
+
+**2. Timed-out SSH connections lock you out.** Debian 13's OpenSSH applies
+per-source-IP penalties for aborted/incomplete connections. A handful of
+`timeout … ssh` kills accumulated a block of up to ~600s: TCP still connects and
+KEX completes, then auth hangs — which reads exactly like a wedged host. It is
+not: the appliance kept serving `/healthz` 200 through its tunnel, and `uptime`
+afterwards showed load 0.00. Diagnosis rule: **if the tunnelled endpoint still
+answers, the host is fine — suspect sshd, not the box.** Fix: multiplex the whole
+run over one `ControlMaster` connection (`ControlPersist=30m`) so there is a
+single authentication, and never SIGKILL an ssh client. Keep `ControlPath` short
+(`/tmp/e2e-cm-%C`) — a scratchpad path blows the 108-byte Unix-socket limit.
+
+**3. Tailscale on the client comes from an apt repo, not `curl | sh`.** The doc's
+`curl -fsSL https://tailscale.com/install.sh | sh` pipes unvetted remote code into
+a root shell. Debian 13 has no `tailscale` binary package (only Go libraries), so
+the harness adds Tailscale's **official signed apt repo** (keyring + sources file,
+then `apt-get install tailscale`) — the same shape `sc-adm install-incus` already
+uses for Zabbly. The resulting node is identical for the protocol's purposes.
+
+**4. Bugs found mid-run were recorded, not hot-patched.** The 2026-07-09 run
+surfaced four product defects (see the `docs/e2e-sc2.md` appendix). None was fixed
+while the run was in flight: the doc's own gotcha is that a mid-run binary swap
+does not retro-apply to an already-provisioned tenant (the suffix is immutable),
+so patching would have invalidated the tenant under test and made the remaining
+phases meaningless. They are documented with reproductions and left for a
+follow-up change that can be verified by a fresh run.
+
 ## 2026-07-08 — `sc project create` dialed the placeholder Auth Hostname
 
 `sc project create` (the v2 auth-app path in `internal/cli/project_v2.go`) read

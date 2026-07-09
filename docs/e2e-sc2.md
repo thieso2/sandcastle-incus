@@ -205,8 +205,12 @@ different suffixes (`ProvisionReuseInputs` tests). Run all three:
    coexist, each pointing at its own tenant's CoreDNS address (from its own
    install's CIDR pool); names in BOTH zones resolve simultaneously without
    switching remotes (DNS is per-suffix, not per-current-remote); cross-zone
-   lookups are NXDOMAIN both ways (`dev.default.tcA` absent from tcB's zone
-   and vice versa).
+   lookups fail both ways (`dev.default.tcA` absent from tcB's zone and vice
+   versa). Asking a sidecar's CoreDNS for a name in the *other* install's suffix
+   answers **REFUSED**, not NXDOMAIN (it is not authoritative for that zone) —
+   verified on `majestix` 2026-07-09. NXDOMAIN is what you get for an absent
+   name *within* a zone the server does own (e.g. `api.castle`, a short alias
+   outside the default project).
 
 Keep CIDR pools distinct across installs sharing a tailnet. Robustness fixes the
 from-scratch run surfaced (all in `internal/incusx` + the auth-app): tolerate
@@ -290,8 +294,12 @@ sc list                                      # FQDN column shows canonical names
 # 2b. shared $HOME + /workspace across the project (CT ↔ VM)
 sc create vm1 --vm --detach                  # a VM next to the CTs in default
 #    wait for both to be RUNNING (sc list), then:
-sc incus exec web -- sh -c 'echo from-ct > /workspace/marker; echo home-ct > /home/$USER/hmarker'
-sc incus exec vm1 -- sh -c 'cat /workspace/marker; cat /home/$USER/hmarker'   # → from-ct / home-ct
+# NB: `sc incus exec` runs as ROOT inside the machine, so $USER expands to "root"
+# and /home/root does not exist. Use the login user's home explicitly (default: sc).
+# NB: `sc c <machine> -- sh -c '<script>'` does NOT work — see the appendix
+# (`sc c` does not shell-quote its argv, so the remote shell re-splits it).
+sc incus exec web -- sh -c 'echo from-ct > /workspace/marker; echo home-ct > /home/sc/hmarker'
+sc incus exec vm1 -- sh -c 'cat /workspace/marker; cat /home/sc/hmarker'   # → from-ct / home-ct
 sc incus exec vm1 -- sh -c 'echo from-vm >> /workspace/marker'
 sc incus exec web -- cat /workspace/marker   # → from-ct then from-vm
 # PASS: the VM reads what the CT wrote on BOTH volumes and vice-versa (one
@@ -898,12 +906,29 @@ sc trust install $TENANT --dry-run  # preview the per-OS plan without changing t
 tenant path validates **without `-k`**.
 
 **v2 (ADR-0011):** the tenant CA is now issued by the **sidecar leaf signer**
-(`sandcastle-admin sidecar tls-sign`), and `sc login` **auto-installs** it — the
-v2 login branch fetches `http://<tenant .3>:9443/tls/ca` over the tenant subnet
-route and installs it into the local trust store, naming the entry after the
-CA's CN (`Sandcastle <suffix> tenant CA`) so same-named tenants of different
+(`sandcastle-admin sidecar tls-sign`), and `sc login` **attempts to auto-install**
+it — the v2 login branch fetches `http://<tenant .3>:9443/tls/ca` over the tenant
+subnet route and installs it into the local trust store, naming the entry after
+the CA's CN (`Sandcastle <suffix> tenant CA`) so same-named tenants of different
 installs don't collide. The public `sc-edge` path in Phase 7 needs **no** CA
 install (Let's Encrypt is already trusted).
+
+> ⚠️ **The auto-install only works when `sc login` runs as root** (validated on
+> `majestix` 2026-07-09). `internal/localtrust` writes
+> `/usr/local/share/ca-certificates/<name>.crt` and runs `update-ca-certificates`
+> **directly, with no privilege escalation**, so an ordinary user's `sc login`
+> prints `Note: tenant CA trust install failed: … permission denied` and carries
+> on (login itself still succeeds, exit 0). The follow-up command the note
+> suggests — `sc trust install <tenant>` — **cannot work either**:
+>
+> | command | rc | outcome |
+> |---|---|---|
+> | `sc trust install e2edns` | 1 | `permission denied` writing the CA |
+> | `sudo sc trust install e2edns` | 1 | `… (log in first)` — sudo resets `$HOME`, so the login config is unreachable |
+> | `sudo -E sc trust install e2edns` | 0 | works |
+>
+> **Use `sudo -E sc trust install <tenant>`.** The hint printed by `sc login`
+> should say so (it currently omits both `sudo` and `-E`).
 
 ---
 
@@ -921,7 +946,9 @@ so `*.<machine>` vhosts). Caddy runs as root.
 
 ```bash
 # On a fresh machine, from any tailnet-connected client (CA already trusted by sc login):
-curl -sS https://<machine>.<project>.<suffix>/            # 200, no -k → chains to tenant CA
+curl -sS https://<machine>.<project>.<suffix>/            # 502 until an app listens on :3000;
+                                                         # 200 once it does. No -k either way —
+                                                         # TLS always chains to the tenant CA.
 curl -sI  http://<machine>.<project>.<suffix>/ | head -1  # 308 → https (redirect)
 curl -so /dev/null -w '%{http_code}\n' https://<machine>.<project>.<suffix>/_h/  # 200 ($HOME)
 curl -so /dev/null -w '%{http_code}\n' https://<machine>.<project>.<suffix>/_w/  # 200 (/workspace)
@@ -1106,6 +1133,11 @@ stays truthful and self-healing.
 | `sc list`/`sc c` on a enroll-enrolled client → `tenant is required` | `enroll` never persisted `tenant`/`remote` into `~/.config/sandcastle/config.yml` (only the login path did) | **Fixed:** `enroll` saves the tenant + base remote as local defaults |
 | Second `sc login` re-runs the whole device flow instead of `Already logged in` | `/api/tenants` filtered accessibility through the v1 `ListTenantUsers` metadata, which v2 tenants don't have — the saved-token check concluded the tenant was "no longer accessible" | **Fixed:** a v2 personal tenant is accessible to the user whose key names it; also fixes `sc tenant list` for v2 |
 | Tenant CIDR ignores `bootstrap --cidr-pool` when created via `incus exec … tenant create` | The flag lands in the broker **service** env (`/etc/sandcastle/broker/env`), but a direct `incus exec` CLI call doesn't inherit an EnvironmentFile | Source it in the exec: `incus exec sc2-broker … -- sh -c '. /etc/sandcastle/broker/env && export SANDCASTLE_CIDR_POOL && sandcastle-admin tenant create …'` |
+| **(open, 2026-07-09)** `sc c <machine> -- sh -c '<script>'` silently misbehaves: `sh -c 'echo hi'` prints an empty line, `sh -c 'id -un'` prints the full `id` output, `touch X && …` reports "missing file operand" | `internal/cli/create_v2.go:266` does `sshArgs = append(sshArgs, command...)` and execs `ssh` — `ssh` joins its trailing args with **spaces** into one remote command string that the remote shell re-splits, so `sh -c` receives `echo` and `hi` as separate words. `sc incus exec` is unaffected (argv goes over the Incus API) | Shell-quote each element before handing it to `ssh`. Workaround: use `sc incus exec` for anything with quoting, or pass a single argv-safe command (`sc c web -- touch /workspace/x`) |
+| **(open, 2026-07-09)** A second user's `sc login` to an install **destroys the first user's enrollment on that client**: afterwards `sc list`/`sc status`/`sc c` all fail with `The remote "sc-<install>" doesn't exist` | The enrolled Incus remote is named per **install** (`sc-<auth-hostname>`), not per (install, user). A second user's login removes that remote and re-adds it; the re-add fails with `Failed to create certificate: Client is already trusted` (the client cert is already trusted from the first enrollment), leaving **no** remote behind | Repair: `sc login <auth-host> --simulate-token … --as <first-user> --force`. Real fix: name the remote per (install, user), and don't remove the old remote until the replacement is added |
+| **(open, 2026-07-09)** `sc status` reports three errors on a perfectly healthy v2 tenant: `cidr: missing`, `topology: error (… permission for project "sc2-<tenant>-default-infra")`, `shares:reconcile: error (user not found / not granted access to tenant …)`; the auth-app logs a matching `POST /api/shares/reconcile status=403` | The topology check derives the infra project with the **v1** rule `naming.go:197` → `mainProjectName + "-infra"`, i.e. `sc2-<tenant>-default-infra`. Under v2 the infra project is `sc2-<tenant>` (no suffix). `Private CIDR` and the shares reconcile are broken in the same v1-vs-v2 way | Not fixed. `sc status`'s health block is v1-shaped; the tenant itself is fine (machines, DNS, routing all pass) |
+| **(open, 2026-07-09)** `sc login` prints `Note: tenant CA trust install failed: … permission denied`, and its suggested follow-up `sc trust install <tenant>` also fails | `internal/localtrust/store.go` writes `/usr/local/share/ca-certificates/<name>.crt` and runs `update-ca-certificates` with **no privilege escalation**. Plain `sudo` fails differently — it resets `$HOME`, so the login config is unreachable (`… (log in first)`) | Use **`sudo -E sc trust install <tenant>`** (rc=0). The hint printed by `sc login` should say so. See Phase 8b |
+| Public routes (`sc route …`) unusable under Cloudflare-tunnel ingress | `--ingress cloudflare` deliberately deploys **no broker appliance**, and public-route DNS proof needs a public-IP infrastructure host | Expected: `sc route list` → `route broker executor is not configured`; `sc route create … --dry-run` → `infrastructure host is required for public route DNS proof`. Phase 7b is public-IP-shaped; use `--ingress acme` on a host with a public IP |
 | `sc create dev` succeeds but the machine does NOT show in `sc list` (two installs, same tenant name on one daemon) | `sc list` (also `sc project`, `sc dns/trust`, `sc status`) resolved the tenant by NAME only over the unscoped `tenant.List` — the other install's same-named tenant sorts first and shadows this one; only create/connect/lifecycle/incus were install-scoped | **Fixed:** those commands resolve via `scopedListTenants` (`tenant.ListForPrefix` keyed on the current remote's install prefix); regression test `TestListMachinesScopedToCurrentInstall` |
 | Shared `/home` silently NOT shared (VM can't see the CT's `/home` writes); `home` volume exists but is attached to no profile | `SupportsIdmappedMounts` keyed on `kernel_features["idmapped_mounts"] == "true"`, and **Incus 7.x stopped populating `kernel_features`** (always `{}`) — so every 7.x host looked idmapped-less and provisioning omitted the shared `/home` (and created both volumes unshifted) | **Fixed:** an ABSENT `idmapped_mounts` entry now means supported (the Incus 7.x kernel floor ≥ 5.15 includes it); only an explicit `"false"` disables the shared `/home`. Regression test `TestKernelFeaturesSupportIdmappedMounts`. **e2e check:** after provisioning, `incus profile show default --project <prefix>-<tenant>-default` lists BOTH `home` and `workspace` devices and both volumes have `security.shifted=true` |
 | `sc login --force --dns-suffix other` prints the immutable-suffix error, then hangs polling for ~10 min ("device login polling timed out") while the server re-attempts provisioning every poll | A provisioning failure always left the device login `pending` (correct for transient bring-up errors, wrong for deterministic user-input errors) | **Fixed:** terminal errors (`tenant.TerminalProvisionError`: immutable-suffix conflict, rejected suffix) DENY the device login; the client fails fast with `device login denied: <message>` and exit 1. Regression test `TestDevicePollDeniesLoginOnTerminalProvisioningError` |
