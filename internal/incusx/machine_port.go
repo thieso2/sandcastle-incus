@@ -45,7 +45,7 @@ func (s MachinePortSetter) SetAppPort(ctx context.Context, plan machine.PortSetP
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
+		instanceServer, err := connectInstanceServer(loaded, remote)
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}

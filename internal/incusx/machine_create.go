@@ -97,7 +97,7 @@ func (c MachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePl
 		var instanceServer incus.InstanceServer
 		if err := c.runCommand("connect to Incus remote "+remote, func() error {
 			var err error
-			instanceServer, err = loaded.GetInstanceServer(remote)
+			instanceServer, err = connectInstanceServer(loaded, remote)
 			return err
 		}); err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)

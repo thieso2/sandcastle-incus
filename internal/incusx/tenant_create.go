@@ -73,7 +73,7 @@ func NewTenantCreatorForServer(server incus.InstanceServer) TenantCreator {
 
 func (c TenantCreator) WithVerbose(enabled bool, w io.Writer) TenantCreator {
 	if enabled {
-		c.Log = func(msg string) { fmt.Fprintln(w, "[tenant-create] "+msg) }
+		c.Log = func(msg string) { fmt.Fprintln(w, "[verbose] "+msg) }
 	}
 	return c
 }

@@ -51,7 +51,7 @@ func (c MachineController) ApplyLifecycle(ctx context.Context, plan machine.Life
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
+		instanceServer, err := connectInstanceServer(loaded, remote)
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}

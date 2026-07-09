@@ -510,6 +510,53 @@ client" during the coexistence e2e. Four linked fixes:
   delete). The sidecar's tailnet device is deliberately not removed (BYO
   tailnet, no server-side API key — ADR-0017); documented instead.
 
+## 2026-07-09 — VERBOSE mode traces every Incus REST call
+
+- `VERBOSE=1 sc delete <machine>` printed only the connect + `GetProjects`
+  lines and then went silent: `TenantCreator.MachineLifecycleV2` (the v2
+  delete/start/stop path) had no logging at all, so the force-stop and the
+  delete itself were invisible. Two fixes, at two different altitudes.
+- **Wire-level tracing (`internal/incusx/api_trace.go`).** Rather than keep
+  hand-placing `logIncusAPICall` at each call site — which is what let this
+  gap open in the first place — VERBOSE now installs a `tracingTransport` on
+  the connected server's shared `*http.Client`, logging one line per REST call
+  (`GET /1.0/instances/x?project=y -> 200 OK (203ms)`). Every Incus connection
+  in the package is funnelled through a new `connectInstanceServer` helper so
+  no call site can bypass it; the admin unix socket is wrapped via the
+  exported `TraceInstanceServer`.
+  - Alternatives considered: (a) `ConnectionArgs.TransportWrapper`, the
+    sanctioned hook — unusable, because `cliconfig.Config.GetInstanceServer`
+    builds its `ConnectionArgs` in an unexported method we cannot reach;
+    (b) a logging decorator over `TenantCreateServer`/`TenantResourceServer` —
+    ~40 mechanical methods, and it would still miss the packages that use
+    `incus.InstanceServer` directly. Swapping `client.Transport` is safe
+    because the wrapper implements `incus.HTTPTransporter`, which the client's
+    `getUnderlyingHTTPTransport` explicitly unwraps when it needs the concrete
+    `*http.Transport` (the hard `Transport.(*http.Transport)` assertion in the
+    SDK is on `ProtocolOCI`, a separate image-server client).
+  - Deliberately not traced: the `GET /1.0` handshake (runs inside
+    `ConnectIncus`, before the transport is swapped in — covered by the
+    existing "connect remote … done" line) and websocket traffic (exec
+    streams, the event stream behind `op.Wait()`); the request that *creates*
+    an operation is traced.
+- **Semantic logging in `MachineLifecycleV2`.** Added a `runInstanceOp` helper
+  that logs `started`/`done`/`failed` plus duration around each Incus
+  operation, so the log says *what* is happening alongside the raw HTTP. A
+  failing force-stop before delete was previously swallowed entirely
+  (`if op, err := ...; err == nil`); it is now logged, still non-fatal,
+  because `DeleteInstance` reports the real reason if the instance is still
+  running.
+- Renamed the `TenantCreator` verbose prefix from `[tenant-create]` to
+  `[verbose]`. The channel had long since outgrown its name — it carries
+  auth-app bootstrap, broker bootstrap, project create, and image publish
+  messages — and `[tenant-create] delete vtest-del` was actively misleading.
+  Nothing asserted on the old prefix.
+- Verified against the live `sc-obelix-thieso2-dev` remote by creating a
+  throwaway machine and deleting it while running: the trace shows
+  `GET /1.0/instances/…`, `PUT …/state` (force-stop), the operation poll,
+  `DELETE /1.0/instances/…`, and its poll. Admin-side wiring is identical but
+  unexercised on the dev laptop, which has no global Incus admin remote.
+
 ## Running Notes
 
 - Started implementation from the committed domain docs (`CONTEXT.md`,

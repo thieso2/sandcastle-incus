@@ -163,6 +163,7 @@ func Execute(name string, args []string) int {
 			incusConf = "~/.config/incus (default)"
 		}
 		fmt.Fprintf(os.Stderr, "[verbose] incus config: %s\n[verbose] incus remote: %s\n", incusConf, adminConfig.Remote)
+		incusx.SetAPITrace(os.Stderr)
 	}
 	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
 	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject

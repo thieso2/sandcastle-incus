@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"time"
 
+	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
@@ -150,6 +151,7 @@ func (c TenantCreator) MachineLifecycleV2(ctx context.Context, incusProject stri
 		return err
 	}
 	project := server.UseProject(incusProject)
+	c.log("machine " + action + ": " + incusProject + "/" + name)
 	instance, _, err := project.GetInstance(name)
 	if err != nil {
 		if api.StatusErrorCheck(err, http.StatusNotFound) {
@@ -157,33 +159,46 @@ func (c TenantCreator) MachineLifecycleV2(ctx context.Context, incusProject stri
 		}
 		return fmt.Errorf("get machine %s: %w", name, err)
 	}
+	c.log("machine " + name + " is " + instance.Status)
 	switch action {
 	case "delete":
 		if instance.StatusCode != api.Stopped {
-			if op, err := project.UpdateInstanceState(name, api.InstanceStatePut{Action: "stop", Force: true}, ""); err == nil {
-				_ = op.Wait()
+			if err := c.runInstanceOp("force-stop "+name, func() (incus.Operation, error) {
+				return project.UpdateInstanceState(name, api.InstanceStatePut{Action: "stop", Force: true}, "")
+			}); err != nil {
+				// A failed force-stop is not fatal: DeleteInstance below
+				// reports the real reason if the instance is still running.
+				c.log("force-stop " + name + " failed: " + err.Error())
 			}
 		}
-		op, err := project.DeleteInstance(name)
-		if err != nil {
-			return fmt.Errorf("delete machine %s: %w", name, err)
-		}
-		if err := op.Wait(); err != nil {
-			return fmt.Errorf("wait for machine %s deletion: %w", name, err)
-		}
-		return nil
+		return c.runInstanceOp("delete "+name, func() (incus.Operation, error) {
+			return project.DeleteInstance(name)
+		})
 	case "start", "stop", "restart":
-		op, err := project.UpdateInstanceState(name, api.InstanceStatePut{Action: action, Force: action != "start", Timeout: -1}, "")
-		if err != nil {
-			return fmt.Errorf("%s machine %s: %w", action, name, err)
-		}
-		if err := op.Wait(); err != nil {
-			return fmt.Errorf("wait for machine %s %s: %w", name, action, err)
-		}
-		return nil
+		return c.runInstanceOp(action+" "+name, func() (incus.Operation, error) {
+			return project.UpdateInstanceState(name, api.InstanceStatePut{Action: action, Force: action != "start", Timeout: -1}, "")
+		})
 	default:
 		return fmt.Errorf("unsupported machine action %q", action)
 	}
+}
+
+// runInstanceOp starts an Incus instance operation, waits for it, and reports
+// its outcome and duration on the verbose log.
+func (c TenantCreator) runInstanceOp(label string, start func() (incus.Operation, error)) error {
+	began := time.Now()
+	c.log("incus op: " + label + " started")
+	op, err := start()
+	if err != nil {
+		c.log(fmt.Sprintf("incus op: %s failed (%s)", label, formatVerboseDuration(time.Since(began))))
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	if err := op.Wait(); err != nil {
+		c.log(fmt.Sprintf("incus op: %s failed (%s)", label, formatVerboseDuration(time.Since(began))))
+		return fmt.Errorf("wait for %s: %w", label, err)
+	}
+	c.log(fmt.Sprintf("incus op: %s done (%s)", label, formatVerboseDuration(time.Since(began))))
+	return nil
 }
 
 func v2MachineIPTimeout(vm bool) time.Duration {

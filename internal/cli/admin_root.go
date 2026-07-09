@@ -56,6 +56,7 @@ func ExecuteAdmin(name string, args []string) int {
 			incusConf = "~/.config/incus (default)"
 		}
 		fmt.Fprintf(os.Stderr, "[verbose] incus config: %s\n[verbose] incus remote: %s\n", incusConf, adminConfig.Remote)
+		incusx.SetAPITrace(os.Stderr)
 	}
 
 	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
@@ -201,7 +202,11 @@ func routeBrokerSocketServer() (incus.InstanceServer, error) {
 		}
 		return nil, err
 	}
-	return incus.ConnectIncusUnix("/var/lib/incus/unix.socket", nil)
+	server, err := incus.ConnectIncusUnix("/var/lib/incus/unix.socket", nil)
+	if err != nil {
+		return nil, err
+	}
+	return incusx.TraceInstanceServer(server), nil
 }
 
 func routeBrokerServeArgs(args []string) bool {

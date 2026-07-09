@@ -413,7 +413,7 @@ func (m RouteManager) server() (RouteServer, error) {
 	if remote == "" {
 		remote = loaded.DefaultRemote
 	}
-	instanceServer, err := loaded.GetInstanceServer(remote)
+	instanceServer, err := connectInstanceServer(loaded, remote)
 	if err != nil {
 		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 	}

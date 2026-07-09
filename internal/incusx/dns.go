@@ -45,7 +45,7 @@ func (m DNSManager) Apply(ctx context.Context, summary dns.Tenant) (dns.ApplyRes
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
+		instanceServer, err := connectInstanceServer(loaded, remote)
 		if err != nil {
 			return dns.ApplyResult{}, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}

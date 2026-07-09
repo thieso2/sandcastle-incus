@@ -46,7 +46,7 @@ func (m TailscaleManager) RunUp(ctx context.Context, plan tailscale.UpPlan, sess
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
+		instanceServer, err := connectInstanceServer(loaded, remote)
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
@@ -184,7 +184,7 @@ func (m TailscaleManager) server() (TailscaleServer, error) {
 	if remote == "" {
 		remote = loaded.DefaultRemote
 	}
-	instanceServer, err := loaded.GetInstanceServer(remote)
+	instanceServer, err := connectInstanceServer(loaded, remote)
 	if err != nil {
 		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 	}

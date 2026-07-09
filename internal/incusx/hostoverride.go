@@ -166,7 +166,7 @@ func (m HostOverrideManager) resolveServer() (HostOverrideServer, error) {
 			remote = loaded.DefaultRemote
 		}
 		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
-			return loaded.GetInstanceServer(remote)
+			return connectInstanceServer(loaded, remote)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
@@ -289,7 +289,7 @@ func (m HostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan)
 			remote = loaded.DefaultRemote
 		}
 		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
-			return loaded.GetInstanceServer(remote)
+			return connectInstanceServer(loaded, remote)
 		})
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
@@ -316,7 +316,7 @@ func (m HostOverrideManager) Delete(ctx context.Context, plan hostoverride.Delet
 			remote = loaded.DefaultRemote
 		}
 		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
-			return loaded.GetInstanceServer(remote)
+			return connectInstanceServer(loaded, remote)
 		})
 		if err != nil {
 			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
