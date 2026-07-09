@@ -55,13 +55,93 @@ func (r MachineSSHKeyReconciler) ReconcileUserSSHKey(ctx context.Context, summar
 	if err != nil {
 		return err
 	}
+	if summary.Version == 2 {
+		return r.reconcileV2(ctx, server, summary, userKey, publicKey, machines)
+	}
 	projectServer := server.UseProject(summary.IncusName)
 	for _, managed := range machines {
-		if err := r.reconcileMachine(ctx, projectServer, summary, managed, userKey, publicKey); err != nil {
+		instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{
+			Tenant:  summary.Tenant,
+			Project: managed.Project,
+			Machine: managed.Name,
+		})
+		if err != nil {
+			return err
+		}
+		if err := r.reconcileMachine(ctx, projectServer, instanceName, managed, userKey, publicKey); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// reconcileV2 writes the rotated key into each v2 project's shared /home.
+//
+// A v2 project's machines all mount ONE home volume, so authorized_keys is a
+// single file per project: reconciling any one running machine fixes every
+// machine in that project, including stopped ones (they read the same file when
+// they next boot). Machines that cannot be exec'd right now — stopped, or a VM
+// whose incus-agent is not up — are therefore skipped rather than failed, and we
+// only need one success per project.
+//
+// Without this, rotating the login key locked the user out of every EXISTING
+// machine: the key is baked in once by cloud-init at create, the profile update
+// only reaches machines created afterwards, and nothing rewrote authorized_keys.
+func (r MachineSSHKeyReconciler) reconcileV2(ctx context.Context, server MachineSSHKeyServer, summary tenant.Summary, userKey string, publicKey string, machines []meta.Machine) error {
+	byProject := map[string][]meta.Machine{}
+	order := []string{}
+	for _, managed := range machines {
+		project := strings.TrimSpace(managed.Project)
+		if project == "" {
+			project = naming.DefaultProjectName
+		}
+		if _, seen := byProject[project]; !seen {
+			order = append(order, project)
+		}
+		byProject[project] = append(byProject[project], managed)
+	}
+	for _, project := range order {
+		projectServer := server.UseProject(summary.V2IncusProjectName(project))
+		var lastErr error
+		reconciled := false
+		for _, managed := range byProject[project] {
+			// Exec needs a running instance; a stopped one shares the same home
+			// volume and will see the key when it next boots.
+			if !managed.Running {
+				continue
+			}
+			// v2 instances carry the bare machine name; the project is the Incus
+			// project, not a prefix on the instance name. The login user comes
+			// from the tenant (user.sandcastle.v2.user), not from the GitHub key
+			// name — v2 machine listings carry no LinuxUser.
+			if err := r.reconcileMachine(ctx, projectServer, managed.Name, managed, v2LoginUser(summary, managed, userKey), publicKey); err != nil {
+				lastErr = err
+				continue
+			}
+			reconciled = true
+			break
+		}
+		if !reconciled && lastErr != nil {
+			// Nothing in this project could be written, and it was not simply
+			// that everything is stopped: surface the last real failure.
+			return lastErr
+		}
+	}
+	return nil
+}
+
+// v2LoginUser resolves the Unix account whose authorized_keys must carry the
+// key. v2 machine listings do not populate LinuxUser, and the GitHub user key is
+// NOT a Unix account on the machine — falling back to it silently wrote to
+// /home/<github-user>, which does not exist.
+func v2LoginUser(summary tenant.Summary, managed meta.Machine, userKey string) string {
+	if user := strings.TrimSpace(managed.LinuxUser); user != "" {
+		return user
+	}
+	if user := strings.TrimSpace(summary.UnixUser); user != "" {
+		return user
+	}
+	return userKey
 }
 
 func (r MachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summary tenant.Summary, userKey string) error {
@@ -89,15 +169,7 @@ func (r MachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summary t
 	return nil
 }
 
-func (r MachineSSHKeyReconciler) reconcileMachine(ctx context.Context, server MachineSSHKeyResourceServer, summary tenant.Summary, managed meta.Machine, userKey string, publicKey string) error {
-	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{
-		Tenant:  summary.Tenant,
-		Project: managed.Project,
-		Machine: managed.Name,
-	})
-	if err != nil {
-		return err
-	}
+func (r MachineSSHKeyReconciler) reconcileMachine(ctx context.Context, server MachineSSHKeyResourceServer, instanceName string, managed meta.Machine, userKey string, publicKey string) error {
 	linuxUser := managed.LinuxUser
 	if strings.TrimSpace(linuxUser) == "" {
 		linuxUser = userKey
@@ -137,7 +209,39 @@ func (r MachineSSHKeyReconciler) reconcileMachine(ctx context.Context, server Ma
 		return fmt.Errorf("wait for User SSH Public Key reconciliation on machine %s: %w", instanceName, err)
 	}
 	<-dataDone
+	// op.Wait() only reports whether the exec could RUN; a non-zero script exit
+	// is reported in the operation metadata. Without this check a failed write
+	// (e.g. the target Unix user does not exist) looked like success.
+	if code := execReturnCode(op); code != 0 {
+		return fmt.Errorf("reconcile User SSH Public Key on machine %s: script exited %d", instanceName, code)
+	}
 	return nil
+}
+
+// execReturnCode reads the exit status an Incus exec operation records in its
+// metadata ("return"). A missing value means the operation carried no exit
+// status; treat that as success rather than inventing a failure.
+func execReturnCode(op incus.Operation) int {
+	if op == nil {
+		return 0
+	}
+	metadata := op.Get().Metadata
+	if metadata == nil {
+		return 0
+	}
+	value, ok := metadata["return"]
+	if !ok {
+		return 0
+	}
+	switch code := value.(type) {
+	case float64:
+		return int(code)
+	case int:
+		return code
+	case int64:
+		return int(code)
+	}
+	return 0
 }
 
 func (r MachineSSHKeyReconciler) revokeMachine(ctx context.Context, server MachineSSHKeyResourceServer, summary tenant.Summary, managed meta.Machine, userKey string) error {

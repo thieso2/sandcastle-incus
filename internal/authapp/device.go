@@ -249,15 +249,11 @@ func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey stri
 	tenantName := NormalizeGitHubUsername(userKey)
 	for _, summary := range summaries {
 		if summary.Tenant == tenantName {
-			// v2 tenants get the key through the default-project profile
-			// (refreshed by provisioning on every login); machines are freeform
-			// instances the v1 per-machine exec below would misname
-			// (<project>-<machine> vs the plain v2 instance name). Rotation
-			// reaches existing machines via the shared /home the next time any
-			// machine's cloud-init writes authorized_keys.
-			if summary.Version == 2 {
-				return nil
-			}
+			// Both versions reconcile. A v2 tenant's default-project profile is
+			// refreshed by provisioning, but that only reaches machines created
+			// AFTERWARDS — every machine that already existed keeps the old key
+			// baked in by cloud-init and rejects the rotated one. The reconciler
+			// resolves v2 instance names and per-project Incus projects itself.
 			if err := h.machineSSHKeys.ReconcileUserSSHKey(ctx, summary, tenantName, publicKey); err != nil {
 				return fmt.Errorf("reconcile User SSH Public Key for Personal Tenant %s: %w", tenantName, err)
 			}
