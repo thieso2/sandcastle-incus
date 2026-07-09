@@ -26,6 +26,12 @@ type SandcastleConfig struct {
 	// the matching install without a re-login: the URL-derived remote name
 	// identifies the install, and this map recovers its Auth App URL.
 	Installs map[string]string `yaml:"installs,omitempty"`
+	// Brokers maps an install's Auth Hostname to that install's Broker URL
+	// (https://<tenant gateway>:9443). Broker is per-install — it addresses the
+	// tenant's gateway on THAT install's CIDR pool — so switching remotes must
+	// re-point it too. Keyed by Auth Hostname rather than remote name because
+	// that is what `sc login` knows before the remote is enrolled.
+	Brokers map[string]string `yaml:"brokers,omitempty"`
 }
 
 // AuthHostnameForRemote returns the recorded Auth Hostname (global URL) for a
@@ -36,6 +42,16 @@ func (c SandcastleConfig) AuthHostnameForRemote(remote string) string {
 		return ""
 	}
 	return strings.TrimSpace(c.Installs[remote])
+}
+
+// BrokerForAuthHostname returns the recorded Broker URL for an install, or ""
+// when none was recorded (a login that predates the brokers map).
+func (c SandcastleConfig) BrokerForAuthHostname(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" || c.Brokers == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Brokers[host])
 }
 
 // DefaultConfigDir returns ~/.config/sandcastle.

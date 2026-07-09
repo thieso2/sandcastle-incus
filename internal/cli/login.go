@@ -126,7 +126,7 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	var trustPlan localtrust.Plan
 	if err := steps.run("plan trust install", func() error {
 		var err error
-		trustPlan, err = localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, localtrust.Request{Reference: request.Tenant})
+		trustPlan, err = localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, trustRequest(config, request.Tenant))
 		return err
 	}); err != nil {
 		return loginSetupResult{}, err
@@ -775,7 +775,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					// Record the broker URL so broker-backed commands
 					// (`sc project create`) need no --broker flag.
 					if broker := brokerURLForTenantCIDR(result.TenantPrivateCIDR); broker != "" {
-						if err := saveBrokerDefault(broker); err != nil {
+						if err := saveBrokerDefault(args[0], broker); err != nil {
 							fmt.Fprintf(config.stderr, "Note: could not save broker URL: %v\n", err)
 						}
 					}
@@ -1008,7 +1008,7 @@ func tryExistingLogin(ctx context.Context, config commandConfig, authHost string
 	}
 	// Backfill the broker URL for logins saved before it was recorded.
 	if broker := brokerURLForTenantCIDR(tenantCIDR); broker != "" {
-		_ = saveBrokerDefault(broker)
+		_ = saveBrokerDefault(host, broker)
 	}
 	fmt.Fprintf(config.stdout, "Already logged in at %s", host)
 	if tenant != "" {

@@ -444,3 +444,68 @@ func TestCommandStoreDoesNotRetryUpdateOnRealFailure(t *testing.T) {
 		t.Fatalf("error = %q", err)
 	}
 }
+
+// Regression for #61: a v2 tenant's CA is minted by the sidecar signer with
+// CN="Sandcastle <suffix> tenant CA", and install names the local trust entry
+// after that CN. Deriving the name from the TENANT (the v1 rule) produced a
+// filename that never matched, so uninstall removed nothing and said "success".
+func TestPlanNamesAV2TrustEntryAfterTheDNSSuffix(t *testing.T) {
+	v2 := func(kind string) map[string]string {
+		config := map[string]string{
+			meta.KeyKind:    kind,
+			meta.KeyTenant:  "alice",
+			meta.KeyVersion: "2",
+		}
+		if kind == meta.KindInfra {
+			config[meta.KeyV2Suffix] = "castle"
+		}
+		return config
+	}
+	store := tenant.MemoryStore{Projects: []tenant.IncusProject{
+		{Name: "sc2-alice", Config: v2(meta.KindInfra)},
+		{Name: "sc2-alice-default", Config: v2(meta.KindV2Project)},
+	}}
+	plan, err := PlanUninstall(context.Background(), scconfig.LoadAdminFromEnv(), store, Request{Reference: "alice", InstallPrefix: "sc2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.TrustName != "Sandcastle castle tenant CA" {
+		t.Fatalf("TrustName = %q, want the signer's CN %q", plan.TrustName, "Sandcastle castle tenant CA")
+	}
+	if got := CertFilename(plan); got != "sandcastle-castle-tenant-ca.crt" {
+		t.Fatalf("CertFilename = %q — must match what install wrote", got)
+	}
+}
+
+// An uninstall that found nothing must say so rather than report success.
+func TestUninstallReportsWhenNothingWasRemoved(t *testing.T) {
+	dir := t.TempDir()
+	store := CommandStore{
+		GOOS:       "linux",
+		LinuxDir:   dir,
+		RunCommand: func(context.Context, string, ...string) ([]byte, error) { return []byte("ok"), nil },
+	}
+	plan := Plan{Reference: "alice", TrustName: "Sandcastle castle tenant CA"}
+
+	absent, err := store.UninstallCA(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if absent.Removed {
+		t.Fatal("Removed = true, but no CA was installed")
+	}
+
+	if _, err := store.InstallCA(context.Background(), plan, []byte("CERT")); err != nil {
+		t.Fatal(err)
+	}
+	present, err := store.UninstallCA(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present.Removed {
+		t.Fatal("Removed = false after uninstalling an installed CA")
+	}
+	if _, err := os.Stat(filepath.Join(dir, CertFilename(plan))); !os.IsNotExist(err) {
+		t.Fatalf("cert still present: %v", err)
+	}
+}
