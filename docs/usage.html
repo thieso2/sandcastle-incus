@@ -260,11 +260,22 @@ remote: sc-alice</code></pre>
 
   <div class="step">
     <h3>Enable verbose output</h3>
-    <p>Set <code>VERBOSE=1</code> to see the Incus config directory and remote being used, per-operation detail from executors, and Incus API calls with durations.</p>
+    <p>Set <code>VERBOSE=1</code> to see the Incus config directory and remote being used, per-operation detail from executors, and every Incus REST call with its method, path, status, and duration.</p>
     <pre><code><span class="env">export VERBOSE</span>=1
-<span class="cmd">sandcastle-admin tenant create</span> <span class="arg">acme</span>
-<span class="comment"># [verbose] incus config: ~/.config/incus (default)</span>
-<span class="comment"># [verbose] incus remote: big</span></code></pre>
+<span class="cmd">sc delete</span> <span class="arg">tubu</span> <span class="flag">--yes</span>
+<span class="comment"># [verbose] incus config: ~/.config/sandcastle/incus</span>
+<span class="comment"># [verbose] incus remote: sc-obelix-thieso2-dev</span>
+<span class="comment"># [verbose] incus api: connect remote sc-obelix-thieso2-dev done (245ms)</span>
+<span class="comment"># [verbose] incus api: GET /1.0/projects?project=tc2-thieso2-default&amp;recursion=1 -&gt; 200 OK (380ms)</span>
+<span class="comment"># [verbose] machine delete: tc2-thieso2-default/tubu</span>
+<span class="comment"># [verbose] machine tubu is Running</span>
+<span class="comment"># [verbose] incus op: force-stop tubu started</span>
+<span class="comment"># [verbose] incus api: PUT /1.0/instances/tubu/state?project=tc2-thieso2-default -&gt; 202 Accepted (180ms)</span>
+<span class="comment"># [verbose] incus op: force-stop tubu done (1.345s)</span>
+<span class="comment"># [verbose] incus op: delete tubu started</span>
+<span class="comment"># [verbose] incus api: DELETE /1.0/instances/tubu?project=tc2-thieso2-default -&gt; 202 Accepted (188ms)</span>
+<span class="comment"># [verbose] incus op: delete tubu done (371ms)</span></code></pre>
+    <p>Tracing covers every REST call the CLI makes. Two exceptions: the <code>GET /1.0</code> handshake, which happens while connecting and is reported by the <code>connect remote … done</code> line instead, and websocket traffic (instance <code>exec</code> streams and the event stream behind operation waits) — the request that <em>creates</em> an operation is traced.</p>
   </div>
 </section>
 
@@ -510,7 +521,15 @@ Bootstrap:
 <span class="cmd">sandcastle stop</span>    <span class="arg">website:codex</span>
 <span class="cmd">sandcastle restart</span> <span class="arg">website:codex</span>
 <span class="cmd">sandcastle delete</span>  <span class="arg">website:codex</span> <span class="flag">--yes</span></code></pre>
-    <p><code>delete</code> prompts for confirmation when run interactively. Use <code>--yes</code> for scripts, pipes, and other non-interactive runs.</p>
+    <p><code>delete</code> prompts for confirmation when run interactively, naming the machine as <code>project:machine</code>. Use <code>--yes</code> for scripts, pipes, and other non-interactive runs.</p>
+    <p><strong>Bare machine names (v2 tenants).</strong> A reference without a project — <code>sc delete dev</code> — is looked up across every project of the tenant rather than assuming the Current Project, because Incus lets a <code>dev</code> exist in several projects at once. One match resolves silently; several make the lifecycle commands ask which one is meant:</p>
+    <pre><code><span class="cmd">sc delete</span> <span class="arg">dev</span>
+<span class="comment"># Machine "dev" exists in 2 projects:</span>
+<span class="comment">#   1) 7ed:dev</span>
+<span class="comment">#   2) io:dev</span>
+<span class="comment"># Which one? [1-2] 2</span>
+<span class="comment"># Delete machine io:dev? [y/N] y</span></code></pre>
+    <p>Without a terminal an ambiguous bare name is an error listing the candidates, never a guess — qualify it as <code>project:machine</code>.</p>
   </div>
 
   <div class="step">
@@ -785,7 +804,7 @@ Bootstrap:
         <tr><td><code>SANDCASTLE_DENIED_DOMAIN_SUFFIXES</code></td><td><code>sc-adm tenant create</code></td><td>Comma-separated extra suffix deny list.</td></tr>
         <tr><td><code>SANDCASTLE_ADMIN_BIN</code></td><td><code>sc-adm install</code></td><td>Linux amd64 <code>sandcastle-admin</code> binary uploaded into infrastructure sidecars.</td></tr>
         <tr><td><code>SANDCASTLE_BIN</code></td><td><code>sc-adm install</code></td><td>Fallback binary path for infrastructure upload.</td></tr>
-        <tr><td><code>VERBOSE</code></td><td><code>sc</code>, <code>sc-adm</code></td><td>Set to <code>1</code> for diagnostic output, including Incus config directory, remote selection, API call durations, and executor step timings.</td></tr>
+        <tr><td><code>VERBOSE</code></td><td><code>sc</code>, <code>sc-adm</code></td><td>Set to <code>1</code> for diagnostic output, including Incus config directory, remote selection, a traced line per Incus REST call (method, path, status, duration), and executor step timings.</td></tr>
       </tbody>
     </table>
   </div>

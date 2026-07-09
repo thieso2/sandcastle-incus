@@ -324,6 +324,19 @@ sc delete backend:api --yes
 sc create nosuch:box        # PASS: "project \"nosuch\" not found in tenant … (projects: …)"
 sc delete api:backend --yes # PASS: swapped-reference hint: did you mean "backend:api"?
 
+# 4a. duplicate machine names across projects
+# Incus scopes instance DNS names to the *bridge*, not the project, and every
+# project of the tenant shares one bridge. A second "web" is therefore created
+# but refused a start — and, because the check enumerates instances from the DB
+# regardless of state, the surviving default:web can no longer start either
+# until the duplicate is gone.
+sc create backend:web       # PASS: "Instance DNS name \"web\" already used on network"
+sc ls -a                    # PASS: backend:web listed, stopped, no IP
+sc start web                # PASS (no tty): "machine \"web\" exists in 2 projects (backend:web, default:web)"
+                            # PASS (tty): numbered prompt "Which one? [1-2]"
+sc delete backend:web --yes # PASS: qualified reference deletes without asking
+sc delete web               # PASS (tty): confirm names it "default:web", not "web"
+
 # 5. suffix immutability
 sc login "https://$E2E_HOSTNAME" --simulate-token "$SIMULATE_TOKEN" --as e2edns \
   --force --dns-suffix other

@@ -21,12 +21,12 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			if err != nil {
 				return err
 			}
-			project, machineName, err := resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
+			project, machineName, err := resolveV2MachineTarget(cmd.Context(), config, summary, args[0])
 			if err != nil {
 				return err
 			}
 			if requireYes && !yes {
-				confirmed, err := confirmMissingYes(config, "Delete machine "+machineName+"?", "refusing to delete machine without --yes")
+				confirmed, err := confirmMissingYes(config, "Delete machine "+project+":"+machineName+"?", "refusing to delete machine without --yes")
 				if err != nil {
 					return err
 				}

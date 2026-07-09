@@ -231,6 +231,44 @@ does not retro-apply to an already-provisioned tenant (the suffix is immutable),
 so patching would have invalidated the tenant under test and made the remaining
 phases meaningless. They are documented with reproductions and left for a
 follow-up change that can be verified by a fresh run.
+## 2026-07-09 — a bare machine name searches every project instead of assuming the Current Project
+
+`sc delete dev` resolved `dev` against the Current Project and asked "Delete
+machine dev?" — a prompt that names neither the project it picked nor the fact
+that another project holds a `dev` too. Duplicate machine names across a
+tenant's projects are ordinary in v2 (each project is its own Incus project), so
+the prompt was hiding the one thing the user needed to decide.
+
+`resolveV2MachineTarget` (`internal/cli/create_v2.go`) now backs the lifecycle
+commands (`start`/`stop`/`restart`/`delete`): an explicit `project:machine` is
+taken at its word, but a bare name is looked up across every project via
+`machineStore.ListMachines`. One hit resolves silently — including when the
+machine lives outside the Current Project, which is a deliberate change from the
+old "Current Project or bust" rule and the reason `sc delete dev` now finds
+`io:dev` from anywhere. Several hits prompt with a numbered `project:machine`
+list; without a terminal they are an error naming the candidates, never a guess.
+Both confirm prompts (v1 and v2) now render `project:machine`.
+
+Alternatives considered. (a) Keep the Current-Project rule and only qualify the
+prompt text — rejected: it still silently deletes the wrong `dev` when the
+Current Project happens to hold one. (b) Prompt only when the Current Project
+has *no* match — rejected for `delete`, where the whole point is that the user
+did not say which one; being asked once is cheaper than an unrecoverable delete.
+(c) Extend the search to `sc connect`/`sc image` — deliberately not done:
+`connect` *creates* a missing machine, so a cross-project search would change
+where new machines land. Those still use `resolveV2MachineReference`.
+
+Scope note: the search only makes duplicate names *manageable*. It does not make
+them *workable* — Incus scopes instance DNS names to the bridge (`nic_bridged.go`
+`checkAddressConflict` → `nicCheckDNSNameConflict`, which compares instance names,
+not `dns.hostname`), and all of a tenant's projects share one bridge, so a second
+`dev` can be created but never started. Worse, the check enumerates instances from
+the database irrespective of state, so a stopped duplicate also blocks the
+surviving `dev` from starting. Setting `dns.mode: none` on the tenant bridge
+disables the check outright and costs nothing — per ADR-0018 the bridge dnsmasq
+is not the DNS authority (guests get `dhcp-option=6` pointing at the sidecar
+CoreDNS, which forwards to 1.1.1.1), and `UsesDNSMasq()` still returns true for
+IPv4 DHCP so leases keep working. Not applied here; tracked separately.
 
 ## 2026-07-08 — `sc project create` dialed the placeholder Auth Hostname
 
