@@ -12,6 +12,13 @@ import (
 )
 
 func confirmMissingYes(config commandConfig, prompt string, missingYesMessage string) (bool, error) {
+	return confirmMissingYesNamed(config, prompt, missingYesMessage, "delete canceled")
+}
+
+// confirmMissingYesNamed is confirmMissingYes with the wording of the decline
+// error under the caller's control, so a prompt that is not about deletion does
+// not report one.
+func confirmMissingYesNamed(config commandConfig, prompt string, missingYesMessage string, canceledMessage string) (bool, error) {
 	if !isTerminalInput(config) {
 		return false, fmt.Errorf("%s", missingYesMessage)
 	}
@@ -26,7 +33,7 @@ func confirmMissingYes(config commandConfig, prompt string, missingYesMessage st
 	if answer == "y" || answer == "yes" {
 		return true, nil
 	}
-	return false, fmt.Errorf("delete canceled")
+	return false, fmt.Errorf("%s", canceledMessage)
 }
 
 // promptChoice asks the user to pick one of the numbered options and returns

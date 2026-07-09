@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -30,7 +33,11 @@ type CreateMachineV2Result struct {
 	Project   string `json:"incusProject"`
 	Image     string `json:"image"`
 	PrivateIP string `json:"privateIP,omitempty"`
-	LoginUser string `json:"loginUser,omitempty"`
+	// PrivateCIDR is the subnet the machine leased its address on, read from
+	// the machine's own interface. A restricted tenant certificate cannot see
+	// the tenant bridge's config, so this is the only authoritative source.
+	PrivateCIDR string `json:"privateCIDR,omitempty"`
+	LoginUser   string `json:"loginUser,omitempty"`
 }
 
 // CreateMachineV2 launches the instance and waits (bounded) for it to lease an
@@ -71,19 +78,20 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
 		return CreateMachineV2Result{}, fmt.Errorf("wait for machine %s: %w", request.Name, err)
 	}
-	result.PrivateIP = waitForV2InstanceIPv4(ctx, project, request.Name, v2MachineIPTimeout(request.VM))
+	result.PrivateIP, result.PrivateCIDR = waitForV2InstanceIPv4(ctx, project, request.Name, v2MachineIPTimeout(request.VM))
 	return result, nil
 }
 
 // EnsureMachineV2Result reports what EnsureMachineV2 had to do to make the
 // machine reachable: created from scratch, started from stopped, or nothing.
 type EnsureMachineV2Result struct {
-	Name      string `json:"name"`
-	Project   string `json:"incusProject"`
-	Created   bool   `json:"created"`
-	Started   bool   `json:"started"`
-	PrivateIP string `json:"privateIP,omitempty"`
-	LoginUser string `json:"loginUser"`
+	Name        string `json:"name"`
+	Project     string `json:"incusProject"`
+	Created     bool   `json:"created"`
+	Started     bool   `json:"started"`
+	PrivateIP   string `json:"privateIP,omitempty"`
+	PrivateCIDR string `json:"privateCIDR,omitempty"`
+	LoginUser   string `json:"loginUser"`
 }
 
 // EnsureMachineV2 makes the named v2 machine exist and run: creates it from the
@@ -112,16 +120,16 @@ func (c TenantCreator) EnsureMachineV2(ctx context.Context, request CreateMachin
 			return EnsureMachineV2Result{}, fmt.Errorf("wait for machine %s start: %w", request.Name, err)
 		}
 		result.Started = true
-		result.PrivateIP = waitForV2InstanceIPv4(ctx, project, request.Name, v2MachineIPTimeout(request.VM))
+		result.PrivateIP, result.PrivateCIDR = waitForV2InstanceIPv4(ctx, project, request.Name, v2MachineIPTimeout(request.VM))
 	case err == nil:
-		result.PrivateIP = waitForV2InstanceIPv4(ctx, project, request.Name, 20*time.Second)
+		result.PrivateIP, result.PrivateCIDR = waitForV2InstanceIPv4(ctx, project, request.Name, 20*time.Second)
 	case api.StatusErrorCheck(err, http.StatusNotFound):
 		created, err := c.CreateMachineV2(ctx, request)
 		if err != nil {
 			return EnsureMachineV2Result{}, err
 		}
 		result.Created = true
-		result.PrivateIP = created.PrivateIP
+		result.PrivateIP, result.PrivateCIDR = created.PrivateIP, created.PrivateCIDR
 	default:
 		return EnsureMachineV2Result{}, fmt.Errorf("get machine %s: %w", request.Name, err)
 	}
@@ -208,7 +216,10 @@ func v2MachineIPTimeout(vm bool) time.Duration {
 	return 45 * time.Second
 }
 
-func waitForV2InstanceIPv4(ctx context.Context, project TenantResourceServer, name string, timeout time.Duration) string {
+// waitForV2InstanceIPv4 returns the machine's global IPv4 address and the
+// subnet it sits on, in CIDR form. Either may be empty: no lease yet, or an
+// interface that did not report a usable netmask.
+func waitForV2InstanceIPv4(ctx context.Context, project TenantResourceServer, name string, timeout time.Duration) (string, string) {
 	deadline := time.Now().Add(timeout)
 	for {
 		if state, _, err := project.GetInstanceState(name); err == nil {
@@ -218,20 +229,53 @@ func waitForV2InstanceIPv4(ctx context.Context, project TenantResourceServer, na
 				}
 				for _, address := range network.Addresses {
 					if address.Family == "inet" && address.Scope == "global" {
-						return address.Address
+						return address.Address, subnetCIDR(address.Address, address.Netmask)
 					}
 				}
 			}
 		}
 		if !time.Now().Before(deadline) || ctx.Err() != nil {
-			return ""
+			return "", ""
 		}
 		select {
 		case <-ctx.Done():
-			return ""
+			return "", ""
 		case <-time.After(2 * time.Second):
 		}
 	}
+}
+
+// subnetCIDR turns an address plus Incus's netmask into the masked subnet.
+// Incus reports a prefix length ("24") for bridged NICs, but some drivers
+// report a dotted mask ("255.255.255.0"); both are accepted.
+func subnetCIDR(address string, netmask string) string {
+	addr, err := netip.ParseAddr(address)
+	if err != nil || !addr.Is4() {
+		return ""
+	}
+	bits, err := strconv.Atoi(strings.TrimSpace(netmask))
+	if err != nil {
+		mask, maskErr := netip.ParseAddr(strings.TrimSpace(netmask))
+		if maskErr != nil || !mask.Is4() {
+			return ""
+		}
+		bits = 0
+		for _, octet := range mask.As4() {
+			bits += bits8(octet)
+		}
+	}
+	if bits <= 0 || bits > 32 {
+		return ""
+	}
+	return netip.PrefixFrom(addr, bits).Masked().String()
+}
+
+func bits8(octet byte) int {
+	count := 0
+	for ; octet != 0; octet <<= 1 {
+		count++
+	}
+	return count
 }
 
 // InstanceExists reports whether an instance exists in the given project —

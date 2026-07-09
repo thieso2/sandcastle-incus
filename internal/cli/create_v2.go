@@ -324,12 +324,23 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 		return err
 	}
 	privateKeyPath := strings.TrimSuffix(sshKey.PublicKeyPath, ".pub")
-	sshArgs := []string{
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "IdentitiesOnly=yes",
-		"-i", privateKeyPath,
-		ensured.LoginUser + "@" + ensured.PrivateIP,
+	// Record the machine's authoritative host key under the names it answers
+	// at, then dial its IP but check the key against the name (HostKeyAlias).
+	// Names are stable; private IPs are recycled leases. With the true key
+	// already on disk we can demand StrictHostKeyChecking=yes, so a rebuilt
+	// machine never trips the MITM warning and a real impostor always does.
+	names := v2MachineNames(summary, project, machineName)
+	sshArgs := []string{"-o", "IdentitiesOnly=yes", "-i", privateKeyPath}
+	if len(names) > 0 && ensureV2HostKey(ctx, config, summary, project, machineName, ensured.PrivateIP, ensured.PrivateCIDR) {
+		sshArgs = append(sshArgs,
+			"-o", "HostKeyAlias="+names[0],
+			"-o", "StrictHostKeyChecking=yes",
+			"-o", "CheckHostIP=no",
+		)
+	} else {
+		sshArgs = append(sshArgs, "-o", "StrictHostKeyChecking=accept-new")
 	}
+	sshArgs = append(sshArgs, ensured.LoginUser+"@"+ensured.PrivateIP)
 	sshArgs = append(sshArgs, command...)
 	fmt.Fprintf(config.stdout, "Connecting: ssh %s@%s\n", ensured.LoginUser, ensured.PrivateIP)
 	sshCmd := exec.CommandContext(ctx, "ssh", sshArgs...)

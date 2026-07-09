@@ -21,6 +21,7 @@ func newSSHKeyCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Manage the current tenant SSH public key",
 	}
 	command.AddCommand(newSSHKeySetCommand(config, opts))
+	command.AddCommand(newSSHKeyPurgeCommand(config, opts))
 	return command
 }
 
