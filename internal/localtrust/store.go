@@ -46,10 +46,14 @@ func (s FileStore) InstallCA(ctx context.Context, plan Plan, certPEM []byte) (Re
 
 func (s FileStore) UninstallCA(ctx context.Context, plan Plan) (Result, error) {
 	target := filepath.Join(s.Dir, CertFilename(plan))
-	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-		return Result{}, err
+	removed := true
+	if err := os.Remove(target); err != nil {
+		if !os.IsNotExist(err) {
+			return Result{}, err
+		}
+		removed = false
 	}
-	return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "file", Action: "uninstall", Target: target}, nil
+	return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "file", Action: "uninstall", Target: target, Removed: removed}, nil
 }
 
 type CommandStore struct {
@@ -81,17 +85,19 @@ func (s CommandStore) UninstallCA(ctx context.Context, plan Plan) (Result, error
 		if output, err := s.runCommand(ctx, name, args...); err != nil {
 			return Result{}, fmt.Errorf("remove macOS trust certificate: %w: %s", err, string(output))
 		}
-		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "uninstall", Target: keychain}, nil
+		// `security delete-certificate` fails when no such certificate exists, so
+		// reaching here means one was removed.
+		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "darwin", Action: "uninstall", Target: keychain, Removed: true}, nil
 	case "linux":
 		target := s.linuxTrustPath(plan)
-		escalated, err := s.removeTrustFile(ctx, target)
+		escalated, removed, err := s.removeTrustFile(ctx, target)
 		if err != nil {
 			return Result{}, err
 		}
 		if err := s.runUpdateCACertificates(ctx, escalated); err != nil {
 			return Result{}, err
 		}
-		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "linux", Action: "uninstall", Target: target}, nil
+		return Result{Reference: plan.Reference, TrustName: plan.TrustName, Platform: "linux", Action: "uninstall", Target: target, Removed: removed}, nil
 	default:
 		return Result{}, fmt.Errorf("local trust uninstall is not supported on %s", s.GOOS)
 	}
@@ -197,19 +203,30 @@ func writeFileDirect(target string, certPEM []byte) error {
 	return os.WriteFile(target, certPEM, 0o644)
 }
 
-func (s CommandStore) removeTrustFile(ctx context.Context, target string) (bool, error) {
+// removeTrustFile deletes the CA, escalating only when the direct unlink is
+// refused. Reports (escalated, removed): "removed" is false when there was
+// nothing to remove, so the caller can say so instead of reporting success.
+func (s CommandStore) removeTrustFile(ctx context.Context, target string) (bool, bool, error) {
 	err := os.Remove(target)
-	if err == nil || os.IsNotExist(err) {
-		return false, nil
+	if err == nil {
+		return false, true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, false, nil
 	}
 	if !errors.Is(err, fs.ErrPermission) {
-		return false, err
+		return false, false, err
+	}
+	// A root-owned directory refuses the unlink before revealing whether the
+	// file exists, so check before escalating: an absent CA is not "removed".
+	if _, statErr := os.Stat(target); os.IsNotExist(statErr) {
+		return false, false, nil
 	}
 	output, sudoErr := s.runCommand(ctx, "sudo", "rm", "-f", target)
 	if sudoErr != nil {
-		return false, fmt.Errorf("remove tenant CA from %s needs root: %w: %s", filepath.Dir(target), sudoErr, string(output))
+		return false, false, fmt.Errorf("remove tenant CA from %s needs root: %w: %s", filepath.Dir(target), sudoErr, string(output))
 	}
-	return true, nil
+	return true, true, nil
 }
 
 func (s CommandStore) linuxTrustPath(plan Plan) string {

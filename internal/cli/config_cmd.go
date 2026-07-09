@@ -75,10 +75,29 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			// Incus remote and the Auth App from drifting apart on hosts that run
 			// several installs sharing one tenant name.
 			var authSynced string
+			var brokerSynced string
+			var brokerCleared bool
 			if key == "remote" {
-				if host := cfg.AuthHostnameForRemote(value); host != "" && host != cfg.AuthHostname {
-					cfg.AuthHostname = host
-					authSynced = host
+				if host := cfg.AuthHostnameForRemote(value); host != "" {
+					if host != cfg.AuthHostname {
+						cfg.AuthHostname = host
+						authSynced = host
+					}
+					// The broker addresses the tenant gateway on THIS install's
+					// CIDR pool, so it must follow the remote. Leaving the
+					// previous install's broker in place silently pointed
+					// broker-derived commands at the other install — `sc trust
+					// install` fetched the wrong tenant's CA.
+					switch broker := cfg.BrokerForAuthHostname(host); {
+					case broker != "" && broker != cfg.Broker:
+						cfg.Broker = broker
+						brokerSynced = broker
+					case broker == "" && cfg.Broker != "":
+						// Nothing recorded for this install (a login predating
+						// the brokers map). A stale broker is worse than none.
+						cfg.Broker = ""
+						brokerCleared = true
+					}
 				}
 			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
@@ -87,6 +106,12 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Set %s = %q in %s\n", key, value, cfgPath)
 			if authSynced != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "Auth hostname re-pointed to %q for this install.\n", authSynced)
+			}
+			if brokerSynced != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Broker re-pointed to %q for this install.\n", brokerSynced)
+			}
+			if brokerCleared {
+				fmt.Fprintf(cmd.OutOrStdout(), "Broker cleared: none recorded for this install. Run `sc login %s` to record it.\n", cfg.AuthHostname)
 			}
 			// The shared incus dir's current remote is the source of truth for
 			// the user CLI's remote — write through so `sc config set remote`

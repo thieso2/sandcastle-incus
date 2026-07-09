@@ -5,6 +5,47 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-09 — fixing #60/#61: the Broker is per-install, and a CA is named by its CN
+
+**#60 — record the Broker per install; clear it rather than leave it stale.**
+The Broker URL addresses the tenant gateway (`.1`) on *one install's* CIDR pool,
+so it is install-scoped — but only `sc login` ever wrote it, and
+`sc config set remote` re-pointed `auth_hostname` without it. Switching installs
+therefore left the broker aimed at the previous one, and `sc trust install`
+(which derives the sidecar signer from the broker) fetched the **other install's
+CA**. Live, the stale value was even worse than cross-install: it pointed at a
+*deleted* tenant's gateway (`10.61.1.1`, the purged `e2edel`).
+
+`sc login` now records the broker in a `brokers:` map keyed by **Auth Hostname**
+— not by remote name, because login knows the hostname before the remote is
+enrolled — and `sc config set remote` re-points it via the existing `installs:`
+map. When the target install has no recorded broker (a login predating the map),
+the broker is **cleared**, not left behind: a stale broker silently addresses the
+wrong install, which is worse than an absent one that fails loudly.
+
+**#61 — name the trust entry the way the CA names itself.** A v2 tenant's CA is
+minted by the sidecar signer with `CN=Sandcastle <suffix> tenant CA`, and the
+install path names the local entry after that CN. `PlanUninstall` derived the
+name from the *tenant* (`Sandcastle <tenant> tenant CA`), so `CertFilename` never
+matched what was installed: `os.Remove` returned `ErrNotExist`, which was treated
+as "already absent", and the command reported success while the CA stayed
+trusted. The plan now derives a v2 trust name from `summary.DNSSuffix`.
+
+Two things fell out of it:
+
+- The plan was **unscoped** (`tenant.List`), so with two installs holding a
+  same-named tenant it could pick the other one and derive *its* suffix — naming
+  a CA that belongs to a different install. `Request.InstallPrefix` scopes it,
+  which also fixed the `CA: id-…` line the dry-run printed under install A.
+- `Result.Removed` now reports whether anything was actually deleted, and
+  uninstall says `No trusted CA named "…" was installed; nothing to remove.`
+  Silent success is what let the mismatch survive; an idempotent uninstall should
+  still be *explicit* about doing nothing.
+
+`removeTrustFile` stats the target before escalating to `sudo rm`, because a
+root-owned directory refuses the unlink before revealing whether the file exists
+— without the check, an absent CA would have escalated and reported "removed".
+
 ## 2026-07-09 — fixing #51/#54/#55, and the two bugs hiding inside the #51 fix
 
 **#54 — make the failure non-destructive rather than chase the failure.**

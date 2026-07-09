@@ -5841,3 +5841,77 @@ func TestLoginSendsDNSSuffix(t *testing.T) {
 		t.Fatalf("poll requests missing dns suffix: %#v", client.pollRequests)
 	}
 }
+
+// Regression for #60: the Broker addresses the tenant gateway on ONE install's
+// CIDR pool. Switching remotes re-pointed auth.hostname but left the previous
+// install's broker in place, so broker-derived commands (`sc trust install`)
+// silently talked to the other install and fetched the wrong tenant CA.
+func TestConfigSetRemoteRepointsTheBrokerForThatInstall(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configPath := scconfig.DefaultConfigPath()
+	seed := scconfig.SandcastleConfig{
+		Remote:       "sc-b",
+		AuthHostname: "https://b.example.dev",
+		Broker:       "https://10.62.0.1:9443", // install B
+		Installs: map[string]string{
+			"sc-a": "https://a.example.dev",
+			"sc-b": "https://b.example.dev",
+		},
+		Brokers: map[string]string{
+			"https://a.example.dev": "https://10.61.0.1:9443",
+			"https://b.example.dev": "https://10.62.0.1:9443",
+		},
+	}
+	if err := scconfig.SaveSandcastleConfig(configPath, seed); err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTest(t, "sandcastle", "config", "set", "remote", "sc-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, `Broker re-pointed to "https://10.61.0.1:9443"`) {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Broker != "https://10.61.0.1:9443" {
+		t.Fatalf("Broker = %q, want install A's gateway", cfg.Broker)
+	}
+	if cfg.AuthHostname != "https://a.example.dev" {
+		t.Fatalf("AuthHostname = %q", cfg.AuthHostname)
+	}
+}
+
+// A login predating the brokers map records no broker for the target install.
+// Clearing is right: a stale broker points at the WRONG install, which is worse
+// than none (`sc project create` would create the project over there).
+func TestConfigSetRemoteClearsAnUnknownInstallsBroker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configPath := scconfig.DefaultConfigPath()
+	seed := scconfig.SandcastleConfig{
+		Remote:       "sc-b",
+		AuthHostname: "https://b.example.dev",
+		Broker:       "https://10.62.0.1:9443",
+		Installs:     map[string]string{"sc-a": "https://a.example.dev", "sc-b": "https://b.example.dev"},
+		// no Brokers map at all
+	}
+	if err := scconfig.SaveSandcastleConfig(configPath, seed); err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTest(t, "sandcastle", "config", "set", "remote", "sc-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Broker cleared") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Broker != "" {
+		t.Fatalf("Broker = %q, want cleared rather than pointing at install B", cfg.Broker)
+	}
+}

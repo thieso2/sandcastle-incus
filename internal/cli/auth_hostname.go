@@ -82,20 +82,33 @@ func recordInstall(remoteName string, rawHostname string) error {
 
 // saveBrokerDefault records the Sandcastle Broker URL in the user config so
 // broker-backed commands (`sc project create`) work without --broker.
-func saveBrokerDefault(rawURL string) error {
+//
+// It records the URL twice: as the ACTIVE broker, and against this install's
+// Auth Hostname. The broker addresses the tenant gateway on the install's own
+// CIDR pool, so it is per-install — without the per-install record,
+// `sc config set remote` could not re-point it and left the active broker
+// aimed at the previously-active install.
+func saveBrokerDefault(authHostname string, rawURL string) error {
 	broker := strings.TrimRight(strings.TrimSpace(rawURL), "/")
 	if broker == "" {
 		return nil
 	}
+	host := normalizeAuthHostname(authHostname)
 	path := scconfig.DefaultConfigPath()
 	cfg, err := scconfig.LoadSandcastleConfig(path)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	if cfg.Broker == broker {
+	if cfg.Broker == broker && (host == "" || cfg.BrokerForAuthHostname(host) == broker) {
 		return nil
 	}
 	cfg.Broker = broker
+	if host != "" {
+		if cfg.Brokers == nil {
+			cfg.Brokers = map[string]string{}
+		}
+		cfg.Brokers[host] = broker
+	}
 	if err := scconfig.SaveSandcastleConfig(path, cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}

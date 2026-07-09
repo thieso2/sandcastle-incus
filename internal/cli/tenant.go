@@ -217,7 +217,7 @@ func tenantSwitchTrustReady(ctx context.Context, config commandConfig, tenantNam
 	if config.tenantStore == nil {
 		return false
 	}
-	plan, err := localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, localtrust.Request{Reference: tenantName})
+	plan, err := localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, trustRequest(config, tenantName))
 	if err != nil {
 		return false
 	}

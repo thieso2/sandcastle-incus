@@ -30,7 +30,7 @@ func newTrustInstallCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := optionalReference(args)
-			plan, planErr := localtrust.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: reference})
+			plan, planErr := localtrust.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, trustRequest(config, reference))
 			if planErr == nil && dryRun {
 				return writeOutput(config.stdout, opts.output, formatTrustPlan("Install", plan), plan)
 			}
@@ -64,7 +64,7 @@ func newTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Co
 		Short: "Remove a tenant CA from local trust",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localtrust.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, localtrust.Request{Reference: optionalReference(args)})
+			plan, err := localtrust.PlanUninstall(cmd.Context(), config.adminConfig, config.tenantStore, trustRequest(config, optionalReference(args)))
 			if err != nil {
 				return err
 			}
@@ -77,6 +77,10 @@ func newTrustUninstallCommand(config commandConfig, opts *rootOptions) *cobra.Co
 			result, err := config.localTrust.Uninstall(cmd.Context(), plan)
 			if err != nil {
 				return err
+			}
+			if !result.Removed && opts.output == outputText {
+				fmt.Fprintf(config.stdout, "No trusted CA named %q was installed; nothing to remove.\n", plan.TrustName)
+				return nil
 			}
 			return writeOutput(config.stdout, opts.output, formatTrustResult(result), result)
 		},
@@ -134,6 +138,18 @@ func optionalReference(args []string) string {
 
 func formatTrustPlan(action string, plan localtrust.Plan) string {
 	return fmt.Sprintf("%s tenant CA trust: %s\nCA: %s:%s%s\nWarning: %s", action, plan.Reference, plan.IncusProject, plan.CAVolume, plan.CertificatePath, plan.Warning)
+}
+
+// trustRequest scopes the tenant lookup to the install the active remote belongs
+// to. Several installs can share one Incus daemon with a same-named tenant, and
+// each has its own DNS suffix — which is what names the tenant CA. Unscoped, the
+// plan could name the OTHER install's CA.
+func trustRequest(config commandConfig, reference string) localtrust.Request {
+	name := strings.TrimSpace(reference)
+	if name == "" {
+		name = strings.TrimSpace(config.adminConfig.Tenant)
+	}
+	return localtrust.Request{Reference: reference, InstallPrefix: installPrefixForRemote(config, name)}
 }
 
 func formatTrustResult(result localtrust.Result) string {
