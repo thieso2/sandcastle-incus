@@ -5,6 +5,54 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-09 — fixing #51/#54/#55, and the two bugs hiding inside the #51 fix
+
+**#54 — make the failure non-destructive rather than chase the failure.**
+Enrollment removed the existing Incus remote and then added its replacement; when
+the add failed (`Client is already trusted`, and no tailnet address for the
+certificate-based fallback) the client was left with no remote and the whole user
+CLI broke. Rather than fix the "already trusted" refusal — which is a real
+constraint of a shared client identity — enrollment now renames the remote aside,
+adds, and drops the backup only on success, rolling back otherwise. The refusal
+still happens; it is simply no longer a lockout.
+
+**#55 — say "unknown", not "error", for what a tenant certificate cannot see.**
+Three symptoms, one shape. `sc status` recomputed the infra project with the v1
+rule (`<incus project>-infra`), which under v2 names a project that does not
+exist. But fixing the name is not enough: a restricted tenant certificate is not
+granted the infra project *at all*, and the v2 CIDR is stored only there. So the
+checks now report `unknown` with the reason rather than a red `error` on a healthy
+tenant, and the shares 403 is fixed where it belongs — `requireTenantAccess` now
+grants a v2 personal tenant to the user whose key names it, the same rule
+`machines_web.go` already used.
+
+**#51 — the fix had two silent bugs of its own, and only the live run found them.**
+The reconciler existed and was wired; v2 was deliberately skipped with the comment
+"rotation reaches existing machines via the shared /home". That is false: the
+shared `authorized_keys` is only rewritten when some *new* machine's cloud-init
+runs. (Creating a machine does repair the lockout — which is why the bug could
+look intermittent.) Enabling the reconciler for v2 was the easy part. Then:
+
+1. v2 machine listings do not populate `LinuxUser`, so the script fell back to the
+   GitHub user key and wrote to `/home/<github-user>` — a path that does not
+   exist. The Unix account is on `summary.UnixUser`.
+2. `op.Wait()` only reports whether the exec could *run*. A non-zero script exit
+   is in the operation metadata. So (1) failed inside the machine and reported
+   success. The first "fixed" binary deployed cleanly, logged nothing, and left
+   the user just as locked out.
+
+Both were invisible to unit tests and to the auth-app log; only driving a real
+rotation against a real machine surfaced them. The reconciler now reads the exit
+code, and a machine that cannot be written no longer counts as reconciled.
+
+Also: v2 machines in a project share one `/home` volume, so `authorized_keys` is a
+single file per project. The reconciler writes once per project and skips stopped
+machines outright (they read the same file when they next boot) instead of
+exec'ing them and interpreting the error text.
+
+`RevokeUserSSHKey` is deliberately left on the v1 path — no v2 caller exists, and
+revocation deserves its own change rather than being smuggled into a rotation fix.
+
 ## 2026-07-09 — fixing #53/#56: what shape the fixes took, and what they didn't
 
 **#53 — quote argv, don't restructure `sc c`.** `ssh` space-joins its trailing
