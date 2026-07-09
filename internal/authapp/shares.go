@@ -454,6 +454,19 @@ func (h handler) requireTenantAccess(r *http.Request, userKey string, tenantName
 	if err != nil {
 		return err
 	}
+	normalizedUser := NormalizeGitHubUsername(userKey)
+	// v2 tenants carry no v1 tenant-user metadata for ListTenantUsers to read; a
+	// v2 personal tenant belongs to the user whose key names it (same rule as
+	// accessibleTenantSummaries in machines_web.go). Without this, the owner of a
+	// healthy v2 tenant is refused their own tenant — `sc status` reported
+	// "shares:reconcile: error (user … is not granted access to tenant …)" and the
+	// auth-app logged POST /api/shares/reconcile status=403.
+	if summary.Version == 2 {
+		if summary.Tenant == normalizedUser {
+			return nil
+		}
+		return fmt.Errorf("user %s is not granted access to tenant %s", normalizedUser, summary.Tenant)
+	}
 	plan, err := usertrust.PlanTenantUsersForRequest(h.admin, usertrust.TenantAccessRequest{Tenant: summary.Tenant, Personal: summary.Personal})
 	if err != nil {
 		return err
@@ -462,11 +475,10 @@ func (h handler) requireTenantAccess(r *http.Request, userKey string, tenantName
 	if err != nil {
 		return err
 	}
-	normalized := NormalizeGitHubUsername(userKey)
 	for _, candidate := range result.Users {
-		if NormalizeGitHubUsername(candidate) == normalized {
+		if NormalizeGitHubUsername(candidate) == normalizedUser {
 			return nil
 		}
 	}
-	return fmt.Errorf("user %s is not granted access to tenant %s", normalized, summary.Tenant)
+	return fmt.Errorf("user %s is not granted access to tenant %s", normalizedUser, summary.Tenant)
 }
