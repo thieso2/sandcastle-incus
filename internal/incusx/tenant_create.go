@@ -14,6 +14,7 @@ import (
 
 type TenantCreateServer interface {
 	GetProject(name string) (*api.Project, string, error)
+	GetProjectNames() ([]string, error)
 	CreateProject(project api.ProjectsPost) error
 	UpdateProject(name string, project api.ProjectPut, ETag string) error
 	UseProject(name string) TenantResourceServer
@@ -37,7 +38,9 @@ type TenantResourceServer interface {
 	CreateProfile(profile api.ProfilesPost) error
 	UpdateProfile(name string, profile api.ProfilePut, ETag string) error
 	GetInstance(name string) (*api.Instance, string, error)
+	GetInstanceNames(instanceType api.InstanceType) ([]string, error)
 	GetInstanceState(name string) (*api.InstanceState, string, error)
+	GetInstanceFile(instanceName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 	CreateInstance(instance api.InstancesPost) (incus.Operation, error)
 	DeleteInstance(name string) (incus.Operation, error)
 	UpdateInstance(name string, instance api.InstancePut, etag string) (incus.Operation, error)
@@ -215,6 +218,10 @@ func (s sdkTenantCreateServer) UpdateProject(name string, project api.ProjectPut
 	return s.inner.UpdateProject(name, project, etag)
 }
 
+func (s sdkTenantCreateServer) GetProjectNames() ([]string, error) {
+	return s.inner.GetProjectNames()
+}
+
 func (s sdkTenantCreateServer) UseProject(name string) TenantResourceServer {
 	return sdkResourceServer{inner: s.inner.UseProject(name), projectName: name}
 }
@@ -258,6 +265,14 @@ func (s sdkResourceServer) GetStorageVolumeFile(pool string, volumeType string, 
 
 func (s sdkResourceServer) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
 	return createStorageVolumeFile(s.inner, s.projectName, pool, volumeType, volumeName, filePath, args)
+}
+
+func (s sdkResourceServer) GetInstanceNames(instanceType api.InstanceType) ([]string, error) {
+	return s.inner.GetInstanceNames(instanceType)
+}
+
+func (s sdkResourceServer) GetInstanceFile(instanceName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	return s.inner.GetInstanceFile(instanceName, filePath)
 }
 
 func (s sdkResourceServer) GetProfile(name string) (*api.Profile, string, error) {

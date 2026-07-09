@@ -814,6 +814,51 @@ sc list                                        # lc1 gone
   tenant for the current remote it fails with a clear error instead of targeting a
   guessed project.
 
+### Phase 7e — SSH host keys are authoritative, marked, and self-healing (ADR-0020) ✅
+`sc c` reads each machine's host keys **over the Incus API** (`GetInstanceFile`),
+records them in `~/.ssh/known_hosts` keyed by the Machine Private Hostname (via
+`-o HostKeyAlias`), and connects with `StrictHostKeyChecking=yes`. Every line it
+writes is tagged `# sandcastle:<remote>/<tenant>`. There is **no** per-tenant
+known_hosts file for v2, and **no** IP-keyed entry is ever written.
+
+```bash
+M=hk1
+sc c $M -- true                                # records ALL host key types, tagged
+grep "^$M\." ~/.ssh/known_hosts                # one tagged line per key type
+
+# the reported bug: rebuild the machine, its host key changes
+sc delete $M --yes && sc c $M -- true          # must NOT warn; must reclaim the stale name
+ssh -o BatchMode=yes $M.default.$SUFFIX true   # bare ssh works, by name
+ssh -o BatchMode=yes $M.$SUFFIX true           # short alias too (default project, ADR-0018)
+
+# convergence: bare ssh's UpdateHostKeys must find nothing to add
+sc c $M -- true                                # silent — no known_hosts output at all
+
+# maintenance
+sc ssh-key purge --dry-run                     # reports, never writes
+sc ssh-key purge --yes                         # drops tagged orphans + recycled-IP debris
+```
+**PASS (✅ validated on `obelix` 2026-07-09):**
+- The connect prints `known_hosts: update <fqdn> … was <type> SHA256:…` exactly once
+  after a rebuild, then connects. No `REMOTE HOST IDENTIFICATION HAS CHANGED`.
+- `~/.ssh/known_hosts` holds **one tagged line per host key type**
+  (`ssh-ed25519`, `ecdsa-sha2-nistp256`, `ssh-rsa`), each listing both names:
+  `<m>.<project>.<suffix>,<m>.<suffix> … # sandcastle:<remote>/<tenant>`.
+- Bare `ssh <m>.<project>.<suffix>` and `ssh <m>.<suffix>` both succeed with no prompt.
+- A **second** `sc c` after a bare `ssh` prints nothing about known_hosts — the file
+  has converged and OpenSSH's `UpdateHostKeys` has nothing to append. **If this
+  regresses, only one key type is being recorded.**
+- Untagged IP literals inside the tenant's private CIDR are removed (the CIDR is read
+  from the machine's own interface netmask; a restricted cert cannot see the bridge).
+  Entries for **other** tenants/installs, `@cert-authority`, `@revoked`, comments, and
+  foreign hostnames are untouched.
+- The first destructive write of the day leaves `~/.ssh/known_hosts.sc-backup-<date>`.
+- A VM whose `incus-agent` is not running is *live but unreadable*: `sc c` falls back to
+  `ssh-keyscan` and tags the line ` tofu`; `sc ssh-key purge` leaves its entries alone
+  rather than treating them as orphans. A later connect that can read it drops the marker.
+- `sc ssh-key purge --dry-run` does not modify the file (compare `shasum` before/after);
+  without a TTY and without `--yes` it refuses.
+
 ### Phase 7d — second project via broker self-service
 A tenant creates additional projects THEMSELVES through the broker's tenant
 plane, authenticated by their enrolled client certificate. The broker scaffolds

@@ -318,6 +318,19 @@ remote: sc-alice</code></pre>
   </div>
 
   <div class="step">
+    <h3>SSH host keys — automatic, authoritative, self-healing</h3>
+    <p>You do not manage host keys. On every <code>sandcastle connect</code> (v2), the CLI reads the machine's SSH host keys <em>over the Incus API</em> — never from the network — and records them in <code>~/.ssh/known_hosts</code> under the Machine Private Hostname, then connects with <code>StrictHostKeyChecking=yes</code>. Rebuilding a machine changes its host key; the entry is reclaimed automatically, so you never see <code>REMOTE HOST IDENTIFICATION HAS CHANGED</code>. A plain <code>ssh &lt;machine&gt;.&lt;project&gt;.&lt;suffix&gt;</code> uses the same entries and just works.</p>
+    <pre><code><span class="comment"># every line Sandcastle writes is marked, so it can be reclaimed and purged safely</span>
+tubu.default.acme,tubu.acme ssh-ed25519 AAAA... <span class="comment"># sandcastle:&lt;remote&gt;/&lt;tenant&gt;</span>
+
+<span class="cmd">sandcastle ssh-key purge</span> <span class="flag">--dry-run</span>   <span class="comment"># report what is stale, change nothing</span>
+<span class="cmd">sandcastle ssh-key purge</span>             <span class="comment"># drop entries for deleted machines + recycled private IPs</span>
+<span class="cmd">sandcastle ssh-key purge</span> <span class="flag">--all --yes</span> <span class="comment"># every v2 tenant, no confirmation</span></code></pre>
+    <div class="note"><strong>What purge will and will not delete.</strong> It removes only lines Sandcastle wrote (marked <code># sandcastle:&lt;remote&gt;/&lt;tenant&gt;</code>) plus untagged <em>literal IP addresses inside the tenant's own private CIDR</em> — recycled DHCP leases with no lasting owner. Your own entries, <code>@cert-authority</code>/<code>@revoked</code> lines, and other hosts are never touched; a wildcard of yours that would shadow a machine name is reported, not removed. The first destructive change each day snapshots the file to <code>~/.ssh/known_hosts.sc-backup-&lt;date&gt;</code>, and every removal is printed.</div>
+    <div class="note"><strong>Virtual machines.</strong> Reading a VM's host key needs <code>incus-agent</code> running inside the guest. When it is not, <code>connect</code> falls back to <code>ssh-keyscan</code>, warns, and marks the entry <code>tofu</code> (trust on first use). Any later connect that <em>can</em> read the machine rewrites the entry and drops the marker. See <code>docs/adr/0020-authoritative-ssh-host-keys.md</code>.</div>
+  </div>
+
+  <div class="step">
     <h3>Tenant status</h3>
     <pre><code><span class="cmd">sandcastle-admin tenant status</span> <span class="arg">acme</span></code></pre>
   </div>
@@ -932,6 +945,7 @@ Bootstrap:
         <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
         <tr><td>sandcastle project set-docker-autostart &lt;project&gt; on|off</td><td>Control Docker daemon autostart for new machines in a project</td></tr>
         <tr><td>sandcastle share create/list/status/offers/accept/decline/revoke/delete/reconcile</td><td>Create, accept, revoke, delete, and reconcile Tenant Storage Shares &mdash; <strong>not yet supported on v2</strong> (gated off pending <a href="https://github.com/thieso2/sandcastle-incus/issues/70">#70</a>)</td></tr>
+        <tr><td>sandcastle ssh-key purge [--all] [--yes] [--dry-run]</td><td>Reconcile ~/.ssh/known_hosts against live machines; drop stale Sandcastle entries and recycled private-IP entries</td></tr>
         <tr><td>sandcastle cloud-identity gcp setup</td><td>Configure tenant-scoped GCP Workload Identity Federation</td></tr>
         <tr><td>sandcastle trust install [tenant]</td><td>Trust tenant CA locally</td></tr>
         <tr><td>sandcastle trust uninstall [tenant]</td><td>Remove tenant CA trust</td></tr>

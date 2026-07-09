@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -96,57 +95,6 @@ func TestIncusTokenAddresses(t *testing.T) {
 		if got := incusTokenAddresses(bad); got != nil {
 			t.Fatalf("incusTokenAddresses(%q) = %#v, want nil", bad, got)
 		}
-	}
-}
-
-// Tenant machine host keys are ephemeral and their private IPs recycle, so
-// `sc c` must not write them into (or be blocked by) the user's own
-// ~/.ssh/known_hosts. Before this, the second `sc c` after a delete+recreate
-// died with "Host key verification failed".
-func TestSandcastleKnownHostsIsSeparateFromUserSSH(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	path := sandcastleKnownHostsPath()
-	if path == "" {
-		t.Fatal("empty known_hosts path")
-	}
-	if filepath.Base(path) != "known_hosts" {
-		t.Fatalf("path = %q", path)
-	}
-	if strings.Contains(path, filepath.Join(home, ".ssh")) {
-		t.Fatalf("path %q is inside the user's ~/.ssh", path)
-	}
-	if _, err := os.Stat(filepath.Dir(path)); err != nil {
-		t.Fatalf("parent dir not created: %v", err)
-	}
-}
-
-// forgetKnownHost must drop only the recycled IP's entry, and tolerate a
-// missing file entirely.
-func TestForgetKnownHostRemovesOnlyThatHost(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "known_hosts")
-	content := "10.61.0.66 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
-		"10.61.0.84 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	forgetKnownHost(context.Background(), path, "10.61.0.66")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), "10.61.0.66") {
-		t.Fatalf("stale host key survived:\n%s", data)
-	}
-	if !strings.Contains(string(data), "10.61.0.84") {
-		t.Fatalf("unrelated host key was removed:\n%s", data)
-	}
-	// A missing file must not panic or create one.
-	missing := filepath.Join(dir, "nope")
-	forgetKnownHost(context.Background(), missing, "10.61.0.66")
-	if _, err := os.Stat(missing); !os.IsNotExist(err) {
-		t.Fatal("forgetKnownHost created a file it should have skipped")
 	}
 }
 

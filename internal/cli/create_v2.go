@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -325,23 +324,23 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 		return err
 	}
 	privateKeyPath := strings.TrimSuffix(sshKey.PublicKeyPath, ".pub")
-	// Machines are ephemeral and their IPs recycle inside the tenant's private
-	// /24, so the host key for a given IP changes whenever a machine is deleted
-	// and recreated. Against the user's ~/.ssh/known_hosts that means the second
-	// `sc c` after a recreate dies with "Host key verification failed" and the
-	// user has to hand-edit the file. Keep Sandcastle host keys in their own file
-	// and drop the stale entry for this IP first — the v1 connect path did the
-	// same (`localKnownHostsManager.RefreshMachine`), and this keeps the user's
-	// global known_hosts untouched.
-	knownHosts := sandcastleKnownHostsPath()
-	forgetKnownHost(ctx, knownHosts, ensured.PrivateIP)
-	sshArgs := []string{
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "UserKnownHostsFile=" + knownHosts,
-		"-o", "IdentitiesOnly=yes",
-		"-i", privateKeyPath,
-		ensured.LoginUser + "@" + ensured.PrivateIP,
+	// Record the machine's authoritative host key under the names it answers
+	// at, then dial its IP but check the key against the name (HostKeyAlias).
+	// Names are stable; private IPs are recycled leases. With the true key
+	// already on disk we can demand StrictHostKeyChecking=yes, so a rebuilt
+	// machine never trips the MITM warning and a real impostor always does.
+	names := v2MachineNames(summary, project, machineName)
+	sshArgs := []string{"-o", "IdentitiesOnly=yes", "-i", privateKeyPath}
+	if len(names) > 0 && ensureV2HostKey(ctx, config, summary, project, machineName, ensured.PrivateIP, ensured.PrivateCIDR) {
+		sshArgs = append(sshArgs,
+			"-o", "HostKeyAlias="+names[0],
+			"-o", "StrictHostKeyChecking=yes",
+			"-o", "CheckHostIP=no",
+		)
+	} else {
+		sshArgs = append(sshArgs, "-o", "StrictHostKeyChecking=accept-new")
 	}
+	sshArgs = append(sshArgs, ensured.LoginUser+"@"+ensured.PrivateIP)
 	// ssh joins its trailing arguments with spaces into ONE remote command
 	// string that the remote shell re-splits, so argv must be shell-quoted here
 	// or `sh -c 'echo hi'` arrives as `sh -c echo hi`.
@@ -444,33 +443,4 @@ func requireV2Tenant(ctx context.Context, config commandConfig) (tenant.Summary,
 		return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", name)
 	}
 	return summary, nil
-}
-
-// sandcastleKnownHostsPath is where SSH host keys of tenant machines are kept,
-// deliberately separate from ~/.ssh/known_hosts: tenant machine host keys are
-// ephemeral and their private IPs recycle, so they must not accumulate in — or
-// invalidate entries of — the user's own file.
-func sandcastleKnownHostsPath() string {
-	dir := filepath.Dir(scconfig.DefaultConfigPath())
-	if strings.TrimSpace(dir) == "" || dir == "." {
-		return "known_hosts"
-	}
-	_ = os.MkdirAll(dir, 0o700)
-	return filepath.Join(dir, "known_hosts")
-}
-
-// forgetKnownHost drops any recorded host key for host. A missing file, a
-// missing entry, or a missing ssh-keygen are all fine: the connect then simply
-// falls back to accept-new.
-func forgetKnownHost(ctx context.Context, knownHostsPath string, host string) {
-	if strings.TrimSpace(host) == "" {
-		return
-	}
-	if _, err := os.Stat(knownHostsPath); err != nil {
-		return
-	}
-	cmd := exec.CommandContext(ctx, "ssh-keygen", "-R", host, "-f", knownHostsPath)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	_ = cmd.Run()
 }

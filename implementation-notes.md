@@ -1566,3 +1566,58 @@ flipping the two gates back once the registry moves (#70). The CLI/endpoint
 behaviour tests were replaced with two gate tests (`TestShareCommandsAreGatedOnV2`,
 `TestShareEndpointsAreGatedOnV2`); the dormant plumbing keeps its own unit
 coverage in `internal/share` and `internal/incusx`.
+## 2026-07-09 — Authoritative SSH host keys (`internal/hostkeys`)
+
+Context: `ssh tubu.default.obelix` failed with `REMOTE HOST IDENTIFICATION HAS
+CHANGED`. Root cause was not a bug in one place but a design gap; see
+`docs/adr/0020-authoritative-ssh-host-keys.md` for the decisions. Notes on the
+choices that were *not* in the original ask:
+
+- **The reported failure did not come from `sc`.** `sc c` (v2) sshed to the raw
+  private IP with `accept-new`, so it only ever wrote IP-keyed lines. The
+  name-keyed line that went stale was written by a bare `ssh` long before. Fixing
+  only `sc` would not have fixed the reported symptom; hence `~/.ssh/known_hosts`
+  became the single source of truth rather than the per-tenant file.
+
+- **`GetInstanceFile` works under a restricted tenant certificate.** This was
+  verified against a live tenant before committing to the design — `localtrust`
+  only exercised it with admin certs, and the whole approach collapses to
+  trust-on-first-use if restricted certs are denied. They are not.
+
+- **The tenant CIDR is unavailable to the tenant.** `tenant.Summary.PrivateCIDR`
+  is empty for v2 (`internal/tenant/list.go` says so in a comment: the `kind=infra`
+  project is not visible to a restricted cert), and Incus redacts network config,
+  so `ipv4.address` on the bridge is unreadable too. The first implementation
+  therefore silently never purged anything. `GetInstanceState` reports the
+  machine's own address *and netmask*, which is authoritative and needs no infra
+  visibility — `waitForV2InstanceIPv4` now returns both, and
+  `MachineSubnetV2` exposes it to `purge`. Discovered only by running the thing.
+
+- **All host key types must be recorded, not just ed25519.** OpenSSH's
+  `UpdateHostKeys` (on by default) appends the server's *other* host keys after a
+  successful auth. With one key recorded, a bare `ssh` re-added untagged rsa and
+  ecdsa lines, the next `sc c` reclaimed and deleted them, and ssh added them
+  back — a permanent ping-pong that showed up as `sc c` never being idempotent.
+  Also discovered only by running it; the unit tests were green throughout.
+
+- **`sc c --fix` was designed away.** The original ask was for a repair mode on
+  `sc c`. Once connect reconciles unconditionally, the flag had nothing left to
+  do; the work that genuinely needs a live-machine list (tagged orphans) moved to
+  `sc ssh-key purge`.
+
+- **Name reclamation is not optional.** OpenSSH uses the *first* matching line, so
+  appending a correct entry beneath a stale one changes nothing. `sc` must remove
+  untagged lines claiming names it owns. That is a deletion from the user's file,
+  which is why every line `sc` writes carries a `# sandcastle:<remote>/<tenant>`
+  marker and why removals are backed up and printed.
+
+- **`confirmMissingYes` grew a `…Named` variant** so `purge` does not report
+  "delete canceled" when a user declines. Existing callers are unchanged.
+
+- Verified against the live `obelix` tenant: stale entry reclaimed, 23 recycled
+  `10.123.0.x` entries purged, another install's 100 `10.248.x` entries and all
+  foreign/`@cert-authority` lines untouched, `ssh tubu.default.obelix` and
+  `ssh tubu.obelix` both working, `sc c` silent and idempotent on re-run,
+  `sc ssh-key purge --dry-run` non-mutating, tagged orphans removed by
+  `sc ssh-key purge --yes`. A VM without `incus-agent` (`macos-vm`) is correctly
+  treated as live-but-unreadable and left alone.

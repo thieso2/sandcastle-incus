@@ -266,6 +266,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newTenantCommand(config, opts))
 	root.AddCommand(newCloudIdentityCommand(config, opts))
 	root.AddCommand(newShareCommand(config, opts))
+	root.AddCommand(newSSHKeyCommand(config, opts))
 
 	return root
 }
