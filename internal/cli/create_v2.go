@@ -263,13 +263,46 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 		"-i", privateKeyPath,
 		ensured.LoginUser + "@" + ensured.PrivateIP,
 	}
-	sshArgs = append(sshArgs, command...)
+	// ssh joins its trailing arguments with spaces into ONE remote command
+	// string that the remote shell re-splits, so argv must be shell-quoted here
+	// or `sh -c 'echo hi'` arrives as `sh -c echo hi`.
+	if line := remoteCommandLine(command); line != "" {
+		sshArgs = append(sshArgs, line)
+	}
 	fmt.Fprintf(config.stdout, "Connecting: ssh %s@%s\n", ensured.LoginUser, ensured.PrivateIP)
 	sshCmd := exec.CommandContext(ctx, "ssh", sshArgs...)
 	sshCmd.Stdin = osStdinFor(config)
 	sshCmd.Stdout = config.stdout
 	sshCmd.Stderr = config.stderr
 	return sshCmd.Run()
+}
+
+// remoteCommandLine renders argv as a single command line for ssh, which
+// concatenates its trailing arguments with spaces and lets the remote login
+// shell re-split the result. Without quoting, `sc c web -- sh -c 'id -un'`
+// reaches the machine as `sh -c id -un` and runs `id` with no arguments.
+//
+// A lone argument passes through verbatim so `sc c web -- 'ls -l /tmp'` stays a
+// shell snippet, matching the v1 connect path (incusx.remoteShellCommand).
+func remoteCommandLine(command []string) string {
+	switch len(command) {
+	case 0:
+		return ""
+	case 1:
+		return strings.TrimSpace(command[0])
+	}
+	quoted := make([]string, 0, len(command))
+	for _, arg := range command {
+		quoted = append(quoted, shellQuoteArg(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+// shellQuoteArg single-quotes a value for a POSIX shell. An embedded single
+// quote is escaped by closing the quoted run, emitting an escaped quote, and
+// reopening it.
+func shellQuoteArg(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 // osStdinFor hands the real stdin to interactive subprocesses when the command
