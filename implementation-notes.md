@@ -5,6 +5,51 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-09 — fixing #53/#56: what shape the fixes took, and what they didn't
+
+**#53 — quote argv, don't restructure `sc c`.** `ssh` space-joins its trailing
+arguments into one remote command string that the remote login shell re-splits,
+so `sc c web -- sh -c 'id -un'` arrived as `sh -c id -un`. The fix renders argv
+into a single shell-quoted line (`remoteCommandLine`) before it reaches `ssh`.
+A **lone** argument is passed through verbatim rather than quoted, so
+`sc c web -- 'ls -l /tmp'` keeps working as a shell snippet — this deliberately
+mirrors the v1 connect path (`incusx.remoteShellCommand`), which has the same
+special case. Quoting a lone argument would be more "correct" in isolation but
+would silently break that established usage.
+
+**#56 — escalate the operations, not the process.** Two designs were possible:
+
+1. Resolve the config directory from `$SUDO_USER` when running as root, so
+   `sudo sc trust install <tenant>` works.
+2. Keep the whole command unprivileged and escalate only the two operations that
+   genuinely need root (writing the CA into `/usr/local/share/ca-certificates`,
+   and `update-ca-certificates`).
+
+Chose (2). Option (1) changes config resolution *globally* for anything running
+as root under sudo — and `sc-adm` deliberately runs as root against root's
+`~/.config/incus` admin certs (see the `Execute`/`ExecuteAdmin` split in
+`internal/cli`). Silently redirecting that to the invoking user's home would have
+been a much larger, much subtler blast radius than the bug being fixed.
+
+Escalation is **try-then-escalate**, not "escalate when non-root": the direct
+attempt runs first and `sudo` is used only when it is refused. That keeps
+`CommandStore{LinuxDir: t.TempDir()}` (and any user-owned trust dir) from
+shelling out to `sudo` at all, which is what lets the existing unit tests keep
+asserting a bare `update-ca-certificates`.
+
+One trap this surfaced: `update-ca-certificates` lives in `/usr/sbin`, which is
+**not** on an unprivileged `PATH`. Exec therefore reports *executable file not
+found*, not *permission denied*. Both are treated as privilege symptoms
+(`needsRoot`) and retried under `sudo`; a genuine failure (say, a corrupt bundle)
+is not retried and surfaces as-is.
+
+Left unfixed, deliberately, and recorded in the `docs/e2e-sc2.md` appendix
+instead: `sc config set remote` leaves a stale `broker:` URL (so `sc trust
+install` can fetch the *other* install's CA), and `sc trust uninstall` computes a
+v1-shaped filename that never matches what the v2 signer path installed, so it
+removes nothing and reports success. Both are adjacent to #56 but are separate
+defects with separate fixes.
+
 ## 2026-07-09 — e2e harness: two SSH/stdin traps when driving a remote host
 
 Hit both while running the full `docs/e2e-sc2.md` protocol on `majestix`. Neither

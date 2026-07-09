@@ -3,7 +3,9 @@ package localtrust
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -277,5 +279,168 @@ func TestPlanDoesNotSerializePEM(t *testing.T) {
 	}
 	if strings.Contains(string(payload), "PRIVATE KEY") {
 		t.Fatalf("payload leaked key material: %s", payload)
+	}
+}
+
+// Regression for #56: the system trust directory is root-owned, but `sc` runs as
+// the user. Only the privileged operations escalate; the rest of the command
+// keeps the caller's $HOME so the login config stays reachable.
+func TestCommandStoreInstallLinuxEscalatesOnPermissionDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: the direct write succeeds and never escalates")
+	}
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "ca-certificates")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil { // read-only: writes hit fs.ErrPermission
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	var commands [][]string
+	store := CommandStore{
+		GOOS:     "linux",
+		LinuxDir: dir,
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, append([]string{name}, args...))
+			return []byte("ok"), nil
+		},
+	}
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
+	result, err := store.InstallCA(context.Background(), plan, []byte("CERT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "install" || result.Platform != "linux" {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(commands) != 2 {
+		t.Fatalf("commands = %#v", commands)
+	}
+	install := commands[0]
+	if install[0] != "sudo" || install[1] != "install" {
+		t.Fatalf("expected a sudo install, got %#v", install)
+	}
+	if install[len(install)-1] != filepath.Join(dir, CertFilename(plan)) {
+		t.Fatalf("install target = %q", install[len(install)-1])
+	}
+	// the follow-up must run with the same privileges, or it silently no-ops
+	if got := strings.Join(commands[1], " "); got != "sudo update-ca-certificates" {
+		t.Fatalf("update command = %q", got)
+	}
+}
+
+func TestCommandStoreUninstallLinuxEscalatesOnPermissionDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: the direct remove succeeds and never escalates")
+	}
+	dir := t.TempDir()
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
+	target := filepath.Join(dir, CertFilename(plan))
+	if err := os.WriteFile(target, []byte("CERT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil { // unlink needs write on the directory
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	var commands [][]string
+	store := CommandStore{
+		GOOS:     "linux",
+		LinuxDir: dir,
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, append([]string{name}, args...))
+			return []byte("ok"), nil
+		},
+	}
+	if _, err := store.UninstallCA(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 2 || commands[0][0] != "sudo" || commands[0][1] != "rm" {
+		t.Fatalf("commands = %#v", commands)
+	}
+	if got := strings.Join(commands[1], " "); got != "sudo update-ca-certificates" {
+		t.Fatalf("update command = %q", got)
+	}
+}
+
+// A missing CA is not an error and must not escalate.
+func TestCommandStoreUninstallLinuxAbsentCertDoesNotEscalate(t *testing.T) {
+	dir := t.TempDir()
+	var commands [][]string
+	store := CommandStore{
+		GOOS:     "linux",
+		LinuxDir: dir,
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, append([]string{name}, args...))
+			return []byte("ok"), nil
+		},
+	}
+	if _, err := store.UninstallCA(context.Background(), Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 1 || commands[0][0] != "update-ca-certificates" {
+		t.Fatalf("commands = %#v", commands)
+	}
+}
+
+// update-ca-certificates lives in /usr/sbin, which is not on an unprivileged
+// PATH, so exec reports "not found" rather than "permission denied". Treat that
+// as a privilege symptom and retry under sudo, or the install half-completes:
+// the CA is written but the system bundle is never rebuilt.
+func TestCommandStoreRetriesUpdateUnderSudoWhenNotOnPath(t *testing.T) {
+	dir := t.TempDir()
+	var commands [][]string
+	store := CommandStore{
+		GOOS:     "linux",
+		LinuxDir: dir,
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, append([]string{name}, args...))
+			if name == "update-ca-certificates" {
+				return nil, &exec.Error{Name: name, Err: exec.ErrNotFound}
+			}
+			return []byte("ok"), nil
+		},
+	}
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
+	if _, err := store.InstallCA(context.Background(), plan, []byte("CERT")); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"update-ca-certificates"}, {"sudo", "update-ca-certificates"}}
+	if len(commands) != len(want) {
+		t.Fatalf("commands = %#v", commands)
+	}
+	for i := range want {
+		if strings.Join(commands[i], " ") != strings.Join(want[i], " ") {
+			t.Fatalf("commands[%d] = %q, want %q", i, commands[i], want[i])
+		}
+	}
+}
+
+// A genuine failure (not a privilege symptom) must surface, not silently retry.
+func TestCommandStoreDoesNotRetryUpdateOnRealFailure(t *testing.T) {
+	dir := t.TempDir()
+	var calls int
+	store := CommandStore{
+		GOOS:     "linux",
+		LinuxDir: dir,
+		RunCommand: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			calls++
+			return []byte("boom"), errors.New("bundle corrupt")
+		},
+	}
+	plan := Plan{Reference: "acme", TrustName: "Sandcastle acme tenant CA"}
+	_, err := store.InstallCA(context.Background(), plan, []byte("CERT"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 1 {
+		t.Fatalf("expected a single attempt, got %d", calls)
+	}
+	if !strings.Contains(err.Error(), "bundle corrupt") {
+		t.Fatalf("error = %q", err)
 	}
 }

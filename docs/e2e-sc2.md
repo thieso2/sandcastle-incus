@@ -906,29 +906,43 @@ sc trust install $TENANT --dry-run  # preview the per-OS plan without changing t
 tenant path validates **without `-k`**.
 
 **v2 (ADR-0011):** the tenant CA is now issued by the **sidecar leaf signer**
-(`sandcastle-admin sidecar tls-sign`), and `sc login` **attempts to auto-install**
-it — the v2 login branch fetches `http://<tenant .3>:9443/tls/ca` over the tenant
-subnet route and installs it into the local trust store, naming the entry after
-the CA's CN (`Sandcastle <suffix> tenant CA`) so same-named tenants of different
+(`sandcastle-admin sidecar tls-sign`), and `sc login` **auto-installs** it — the
+v2 login branch fetches `http://<tenant .3>:9443/tls/ca` over the tenant subnet
+route and installs it into the local trust store, naming the entry after the
+CA's CN (`Sandcastle <suffix> tenant CA`) so same-named tenants of different
 installs don't collide. The public `sc-edge` path in Phase 7 needs **no** CA
 install (Let's Encrypt is already trusted).
 
-> ⚠️ **The auto-install only works when `sc login` runs as root** (validated on
-> `majestix` 2026-07-09). `internal/localtrust` writes
-> `/usr/local/share/ca-certificates/<name>.crt` and runs `update-ca-certificates`
-> **directly, with no privilege escalation**, so an ordinary user's `sc login`
-> prints `Note: tenant CA trust install failed: … permission denied` and carries
-> on (login itself still succeeds, exit 0). The follow-up command the note
-> suggests — `sc trust install <tenant>` — **cannot work either**:
+> ✅ **Runs unprivileged** (fixed 2026-07-09, [#56](https://github.com/thieso2/sandcastle-incus/issues/56); validated on `majestix`).
+> The system trust directory is root-owned but `sc` is a user command, so
+> `internal/localtrust` escalates **only the two privileged operations** — writing
+> `/usr/local/share/ca-certificates/<name>.crt` and running
+> `update-ca-certificates` — via `sudo`, and only after the direct attempt is
+> refused. Everything else keeps running as the invoking user, so `$HOME` (and the
+> Sandcastle login config in it) stays reachable. `sudo` may prompt for a password.
 >
-> | command | rc | outcome |
-> |---|---|---|
-> | `sc trust install e2edns` | 1 | `permission denied` writing the CA |
-> | `sudo sc trust install e2edns` | 1 | `… (log in first)` — sudo resets `$HOME`, so the login config is unreachable |
-> | `sudo -E sc trust install e2edns` | 0 | works |
+> Note `update-ca-certificates` lives in `/usr/sbin`, absent from an unprivileged
+> `PATH`, so exec reports *not found* rather than *permission denied*; both are
+> treated as privilege symptoms and retried under `sudo`.
 >
-> **Use `sudo -E sc trust install <tenant>`.** The hint printed by `sc login`
-> should say so (it currently omits both `sudo` and `-E`).
+> Before the fix an ordinary `sc login` printed
+> `Note: tenant CA trust install failed: … permission denied` and carried on, and
+> the follow-up it suggested could not work either — `sc trust install` hit the
+> same permission error, while plain `sudo sc trust install` failed with
+> `… (log in first)` because sudo resets `$HOME`. Only `sudo -E` worked. Now:
+>
+> ```bash
+> sc trust install e2edns          # rc=0, escalates internally
+> curl -so /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://web.default.castle/
+> # → 200 verify=0
+> ```
+
+> ⚠️ **`sc trust uninstall` is still broken on v2 tenants** (open, unfixed). The
+> install path names the file after the CA's CN fetched from the signer
+> (`sandcastle-castle-tenant-ca.crt`), but `localtrust.PlanUninstall` derives the
+> trust name the v1 way, so `sc trust uninstall <tenant>` targets a filename that
+> never exists and removes nothing — reporting success. Remove it by hand:
+> `sudo rm /usr/local/share/ca-certificates/sandcastle-<suffix>-tenant-ca.crt && sudo update-ca-certificates --fresh`.
 
 ---
 
@@ -1133,10 +1147,12 @@ stays truthful and self-healing.
 | `sc list`/`sc c` on a enroll-enrolled client → `tenant is required` | `enroll` never persisted `tenant`/`remote` into `~/.config/sandcastle/config.yml` (only the login path did) | **Fixed:** `enroll` saves the tenant + base remote as local defaults |
 | Second `sc login` re-runs the whole device flow instead of `Already logged in` | `/api/tenants` filtered accessibility through the v1 `ListTenantUsers` metadata, which v2 tenants don't have — the saved-token check concluded the tenant was "no longer accessible" | **Fixed:** a v2 personal tenant is accessible to the user whose key names it; also fixes `sc tenant list` for v2 |
 | Tenant CIDR ignores `bootstrap --cidr-pool` when created via `incus exec … tenant create` | The flag lands in the broker **service** env (`/etc/sandcastle/broker/env`), but a direct `incus exec` CLI call doesn't inherit an EnvironmentFile | Source it in the exec: `incus exec sc2-broker … -- sh -c '. /etc/sandcastle/broker/env && export SANDCASTLE_CIDR_POOL && sandcastle-admin tenant create …'` |
-| **(open, [#53](https://github.com/thieso2/sandcastle-incus/issues/53))** `sc c <machine> -- sh -c '<script>'` silently misbehaves: `sh -c 'echo hi'` prints an empty line, `sh -c 'id -un'` prints the full `id` output, `touch X && …` reports "missing file operand" | `internal/cli/create_v2.go:266` does `sshArgs = append(sshArgs, command...)` and execs `ssh` — `ssh` joins its trailing args with **spaces** into one remote command string that the remote shell re-splits, so `sh -c` receives `echo` and `hi` as separate words. `sc incus exec` is unaffected (argv goes over the Incus API) | Shell-quote each element before handing it to `ssh`. Workaround: use `sc incus exec` for anything with quoting, or pass a single argv-safe command (`sc c web -- touch /workspace/x`) |
+| **(fixed 2026-07-09, [#53](https://github.com/thieso2/sandcastle-incus/issues/53))** `sc c <machine> -- sh -c '<script>'` silently misbehaves: `sh -c 'echo hi'` prints an empty line, `sh -c 'id -un'` prints the full `id` output, `touch X && …` reports "missing file operand" | `internal/cli/create_v2.go:266` does `sshArgs = append(sshArgs, command...)` and execs `ssh` — `ssh` joins its trailing args with **spaces** into one remote command string that the remote shell re-splits, so `sh -c` receives `echo` and `hi` as separate words. `sc incus exec` is unaffected (argv goes over the Incus API) | **Fixed:** `remoteCommandLine` renders argv as ONE shell-quoted command line before it reaches `ssh` (a lone argument still passes through raw, so `sc c web -- 'ls -l /tmp'` stays a shell snippet — matching the v1 path `incusx.remoteShellCommand`) |
 | **(open, [#54](https://github.com/thieso2/sandcastle-incus/issues/54))** A second user's `sc login` to an install **destroys the first user's enrollment on that client**: afterwards `sc list`/`sc status`/`sc c` all fail with `The remote "sc-<install>" doesn't exist` | The enrolled Incus remote is named per **install** (`sc-<auth-hostname>`), not per (install, user). A second user's login removes that remote and re-adds it; the re-add fails with `Failed to create certificate: Client is already trusted` (the client cert is already trusted from the first enrollment), leaving **no** remote behind | Repair: `sc login <auth-host> --simulate-token … --as <first-user> --force`. Real fix: name the remote per (install, user), and don't remove the old remote until the replacement is added |
 | **(open, [#55](https://github.com/thieso2/sandcastle-incus/issues/55))** `sc status` reports three errors on a perfectly healthy v2 tenant: `cidr: missing`, `topology: error (… permission for project "sc2-<tenant>-default-infra")`, `shares:reconcile: error (user not found / not granted access to tenant …)`; the auth-app logs a matching `POST /api/shares/reconcile status=403` | The topology check derives the infra project with the **v1** rule `naming.go:197` → `mainProjectName + "-infra"`, i.e. `sc2-<tenant>-default-infra`. Under v2 the infra project is `sc2-<tenant>` (no suffix). `Private CIDR` and the shares reconcile are broken in the same v1-vs-v2 way | Not fixed. `sc status`'s health block is v1-shaped; the tenant itself is fine (machines, DNS, routing all pass) |
-| **(open, [#56](https://github.com/thieso2/sandcastle-incus/issues/56))** `sc login` prints `Note: tenant CA trust install failed: … permission denied`, and its suggested follow-up `sc trust install <tenant>` also fails | `internal/localtrust/store.go` writes `/usr/local/share/ca-certificates/<name>.crt` and runs `update-ca-certificates` with **no privilege escalation**. Plain `sudo` fails differently — it resets `$HOME`, so the login config is unreachable (`… (log in first)`) | Use **`sudo -E sc trust install <tenant>`** (rc=0). The hint printed by `sc login` should say so. See Phase 8b |
+| **(fixed 2026-07-09, [#56](https://github.com/thieso2/sandcastle-incus/issues/56))** `sc login` prints `Note: tenant CA trust install failed: … permission denied`, and its suggested follow-up `sc trust install <tenant>` also fails | `internal/localtrust/store.go` writes `/usr/local/share/ca-certificates/<name>.crt` and runs `update-ca-certificates` with **no privilege escalation**. Plain `sudo` fails differently — it resets `$HOME`, so the login config is unreachable (`… (log in first)`) | **Fixed:** `localtrust` escalates only the privileged operations (write the CA, `update-ca-certificates`) via `sudo`, and only after the direct attempt is refused — so the rest of the command keeps the caller's `$HOME` and the login config stays reachable. `update-ca-certificates` sits in `/usr/sbin` (off an unprivileged `PATH`), so exec's *not found* is treated as a privilege symptom too. Plain `sc trust install <tenant>` and `sc login` now both work unprivileged. See Phase 8b |
+| **(open)** `sc config set remote <other-install>` leaves `broker:` pointing at the PREVIOUS install's tenant gateway, so `sc trust install` fetches the wrong install's CA (`Sandcastle idefix tenant CA` while the remote is the `castle` install) and HTTPS then fails `verify=20` | `sc config set remote` re-points `remote` and `auth_hostname` but never `broker`; only `sc login` rewrites it. `sc trust install` derives the sidecar leaf signer (`.3`) from the saved broker URL | Re-run `sc login <auth-host> … --force --skip-setup` after switching installs, which rewrites `broker`. Real fix: `sc config set remote` should re-derive every install-scoped value |
+| **(open)** `sc trust uninstall <tenant>` reports success but removes nothing on a v2 tenant | The install path names the file after the CA's CN fetched from the sidecar signer (`sandcastle-<suffix>-tenant-ca.crt`); `localtrust.PlanUninstall` derives the trust name the v1 way, so the computed filename never matches and `os.Remove` hits `ErrNotExist` (treated as "already absent") | `sudo rm /usr/local/share/ca-certificates/sandcastle-<suffix>-tenant-ca.crt && sudo update-ca-certificates --fresh`. Real fix: derive the uninstall filename from the same signer-provided CN as install |
 | Public routes (`sc route …`) unusable under Cloudflare-tunnel ingress | `--ingress cloudflare` deliberately deploys **no broker appliance**, and public-route DNS proof needs a public-IP infrastructure host | Expected: `sc route list` → `route broker executor is not configured`; `sc route create … --dry-run` → `infrastructure host is required for public route DNS proof`. Phase 7b is public-IP-shaped; use `--ingress acme` on a host with a public IP |
 | `sc create dev` succeeds but the machine does NOT show in `sc list` (two installs, same tenant name on one daemon) | `sc list` (also `sc project`, `sc dns/trust`, `sc status`) resolved the tenant by NAME only over the unscoped `tenant.List` — the other install's same-named tenant sorts first and shadows this one; only create/connect/lifecycle/incus were install-scoped | **Fixed:** those commands resolve via `scopedListTenants` (`tenant.ListForPrefix` keyed on the current remote's install prefix); regression test `TestListMachinesScopedToCurrentInstall` |
 | Shared `/home` silently NOT shared (VM can't see the CT's `/home` writes); `home` volume exists but is attached to no profile | `SupportsIdmappedMounts` keyed on `kernel_features["idmapped_mounts"] == "true"`, and **Incus 7.x stopped populating `kernel_features`** (always `{}`) — so every 7.x host looked idmapped-less and provisioning omitted the shared `/home` (and created both volumes unshifted) | **Fixed:** an ABSENT `idmapped_mounts` entry now means supported (the Incus 7.x kernel floor ≥ 5.15 includes it); only an explicit `"false"` disables the shared `/home`. Regression test `TestKernelFeaturesSupportIdmappedMounts`. **e2e check:** after provisioning, `incus profile show default --project <prefix>-<tenant>-default` lists BOTH `home` and `workspace` devices and both volumes have `security.shifted=true` |

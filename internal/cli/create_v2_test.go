@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -153,5 +154,57 @@ func TestInstallPrefixFromRemoteName(t *testing.T) {
 		if got := installPrefixFromRemoteName(c.remote, c.tenant); got != c.want {
 			t.Errorf("installPrefixFromRemoteName(%q, %q) = %q, want %q", c.remote, c.tenant, got, c.want)
 		}
+	}
+}
+
+// Regression for #53: ssh concatenates its trailing arguments with spaces into
+// one remote command string, so argv handed to `sc c` must be shell-quoted or
+// the remote shell re-splits it (`sh -c 'id -un'` → `sh -c id -un`).
+func TestRemoteCommandLineQuotesArgvForSSH(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		command []string
+		want    string
+	}{
+		{name: "interactive", command: nil, want: ""},
+		{name: "single word", command: []string{"hostname"}, want: "hostname"},
+		{name: "lone arg stays a shell snippet", command: []string{"ls -l /tmp"}, want: "ls -l /tmp"},
+		{name: "flags stay attached to their command", command: []string{"id", "-un"}, want: "'id' '-un'"},
+		{name: "sh -c script survives as one word", command: []string{"sh", "-c", "echo hi"}, want: "'sh' '-c' 'echo hi'"},
+		{name: "redirection and chaining stay inside the script", command: []string{"sh", "-c", "touch /workspace/x && echo ok"}, want: "'sh' '-c' 'touch /workspace/x && echo ok'"},
+		{name: "embedded single quotes are escaped", command: []string{"sh", "-c", "echo 'a b'"}, want: `'sh' '-c' 'echo '\''a b'\'''`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := remoteCommandLine(testCase.command); got != testCase.want {
+				t.Fatalf("remoteCommandLine(%q) = %q, want %q", testCase.command, got, testCase.want)
+			}
+		})
+	}
+}
+
+// The remote sshd hands the joined command line to the login shell, so the real
+// contract is: parsing remoteCommandLine's output with a shell must reproduce
+// the original argv semantics.
+func TestRemoteCommandLineRoundTripsThroughAShell(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		command []string
+		want    string
+	}{
+		{name: "sh -c echo", command: []string{"sh", "-c", "echo hi"}, want: "hi\n"},
+		{name: "id -un keeps its flag", command: []string{"printf", "%s-%s", "a", "b"}, want: "a-b"},
+		{name: "script with quotes", command: []string{"sh", "-c", "echo 'a b'"}, want: "a b\n"},
+		{name: "script with chaining", command: []string{"sh", "-c", "true && echo ok"}, want: "ok\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			line := remoteCommandLine(testCase.command)
+			output, err := exec.Command("sh", "-c", line).Output()
+			if err != nil {
+				t.Fatalf("sh -c %q: %v", line, err)
+			}
+			if string(output) != testCase.want {
+				t.Fatalf("sh -c %q produced %q, want %q", line, output, testCase.want)
+			}
+		})
 	}
 }
