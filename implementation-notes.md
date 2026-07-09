@@ -552,6 +552,43 @@ client" during the coexistence e2e. Four linked fixes:
   delete). The sidecar's tailnet device is deliberately not removed (BYO
   tailnet, no server-side API key — ADR-0017); documented instead.
 
+## 2026-07-09 — agent-skill config: repo is multi-context, not single-context
+
+- **Trigger:** re-ran the `setup-matt-pocock-skills` scaffolding. `docs/agents/`
+  already existed from a prior run, so this was a correction pass, not a
+  greenfield write.
+- **Finding (the reason this entry exists):** `docs/agents/domain.md` declared a
+  single-context layout, but the repo has two — the root Sandcastle context and
+  `sc-edge/`, which carries its own `CONTEXT.md`, its own `docs/adr/`
+  (ADR-0001), and its own `CLAUDE.md`. `sc-edge/CONTEXT.md` explicitly defers to
+  the parent for Sandcastle-wide vocabulary, so it is a *child* context, not a
+  peer. Under the old declaration, any skill editing the edge appliance would
+  have read the root glossary and silently never seen the edge vocabulary or its
+  ADR.
+- **Decision:** declared multi-context and added `CONTEXT-MAP.md` at the root as
+  the index. Considered leaving the layout undeclared and describing both
+  locations inline in `domain.md` (one fewer root file), but the skills already
+  key off the *presence* of `CONTEXT-MAP.md` to decide whether to look for
+  per-context glossaries — describing it in prose only would not have changed
+  their behaviour. Also considered demoting `sc-edge` to "not a real context",
+  which would have been a lie about the tree.
+- **Second finding:** the root `CONTEXT.md` is a pointer, not a term list — the
+  canonical vocabulary is in `docs/glossary.md`. Skills are told to "read
+  `CONTEXT.md`", so they land one hop short. Documented the hop explicitly in
+  `domain.md` and `CONTEXT-MAP.md` rather than inlining the glossary, which would
+  have duplicated a file that already has a single owner. Inlining remains the
+  cleaner long-term fix.
+- **Also corrected:** `CLAUDE.md` named the issue repo `thieso2/incus-sandcastle`
+  while the git remote and `docs/agents/issue-tracker.md` both say
+  `thieso2/sandcastle-incus` — the repo's own instructions disagreed with
+  themselves. (Fixed concurrently by another writer mid-session; left that
+  wording in place.)
+- **Enabled external PRs as a triage surface** (`/triage` reads this flag from
+  `issue-tracker.md`) and created the three missing GitHub labels —
+  `needs-triage`, `needs-info`, `ready-for-human`. `wontfix` and
+  `ready-for-agent` already existed. All five now use the canonical strings, so
+  `triage-labels.md` needs no remapping.
+
 ## Running Notes
 
 - Started implementation from the committed domain docs (`CONTEXT.md`,

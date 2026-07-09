@@ -1,7 +1,6 @@
 # Triage Labels
 
-The skills speak in terms of five canonical triage roles. This file maps those
-roles to the actual label strings used in this repo's issue tracker.
+The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
 
 | Label in mattpocock/skills | Label in our tracker | Meaning                                  |
 | -------------------------- | -------------------- | ---------------------------------------- |
@@ -11,6 +10,10 @@ roles to the actual label strings used in this repo's issue tracker.
 | `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
 | `wontfix`                  | `wontfix`            | Will not be actioned                     |
 
-When a skill mentions a role, use the corresponding label string from this
-table.
+This repo uses the canonical strings unchanged — each role's label is its own name.
 
+All five labels already exist on `thieso2/sandcastle-incus`. Apply them with `gh issue edit`; don't create them.
+
+When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
+
+Edit the right-hand column to match whatever vocabulary you actually use.

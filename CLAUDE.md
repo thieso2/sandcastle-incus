@@ -113,7 +113,7 @@ Keep a running `implementation-notes.md` at the repo root. As you work, append a
 
 ### Issue tracker
 
-Issues and PRDs for this repo are tracked in GitHub Issues. See `docs/agents/issue-tracker.md`.
+Issues and PRDs for this repo are tracked in GitHub Issues (`thieso2/sandcastle-incus`); external pull requests are also a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -121,4 +121,4 @@ This repo uses the standard five-label triage vocabulary. See `docs/agents/triag
 
 ### Domain docs
 
-This repo uses a single-context domain documentation layout. See `docs/agents/domain.md`.
+This repo uses a multi-context domain documentation layout (root Sandcastle context + `sc-edge`), indexed by `CONTEXT-MAP.md`. See `docs/agents/domain.md`.
