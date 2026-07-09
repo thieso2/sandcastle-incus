@@ -588,6 +588,22 @@ client" during the coexistence e2e. Four linked fixes:
   `needs-triage`, `needs-info`, `ready-for-human`. `wontfix` and
   `ready-for-agent` already existed. All five now use the canonical strings, so
   `triage-labels.md` needs no remapping.
+- **Tooling workaround:** the skill's seed template documents the external-PR
+  filter as `gh pr list --json ...,authorAssociation`. That field does not exist
+  on `gh` 2.46.0 (Debian) — neither `pr list` nor `pr view` accepts it; both fail
+  with `Unknown JSON field`. Rewrote the filter against the REST API
+  (`gh api repos/<owner>/<repo>/pulls`), whose `author_association` is populated.
+  Cost: labels and comments are absent from that payload and need a follow-up
+  `gh pr view <n> --json labels,comments` per PR. Considered pinning a newer `gh`
+  instead, but the REST call works on every version and adds no install step.
+- **Landed via cherry-pick, not merge.** A second agent was committing to this
+  repo concurrently; it rebased its e2e-protocol branch onto `main` and deleted
+  the branch, orphaning the base this work was branched from. Merging would have
+  replayed its five commits as duplicates. Cherry-picked the single docs commit
+  onto `main` instead — no overlap, since its commits touch only
+  `.github/workflows/ci.yml` and `mise.toml`. It also fixed the `CLAUDE.md`
+  issue-repo typo independently, in `docs: point the issue-tracker note at this
+  repo's actual remote`; that version won.
 
 ## Running Notes
 
