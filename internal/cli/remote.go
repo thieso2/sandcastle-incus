@@ -114,16 +114,52 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 	}
 
 	env := append(os.Environ(), "INCUS_CONF="+incusDir)
+	// Re-enrolling replaces an existing remote, but the replacement can fail —
+	// notably when this daemon already trusts our keypair and no tailnet address
+	// is known for the certificate-based fallback below (a SECOND user logging in
+	// to the same install from this client). Removing first would then leave the
+	// client with no remote at all and every `sc list`/`sc c` broken. So rename
+	// the current remote aside and only drop the backup once the new one is in.
+	backupName := ""
 	if remoteExists(incusDir, name) {
 		switchAway := exec.CommandContext(ctx, "incus", "remote", "switch", "local")
 		switchAway.Env = env
 		_ = switchAway.Run()
-		removeCmd := exec.CommandContext(ctx, "incus", "remote", "remove", name)
-		removeCmd.Env = env
-		removeCmd.Stderr = ioConfig.stderr
-		if err := removeCmd.Run(); err != nil {
-			return remoteAddResult{}, fmt.Errorf("replace existing remote %s: %w", name, err)
+		backupName = name + "-sandcastle-previous"
+		if remoteExists(incusDir, backupName) {
+			staleCmd := exec.CommandContext(ctx, "incus", "remote", "remove", backupName)
+			staleCmd.Env = env
+			_ = staleCmd.Run()
 		}
+		renameCmd := exec.CommandContext(ctx, "incus", "remote", "rename", name, backupName)
+		renameCmd.Env = env
+		renameCmd.Stderr = ioConfig.stderr
+		if err := renameCmd.Run(); err != nil {
+			return remoteAddResult{}, fmt.Errorf("set aside existing remote %s: %w", name, err)
+		}
+	}
+	// restoreBackup puts the previous remote back when enrollment fails, so a
+	// failed re-enrollment is a no-op rather than a lockout.
+	restoreBackup := func(cause error) (remoteAddResult, error) {
+		if backupName == "" {
+			return remoteAddResult{}, cause
+		}
+		renameBack := exec.CommandContext(ctx, "incus", "remote", "rename", backupName, name)
+		renameBack.Env = env
+		if err := renameBack.Run(); err != nil {
+			return remoteAddResult{}, fmt.Errorf("%w (restoring the previous remote %q also failed: %v; recover with `incus remote rename %s %s`)", cause, name, err, backupName, name)
+		}
+		fmt.Fprintf(ioConfig.stderr, "Enrollment failed; kept the existing remote %q.\n", name)
+		return remoteAddResult{}, cause
+	}
+	dropBackup := func() {
+		if backupName == "" {
+			return
+		}
+		dropCmd := exec.CommandContext(ctx, "incus", "remote", "remove", backupName)
+		dropCmd.Env = env
+		_ = dropCmd.Run()
+		backupName = ""
 	}
 	addCmd := exec.CommandContext(ctx, "incus", "remote", "add", name, joinToken)
 	addCmd.Env = env
@@ -158,12 +194,13 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 			certAdd.Stdout = ioConfig.stdout
 			certAdd.Stderr = ioConfig.stderr
 			if err := certAdd.Run(); err != nil {
-				return remoteAddResult{}, fmt.Errorf("incus remote add (trusted client): %w", err)
+				return restoreBackup(fmt.Errorf("incus remote add (trusted client): %w", err))
 			}
 		} else {
-			return remoteAddResult{}, fmt.Errorf("incus remote add: %w", err)
+			return restoreBackup(fmt.Errorf("incus remote add: %w", err))
 		}
 	}
+	dropBackup()
 
 	switchCmd := exec.CommandContext(ctx, "incus", "remote", "switch", name)
 	switchCmd.Env = env
