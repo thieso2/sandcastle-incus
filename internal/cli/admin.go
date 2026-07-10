@@ -76,9 +76,15 @@ func newAdminTenantListCommand(config commandConfig, opts *rootOptions) *cobra.C
 				return writeOutput(config.stdout, opts.output, formatTenantList(tenants), payload)
 			}
 			ref := strings.TrimSpace(args[0])
+			// Listing every install's tenants is useful; resolving ONE by name is
+			// not — scope it, or a same-named tenant of another install wins.
+			scoped, err := tenant.ListForPrefix(cmd.Context(), config.tenantStore, config.adminConfig.IncusProjectPrefix)
+			if err != nil {
+				return err
+			}
 			var summary tenant.Summary
 			found := false
-			for _, t := range tenants {
+			for _, t := range scoped {
 				if t.Tenant == ref {
 					summary = t
 					found = true
@@ -111,12 +117,16 @@ func newAdminTenantStatusCommand(config commandConfig, opts *rootOptions) *cobra
 		Short: "Show Sandcastle tenant status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			status, err := tenant.GetStatusWithTopology(
+			// Several installs share one Incus daemon, so a same-named tenant may
+			// exist once per install. Scope to THIS install's prefix, or
+			// `sc-adm tenant status e2edns` reports the other install's tenant.
+			status, err := tenant.GetStatusWithTopologyForPrefix(
 				cmd.Context(),
 				config.tenantStore,
 				config.topologyStore,
 				tenant.TopologyRequest{},
 				args[0],
+				config.adminConfig.IncusProjectPrefix,
 			)
 			if err != nil {
 				return err
@@ -433,7 +443,7 @@ func newAdminTenantSetSSHKeyCommand(config commandConfig) *cobra.Command {
 			// The key lives in the infra project's config and is rendered into
 			// each app project's default profile. Resolve the tenant's real
 			// projects rather than deriving a single Incus project name.
-			summaries, err := tenant.List(cmd.Context(), config.tenantStore)
+			summaries, err := tenant.ListForPrefix(cmd.Context(), config.tenantStore, config.adminConfig.IncusProjectPrefix)
 			if err != nil {
 				return err
 			}
