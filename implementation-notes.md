@@ -1351,3 +1351,29 @@ already dead for v2.
 Fix: keep Sandcastle host keys in `~/.config/sandcastle/known_hosts` and drop the
 entry for the target IP before connecting. Same posture as v1, and the user's own
 `known_hosts` is neither polluted nor invalidated.
+
+## 2026-07-10 — `sc-adm tenant set-ssh-key` rewritten for v2
+
+Chasing the storage-pool bug revealed the command was wrong end to end for v2. It
+wrote the key into a `workspace` metadata file (`.sandcastle/ssh_public_key`) on
+the **infra** project — where the volume does not exist — and nothing ever read
+that file back: `readTenantSSHKey` had no callers left.
+
+The authoritative store is the infra project's `user.sandcastle.v2.sshkey`
+config. `ensureV2AppProfile` renders it into each app project's default-profile
+cloud-init, and that is what a newly created machine authorizes.
+
+`TenantCreator.SetTenantSSHKeyV2` now updates that config and re-renders the
+default profile of every app project of the tenant. The CLI resolves the tenant's
+real project list from its summary instead of deriving one Incus project name.
+The command prints what it changed and states plainly that existing machines keep
+the key they were created with (cloud-init runs once) — rotating a *running*
+machine is `MachineSSHKeyReconciler`'s job, via the Auth App.
+
+Deleted as dead: `TenantSSHKeyManager.SetTenantSSHKey`, `readTenantSSHKey`,
+`tenantSSHPublicKeyFile`, and the corresponding interface methods in
+`tenant.TenantUpdater` and `authapp`.
+
+Verified live on majestix: `sc-adm tenant set-ssh-key e2edns <client key>` puts
+the key in `sc2-e2edns-default`'s default profile, after which `sc c lc2` creates
+a machine and lands a shell as `dev`.

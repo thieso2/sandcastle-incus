@@ -59,10 +59,6 @@ type TenantMetadataUpdateResourceServer interface {
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 }
 
-func (m TenantSSHKeyManager) SetTenantSSHKey(_ context.Context, incusProjectName string, sshKey string) error {
-	return m.writeTenantMetadataFile(incusProjectName, tenantSSHPublicKeyFile, strings.TrimSpace(sshKey)+"\n", "write tenant SSH key metadata")
-}
-
 func (m TenantSSHKeyManager) SetTenantProjects(_ context.Context, incusProjectName string, projects []meta.Project) error {
 	data, err := json.Marshal(projects)
 	if err != nil {

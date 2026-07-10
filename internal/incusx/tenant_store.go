@@ -137,27 +137,10 @@ func FromAPIProjects(projects []api.Project) []tenant.IncusProject {
 
 const (
 	tenantMetadataDir       = "/.sandcastle"
-	tenantSSHPublicKeyFile  = tenantMetadataDir + "/ssh_public_key"
 	tenantProjectsFile      = tenantMetadataDir + "/projects"
 	tenantUnixUserFile      = tenantMetadataDir + "/unix_user"
 	tenantStorageSharesFile = tenantMetadataDir + "/storage_shares"
 )
-
-func readTenantSSHKey(server TenantMetadataResourceServer, incusProjectName string) (string, bool, error) {
-	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantSSHPublicKeyFile)
-	if isMissingTenantMetadata(err) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, fmt.Errorf("read tenant SSH key metadata for %s: %w", incusProjectName, err)
-	}
-	defer content.Close()
-	data, err := io.ReadAll(content)
-	if err != nil {
-		return "", false, fmt.Errorf("read tenant SSH key metadata for %s: %w", incusProjectName, err)
-	}
-	return strings.TrimSpace(string(data)), true, nil
-}
 
 func readTenantUnixUser(server TenantMetadataResourceServer, incusProjectName string) (string, bool, error) {
 	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantUnixUserFile)
