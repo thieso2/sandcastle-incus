@@ -1260,3 +1260,25 @@ against tenant `e2edns` on majestix, `main` planned
 It fails closed — the tenant name is rejected at plan time with a clear message,
 not truncated — so this is a usability wart, not a correctness bug.
 `TestV2ProjectNameLengthLimit` pins the fail-closed property.
+
+## 2026-07-10 — e2e regression: `sc-adm tenant delete --yes` stopped parsing
+
+Found by Phase 0 of the `docs/e2e-sc2.md` run, immediately: the teardown command
+exits 1 with `unknown flag: --yes`.
+
+Commit `842d3e5` (v1 package deletion, #52) dropped
+`command.Flags().BoolVar(&yes, "yes", …)` from `newAdminTenantDeleteCommand`
+while leaving `var yes bool` and the `confirmMissingYes(…, "refusing to delete
+without --yes")` call that reads it. The result was the worst of both: the flag
+the error message tells you to pass did not exist, so the command could not be
+run non-interactively at all. Nothing caught it — the unit tests exercise the
+delete *plan*, not the flag set, and `--yes` is invisible to a plan test.
+
+Fix: re-register the flag. Guard: `TestDestructiveCommandsRegisterYes` walks both
+command trees and asserts that every `delete`/`destroy`/`purge` command registers
+`--yes`, and `TestYesFlagIsParsable` parses `--yes --purge` on the real command.
+Verified the guard fails when the registration is removed again.
+
+`dns uninstall` / `trust uninstall` are deliberately excluded from the walk: they
+revert local host configuration (resolver entries, trust store) rather than
+destroying server-side state, and have never taken `--yes`.
