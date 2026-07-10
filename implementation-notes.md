@@ -5,6 +5,57 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-10 — what a clean e2e re-run found: a 524, a v1 name, and a token that crossed installs
+
+Re-ran the whole `docs/e2e-sc2.md` protocol from a bare host on the merged fixes.
+Every phase passed, and the run surfaced three defects that the previous run had
+hidden — each because something reported success while doing nothing useful.
+
+**The Cloudflare 524.** `POST /api/device/poll` provisioned the tenant *inside*
+the request. A Cloudflare tunnel gives the origin ~100s before it answers the
+client 524. The first tenant provisioned in 46.7s and squeaked under; the second
+took 142.6s and the login died. Worse, the per-device lock meant every following
+poll queued behind the running provision and 524'd too.
+
+The code already ran provisioning on a detached context so it *survived* a client
+cancel — the missing half was not blocking the request. Now the poll starts the
+work, waits a bounded 20s, and otherwise answers `pending`; the client already
+prints "server is provisioning" and keeps polling. A poll that cannot claim the
+lock answers `pending` immediately rather than queueing.
+
+That change exposed a hidden coupling: the provisioning result — the Incus
+certificate add token, remote name, pinned project, tenant CIDR — is **not
+persisted** in `device_logins` (only status/message/provisioned_at are). It was
+handed back by the very poll that ran provisioning, which is exactly why that
+poll had to be synchronous. Once provisioning can outlive its poll, the result
+has to be held somewhere; it now sits in an in-memory map until a later poll
+collects it. A cache miss is safe: provisioning is idempotent, so the login
+reports pending and it runs again. Persisting it in SQLite would be the more
+durable answer and wants its own change.
+
+**The v1 name, again.** The share reconciler resolved instances with the v1
+`<project>-<machine>` rule inside the tenant's single Incus project. On a v2
+tenant it looked up `default-web`, got `Instance not found`, and marked every
+container failed — while `sc status` cheerfully printed `shares:reconcile: ok (2
+machine(s) checked)` because it never consulted `HasFailures()`. The only visible
+symptom was `Unreconciled share machines: 1` on a tenant with zero shares. This
+is the same v1-vs-v2 leftover as #55 and #51; #52 (remove v1) would subsume the
+whole family.
+
+**A token that crossed installs.** `sc config set remote` re-pointed
+`auth_hostname`, and after #60 the `broker` — but not `auth_token`. A CLI token
+is minted by one install's Auth App, so after switching the CLI presented install
+B's bearer token to install A: `A → 403`, `B → 200`. It surfaced as
+`shares:reconcile: error (auth app share reconcile: user not found)`, which reads
+like a broken tenant and is really a credential being sent across a trust
+boundary. Tokens are now recorded per install (`auth_tokens:` keyed by Auth
+Hostname) and swapped on switch; with none recorded the token is **cleared**, so
+the next call fails loudly rather than shipping the wrong install's credential.
+
+The through-line: all three failed *quietly*. The 524 looked like a flaky edge,
+the reconciler reported ok, and the stale token reported a tenant problem. Each
+was found only by driving the real system and reading what it actually did.
+
 ## 2026-07-09 — fixing #60/#61: the Broker is per-install, and a CA is named by its CN
 
 **#60 — record the Broker per install; clear it rather than leave it stale.**
