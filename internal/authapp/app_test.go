@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1155,4 +1156,107 @@ func TestOpenDatabaseConfiguresWALAndBusyTimeoutOnEveryConnection(t *testing.T) 
 			t.Fatalf("conn %d foreign_keys = %d, want 1", i, fk)
 		}
 	}
+}
+
+// A Cloudflare tunnel gives the origin ~100s before it answers the client 524.
+// Provisioning used to run INSIDE the poll request, so a slow tenant bring-up
+// (142s measured for a second tenant on majestix) made every poll 524 and the
+// login failed. The poll must return "pending" quickly and let the client poll
+// again while provisioning continues in the background.
+func TestDevicePollDoesNotBlockOnSlowProvisioning(t *testing.T) {
+	previous := devicePollProvisionWait
+	devicePollProvisionWait = 50 * time.Millisecond
+	t.Cleanup(func() { devicePollProvisionWait = previous })
+
+	release := make(chan struct{})
+	provisioner := &blockingPersonalTenantProvisioner{release: release}
+	db := authDBForTest(t)
+	cookie := adminSessionCookieForTest(t, db)
+	handler := NewHandler(db, HandlerOptions{
+		AuthHostname: "auth.example.com",
+		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
+			Name:   "sc-admin",
+			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "admin", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
+		}}},
+		Provisioner: provisioner,
+	})
+	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approve := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
+	approve.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approve.AddCookie(cookie)
+	handler.ServeHTTP(httptest.NewRecorder(), approve)
+
+	// first poll: provisioning is still running, so it must answer promptly
+	start := time.Now()
+	pending := pollDeviceBodyForTest(t, handler, `{"device_code":"`+login.DeviceCode+`"}`)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("poll blocked for %s — it must not wait out the provision", elapsed)
+	}
+	if pending.Status != DeviceStatusPending {
+		t.Fatalf("status = %q, want pending while provisioning: %#v", pending.Status, pending)
+	}
+	if pending.CLIAuthToken != "" || pending.Token != "" {
+		t.Fatal("no token may be issued before provisioning completes")
+	}
+
+	// a poll arriving while provisioning is in flight must also not block
+	start = time.Now()
+	stillPending := pollDeviceBodyForTest(t, handler, `{"device_code":"`+login.DeviceCode+`"}`)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("concurrent poll queued behind the provision for %s", elapsed)
+	}
+	if stillPending.Status != DeviceStatusPending {
+		t.Fatalf("status = %q, want pending", stillPending.Status)
+	}
+	if provisioner.calls() != 1 {
+		t.Fatalf("provisioner calls = %d, want exactly 1 in flight", provisioner.calls())
+	}
+
+	// let provisioning finish; the next poll returns the approved login
+	close(release)
+	var approved devicePollPayloadForTest
+	for i := 0; i < 100; i++ {
+		approved = pollDeviceBodyForTest(t, handler, `{"device_code":"`+login.DeviceCode+`"}`)
+		if approved.Status == DeviceStatusApproved {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if approved.Status != DeviceStatusApproved || approved.Token != "token-admin" {
+		t.Fatalf("approved = %#v", approved)
+	}
+}
+
+type blockingPersonalTenantProvisioner struct {
+	release chan struct{}
+	mu      sync.Mutex
+	count   int
+}
+
+func (p *blockingPersonalTenantProvisioner) calls() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.count
+}
+
+func (p *blockingPersonalTenantProvisioner) EnsurePersonalTenant(ctx context.Context, user User, options ProvisionOptions) (PersonalTenantResult, error) {
+	p.mu.Lock()
+	p.count++
+	p.mu.Unlock()
+	select {
+	case <-p.release:
+	case <-ctx.Done():
+		return PersonalTenantResult{}, ctx.Err()
+	}
+	return PersonalTenantResult{
+		UserKey:           user.UserKey,
+		Tenant:            user.UserKey,
+		IncusProject:      "sc-" + user.UserKey,
+		AccessibleTenants: []string{user.UserKey},
+		Token:             "token-" + user.UserKey,
+		RemoteName:        "sandcastle-" + user.UserKey,
+	}, nil
 }

@@ -134,40 +134,82 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if login.Status == DeviceStatusApproved && h.provisioner != nil && (login.ProvisionedAt == "" || request.AwaitingTailnet) {
-		// Provision with a DETACHED context, not r.Context(): tenant bring-up
-		// (image pull, package install, tailscale up) takes minutes, and a
-		// client poll through a flaky edge (Cloudflare tunnel) may time out and
-		// cancel the request long before that — which used to abort provisioning
-		// mid-flight so it never finished. A per-device lock serializes the
-		// concurrent polls that arrive while one is still running.
-		unlock := lockDeviceProvisioning(request.DeviceCode)
-		provisionCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-		// Attribute the span to the polling request (r.Context()) while the work
-		// itself runs on the detached provisionCtx so it survives client cancels.
-		// Name the user now (the login is approved) and carry the request's log
-		// record onto provisionCtx, so the verbose per-phase provisioning lines
-		// emitted deep in tenant bring-up are attributed to this user and show at
-		// /logs alongside the span.
-		svclog.SetUser(r.Context(), login.UserKey)
-		provisionCtx = svclog.WithRecord(r.Context(), provisionCtx)
-		err = svclog.Span(r.Context(), "provision.personal_tenant", func() error {
-			var provErr error
-			login, provErr = h.provisionPersonalTenant(provisionCtx, login, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)
-			return provErr
-		})
-		cancel()
-		unlock()
-		if err != nil {
-			if tenant.IsTerminalProvisionError(err) {
-				// No retry can fix this (e.g. immutable-suffix conflict) —
-				// deny the login so the client fails fast with the message
-				// instead of polling to timeout while every poll re-attempts
-				// a provisioning that can never succeed.
-				_, _ = h.db.ExecContext(r.Context(), "UPDATE device_logins SET status = ?, message = ? WHERE device_code = ?", DeviceStatusDenied, login.Message, login.DeviceCode)
-				login.Status = DeviceStatusDenied
-			} else {
-				login.Status = DeviceStatusPending
+		// Provision on a DETACHED context, not r.Context(): tenant bring-up
+		// (image pull, package install, tailscale up) takes minutes, and a client
+		// poll through a flaky edge (Cloudflare tunnel) may time out and cancel
+		// the request long before that — which used to abort provisioning
+		// mid-flight so it never finished. A per-device lock keeps one provision
+		// running at a time.
+		//
+		// The request must ALSO not block for the whole provision: a Cloudflare
+		// tunnel gives the origin ~100s before it answers the client 524, and a
+		// second tenant on a warm host measured 142s. So wait only a bounded
+		// time for the work; if it is still running, answer "pending" and let the
+		// client poll again (it already reports "server is provisioning"). Fast
+		// provisions — every unit test, and a first tenant on a quiet host —
+		// finish inside the window and behave exactly as before.
+		if unlock, started := tryLockDeviceProvisioning(request.DeviceCode); started {
+			provisionCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+			// Name the user now (the login is approved) and carry the request's
+			// log record onto provisionCtx, so the verbose per-phase provisioning
+			// lines emitted deep in tenant bring-up are attributed to this user
+			// and show at /logs alongside the span. The span runs on provisionCtx
+			// because r.Context() dies with the request.
+			svclog.SetUser(r.Context(), login.UserKey)
+			provisionCtx = svclog.WithRecord(r.Context(), provisionCtx)
+			pending := login
+			done := make(chan deviceProvisionOutcome, 1)
+			go func() {
+				defer cancel()
+				defer unlock()
+				outcome := deviceProvisionOutcome{login: pending}
+				outcome.err = svclog.Span(provisionCtx, "provision.personal_tenant", func() error {
+					var provErr error
+					outcome.login, provErr = h.provisionPersonalTenant(provisionCtx, pending, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)
+					return provErr
+				})
+				if outcome.err == nil {
+					// Hand the token/remote/project to whichever poll collects it.
+					storeDeviceProvisionResult(outcome.login)
+				}
+				if outcome.err != nil && tenant.IsTerminalProvisionError(outcome.err) {
+					forgetDeviceProvisionResult(outcome.login.DeviceCode)
+					// No retry can fix this (e.g. immutable-suffix conflict) —
+					// deny the login so the client fails fast with the message
+					// instead of polling to timeout while every poll re-attempts
+					// a provisioning that can never succeed. Recorded here, not
+					// in the handler, because the request may already be gone.
+					_, _ = h.db.ExecContext(provisionCtx, "UPDATE device_logins SET status = ?, message = ? WHERE device_code = ?", DeviceStatusDenied, outcome.login.Message, outcome.login.DeviceCode)
+				}
+				done <- outcome
+			}()
+			select {
+			case outcome := <-done:
+				login, err = outcome.login, outcome.err
+				if err != nil {
+					if tenant.IsTerminalProvisionError(err) {
+						login.Status = DeviceStatusDenied
+					} else {
+						login.Status = DeviceStatusPending
+					}
+				}
+			case <-time.After(devicePollProvisionWait):
+				login = provisioningInFlight(login)
 			}
+		} else {
+			// Another poll is already provisioning this device code.
+			login = provisioningInFlight(login)
+		}
+	}
+	// A background provision started by an EARLIER poll may have finished since.
+	// Its result (token, remote name, project, CIDR) lives only in memory, so
+	// pick it up here — otherwise this poll would report "approved" with no
+	// enrollment token and the client could not add its Incus remote.
+	if login.Status == DeviceStatusApproved && strings.TrimSpace(login.Token) == "" {
+		if provisioned, ok := deviceProvisionResult(request.DeviceCode); ok {
+			provisioned.Status = login.Status
+			provisioned.ExpiresAt = login.ExpiresAt
+			login = provisioned
 		}
 	}
 	sshFingerprint := ""
@@ -675,7 +717,12 @@ var (
 	deviceProvisioningLocks = map[string]*sync.Mutex{}
 )
 
-func lockDeviceProvisioning(deviceCode string) func() {
+// tryLockDeviceProvisioning claims the right to provision this device code
+// without blocking. A poll that cannot claim it knows another poll's background
+// provisioning is still running, and answers "pending" rather than queueing
+// behind it — queueing is what turned one slow provision into a 524 for every
+// subsequent poll too.
+func tryLockDeviceProvisioning(deviceCode string) (func(), bool) {
 	deviceProvisioningMu.Lock()
 	lock, ok := deviceProvisioningLocks[deviceCode]
 	if !ok {
@@ -683,6 +730,61 @@ func lockDeviceProvisioning(deviceCode string) func() {
 		deviceProvisioningLocks[deviceCode] = lock
 	}
 	deviceProvisioningMu.Unlock()
-	lock.Lock()
-	return lock.Unlock
+	if !lock.TryLock() {
+		return nil, false
+	}
+	return lock.Unlock, true
+}
+
+// deviceProvisionOutcome carries a background provision's result back to the
+// poll that started it, when it finishes inside the wait window.
+type deviceProvisionOutcome struct {
+	login DeviceLogin
+	err   error
+}
+
+// The provisioning result — the Incus certificate add token, remote name, pinned
+// project, tenant CIDR — is NOT persisted in device_logins; only status, message
+// and provisioned_at are. It used to be handed straight back by the poll that ran
+// provisioning, which is why that poll had to be synchronous. Now provisioning
+// can outlive the poll that started it, so the result is held here until a later
+// poll collects it. A cache miss is safe: provisioning is idempotent, so the
+// login simply reports pending and provisioning runs again.
+var (
+	deviceProvisionResultsMu sync.Mutex
+	deviceProvisionResults   = map[string]DeviceLogin{}
+)
+
+func storeDeviceProvisionResult(login DeviceLogin) {
+	deviceProvisionResultsMu.Lock()
+	defer deviceProvisionResultsMu.Unlock()
+	deviceProvisionResults[login.DeviceCode] = login
+}
+
+func deviceProvisionResult(deviceCode string) (DeviceLogin, bool) {
+	deviceProvisionResultsMu.Lock()
+	defer deviceProvisionResultsMu.Unlock()
+	login, ok := deviceProvisionResults[deviceCode]
+	return login, ok
+}
+
+func forgetDeviceProvisionResult(deviceCode string) {
+	deviceProvisionResultsMu.Lock()
+	defer deviceProvisionResultsMu.Unlock()
+	delete(deviceProvisionResults, deviceCode)
+}
+
+// devicePollProvisionWait bounds how long a poll waits for provisioning before
+// answering "pending". It must stay comfortably under a Cloudflare tunnel's
+// ~100s origin timeout. A package var so tests can shorten it.
+var devicePollProvisionWait = 20 * time.Second
+
+// provisioningInFlight renders a login whose tenant is still being provisioned:
+// pending, so the client keeps polling and no CLI token is minted yet.
+func provisioningInFlight(login DeviceLogin) DeviceLogin {
+	login.Status = DeviceStatusPending
+	if strings.TrimSpace(login.Message) == "" {
+		login.Message = "Provisioning Personal Tenant."
+	}
+	return login
 }
