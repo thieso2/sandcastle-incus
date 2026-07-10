@@ -19,7 +19,6 @@ import (
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
-	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 )
 
 func TestIncusEndpointFromBrokerExplicit(t *testing.T) {
@@ -176,8 +175,8 @@ func TestResolveBrokerConnectionNoCert(t *testing.T) {
 // fake broker plumbing for the round-trip test.
 type staticTrustMapper struct{ tenant string }
 
-func (m staticTrustMapper) PrincipalForFingerprint(context.Context, string) (routebroker.Principal, error) {
-	return routebroker.Principal{User: m.tenant}, nil
+func (m staticTrustMapper) PrincipalForFingerprint(context.Context, string) (projectbroker.TrustPrincipal, error) {
+	return projectbroker.TrustPrincipal{User: m.tenant}, nil
 }
 
 type recordingCreator struct{ tenant, project string }

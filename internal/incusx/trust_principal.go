@@ -8,7 +8,7 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	"github.com/thieso2/sandcastle-incus/internal/routebroker"
+	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 )
 
 type RouteBrokerTrustServer interface {
@@ -29,12 +29,12 @@ func NewRouteBrokerTrustMapperForServer(server incus.InstanceServer) RouteBroker
 	return RouteBrokerTrustMapper{Server: server}
 }
 
-func (m RouteBrokerTrustMapper) PrincipalForFingerprint(ctx context.Context, fingerprint string) (routebroker.Principal, error) {
+func (m RouteBrokerTrustMapper) PrincipalForFingerprint(ctx context.Context, fingerprint string) (projectbroker.TrustPrincipal, error) {
 	server := m.Server
 	if server == nil {
 		loaded, err := LoadCLIConfig(m.ConfigPath)
 		if err != nil {
-			return routebroker.Principal{}, fmt.Errorf("load Incus config: %w", err)
+			return projectbroker.TrustPrincipal{}, fmt.Errorf("load Incus config: %w", err)
 		}
 		remote := m.Remote
 		if remote == "" {
@@ -42,13 +42,13 @@ func (m RouteBrokerTrustMapper) PrincipalForFingerprint(ctx context.Context, fin
 		}
 		instanceServer, err := loaded.GetInstanceServer(remote)
 		if err != nil {
-			return routebroker.Principal{}, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+			return projectbroker.TrustPrincipal{}, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
 		server = instanceServer
 	}
 	certificates, err := server.GetCertificates()
 	if err != nil {
-		return routebroker.Principal{}, fmt.Errorf("list Incus certificates: %w", err)
+		return projectbroker.TrustPrincipal{}, fmt.Errorf("list Incus certificates: %w", err)
 	}
 	normalized := normalizeFingerprint(fingerprint)
 	for _, certificate := range certificates {
@@ -57,15 +57,15 @@ func (m RouteBrokerTrustMapper) PrincipalForFingerprint(ctx context.Context, fin
 		}
 		user := userFromCertificate(certificate)
 		if user == "" {
-			return routebroker.Principal{}, fmt.Errorf("certificate %s is not a Sandcastle restricted user certificate", fingerprint)
+			return projectbroker.TrustPrincipal{}, fmt.Errorf("certificate %s is not a Sandcastle restricted user certificate", fingerprint)
 		}
-		return routebroker.Principal{
+		return projectbroker.TrustPrincipal{
 			Fingerprint: normalized,
 			User:        user,
 			Projects:    append([]string{}, certificate.Projects...),
 		}, nil
 	}
-	return routebroker.Principal{}, fmt.Errorf("certificate fingerprint %s is not trusted", fingerprint)
+	return projectbroker.TrustPrincipal{}, fmt.Errorf("certificate fingerprint %s is not trusted", fingerprint)
 }
 
 func userFromCertificate(certificate api.Certificate) string {

@@ -74,3 +74,9 @@ func PlanDeleteV2(ctx context.Context, admin config.Admin, store IncusTenantStor
 	}
 	return DeletePlanV2{}, false, nil
 }
+
+// Deleter executes a v2 tenant deletion plan. v1 had its own DeleteTenant; this
+// is the only shape left.
+type Deleter interface {
+	DeleteTenantV2(context.Context, DeletePlanV2) error
+}

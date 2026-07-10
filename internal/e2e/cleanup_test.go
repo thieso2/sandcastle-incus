@@ -9,95 +9,13 @@ import (
 	"testing"
 
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/images"
-	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 const infrastructureKind = "infrastructure"
-
-func TestCleanupDisposableResourcesE2E(t *testing.T) {
-	e2eConfig := LoadConfig()
-	if !e2eConfig.Enabled {
-		t.Skip("set SANDCASTLE_E2E=1 to run destructive real Incus e2e cleanup")
-	}
-	if err := e2eConfig.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	runToken, err := cleanupRunToken(e2eConfig)
-	if err != nil {
-		t.Skipf("skipping: %v", err)
-	}
-
-	adminConfig := config.Admin{
-		Remote:                e2eConfig.Remote,
-		StoragePool:           e2eConfig.StoragePool,
-		CIDRPool:              e2eConfig.CIDRPool,
-		IncusProjectPrefix:    config.DefaultIncusProjectPrefix,
-		InfrastructureProject: config.DefaultInfrastructureProject,
-		Images: config.Images{
-			Base: config.DefaultBaseImageAlias,
-			AI:   config.DefaultAIImageAlias,
-		},
-	}
-	ctx := context.Background()
-	store := incusx.NewTenantStore(e2eConfig.Remote)
-	projects, err := store.ListProjects(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server, err := e2eInstanceServer(e2eConfig.Remote)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tenantDeleter := incusx.NewTenantDeleter(e2eConfig.Remote)
-	deletedProjects := 0
-	deletedInfrastructure := 0
-	for _, incusProject := range projects {
-		switch incusProject.Config[meta.KeyKind] {
-		case meta.KindTenant:
-			if !managedProjectMatchesRun(incusProject, runToken) {
-				continue
-			}
-			t.Logf("cleanup matched project %s", incusProject.Name)
-			managed, err := meta.ParseTenantConfig(incusProject.Config)
-			if err != nil {
-				t.Fatalf("parse project metadata for cleanup target %s: %v", incusProject.Name, err)
-			}
-			deletePlan, err := tenant.PlanDelete(adminConfig, tenant.DeleteRequest{
-				Reference: managed.Tenant,
-				Purge:     true,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := tenantDeleter.DeleteTenant(ctx, deletePlan); err != nil {
-				t.Fatalf("cleanup project %s: %v", deletePlan.Reference, err)
-			}
-			deletedProjects++
-		case infrastructureKind:
-			if !managedInfrastructureMatchesRun(incusProject, runToken) {
-				continue
-			}
-			// v1 infrastructure removed — nothing to clean up here.
-			t.Logf("skipping legacy infrastructure project %s (v1 removed)", incusProject.Name)
-		}
-	}
-	deletedCertificates, err := cleanupDisposableCertificates(t, server, runToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	deletedImageAliases, err := cleanupDisposableImageAliases(t, server, runToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	deletedLocalImages := cleanupDisposableLocalImageTags(t, e2eConfig, runToken)
-	t.Logf("cleanup run %q removed %d project(s), %d infrastructure project(s), %d certificate(s), %d image alias(es), and %d local image tag(s)", runToken, deletedProjects, deletedInfrastructure, deletedCertificates, deletedImageAliases, deletedLocalImages)
-}
 
 func cleanupRunToken(config Config) (string, error) {
 	runToken := safeToken(strings.TrimSpace(config.RunID))
@@ -267,23 +185,6 @@ func TestCleanupProjectSelectionMatchesOnlyRunID(t *testing.T) {
 	}
 	if managedProjectMatchesRun(tenant.IncusProject{Name: "sc-tenant-other", Config: config}, "e2e-19990101-000000") {
 		t.Fatal("unexpected project cleanup match")
-	}
-}
-
-func TestCleanupInfrastructureSelectionMatchesOnlyRunID(t *testing.T) {
-	project := tenant.IncusProject{
-		Name: "sc-infra-e2e-20260520-120000",
-		Config: map[string]string{
-			meta.KeyKind:         infrastructureKind,
-			meta.KeyVersion:      "1",
-			meta.Prefix + "name": "sc-infra-e2e-20260520-120000",
-		},
-	}
-	if !managedInfrastructureMatchesRun(project, "e2e-20260520-120000") {
-		t.Fatal("expected infrastructure cleanup match")
-	}
-	if managedInfrastructureMatchesRun(project, "e2e-19990101-000000") {
-		t.Fatal("unexpected infrastructure cleanup match")
 	}
 }
 

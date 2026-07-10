@@ -1,14 +1,10 @@
 package incusx
 
 import (
-	"context"
 	"net/http"
-	"testing"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/thieso2/sandcastle-incus/internal/config"
-	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 type fakeDeleteServer struct {
@@ -108,92 +104,3 @@ func (s *fakeDeleteResourceServer) UpdateProfile(name string, profile api.Profil
 	return nil
 }
 func (s *fakeDeleteResourceServer) DeleteProfile(name string) error { return nil }
-
-func TestTenantDeleterPurgesProjectResources(t *testing.T) {
-	plan, err := tenant.PlanDelete(config.LoadAdminFromEnv(), tenant.DeleteRequest{
-		Reference: "acme",
-		Purge:     true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Sidecars now live in the infra project, not the main project.
-	// Infra project also has features.images=true with copied base images.
-	infraServer := &fakeDeleteResourceServer{
-		instances: map[string]*api.Instance{
-			plan.SidecarInstances[0]: {Name: plan.SidecarInstances[0], StatusCode: api.Running},
-			tenant.DNSName:           {Name: tenant.DNSName, StatusCode: api.Stopped},
-		},
-		images: []api.Image{{Fingerprint: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"}},
-	}
-	mainServer := &fakeDeleteResourceServer{instances: map[string]*api.Instance{}}
-	server := &fakeDeleteServer{
-		resourceServer: mainServer,
-		resources: map[string]*fakeDeleteResourceServer{
-			plan.InfraProject:  infraServer,
-			plan.NativeProject: {instances: map[string]*api.Instance{}},
-		},
-	}
-	deleter := TenantDeleter{Server: server}
-
-	if err := deleter.DeleteTenant(context.Background(), plan); err != nil {
-		t.Fatal(err)
-	}
-	if len(infraServer.stoppedInstances) != 1 || infraServer.stoppedInstances[0] != plan.SidecarInstances[0] {
-		t.Fatalf("stopped instances = %#v", infraServer.stoppedInstances)
-	}
-	if len(infraServer.deletedInstances) != 2 {
-		t.Fatalf("infra deleted instances = %#v", infraServer.deletedInstances)
-	}
-	if len(infraServer.deletedImages) != 1 {
-		t.Fatalf("infra deleted images = %#v, want 1", infraServer.deletedImages)
-	}
-	if mainServer.deletedNetwork != tenant.PrivateNetworkName(plan.IncusProject) {
-		t.Fatalf("deleted network = %q", mainServer.deletedNetwork)
-	}
-	if len(mainServer.deletedVolumes) != 3 {
-		t.Fatalf("deleted volumes = %#v", mainServer.deletedVolumes)
-	}
-	// infra and native projects are always deleted; main project deleted on purge
-	if server.deletedProjects[0] != plan.InfraProject {
-		t.Fatalf("first deleted project = %q, want %q", server.deletedProjects[0], plan.InfraProject)
-	}
-	if server.deletedProjects[1] != plan.NativeProject {
-		t.Fatalf("second deleted project = %q, want %q", server.deletedProjects[1], plan.NativeProject)
-	}
-	if server.deletedProjects[2] != plan.IncusProject {
-		t.Fatalf("third deleted project = %q, want %q", server.deletedProjects[2], plan.IncusProject)
-	}
-}
-
-func TestTenantDeleterPreservesDurableStateWithoutPurge(t *testing.T) {
-	plan, err := tenant.PlanDelete(config.LoadAdminFromEnv(), tenant.DeleteRequest{
-		Reference: "acme",
-		Purge:     false,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := &fakeDeleteServer{
-		resourceServer: &fakeDeleteResourceServer{instances: map[string]*api.Instance{}},
-		resources: map[string]*fakeDeleteResourceServer{
-			plan.InfraProject:  {instances: map[string]*api.Instance{}},
-			plan.NativeProject: {instances: map[string]*api.Instance{}},
-		},
-	}
-	deleter := TenantDeleter{Server: server}
-
-	if err := deleter.DeleteTenant(context.Background(), plan); err != nil {
-		t.Fatal(err)
-	}
-	if len(server.resourceServer.deletedVolumes) != 0 {
-		t.Fatalf("deleted volumes = %#v", server.resourceServer.deletedVolumes)
-	}
-	// Infra and native projects are always purged; main project is kept without purge flag.
-	if len(server.deletedProjects) != 2 {
-		t.Fatalf("deleted projects = %#v, want infra+native only", server.deletedProjects)
-	}
-	if server.deletedProjects[0] != plan.InfraProject || server.deletedProjects[1] != plan.NativeProject {
-		t.Fatalf("deleted projects = %#v", server.deletedProjects)
-	}
-}

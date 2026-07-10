@@ -14,8 +14,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
-	"github.com/thieso2/sandcastle-incus/internal/dns"
-	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
@@ -23,8 +21,6 @@ import (
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
-	"github.com/thieso2/sandcastle-incus/internal/route"
-	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -60,23 +56,10 @@ type commandConfig struct {
 	remoteImageBuilder   images.RemoteImageBuilder
 	topologyStore        tenant.TopologyStore
 	trustManager         usertrust.Manager
-	machineCreator       machine.Creator
 	machineStore         machine.Store
-	machineConnector     machine.Connector
-	machineControl       machine.Controller
-	machinePort          machine.PortSetter
-	passwordReconciler   machine.PasswordReconciler
-	knownHosts           machineKnownHostsManager
-	dnsApplier           dns.Applier
 	localDNS             localdns.Manager
 	tailscale            tailscale.Runner
-	hostOverrides        hostoverride.Manager
-	hostMachine          hostoverride.MachineStore
-	hostFiles            hostoverride.HostsManager
 	localTrust           localtrust.Manager
-	routes               route.Manager
-	routeMachine         route.MachineStore
-	routeBroker          routebroker.Runner
 	authApp              authapp.Runner
 	authDevice           authDeviceClient
 	authWorkload         authWorkloadClient
@@ -164,12 +147,6 @@ func Execute(name string, args []string) int {
 		}
 		fmt.Fprintf(os.Stderr, "[verbose] incus config: %s\n[verbose] incus remote: %s\n", incusConf, adminConfig.Remote)
 	}
-	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
-	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
-	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
-	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
-	connectCache := incusx.NewConnectCache(adminConfig.Remote)
-	userRouteManager := routeManagerFromEnv()
 	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	cmd := NewRootCommand(commandConfig{
 		name:                name,
@@ -190,31 +167,11 @@ func Execute(name string, args []string) int {
 		remoteImageBuilder:  images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr, Verbose: os.Getenv("VERBOSE") == "1"},
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
-		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
 		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr).WithConnectCache(connectCache),
-		machineControl:      incusx.NewMachineController(adminConfig.Remote),
-		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
-		passwordReconciler:  incusx.NewMachinePasswordReconciler(adminConfig.Remote, incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)),
-		knownHosts:          newLocalKnownHostsManager(adminConfig.Remote, verbose, os.Stderr).WithConnectCache(connectCache),
-		dnsApplier:          incusx.NewDNSManager(adminConfig.Remote),
 		localDNS:            localdns.FileManager{},
 		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),
-		hostOverrides:       incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		hostMachine:         incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		hostFiles:           hostoverride.NewFileHostsManager(os.Getenv("SANDCASTLE_HOSTS_FILE")),
 		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
-		routes:              userRouteManager,
-		routeMachine:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
-			Admin:         adminConfig,
-			Tenants:       incusx.NewTenantStoreForSharedRemote(sharedRemote),
-			Machines:      incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-			Routes:        directRouteManager,
-			RouteMetadata: directRouteManager,
-			Trust:         incusx.NewRouteBrokerTrustMapper(adminConfig.Remote),
-		}},
-		openBrowser: openBrowser,
+		openBrowser:         openBrowser,
 		loginSetup: realLoginSetupRunner{config: commandConfig{
 			stdin:       os.Stdin,
 			stdout:      os.Stdout,
@@ -230,19 +187,6 @@ func Execute(name string, args []string) int {
 		return 1
 	}
 	return 0
-}
-
-func routeManagerFromEnv() route.Manager {
-	brokerURL := strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_URL"))
-	if brokerURL == "" {
-		return nil
-	}
-	return routebroker.Client{
-		BaseURL:            brokerURL,
-		CertFile:           strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_CLIENT_CERT")),
-		KeyFile:            strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY")),
-		InsecureSkipVerify: strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY")) == "1",
-	}
 }
 
 // NewRootCommand builds the Sandcastle command tree.
@@ -311,7 +255,6 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newConfigCommand(config, opts))
 	root.AddCommand(newTenantCommand(config, opts))
 	root.AddCommand(newCloudIdentityCommand(config, opts))
-	root.AddCommand(newWorkloadCommand(config, opts))
 	root.AddCommand(newShareCommand(config, opts))
 
 	return root

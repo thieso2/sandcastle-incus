@@ -18,14 +18,11 @@ import (
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/dns"
 	"github.com/thieso2/sandcastle-incus/internal/domain"
-	"github.com/thieso2/sandcastle-incus/internal/hostoverride"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
-	"github.com/thieso2/sandcastle-incus/internal/route"
-	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -1804,102 +1801,6 @@ func TestCloudIdentityGCPSetupCanRestrictImpersonationToMachine(t *testing.T) {
 	}
 }
 
-func TestWorkloadEnableInjectsHelperAndGCPConfig(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	authClient := &fakeAuthWorkloadClient{}
-	creator := &fakeMachineCreator{}
-	admin := testAdminConfig()
-	admin.Tenant = "acme"
-	admin.AuthHostname = "auth.example.com"
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
-		adminConfig: admin,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		machineStore:   fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20"}}},
-		machineCreator: creator,
-		authWorkload:   authClient,
-	}, "workload", "enable", "codex", "--cloud-identity", "gcp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(authClient.enableRequests) != 1 {
-		t.Fatalf("enable requests = %#v", authClient.enableRequests)
-	}
-	if authClient.enableRequests[0].CloudIdentityConfig != "gcp" || authClient.enableRequests[0].Tenant != "acme" || authClient.enableRequests[0].Machine != "codex" {
-		t.Fatalf("enable request = %#v", authClient.enableRequests[0])
-	}
-	if creator.plan.InstanceName != "default-codex" {
-		t.Fatalf("instance = %q", creator.plan.InstanceName)
-	}
-	if creator.plan.CertificateFiles == nil || len(creator.plan.CertificateFiles) != 0 {
-		t.Fatalf("certificate files = %#v, want explicit empty slice", creator.plan.CertificateFiles)
-	}
-	paths := map[string]bool{}
-	for _, file := range creator.plan.WorkloadFiles {
-		paths[file.Path] = true
-	}
-	for _, want := range []string{
-		machine.WorkloadRuntimeSecretPath,
-		machine.WorkloadTokenHelperPath,
-		machine.GCPCredentialPath,
-		machine.WorkloadGCPAudiencePath,
-	} {
-		if !paths[want] {
-			t.Fatalf("workload files missing %s: %#v", want, creator.plan.WorkloadFiles)
-		}
-	}
-	if !strings.Contains(stdout, "Helper:         "+machine.WorkloadTokenHelperPath) {
-		t.Fatalf("stdout = %q", stdout)
-	}
-}
-
-func TestWorkloadEnableUsesStoredAuthToken(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	authClient := &fakeAuthWorkloadClient{}
-	creator := &fakeMachineCreator{}
-	admin := testAdminConfig()
-	admin.Tenant = "acme"
-	admin.AuthHostname = "auth.example.com"
-	admin.AuthToken = "stored-token"
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
-		adminConfig: admin,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		machineStore:   fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20"}}},
-		machineCreator: creator,
-		authWorkload:   authClient,
-	}, "workload", "enable", "codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if authClient.starts != 0 {
-		t.Fatalf("device flow started %d times", authClient.starts)
-	}
-	if len(authClient.enableRequests) != 1 || authClient.enableRequests[0].DeviceCode != "" {
-		t.Fatalf("enable requests = %#v", authClient.enableRequests)
-	}
-}
-
 func TestListJSONStartsEmpty(t *testing.T) {
 	configMap, err := meta.TenantConfig(meta.Tenant{
 		Tenant:      "acme",
@@ -2420,94 +2321,6 @@ func TestPortSetRejectsInvalidPort(t *testing.T) {
 	}
 }
 
-func TestDNSStatusJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-	}, "--output", "json", "dns", "status", "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload dns.ApplyResult
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.DNSAddress != "10.248.0.3" {
-		t.Fatalf("DNSAddress = %q", payload.DNSAddress)
-	}
-}
-
-func TestDNSInstallDryRunJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-	}, "--output", "json", "dns", "install", "acme", "--dry-run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload localdns.Plan
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.DNSEndpoint != "10.248.0.3:53" {
-		t.Fatalf("DNSEndpoint = %q", payload.DNSEndpoint)
-	}
-}
-
-func TestDNSInstallUsesCurrentTenantWithoutProject(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	admin := testAdminConfig()
-	admin.Tenant = "acme"
-	admin.Project = ""
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
-		adminConfig: admin,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-	}, "--output", "json", "dns", "install", "--dry-run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload localdns.Plan
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Reference != "acme" {
-		t.Fatalf("Reference = %q", payload.Reference)
-	}
-}
-
 func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 	output := formatLocalDNSPlan("Install", localdns.Plan{
 		Reference:        "acme",
@@ -2526,77 +2339,6 @@ func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
-		}
-	}
-}
-
-func TestDNSRefreshRunsLocalDNSExecutor(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	manager := &fakeLocalDNSManager{}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		localDNS: manager,
-	}, "dns", "refresh", "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !manager.refreshed {
-		t.Fatal("expected local DNS refresh call")
-	}
-	if manager.plan.DNSEndpoint != "10.248.0.3:53" {
-		t.Fatalf("DNSEndpoint = %q", manager.plan.DNSEndpoint)
-	}
-}
-
-func TestDNSSetupUsesCurrentTenantAndRunsSteps(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	localManager := &fakeLocalDNSManager{}
-	applier := &fakeDNSApplier{}
-	admin := testAdminConfig()
-	admin.Tenant = "acme"
-	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:        "sandcastle",
-		adminConfig: admin,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		dnsApplier: applier,
-		localDNS:   localManager,
-	}, "dns", "setup")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !applier.called {
-		t.Fatal("expected DNS apply call")
-	}
-	if !localManager.installed || !localManager.refreshed {
-		t.Fatalf("local DNS installed=%v refreshed=%v, want both", localManager.installed, localManager.refreshed)
-	}
-	if localManager.installPlan.Reference != "acme" || localManager.refreshPlan.Reference != "acme" {
-		t.Fatalf("plans = %#v %#v, want acme", localManager.installPlan, localManager.refreshPlan)
-	}
-	for _, want := range []string{"DNS setup: acme", "DNS records: 2", "Resolver:"} {
-		if !strings.Contains(stdout, want) {
-			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}
 	}
 }
@@ -3125,31 +2867,6 @@ func routeAdminConfigForTest() scconfig.Admin {
 	return admin
 }
 
-func TestRouteManagerFromEnvUsesBrokerClient(t *testing.T) {
-	t.Setenv("SANDCASTLE_ROUTE_BROKER_URL", " https://broker.example.com/ ")
-	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_CERT", " /tmp/client.crt ")
-	t.Setenv("SANDCASTLE_ROUTE_BROKER_CLIENT_KEY", " /tmp/client.key ")
-	t.Setenv("SANDCASTLE_ROUTE_BROKER_INSECURE_SKIP_VERIFY", " 1 ")
-
-	manager := routeManagerFromEnv()
-	client, ok := manager.(routebroker.Client)
-	if !ok {
-		t.Fatalf("manager = %T, want routebroker.Client", manager)
-	}
-	if client.BaseURL != "https://broker.example.com/" || client.CertFile != "/tmp/client.crt" || client.KeyFile != "/tmp/client.key" {
-		t.Fatalf("client = %#v", client)
-	}
-	if !client.InsecureSkipVerify {
-		t.Fatal("expected insecure skip verify flag")
-	}
-}
-
-func TestRouteManagerFromEnvRequiresBrokerURL(t *testing.T) {
-	if manager := routeManagerFromEnv(); manager != nil {
-		t.Fatalf("manager = %T, want nil without broker URL", manager)
-	}
-}
-
 func TestAdminVersion(t *testing.T) {
 	stdout, err := executeAdminForTest(t, "sandcastle-admin", "version")
 	if err != nil {
@@ -3656,98 +3373,11 @@ func TestAdminUserDeleteCallsTrustManager(t *testing.T) {
 	}
 }
 
-func TestAdminRouteBrokerServeCallsRunner(t *testing.T) {
-	runner := &fakeRouteBrokerRunner{}
-	_, err := executeAdminForTestWithConfig(t, commandConfig{
-		name:        "sandcastle-admin",
-		routeBroker: runner,
-	}, "route-broker", "serve", "--listen", "127.0.0.1:9443", "--cert", "/tmp/broker.crt", "--key", "/tmp/broker.key")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !runner.called {
-		t.Fatal("expected route broker runner to be called")
-	}
-	if runner.plan.Address != "127.0.0.1:9443" {
-		t.Fatalf("Address = %q", runner.plan.Address)
-	}
-	if runner.plan.CertFile != "/tmp/broker.crt" || runner.plan.KeyFile != "/tmp/broker.key" {
-		t.Fatalf("plan = %#v", runner.plan)
-	}
-}
-
-func TestAdminRouteBrokerServeRequiresConfiguredRunner(t *testing.T) {
-	_, err := executeAdminForTest(t, "sandcastle-admin", "route-broker", "serve", "--cert", "/tmp/broker.crt", "--key", "/tmp/broker.key")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "route broker server") {
-		t.Fatalf("error = %q", err)
-	}
-}
-
 func TestRejectsUnknownOutputFormat(t *testing.T) {
 	_, err := executeForTest(t, "sandcastle", "--output", "yaml", "version")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-}
-
-type fakeMachineCreator struct {
-	plan  machine.CreatePlan
-	plans []machine.CreatePlan
-}
-
-func (f *fakeMachineCreator) CreateMachine(ctx context.Context, plan machine.CreatePlan) error {
-	f.plan = plan
-	f.plans = append(f.plans, plan)
-	return nil
-}
-
-type fakeKnownHostsManager struct {
-	called bool
-	plan   machine.CreatePlan
-	order  *[]string
-}
-
-func (f *fakeKnownHostsManager) RefreshMachine(ctx context.Context, plan machine.CreatePlan) error {
-	f.called = true
-	f.plan = plan
-	if f.order != nil {
-		*f.order = append(*f.order, "known-hosts")
-	}
-	return nil
-}
-
-type fakeMachineConnector struct {
-	called bool
-	plan   machine.ConnectPlan
-	err    error
-	order  *[]string
-}
-
-func (f *fakeMachineConnector) ConnectMachine(ctx context.Context, plan machine.ConnectPlan, session machine.ConnectSession) error {
-	f.called = true
-	f.plan = plan
-	if f.order != nil {
-		*f.order = append(*f.order, "connect")
-	}
-	return f.err
-}
-
-type fakeMachineController struct {
-	called bool
-	plan   machine.LifecyclePlan
-	order  *[]string
-}
-
-func (f *fakeMachineController) ApplyLifecycle(ctx context.Context, plan machine.LifecyclePlan) error {
-	f.called = true
-	f.plan = plan
-	if f.order != nil {
-		*f.order = append(*f.order, "start")
-	}
-	return nil
 }
 
 type fakeProjectUpdater struct {
@@ -3806,21 +3436,6 @@ func (f *fakeSSHKeyUpdater) SetTenantSSHKey(ctx context.Context, incusProjectNam
 	f.called = true
 	f.incusProject = incusProjectName
 	f.key = sshKey
-	return nil
-}
-
-type fakePasswordReconciler struct {
-	called   bool
-	incus    string
-	tenant   string
-	password string
-}
-
-func (f *fakePasswordReconciler) ReconcileTenantPassword(ctx context.Context, summary tenant.Summary, password string) error {
-	f.called = true
-	f.incus = summary.IncusName
-	f.tenant = summary.Tenant
-	f.password = password
 	return nil
 }
 
@@ -3894,11 +3509,6 @@ type fakeLocalDNSManager struct {
 	uninstallPlan localdns.Plan
 }
 
-type fakeDNSApplier struct {
-	called bool
-	tenant dns.Tenant
-}
-
 func (f *fakeLocalDNSManager) Install(ctx context.Context, plan localdns.Plan) (localdns.Result, error) {
 	f.installed = true
 	f.plan = plan
@@ -3918,12 +3528,6 @@ func (f *fakeLocalDNSManager) Uninstall(ctx context.Context, plan localdns.Plan)
 	f.plan = plan
 	f.uninstallPlan = plan
 	return localdns.Result{Reference: plan.Reference, Action: "uninstall", StatePath: plan.StatePath, ResolverPath: plan.ResolverPath}, nil
-}
-
-func (f *fakeDNSApplier) Apply(ctx context.Context, tenant dns.Tenant) (dns.ApplyResult, error) {
-	f.called = true
-	f.tenant = tenant
-	return dns.PlanApply(tenant, nil)
 }
 
 func (f *fakeTailscaleRunner) RunUp(ctx context.Context, plan tailscale.UpPlan, session tailscale.RunSession) error {
@@ -3978,23 +3582,6 @@ func (f fakeMachineStatusStore) ListUnmanagedMachines(ctx context.Context, summa
 	return f.unmanaged, nil
 }
 
-type fakeHostOverrideManager struct {
-	called  bool
-	deleted bool
-	plan    hostoverride.AddPlan
-}
-
-func (f *fakeHostOverrideManager) Add(ctx context.Context, plan hostoverride.AddPlan) error {
-	f.called = true
-	f.plan = plan
-	return nil
-}
-
-func (f *fakeHostOverrideManager) Delete(ctx context.Context, plan hostoverride.DeletePlan) error {
-	f.deleted = true
-	return nil
-}
-
 type fakeRouteMachineStore struct{}
 
 func (f fakeRouteMachineStore) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, name string) (meta.Machine, error) {
@@ -4005,33 +3592,6 @@ func (f fakeRouteMachineStore) FindMachine(ctx context.Context, summary tenant.S
 		AppPort:   5173,
 		PrivateIP: "10.248.0.20",
 	}, nil
-}
-
-type fakeRouteManager struct {
-	list route.ListResult
-}
-
-func (f *fakeRouteManager) Create(ctx context.Context, plan route.CreatePlan) error {
-	return nil
-}
-
-func (f *fakeRouteManager) Delete(ctx context.Context, plan route.DeletePlan) error {
-	return nil
-}
-
-func (f *fakeRouteManager) List(ctx context.Context, plan route.ListPlan) (route.ListResult, error) {
-	return f.list, nil
-}
-
-type fakeRouteBrokerRunner struct {
-	called bool
-	plan   routebroker.ServePlan
-}
-
-func (f *fakeRouteBrokerRunner) Serve(ctx context.Context, plan routebroker.ServePlan) error {
-	f.called = true
-	f.plan = plan
-	return nil
 }
 
 type fakeTrustManager struct {
@@ -4084,23 +3644,6 @@ func (f *fakeTrustManager) CreateToken(ctx context.Context, plan usertrust.UserP
 		Projects:        plan.Projects,
 		Token:           f.token,
 	}, nil
-}
-
-type fakeHostFiles struct {
-	called  bool
-	deleted bool
-	plan    hostoverride.AddPlan
-}
-
-func (f *fakeHostFiles) AddHostsEntry(ctx context.Context, plan hostoverride.AddPlan) error {
-	f.called = true
-	f.plan = plan
-	return nil
-}
-
-func (f *fakeHostFiles) RemoveHostsEntry(ctx context.Context, plan hostoverride.DeletePlan) error {
-	f.deleted = true
-	return nil
 }
 
 type fakeLocalTrustManager struct {
