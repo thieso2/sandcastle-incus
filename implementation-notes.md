@@ -1319,3 +1319,35 @@ projects but not one remote could be added.
 `incusTokenAddresses` decodes the base64-JSON Incus certificate add token. A token
 it cannot parse yields no addresses rather than an error — every caller has a
 fallback path.
+
+## 2026-07-10 — e2e Phase 7c: two more defects
+
+**`sc-adm tenant set-ssh-key` never worked against a real Incus daemon.**
+`TenantSSHKeyManager.writeTenantMetadataFile` calls
+`CreateStorageVolumeFile(pool, volumeType, volumeName, …)` — and passed the
+**Incus project name** in the `pool` position. Real Incus answers
+`Storage pool not found`; so does the share source validation at
+`SourceDirectoryStatus`. The unit tests never noticed because the fake
+`CreateStorageVolumeFile` accepted any string for `pool`.
+
+Fix: `TenantSSHKeyManager` gains a `StoragePool` field (empty ⇒
+`config.DefaultStoragePool`), wired from `adminConfig.StoragePool` at every
+construction site. The test fake now **rejects** a pool name that looks like an
+Incus project, reproducing the daemon's error; verified it fails when the old
+argument is put back. A fake that accepts anything tests nothing.
+
+**`sc c` broke after any delete + recreate.** Tenant machines are ephemeral and
+their IPs recycle inside the tenant's `/24`, so the host key for a given IP
+changes. `sc c` passed `StrictHostKeyChecking=accept-new` against the user's own
+`~/.ssh/known_hosts`, so the second connect to a recycled IP died with
+`Host key verification failed` and the user had to hand-edit the file.
+
+v1's connect pruned the entry first (`localKnownHostsManager.RefreshMachine`),
+but that manager was only ever wired to `machine.CreatePlan` — the v1 path. The
+v2 connect in `create_v2.go` never called it, so this was a **pre-existing v2
+gap**, not a #52 regression; deleting `known_hosts.go` removed code that was
+already dead for v2.
+
+Fix: keep Sandcastle host keys in `~/.config/sandcastle/known_hosts` and drop the
+entry for the target IP before connecting. Same posture as v1, and the user's own
+`known_hosts` is neither polluted nor invalidated.

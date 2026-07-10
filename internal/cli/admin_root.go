@@ -66,7 +66,7 @@ func ExecuteAdmin(name string, args []string) int {
 	authAppMetadataUpdater := incusx.TenantSSHKeyManager{Remote: adminConfig.Remote}
 	authAppShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, authAppMachines)
 	authAppShareReconciler.Admin = adminConfig
-	adminShareStore := incusx.NewTenantSSHKeyManager(adminConfig.Remote)
+	adminShareStore := incusx.NewTenantSSHKeyManagerWithPool(adminConfig.Remote, adminConfig.StoragePool)
 	adminShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, incusx.NewHostOverrideManagerForSharedRemote(sharedRemote))
 	adminShareReconciler.Admin = adminConfig
 	var authAppSocketServer incus.InstanceServer
@@ -96,8 +96,8 @@ func ExecuteAdmin(name string, args []string) int {
 		tenantStore:         incusx.NewTenantStoreForSharedRemote(sharedRemote),
 		tenantCreator:       incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		tenantDeleter:       incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
-		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManager(adminConfig.Remote),
-		tenantUpdater:       incusx.NewTenantSSHKeyManager(adminConfig.Remote),
+		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManagerWithPool(adminConfig.Remote, adminConfig.StoragePool),
+		tenantUpdater:       incusx.NewTenantSSHKeyManagerWithPool(adminConfig.Remote, adminConfig.StoragePool),
 		imageManager:        incusx.NewImageManager(adminConfig.Remote),
 		imageBuilder:        images.LocalBuilder{},
 		imageImporter:       images.LocalImporter{},

@@ -10,6 +10,7 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
+	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -19,10 +20,30 @@ type TenantSSHKeyManager struct {
 	Remote     string
 	ConfigPath string
 	Server     TenantMetadataUpdateServer
+	// StoragePool is the Incus storage pool holding the tenant's shared volumes.
+	// Empty means the deployment default.
+	StoragePool string
+}
+
+// pool is the storage pool the tenant's shared home/workspace volumes live in.
+// The Incus storage-volume file API takes a POOL as its first argument; passing
+// the Incus project name there (as this file used to) fails at runtime with
+// "Storage pool not found" — but never in tests, whose fake accepts any string.
+func (m TenantSSHKeyManager) pool() string {
+	if p := strings.TrimSpace(m.StoragePool); p != "" {
+		return p
+	}
+	return config.DefaultStoragePool
 }
 
 func NewTenantSSHKeyManager(remote string) TenantSSHKeyManager {
 	return TenantSSHKeyManager{Remote: remote}
+}
+
+// NewTenantSSHKeyManagerWithPool pins the storage pool holding the tenant's
+// shared volumes, rather than relying on the deployment default.
+func NewTenantSSHKeyManagerWithPool(remote string, storagePool string) TenantSSHKeyManager {
+	return TenantSSHKeyManager{Remote: remote, StoragePool: storagePool}
 }
 
 func NewTenantSSHKeyManagerForServer(server incus.InstanceServer) TenantSSHKeyManager {
@@ -92,7 +113,7 @@ func (m TenantSSHKeyManager) SourceDirectoryStatus(_ context.Context, incusProje
 	}
 	resource := server.UseProject(incusProjectName)
 	sourcePath := path.Clean(project + "/" + workspaceRelativeDir)
-	status, err := validateStorageTree(resource, incusProjectName, tenant.WorkspaceVolumeName, sourcePath, sourcePath)
+	status, err := validateStorageTree(resource, m.pool(), tenant.WorkspaceVolumeName, sourcePath, sourcePath)
 	if isMissingTenantMetadata(err) {
 		return share.SourceStatus{Exists: false, Safe: false, Reason: "source directory is missing"}, nil
 	}
@@ -171,13 +192,13 @@ func (m TenantSSHKeyManager) writeTenantMetadataFile(incusProjectName string, fi
 		return err
 	}
 	tenantServer := server.UseProject(incusProjectName)
-	if err := tenantServer.CreateStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantMetadataDir, incus.InstanceFileArgs{
+	if err := tenantServer.CreateStorageVolumeFile(m.pool(), "custom", tenant.WorkspaceVolumeName, tenantMetadataDir, incus.InstanceFileArgs{
 		Type: "directory",
 		Mode: 0o755,
 	}); err != nil && !api.StatusErrorCheck(err, 409) {
 		return fmt.Errorf("create tenant metadata directory: %w", err)
 	}
-	if err := tenantServer.CreateStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, filePath, incus.InstanceFileArgs{
+	if err := tenantServer.CreateStorageVolumeFile(m.pool(), "custom", tenant.WorkspaceVolumeName, filePath, incus.InstanceFileArgs{
 		Content:   strings.NewReader(content),
 		Type:      "file",
 		Mode:      0o644,

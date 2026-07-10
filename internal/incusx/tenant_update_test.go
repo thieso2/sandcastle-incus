@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -111,7 +112,22 @@ type fakeTenantMetadataUpdateResource struct {
 	files      map[string]fakeVolumeFile
 }
 
+func rejectNonPool(pool string) error {
+	if pool == "" {
+		return fmt.Errorf("Storage pool not found: empty pool name")
+	}
+	// Every Incus project this code addresses is named <prefix>-<tenant>[-<project>].
+	// A pool never is. Catch the mix-up the way a real daemon would.
+	if strings.Contains(pool, "-") && pool != "default" {
+		return fmt.Errorf("Storage pool not found: %q looks like an Incus project, not a pool", pool)
+	}
+	return nil
+}
+
 func (r *fakeTenantMetadataUpdateResource) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
+	if err := rejectNonPool(pool); err != nil {
+		return nil, nil, err
+	}
 	if r.files != nil {
 		file, ok := r.files[filePath]
 		if !ok {
@@ -126,6 +142,12 @@ func (r *fakeTenantMetadataUpdateResource) GetStorageVolumeFile(pool string, vol
 }
 
 func (r *fakeTenantMetadataUpdateResource) CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error {
+	// The first argument is a STORAGE POOL, not an Incus project. This fake used
+	// to accept anything, so passing the project name here passed every test and
+	// failed against a real daemon with "Storage pool not found".
+	if err := rejectNonPool(pool); err != nil {
+		return err
+	}
 	if args.Type == "directory" {
 		r.createdDir = true
 		return nil
