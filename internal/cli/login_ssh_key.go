@@ -109,3 +109,24 @@ func loginSSHKeyResultForPublicKey(publicKey string) (loginSSHKeyResult, error) 
 		Fingerprint: ssh.FingerprintSHA256(parsed),
 	}, nil
 }
+
+// readSSHPublicKeyFile and normalizeSSHPublicKey moved here from the deleted
+// v1 `sc ssh-key` command: the v2 login path is now their only consumer.
+func readSSHPublicKeyFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return normalizeSSHPublicKey(string(data))
+}
+
+func normalizeSSHPublicKey(value string) (string, error) {
+	key := strings.TrimSpace(value)
+	if key == "" {
+		return "", fmt.Errorf("SSH public key is empty")
+	}
+	if !strings.HasPrefix(key, "ssh-") {
+		return "", fmt.Errorf("SSH public key must start with ssh-")
+	}
+	return key, nil
+}
