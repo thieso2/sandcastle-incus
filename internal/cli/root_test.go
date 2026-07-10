@@ -1214,23 +1214,47 @@ func TestTenantSwitchLocalOnlySkipsValidation(t *testing.T) {
 	}
 }
 
+// v2TenantProjects builds the pair (or more) of Incus projects that make up a
+// v2 tenant: one kind=infra project (<sc2>-<tenant>) carrying the private /24,
+// plus one kind=project app project per name (<sc2>-<tenant>-<project>). This
+// is the fixture shape tenant.ListForPrefix consumes now that v1 (kind=tenant)
+// projects are gone.
+func v2TenantProjects(tenantName, cidr string, projectNames ...string) []tenant.IncusProject {
+	if len(projectNames) == 0 {
+		projectNames = []string{"default"}
+	}
+	infra := "sc2-" + tenantName
+	projects := []tenant.IncusProject{{
+		Name: infra,
+		Config: map[string]string{
+			meta.KeyKind:    meta.KindInfra,
+			meta.KeyTenant:  tenantName,
+			meta.KeyVersion: "2",
+			meta.KeyV2CIDR:  cidr,
+		},
+	}}
+	for _, name := range projectNames {
+		projects = append(projects, tenant.IncusProject{
+			Name: infra + "-" + name,
+			Config: map[string]string{
+				meta.KeyKind:    meta.KindV2Project,
+				meta.KeyTenant:  tenantName,
+				meta.KeyVersion: "2",
+			},
+		})
+	}
+	return projects
+}
+
 func tenantSwitchStoreForTest(t *testing.T, tenants ...string) tenant.MemoryStore {
 	t.Helper()
-	projects := make([]tenant.IncusProject, 0, len(tenants))
+	projects := make([]tenant.IncusProject, 0, len(tenants)*2)
 	for _, name := range tenants {
 		privateCIDR := "10.248.0.0/24"
 		if name == "skorfman" {
 			privateCIDR = "10.248.7.0/24"
 		}
-		configMap, err := meta.TenantConfig(meta.Tenant{
-			Tenant:      name,
-			PrivateCIDR: privateCIDR,
-			Projects:    []meta.Project{{Name: "default"}},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		projects = append(projects, tenant.IncusProject{Name: "sc-" + name, Config: configMap})
+		projects = append(projects, v2TenantProjects(name, privateCIDR, "default")...)
 	}
 	return tenant.MemoryStore{Projects: projects}
 }
@@ -1802,20 +1826,10 @@ func TestCloudIdentityGCPSetupCanRestrictImpersonationToMachine(t *testing.T) {
 }
 
 func TestListJSONStartsEmpty(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:         "sandcastle",
+		tenantStore:  tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{},
 	}, "--output", "json", "list")
 	if err != nil {
@@ -1831,20 +1845,10 @@ func TestListJSONStartsEmpty(t *testing.T) {
 }
 
 func TestListTextShowsManagedMachines(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant:    "acme",
 			Project:   "default",
@@ -1867,20 +1871,10 @@ func TestListTextShowsManagedMachines(t *testing.T) {
 
 func TestListUsesProjectFromEnv(t *testing.T) {
 	t.Setenv("SANDCASTLE_PROJECT", "website")
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant: "acme", Project: "default", Name: "builder", PrivateIP: "10.248.0.20", AppPort: 3000,
 		}, {
@@ -1899,20 +1893,10 @@ func TestListUsesProjectFromEnv(t *testing.T) {
 }
 
 func TestListAliasShowsUnmanagedTenantWide(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{unmanaged: []machine.UnmanagedMachine{{
 			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
 		}}},
@@ -1939,20 +1923,10 @@ func TestListRejectsRemovedUnmanagedFlag(t *testing.T) {
 }
 
 func TestListProjectScopeAlsoShowsUnmanagedRows(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{unmanaged: []machine.UnmanagedMachine{{
 			Tenant: "acme", Name: "manual", InstanceName: "manual", Status: "Running", Running: true,
 		}}},
@@ -1969,20 +1943,10 @@ func TestListProjectScopeAlsoShowsUnmanagedRows(t *testing.T) {
 }
 
 func TestProjectListShowsCurrentTenantProjects(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "project", "list")
 	if err != nil {
 		t.Fatal(err)
@@ -1993,20 +1957,10 @@ func TestProjectListShowsCurrentTenantProjects(t *testing.T) {
 }
 
 func TestProjectStatusShowsMachineCount(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{machines: []meta.Machine{
 			{Tenant: "acme", Project: "website", Name: "codex"},
 			{Tenant: "acme", Project: "default", Name: "shell"},
@@ -2021,20 +1975,10 @@ func TestProjectStatusShowsMachineCount(t *testing.T) {
 }
 
 func TestProjectStatusJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{machines: []meta.Machine{
 			{Tenant: "acme", Project: "website", Name: "codex"},
 		}},
@@ -2052,24 +1996,14 @@ func TestProjectStatusJSON(t *testing.T) {
 }
 
 func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	updater := &fakeProjectUpdater{}
 	authClient := &fakeAuthCloudIdentityClient{}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:              "sandcastle",
 		authCloudIdentity: authClient,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		tenantUpdater: updater,
+		tenantStore:       tenant.MemoryStore{Projects: projects},
+		tenantUpdater:     updater,
 	}, "project", "set-cloud-identity", "default", "gcp")
 	if err != nil {
 		t.Fatal(err)
@@ -2077,7 +2011,7 @@ func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
 	if !strings.Contains(stdout, "set cloud identity on project default") {
 		t.Fatalf("stdout = %q", stdout)
 	}
-	if !updater.called || updater.incusProject != "sc-acme" || !projectHasCloudIdentity(updater.projects, "default", "gcp") {
+	if !updater.called || updater.incusProject != "sc2-acme-default" || !projectHasCloudIdentity(updater.projects, "default", "gcp") {
 		t.Fatalf("updater = %#v", updater)
 	}
 	if len(authClient.getRequests) != 1 || authClient.getRequests[0].tenant != "acme" || authClient.getRequests[0].name != "gcp" {
@@ -2086,27 +2020,17 @@ func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
 }
 
 func TestProjectSetCloudIdentityRejectsMissingTenantConfig(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "some",
-		Projects:    []meta.Project{{Name: "io"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("some", "10.248.0.0/24", "io")
 	admin := testAdminConfig()
 	admin.Tenant = "some"
 	authClient := &fakeAuthCloudIdentityClient{getErr: fmt.Errorf("cloud identity config not found")}
 	updater := &fakeProjectUpdater{}
-	_, err = executeForTestWithConfig(t, commandConfig{
+	_, err := executeForTestWithConfig(t, commandConfig{
 		name:              "sandcastle",
 		adminConfig:       admin,
 		authCloudIdentity: authClient,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-some",
-			Config: configMap,
-		}}},
-		tenantUpdater: updater,
+		tenantStore:       tenant.MemoryStore{Projects: projects},
+		tenantUpdater:     updater,
 	}, "project", "set-cloud-identity", "io", "gcp")
 	if err == nil {
 		t.Fatal("expected error")
@@ -2120,21 +2044,11 @@ func TestProjectSetCloudIdentityRejectsMissingTenantConfig(t *testing.T) {
 }
 
 func TestProjectSetDockerAutostartUpdatesDefaultProject(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	updater := &fakeProjectUpdater{}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:          "sandcastle",
+		tenantStore:   tenant.MemoryStore{Projects: projects},
 		tenantUpdater: updater,
 	}, "project", "set-docker-autostart", "default", "on")
 	if err != nil {
@@ -2143,26 +2057,16 @@ func TestProjectSetDockerAutostartUpdatesDefaultProject(t *testing.T) {
 	if !strings.Contains(stdout, "enable Docker autostart for project default") {
 		t.Fatalf("stdout = %q", stdout)
 	}
-	if !updater.called || updater.incusProject != "sc-acme" || !projectHasDockerAutostart(updater.projects, "default") {
+	if !updater.called || updater.incusProject != "sc2-acme-default" || !projectHasDockerAutostart(updater.projects, "default") {
 		t.Fatalf("updater = %#v", updater)
 	}
 }
 
 func TestProjectDeleteRejectsNonEmptyProject(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:         "sandcastle",
+		tenantStore:  tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{Tenant: "acme", Project: "website", Name: "codex"}}},
 	}, "project", "delete", "website", "--yes")
 	if err == nil {
@@ -2174,21 +2078,11 @@ func TestProjectDeleteRejectsNonEmptyProject(t *testing.T) {
 }
 
 func TestProjectDeleteCallsUpdater(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
 	updater := &fakeProjectUpdater{}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:          "sandcastle",
+		tenantStore:   tenant.MemoryStore{Projects: projects},
 		machineStore:  fakeMachineStatusStore{},
 		tenantUpdater: updater,
 	}, "project", "delete", "website", "--yes")
@@ -2201,20 +2095,10 @@ func TestProjectDeleteCallsUpdater(t *testing.T) {
 }
 
 func TestStatusJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "status", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -2223,20 +2107,13 @@ func TestStatusJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Summary.IncusName != "sc-acme" {
+	if payload.Summary.IncusName != "sc2-acme-default" {
 		t.Fatalf("IncusName = %q", payload.Summary.IncusName)
 	}
 }
 
 func TestStatusJSONIncludesShareReconciliationHealth(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	client := &fakeAuthShareClient{reconcileResult: share.ReconcileResult{
 		Tenant: "acme",
 		Machines: []share.MachineReconcileResult{{
@@ -2255,11 +2132,8 @@ func TestStatusJSONIncludesShareReconciliationHealth(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
 		adminConfig: admin,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		authShares: client,
+		tenantStore: tenant.MemoryStore{Projects: projects},
+		authShares:  client,
 	}, "--output", "json", "status", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -2277,20 +2151,10 @@ func TestStatusJSONIncludesShareReconciliationHealth(t *testing.T) {
 }
 
 func TestStatusJSONUsesTenantRef(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "status", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -2344,25 +2208,15 @@ func TestFormatLocalDNSPlanShowsResolverCommands(t *testing.T) {
 }
 
 func TestDNSTeardownUsesCurrentTenantAndRunsSteps(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	localManager := &fakeLocalDNSManager{}
 	admin := testAdminConfig()
 	admin.Tenant = "acme"
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
 		adminConfig: admin,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		localDNS: localManager,
+		tenantStore: tenant.MemoryStore{Projects: projects},
+		localDNS:    localManager,
 	}, "dns", "teardown")
 	if err != nil {
 		t.Fatal(err)
@@ -2463,20 +2317,10 @@ func TestIncusCommandRequiresManagedRemoteConfig(t *testing.T) {
 }
 
 func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "tailscale", "up", "acme", "--auth-key", "tskey-secret", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -2488,7 +2332,7 @@ func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.InstanceName != "sc-acme" {
+	if payload.InstanceName != "sc2-acme-default" {
 		t.Fatalf("InstanceName = %q", payload.InstanceName)
 	}
 	if !payload.HasAuthKey {
@@ -2498,20 +2342,10 @@ func TestTailscaleUpDryRunRedactsAuthKey(t *testing.T) {
 
 func TestTailscaleUpDryRunUsesDefaultAdvertiseTag(t *testing.T) {
 	t.Setenv("SANDCASTLE_E2E_TAILSCALE_TAG", "")
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "tailscale", "up", "acme", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -2529,20 +2363,10 @@ func TestTailscaleUpDryRunUsesDefaultAdvertiseTag(t *testing.T) {
 }
 
 func TestTailscaleUpUsesCurrentTenant(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "tailscale", "up", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -2551,26 +2375,16 @@ func TestTailscaleUpUsesCurrentTenant(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Reference != "acme" || payload.InstanceName != "sc-acme" {
+	if payload.Reference != "acme" || payload.InstanceName != "sc2-acme-default" {
 		t.Fatalf("payload = %#v", payload)
 	}
 }
 
 func TestTailscaleUpDryRunRejectsInvalidAdvertiseTag(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "tailscale", "up", "acme", "--advertise-tag", "sandcastle", "--dry-run")
 	if err == nil {
 		t.Fatal("expected error")
@@ -2581,22 +2395,12 @@ func TestTailscaleUpDryRunRejectsInvalidAdvertiseTag(t *testing.T) {
 }
 
 func TestTailscaleUpRunsExecutor(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	runner := &fakeTailscaleRunner{}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		tailscale: runner,
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
+		tailscale:   runner,
 	}, "tailscale", "up", "acme", "--auth-key", "tskey-secret")
 	if err != nil {
 		t.Fatal(err)
@@ -2604,7 +2408,7 @@ func TestTailscaleUpRunsExecutor(t *testing.T) {
 	if !runner.called {
 		t.Fatal("expected tailscale runner call")
 	}
-	if runner.plan.InstanceName != "sc-acme" {
+	if runner.plan.InstanceName != "sc2-acme-default" {
 		t.Fatalf("InstanceName = %q", runner.plan.InstanceName)
 	}
 	if runner.plan.AuthKey != "tskey-secret" {
@@ -2613,25 +2417,15 @@ func TestTailscaleUpRunsExecutor(t *testing.T) {
 }
 
 func TestTailscaleStatusRunsExecutor(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	runner := &fakeTailscaleRunner{status: tailscale.StatusResult{
 		Reference: "acme",
 		Tailscale: meta.Tailscale{State: "Running", TailscaleIPs: []string{"100.80.12.34"}},
 	}}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		tailscale: runner,
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
+		tailscale:   runner,
 	}, "--output", "json", "tailscale", "status", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -2649,25 +2443,15 @@ func TestTailscaleStatusRunsExecutor(t *testing.T) {
 }
 
 func TestTailscaleStatusUsesCurrentTenant(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	runner := &fakeTailscaleRunner{status: tailscale.StatusResult{
 		Reference: "acme",
 		Tailscale: meta.Tailscale{State: "Running"},
 	}}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		tailscale: runner,
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
+		tailscale:   runner,
 	}, "tailscale", "status")
 	if err != nil {
 		t.Fatal(err)
@@ -2678,20 +2462,10 @@ func TestTailscaleStatusUsesCurrentTenant(t *testing.T) {
 }
 
 func TestTailscaleDownDryRunJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "tailscale", "down", "acme", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -2706,20 +2480,10 @@ func TestTailscaleDownDryRunJSON(t *testing.T) {
 }
 
 func TestTailscaleDownUsesCurrentTenant(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "tailscale", "down", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -2728,26 +2492,16 @@ func TestTailscaleDownUsesCurrentTenant(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Reference != "acme" || payload.InstanceName != "sc-acme" {
+	if payload.Reference != "acme" || payload.InstanceName != "sc2-acme-default" {
 		t.Fatalf("payload = %#v", payload)
 	}
 }
 
 func TestTrustInstallDryRunJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "trust", "install", "acme", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -2765,24 +2519,14 @@ func TestTrustInstallDryRunJSON(t *testing.T) {
 }
 
 func TestTrustInstallUsesCurrentTenantWithoutProject(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	admin := testAdminConfig()
 	admin.Tenant = "acme"
 	admin.Project = ""
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
 		adminConfig: admin,
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "trust", "install", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -2794,28 +2538,18 @@ func TestTrustInstallUsesCurrentTenantWithoutProject(t *testing.T) {
 	if payload.Reference != "acme" {
 		t.Fatalf("Reference = %q", payload.Reference)
 	}
-	if payload.IncusProject != "sc-acme" {
+	if payload.IncusProject != "sc2-acme-default" {
 		t.Fatalf("IncusProject = %q", payload.IncusProject)
 	}
 }
 
 func TestTrustInstallRunsExecutor(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	manager := &fakeLocalTrustManager{}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		localTrust: manager,
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
+		localTrust:  manager,
 	}, "trust", "install", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -2829,28 +2563,18 @@ func TestTrustInstallRunsExecutor(t *testing.T) {
 	if !strings.Contains(stdout, "install tenant CA trust: acme") {
 		t.Fatalf("stdout missing trust result: %q", stdout)
 	}
-	if manager.plan.IncusProject != "sc-acme" {
+	if manager.plan.IncusProject != "sc2-acme-default" {
 		t.Fatalf("IncusProject = %q", manager.plan.IncusProject)
 	}
 }
 
 func TestTrustUninstallRunsExecutor(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	manager := &fakeLocalTrustManager{}
-	_, err = executeForTestWithConfig(t, commandConfig{
-		name: "sandcastle",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
-		localTrust: manager,
+	_, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
+		localTrust:  manager,
 	}, "trust", "uninstall", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -2888,20 +2612,10 @@ func TestAdminVersionHelpUsesAdminWording(t *testing.T) {
 }
 
 func TestAdminTenantListJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
-		name: "sandcastle-admin",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle-admin",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 	}, "--output", "json", "tenant", "list")
 	if err != nil {
 		t.Fatal(err)
@@ -2913,26 +2627,16 @@ func TestAdminTenantListJSON(t *testing.T) {
 	if len(payload.Tenants) != 1 {
 		t.Fatalf("len(payload.Tenants) = %d, want 1", len(payload.Tenants))
 	}
-	if payload.Tenants[0].IncusName != "sc-acme" {
+	if payload.Tenants[0].IncusName != "sc2-acme-default" {
 		t.Fatalf("IncusName = %q", payload.Tenants[0].IncusName)
 	}
 }
 
 func TestAdminMachineListJSON(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
-		name: "sandcastle-admin",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle-admin",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant: "acme", Project: "default", Name: "codex", PrivateIP: "10.248.0.20", AppPort: 3000,
 		}, {
@@ -2952,20 +2656,10 @@ func TestAdminMachineListJSON(t *testing.T) {
 }
 
 func TestAdminMachineListProjectFilters(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
 	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
-		name: "sandcastle-admin",
-		tenantStore: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: configMap,
-		}}},
+		name:        "sandcastle-admin",
+		tenantStore: tenant.MemoryStore{Projects: projects},
 		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
 			Tenant: "acme", Project: "default", Name: "builder", PrivateIP: "10.248.0.20", AppPort: 3000,
 		}, {

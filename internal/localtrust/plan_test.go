@@ -17,22 +17,11 @@ import (
 )
 
 func TestPlanInstallFindsManagedTenant(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
+	plan, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), tenant.MemoryStore{Projects: v2AcmeProjects()}, Request{Reference: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanInstall(context.Background(), scconfig.LoadAdminFromEnv(), tenant.MemoryStore{Projects: []tenant.IncusProject{{
-		Name:   "sc-acme",
-		Config: configMap,
-	}}}, Request{Reference: "acme"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plan.IncusProject != "sc-acme" {
+	if plan.IncusProject != "sc2-acme-default" {
 		t.Fatalf("IncusProject = %q", plan.IncusProject)
 	}
 	if plan.CAVolume != tenant.CAVolumeName || plan.CertificatePath != tenant.TenantCACertPath {
@@ -44,20 +33,9 @@ func TestPlanInstallFindsManagedTenant(t *testing.T) {
 }
 
 func TestPlanInstallSupportsCurrentTenant(t *testing.T) {
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	admin := scconfig.LoadAdminFromEnv()
 	admin.Tenant = "acme"
-	plan, err := PlanInstall(context.Background(), admin, tenant.MemoryStore{Projects: []tenant.IncusProject{{
-		Name:   "sc-acme",
-		Config: configMap,
-	}}}, Request{})
+	plan, err := PlanInstall(context.Background(), admin, tenant.MemoryStore{Projects: v2AcmeProjects()}, Request{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,5 +485,26 @@ func TestUninstallReportsWhenNothingWasRemoved(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, CertFilename(plan))); !os.IsNotExist(err) {
 		t.Fatalf("cert still present: %v", err)
+	}
+}
+
+// v2AcmeProjects is the v2 fixture for tenant "acme": a kind=infra project
+// carrying the /24, plus one kind=project app project. v1 (kind=tenant)
+// projects are no longer surfaced by tenant.List.
+func v2AcmeProjects() []tenant.IncusProject {
+	config := func(kind string) map[string]string {
+		out := map[string]string{
+			meta.KeyKind:    kind,
+			meta.KeyTenant:  "acme",
+			meta.KeyVersion: "2",
+		}
+		if kind == meta.KindInfra {
+			out[meta.KeyV2CIDR] = "10.248.0.0/24"
+		}
+		return out
+	}
+	return []tenant.IncusProject{
+		{Name: "sc2-acme", Config: config(meta.KindInfra)},
+		{Name: "sc2-acme-default", Config: config(meta.KindV2Project)},
 	}
 }

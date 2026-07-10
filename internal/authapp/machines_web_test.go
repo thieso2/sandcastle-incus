@@ -77,13 +77,16 @@ func TestMachinesWebListsAccessibleMachinesWithSSHLink(t *testing.T) {
 
 	handler := NewHandler(db, HandlerOptions{
 		Admin: testAuthAdminConfig(),
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{
-			{Name: "sc-acme", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "acme", UnixUser: "alice", PrivateCIDR: "10.248.1.0/24"})},
-			{Name: "sc-other", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "other", PrivateCIDR: "10.248.2.0/24"})},
-		}},
-		TenantAccess: &fakeTenantAccessManager{usersByTenant: map[string][]string{"acme": {"alice"}}},
+		// v2 access is by tenant name == user key (machines_web.go): alice can
+		// see the tenant named "alice", never a foreign tenant, so the accessible
+		// tenant is alice's own and the inaccessible one belongs to someone else.
+		Tenants: tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(
+			authTestTenant{Tenant: "alice", UnixUser: "alice", CIDR: "10.248.1.0/24"},
+			authTestTenant{Tenant: "other", CIDR: "10.248.2.0/24"},
+		)},
+		TenantAccess: &fakeTenantAccessManager{usersByTenant: map[string][]string{"alice": {"alice"}}},
 		Machines: fakeMachinesByTenant{machines: map[string][]meta.Machine{
-			"acme":  {{Tenant: "acme", Project: "default", Name: "dev", PrivateIP: "10.248.1.20", Running: true}},
+			"alice": {{Tenant: "alice", Project: "default", Name: "dev", PrivateIP: "10.248.1.20", Running: true}},
 			"other": {{Tenant: "other", Project: "default", Name: "secret", PrivateIP: "10.248.2.9"}},
 		}},
 	})
@@ -100,7 +103,7 @@ func TestMachinesWebListsAccessibleMachinesWithSSHLink(t *testing.T) {
 	if !strings.Contains(body, "ssh://alice@10.248.1.20") {
 		t.Fatalf("expected ssh link for accessible machine, got:\n%s", body)
 	}
-	if !strings.Contains(body, "dev.default.acme") {
+	if !strings.Contains(body, "dev.default.alice") {
 		t.Fatalf("expected FQDN for accessible machine, got:\n%s", body)
 	}
 	if strings.Contains(body, "10.248.2.9") || strings.Contains(body, "secret") {

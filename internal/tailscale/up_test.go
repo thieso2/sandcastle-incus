@@ -21,7 +21,7 @@ func TestPlanUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.InstanceName != "sc-acme" {
+	if plan.InstanceName != "sc2-acme-default" {
 		t.Fatalf("InstanceName = %q", plan.InstanceName)
 	}
 	if len(plan.AdvertiseRoutes) != 1 || plan.AdvertiseRoutes[0] != "10.248.0.0/24" {
@@ -91,7 +91,7 @@ func TestPlanStatusAndParseStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.InstanceName != "sc-acme" {
+	if plan.InstanceName != "sc2-acme-default" {
 		t.Fatalf("InstanceName = %q", plan.InstanceName)
 	}
 	result, err := ParseStatus("acme", plan.Tenant, []byte(`{
@@ -188,16 +188,22 @@ func TestPlanDown(t *testing.T) {
 
 func tenantStoreForTest(t *testing.T) tenant.MemoryStore {
 	t.Helper()
-	projectConfig, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
+	return tenant.MemoryStore{Projects: v2TenantProjectsForTest("acme", "10.248.0.0/24")}
+}
+
+// v2TenantProjectsForTest is the v2 fixture for a tenant: a kind=infra project
+// carrying its /24, plus one kind=project app project. v1 (kind=tenant)
+// projects are no longer surfaced by tenant.List.
+func v2TenantProjectsForTest(name, cidr string) []tenant.IncusProject {
+	config := func(kind string) map[string]string {
+		out := map[string]string{meta.KeyKind: kind, meta.KeyTenant: name, meta.KeyVersion: "2"}
+		if kind == meta.KindInfra && cidr != "" {
+			out[meta.KeyV2CIDR] = cidr
+		}
+		return out
 	}
-	return tenant.MemoryStore{Projects: []tenant.IncusProject{{
-		Name:   "sc-acme",
-		Config: projectConfig,
-	}}}
+	return []tenant.IncusProject{
+		{Name: "sc2-" + name, Config: config(meta.KindInfra)},
+		{Name: "sc2-" + name + "-default", Config: config(meta.KindV2Project)},
+	}
 }

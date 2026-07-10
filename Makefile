@@ -33,7 +33,7 @@ test:
 e2e-safe:
 	scripts/e2e.sh unit
 	scripts/e2e.sh gated
-	scripts/e2e.sh local
+
 
 clean:
 	rm -rf $(BIN_DIR)

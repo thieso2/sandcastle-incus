@@ -2,7 +2,6 @@ package tenant
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
 	"sort"
 	"strings"
@@ -54,38 +53,10 @@ func ListForPrefix(ctx context.Context, store IncusTenantStore, installPrefix st
 	if err != nil {
 		return nil, err
 	}
-	summaries := make([]Summary, 0, len(projects))
-	for _, incusProject := range projects {
-		if !meta.IsManaged(incusProject.Config) {
-			continue
-		}
-		if incusProject.Config[meta.KeyKind] != meta.KindTenant {
-			continue
-		}
-		tenant, err := meta.ParseTenantConfig(incusProject.Config)
-		if err != nil {
-			return nil, fmt.Errorf("parse tenant metadata for %s: %w", incusProject.Name, err)
-		}
-		summaries = append(summaries, Summary{
-			IncusName:       incusProject.Name,
-			InfraProject:    naming.TenantInfraIncusProjectName(incusProject.Name),
-			Tenant:          tenant.Tenant,
-			Version:         1,
-			Personal:        tenant.Personal,
-			UnixUser:        tenant.UnixUser,
-			DNSSuffix:       tenant.Tenant,
-			PrivateCIDR:     tenant.PrivateCIDR,
-			DNSAddress:      dnsAddressFromCIDR(tenant.PrivateCIDR),
-			DefaultTemplate: "ai",
-			SSHPublicKey:    tenant.SSHPublicKey,
-			Projects:        append([]meta.Project{}, tenant.Projects...),
-			Status:          "managed",
-			Tailscale:       tenant.Tailscale,
-			PublicRoutes:    append([]meta.PublicRoute{}, tenant.PublicRoutes...),
-			StorageShares:   append([]meta.TenantStorageShare{}, tenant.StorageShares...),
-		})
-	}
-	summaries = append(summaries, v2Summaries(projects, installPrefix)...)
+	// THE SEAM. This was the only place a Summary was ever minted with
+	// Version 1 (from a kind=tenant project). v1 is gone, so every Summary in
+	// the process is v2 — which is what lets every version gate collapse.
+	summaries := v2Summaries(projects, installPrefix)
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Tenant < summaries[j].Tenant
 	})
@@ -232,15 +203,14 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 		var cidr, suffix, owner string
 		own := false
 		switch incusProject.Config[meta.KeyKind] {
-		case meta.KindTenant:
-			// v1 tenants are always a legacy install's, never this one's —
-			// this code path never creates kind=tenant projects, and the v1
-			// bridge (with its dnsmasq on the gateway IP) may still be live,
-			// so reusing its /24 as PreferredCIDR collides at bridge creation.
-			// Same-named or not: occupied, never own.
-			if t, e := meta.ParseTenantConfig(incusProject.Config); e == nil {
-				cidr = strings.TrimSpace(t.PrivateCIDR)
-			}
+		case legacyTenantKind:
+			// v1 is removed and nothing creates kind=tenant projects any more,
+			// but a host upgraded from it can still carry orphaned ones whose
+			// bridge (and its dnsmasq on the gateway IP) is live. Their /24 stays
+			// OCCUPIED so the allocator never re-picks it — reusing one dies with
+			// "dnsmasq: Address already in use" at bridge creation. Read the raw
+			// key: no v1 metadata parsing. Never "own".
+			cidr = strings.TrimSpace(incusProject.Config[meta.KeyPrivateCIDR])
 		case meta.KindInfra:
 			cidr = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
 			suffix = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
@@ -278,10 +248,11 @@ func CIDRAllocationInputs(ctx context.Context, store IncusTenantStore, tenantNam
 		}
 		var cidr, owner string
 		switch incusProject.Config[meta.KeyKind] {
-		case meta.KindTenant:
-			if t, e := meta.ParseTenantConfig(incusProject.Config); e == nil {
-				cidr, owner = strings.TrimSpace(t.PrivateCIDR), strings.TrimSpace(t.Tenant)
-			}
+		case legacyTenantKind:
+			// See CIDRAllocationInputs: an orphaned v1 project's /24 is still
+			// allocated on this host even though v1 itself is gone.
+			cidr = strings.TrimSpace(incusProject.Config[meta.KeyPrivateCIDR])
+			owner = strings.TrimSpace(incusProject.Config[meta.KeyTenant])
 		case meta.KindInfra:
 			cidr = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
 			owner = strings.TrimSpace(incusProject.Config[meta.KeyTenant])
@@ -338,3 +309,9 @@ func firstNonEmptyString(values ...string) string {
 	}
 	return ""
 }
+
+// legacyTenantKind is the metadata kind of a pre-v2 ("v1") Incus project. v1 is
+// removed and nothing constructs these, but an upgraded host can still carry
+// orphaned ones with live bridges, so the CIDR allocator must keep treating
+// their /24 as occupied.
+const legacyTenantKind = "tenant"

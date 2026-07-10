@@ -201,16 +201,21 @@ func linuxResolverPlan(dir string, reference string, domain string, endpoint str
 
 func storeForTest(t *testing.T) tenant.MemoryStore {
 	t.Helper()
-	configMap, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
+	// v2 fixture: a kind=infra project carrying the tenant's /24, plus one
+	// kind=project app project. v1 (kind=tenant) projects are no longer listed.
+	v2 := func(kind string) map[string]string {
+		config := map[string]string{
+			meta.KeyKind:    kind,
+			meta.KeyTenant:  "acme",
+			meta.KeyVersion: "2",
+		}
+		if kind == meta.KindInfra {
+			config[meta.KeyV2CIDR] = "10.248.0.0/24"
+		}
+		return config
 	}
-	return tenant.MemoryStore{Projects: []tenant.IncusProject{{
-		Name:   "sc-acme",
-		Config: configMap,
-	}}}
+	return tenant.MemoryStore{Projects: []tenant.IncusProject{
+		{Name: "sc2-acme", Config: v2(meta.KindInfra)},
+		{Name: "sc2-acme-default", Config: v2(meta.KindV2Project)},
+	}}
 }

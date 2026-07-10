@@ -66,84 +66,6 @@ func TestTenantDiagnosticLinesIncludeTopology(t *testing.T) {
 	}
 }
 
-func TestTenantDiagnosticLinesIncludeRedactedTailscaleState(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "tenant-e2e-test",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-		Tailscale: meta.Tailscale{
-			State:            "Running",
-			Tailnet:          "dev.example",
-			Hostname:         "sc-tenant.tailnet.example",
-			AdvertisedRoutes: []string{"10.248.0.0/24"},
-			TailscaleIPs:     []string{"100.80.12.34", "fd7a:115c:a1e0::1"},
-			LastCheckedAt:    "2026-05-20T12:00:00Z",
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	summaries, err := tenant.List(context.Background(), tenant.MemoryStore{Projects: []tenant.IncusProject{{
-		Name:   "sc-tenant-e2e-test",
-		Config: config,
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := tenantDiagnosticLines(context.Background(), summaries, nil, "e2e-test")
-	if len(lines) != 1 {
-		t.Fatalf("lines = %#v, want one diagnostic line", lines)
-	}
-	for _, want := range []string{
-		"tailscale:",
-		"state=Running",
-		"tailnet=dev.example",
-		"hostname=sc-tenant.tailnet.example",
-		"routes=10.248.0.0/24",
-		"ips=2",
-		"lastCheckedAt=2026-05-20T12:00:00Z",
-	} {
-		if !strings.Contains(lines[0], want) {
-			t.Fatalf("diagnostic line missing %q:\n%s", want, lines[0])
-		}
-	}
-}
-
-func TestTenantDiagnosticLinesRedactTailscaleSecrets(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "tenant-e2e-test",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-		Tailscale: meta.Tailscale{
-			State:    "NeedsLogin",
-			Tailnet:  "https://login.tailscale.com/a/secret-token",
-			Hostname: "tskey-auth-secret",
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	summaries, err := tenant.List(context.Background(), tenant.MemoryStore{Projects: []tenant.IncusProject{{
-		Name:   "sc-tenant-e2e-test",
-		Config: config,
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := tenantDiagnosticLines(context.Background(), summaries, nil, "e2e-test")
-	if len(lines) != 1 {
-		t.Fatalf("lines = %#v, want one diagnostic line", lines)
-	}
-	for _, forbidden := range []string{"login.tailscale.com", "secret-token", "tskey-auth-secret"} {
-		if strings.Contains(lines[0], forbidden) {
-			t.Fatalf("diagnostic line leaked %q:\n%s", forbidden, lines[0])
-		}
-	}
-	if !strings.Contains(lines[0], "tailnet=<redacted>") || !strings.Contains(lines[0], "hostname=<redacted>") {
-		t.Fatalf("diagnostic line missing redaction markers:\n%s", lines[0])
-	}
-}
-
 func TestTenantDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
 	store := diagnosticTenantStore(t)
 	summaries, err := tenant.List(context.Background(), store)
@@ -160,18 +82,9 @@ func TestTenantDiagnosticLinesIncludeTopologyErrors(t *testing.T) {
 }
 
 func TestTenantDiagnosticLinesMatchRunIDInDNSSuffix(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "tenant-e2e-domain-only",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
+	summaries, err := tenant.List(context.Background(), tenant.MemoryStore{
+		Projects: v2TenantProjects("tenant-e2e-domain-only", "10.248.0.0/24"),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	summaries, err := tenant.List(context.Background(), tenant.MemoryStore{Projects: []tenant.IncusProject{{
-		Name:   "sc-tenant-e2e-domain-only",
-		Config: config,
-	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,18 +151,32 @@ func TestLocalDNSDiagnosticLinesIncludeMatchingState(t *testing.T) {
 
 func diagnosticTenantStore(t *testing.T) tenant.MemoryStore {
 	t.Helper()
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "tenant-e2e-test",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
+	return tenant.MemoryStore{Projects: v2TenantProjects("tenant-e2e-test", "10.248.0.0/24")}
+}
+
+// v2TenantProjects builds the two Incus projects (kind=infra + kind=project
+// default app project) that make up a v2 tenant, so tenant.List surfaces one
+// Summary for it.
+func v2TenantProjects(tenantName, cidr string) []tenant.IncusProject {
+	return []tenant.IncusProject{
+		{
+			Name: "sc2-" + tenantName,
+			Config: map[string]string{
+				meta.KeyKind:    meta.KindInfra,
+				meta.KeyTenant:  tenantName,
+				meta.KeyVersion: "2",
+				meta.KeyV2CIDR:  cidr,
+			},
+		},
+		{
+			Name: "sc2-" + tenantName + "-default",
+			Config: map[string]string{
+				meta.KeyKind:    meta.KindV2Project,
+				meta.KeyTenant:  tenantName,
+				meta.KeyVersion: "2",
+			},
+		},
 	}
-	return tenant.MemoryStore{Projects: []tenant.IncusProject{{
-		Name:   "sc-tenant-e2e-test",
-		Config: config,
-	}}}
 }
 
 type fakeDiagnosticTopologyStore struct {

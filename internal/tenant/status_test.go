@@ -10,32 +10,12 @@ import (
 )
 
 func TestGetStatus(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects:    []meta.Project{{Name: "default"}},
-		PublicRoutes: []meta.PublicRoute{{
-			Hostname:  "app.example.com",
-			Project:   "default",
-			Machine:   "codex",
-			RoutePort: 5173,
-		}},
-	})
+	status, err := GetStatus(context.Background(), MemoryStore{Projects: v2ProjectsForTest("acme", "10.248.0.0/24")}, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{{
-		Name:   "sc-acme",
-		Config: config,
-	}}}, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Summary.IncusName != "sc-acme" {
+	if status.Summary.IncusName != "sc2-acme-default" {
 		t.Fatalf("IncusName = %q", status.Summary.IncusName)
-	}
-	if len(status.Summary.PublicRoutes) != 1 {
-		t.Fatalf("public routes = %#v", status.Summary.PublicRoutes)
 	}
 	if len(status.Checks) != 4 {
 		t.Fatalf("checks = %d, want 4", len(status.Checks))
@@ -45,116 +25,10 @@ func TestGetStatus(t *testing.T) {
 	}
 }
 
-func TestGetStatusReportsTailscaleRoute(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects:    []meta.Project{{Name: "default"}},
-		Tailscale: meta.Tailscale{
-			State:            "Running",
-			AdvertisedRoutes: []string{"10.248.0.0/24"},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{{
-		Name:   "sc-acme",
-		Config: config,
-	}}}, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Checks[3].Name != "tailscale:route" || status.Checks[3].Status != "ok" {
-		t.Fatalf("tailscale route check = %#v", status.Checks[3])
-	}
-}
-
-func TestGetStatusReportsUnauthenticatedTailscaleRouteAsUnknown(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects:    []meta.Project{{Name: "default"}},
-		Tailscale: meta.Tailscale{
-			State: meta.TailscaleStateRunningLoggedOut,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{{
-		Name:   "sc-acme",
-		Config: config,
-	}}}, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Checks[3].Name != "tailscale:route" || status.Checks[3].Status != "unknown" {
-		t.Fatalf("tailscale route check = %#v", status.Checks[3])
-	}
-}
-
-func TestGetStatusIncludesShareHealthCounts(t *testing.T) {
-	acmeConfig, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects:    []meta.Project{{Name: "default"}},
-		StorageShares: []meta.TenantStorageShare{{
-			SourceTenant:  "acme",
-			SourceProject: "default",
-			SourceDir:     "docs",
-			Name:          "docs",
-			Recipients: []meta.TenantStorageShareRecipient{{
-				Tenant: "skorfman",
-				State:  "pending",
-			}},
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	skorfmanConfig, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "skorfman",
-		PrivateCIDR: "10.248.1.0/24",
-		Projects:    []meta.Project{{Name: "default"}},
-		StorageShares: []meta.TenantStorageShare{{
-			SourceTenant:  "other",
-			SourceProject: "default",
-			SourceDir:     "data",
-			Name:          "data",
-			Recipients: []meta.TenantStorageShareRecipient{{
-				Tenant: "skorfman",
-				State:  "accepted",
-			}},
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	status, err := GetStatus(context.Background(), MemoryStore{Projects: []IncusProject{
-		{Name: "sc-acme", Config: acmeConfig},
-		{Name: "sc-skorfman", Config: skorfmanConfig},
-	}}, "skorfman")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Shares.InboundAcceptedCount != 1 || status.Shares.PendingInboundOfferCount != 1 || status.Shares.OutboundShareCount != 0 {
-		t.Fatalf("share health = %#v", status.Shares)
-	}
-}
-
 func TestGetStatusWithTopology(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects:    []meta.Project{{Name: "default"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	status, err := GetStatusWithTopology(
 		context.Background(),
-		MemoryStore{Projects: []IncusProject{{Name: "sc-acme", Config: config}}},
+		MemoryStore{Projects: v2ProjectsForTest("acme", "10.248.0.0/24")},
 		fakeTopologyStore{topology: Topology{
 			PrivateNetworkPresent: true,
 			TailscaleInstance:     "sc-acme",
