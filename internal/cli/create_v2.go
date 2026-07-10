@@ -351,3 +351,18 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 	}
 	return builder.String()
 }
+
+// requireV2Tenant resolves the current tenant. v1 is gone, so every Sandcastle
+// tenant is v2 and a lookup miss simply means the tenant does not exist — there
+// is no other shape it could be.
+func requireV2Tenant(ctx context.Context, config commandConfig) (tenant.Summary, error) {
+	summary, ok := v2TenantSummary(ctx, config)
+	if !ok {
+		name := strings.TrimSpace(config.adminConfig.Tenant)
+		if name == "" {
+			return tenant.Summary{}, fmt.Errorf("a tenant is required (set one with `sc config set tenant <name>` or log in)")
+		}
+		return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", name)
+	}
+	return summary, nil
+}

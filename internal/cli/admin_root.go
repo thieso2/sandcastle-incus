@@ -301,10 +301,6 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 
 	root.AddCommand(newAdminVersionCommand(config, opts))
 	root.AddCommand(newAdminMachineListCommand(config, opts))
-	root.AddCommand(newAdminMachineCreateCommand(config, opts))
-	root.AddCommand(newAdminMachineConnectCommand(config, opts))
-	root.AddCommand(newAdminMachineStatusCommand(config, opts))
-	root.AddCommand(newAdminMachineDeleteCommand(config, opts))
 	root.AddCommand(newAdminTenantCommand(config, opts))
 	root.AddCommand(newAdminUserCommand(config, opts))
 	root.AddCommand(newAdminImageCommand(config, opts))

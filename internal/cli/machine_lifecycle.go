@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
@@ -18,45 +17,16 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			if requireYes && !yes && !isTerminalInput(config) {
 				return fmt.Errorf("refusing to delete machine without --yes")
 			}
-			// v2 tenants: freeform instances, plain names — apply the action
-			// directly instead of the v1 plan machinery.
-			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
-				project, machineName, err := resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
-				if err != nil {
-					return err
-				}
-				if requireYes && !yes {
-					confirmed, err := confirmMissingYes(config, "Delete machine "+machineName+"?", "refusing to delete machine without --yes")
-					if err != nil {
-						return err
-					}
-					if !confirmed {
-						return fmt.Errorf("delete canceled")
-					}
-				}
-				if err := config.tenantCreator.MachineLifecycleV2(cmd.Context(), summary.V2IncusProjectName(project), machineName, string(action)); err != nil {
-					return err
-				}
-				payload := struct {
-					Action  string `json:"action"`
-					Tenant  string `json:"tenant"`
-					Project string `json:"project"`
-					Machine string `json:"machine"`
-				}{string(action), summary.Tenant, project, machineName}
-				return writeOutput(config.stdout, opts.output, fmt.Sprintf("%s %s", action, machineName), payload)
-			}
-			plan, err := machine.PlanLifecycle(cmd.Context(), config.adminConfig, config.tenantStore, config.machineStore, machine.LifecycleRequest{
-				Reference: args[0],
-				Action:    action,
-			})
+			summary, err := requireV2Tenant(cmd.Context(), config)
 			if err != nil {
 				return err
 			}
-			if config.machineControl == nil {
-				return fmt.Errorf("machine lifecycle executor is not configured")
+			project, machineName, err := resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
+			if err != nil {
+				return err
 			}
 			if requireYes && !yes {
-				confirmed, err := confirmMissingYes(config, "Delete machine "+plan.Reference+"?", "refusing to delete machine without --yes")
+				confirmed, err := confirmMissingYes(config, "Delete machine "+machineName+"?", "refusing to delete machine without --yes")
 				if err != nil {
 					return err
 				}
@@ -64,20 +34,16 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 					return fmt.Errorf("delete canceled")
 				}
 			}
-			if err := config.machineControl.ApplyLifecycle(cmd.Context(), plan); err != nil {
+			if err := config.tenantCreator.MachineLifecycleV2(cmd.Context(), summary.V2IncusProjectName(project), machineName, string(action)); err != nil {
 				return err
 			}
-			if plan.Action == machine.ActionDelete {
-				cache := incusx.NewConnectCache(config.adminConfig.Remote)
-				if key := connectPlanCacheKey(plan.Tenant.Tenant, plan.Project, plan.Name); key != "" {
-					cache.InvalidatePlan(key)
-				}
-				cache.InvalidateKeyscan(machine.MachineHostname(plan.Name, plan.Project, plan.Tenant.DNSSuffix))
-				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
-					return err
-				}
-			}
-			return writeOutput(config.stdout, opts.output, formatLifecyclePlan(plan), plan)
+			payload := struct {
+				Action  string `json:"action"`
+				Tenant  string `json:"tenant"`
+				Project string `json:"project"`
+				Machine string `json:"machine"`
+			}{string(action), summary.Tenant, project, machineName}
+			return writeOutput(config.stdout, opts.output, fmt.Sprintf("%s %s", action, machineName), payload)
 		},
 	}
 	if requireYes {
@@ -99,8 +65,4 @@ func machineLifecycleShort(action machine.Action) string {
 	default:
 		return string(action) + " a Sandcastle machine"
 	}
-}
-
-func formatLifecyclePlan(plan machine.LifecyclePlan) string {
-	return fmt.Sprintf("%s %s", plan.Action, plan.Reference)
 }
