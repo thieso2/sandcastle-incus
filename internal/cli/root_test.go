@@ -1246,6 +1246,37 @@ func v2TenantProjects(tenantName, cidr string, projectNames ...string) []tenant.
 	return projects
 }
 
+// v2TenantProjectsWithPrefix builds the same fixture for a non-default install
+// prefix, so tests can model two installs sharing one Incus daemon.
+func v2TenantProjectsWithPrefix(prefix, tenantName, cidr string, projectNames ...string) []tenant.IncusProject {
+	if len(projectNames) == 0 {
+		projectNames = []string{"default"}
+	}
+	infra := prefix + "-" + tenantName
+	projects := []tenant.IncusProject{{
+		Name: infra,
+		Config: map[string]string{
+			meta.KeyKind:     meta.KindInfra,
+			meta.KeyTenant:   tenantName,
+			meta.KeyVersion:  "2",
+			meta.KeyV2CIDR:   cidr,
+			meta.KeyV2Prefix: prefix,
+		},
+	}}
+	for _, name := range projectNames {
+		projects = append(projects, tenant.IncusProject{
+			Name: infra + "-" + name,
+			Config: map[string]string{
+				meta.KeyKind:     meta.KindV2Project,
+				meta.KeyTenant:   tenantName,
+				meta.KeyVersion:  "2",
+				meta.KeyV2Prefix: prefix,
+			},
+		})
+	}
+	return projects
+}
+
 func tenantSwitchStoreForTest(t *testing.T, tenants ...string) tenant.MemoryStore {
 	t.Helper()
 	projects := make([]tenant.IncusProject, 0, len(tenants)*2)

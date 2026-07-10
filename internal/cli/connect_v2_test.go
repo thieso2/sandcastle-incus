@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
+	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 // shortProjectName must not assume the default install prefix. `sc-adm install
@@ -144,5 +147,59 @@ func TestForgetKnownHostRemovesOnlyThatHost(t *testing.T) {
 	forgetKnownHost(context.Background(), missing, "10.61.0.66")
 	if _, err := os.Stat(missing); !os.IsNotExist(err) {
 		t.Fatal("forgetKnownHost created a file it should have skipped")
+	}
+}
+
+// When the daemon already trusts the client keypair, enrollment must fall back to
+// the token's advertised addresses — not just the sidecar tailnet address, which
+// is unknown until the sidecar joins. `sc login` used to die there.
+func TestTrustedClientRemoteURLsPrefersTailnetThenToken(t *testing.T) {
+	token := base64.StdEncoding.EncodeToString([]byte(
+		`{"addresses":["10.200.0.10:8443","10.61.0.1:8443"]}`))
+
+	got := trustedClientRemoteURLs("100.87.50.11", token)
+	want := []string{"https://100.87.50.11:8443", "https://10.200.0.10:8443", "https://10.61.0.1:8443"}
+	if len(got) != len(want) {
+		t.Fatalf("urls = %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("urls = %#v, want %#v", got, want)
+		}
+	}
+	// No tailnet address yet: the token still gets us there.
+	if got := trustedClientRemoteURLs("", token); len(got) != 2 || got[0] != "https://10.200.0.10:8443" {
+		t.Fatalf("urls without tailnet address = %#v", got)
+	}
+	// Nothing at all is an honest empty, so the caller can report it.
+	if got := trustedClientRemoteURLs("", "garbage"); len(got) != 0 {
+		t.Fatalf("urls = %#v, want none", got)
+	}
+}
+
+// Several installs share one Incus daemon, so a same-named tenant exists once per
+// install. `sc-adm tenant status <t>` was unscoped and reported whichever install
+// sorted first — on majestix, `SANDCASTLE_INCUS_PROJECT_PREFIX=sc2 sc-adm tenant
+// status e2edns` printed install B's `id-e2edns-default`.
+func TestAdminTenantStatusIsScopedToTheInstallPrefix(t *testing.T) {
+	// The OTHER install first: an unscoped lookup takes the first match, so this
+	// ordering is what makes the test fail when the scoping is removed.
+	projects := append(
+		v2TenantProjectsWithPrefix("id", "e2edns", "10.62.0.0/24", "default"),
+		v2TenantProjects("e2edns", "10.61.0.0/24", "default")...,
+	)
+	stdout, err := executeAdminForTestWithConfig(t, commandConfig{
+		name:        "sandcastle-admin",
+		adminConfig: scconfig.Admin{IncusProjectPrefix: "sc2"},
+		tenantStore: tenant.MemoryStore{Projects: projects},
+	}, "tenant", "status", "e2edns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout, "id-e2edns") {
+		t.Fatalf("admin status leaked the other install's tenant:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "sc2-e2edns-default") {
+		t.Fatalf("admin status did not resolve this install's tenant:\n%s", stdout)
 	}
 }

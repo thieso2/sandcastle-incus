@@ -187,17 +187,34 @@ func addIncusRemoteWithToken(ctx context.Context, ioConfig remoteAddIO, name str
 		// refused with "Client is already trusted" — provisioning has already
 		// unioned this install's projects into the trust entry, so add the
 		// remote certificate-based (with the SAME project pin) instead.
-		if strings.Contains(addErr.String(), "already trusted") && strings.TrimSpace(incusAddress) != "" {
-			url := "https://" + net.JoinHostPort(strings.TrimSpace(incusAddress), "8443")
+		if !strings.Contains(addErr.String(), "already trusted") {
+			return restoreBackup(fmt.Errorf("incus remote add: %w", err))
+		}
+		// The sidecar's tailnet address is preferred (ADR-0017), but it is only
+		// known once the sidecar has joined the tailnet. Before this fell back to
+		// the addresses the token itself advertises, a login whose sidecar had not
+		// joined yet died here with a bare `incus remote add: exit status 1`.
+		urls := trustedClientRemoteURLs(incusAddress, joinToken)
+		if len(urls) == 0 {
+			return restoreBackup(fmt.Errorf("this client is already trusted by the daemon, and no address is known to reach it: %w", err))
+		}
+		added := false
+		var lastErr error
+		for _, url := range urls {
 			certAdd := exec.CommandContext(ctx, "incus", trustedClientRemoteAddArgs(name, url, incusProject)...)
 			certAdd.Env = env
+			var certErr strings.Builder
 			certAdd.Stdout = ioConfig.stdout
-			certAdd.Stderr = ioConfig.stderr
+			certAdd.Stderr = io.MultiWriter(ioConfig.stderr, &certErr)
 			if err := certAdd.Run(); err != nil {
-				return restoreBackup(fmt.Errorf("incus remote add (trusted client): %w", err))
+				lastErr = fmt.Errorf("%s: %s", url, strings.TrimSpace(certErr.String()))
+				continue
 			}
-		} else {
-			return restoreBackup(fmt.Errorf("incus remote add: %w", err))
+			added = true
+			break
+		}
+		if !added {
+			return restoreBackup(fmt.Errorf("incus remote add (trusted client): %w", lastErr))
 		}
 	}
 	dropBackup()
@@ -413,4 +430,28 @@ func firstCertificateDNSName(path string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// trustedClientRemoteURLs lists the endpoints to try when the daemon already
+// trusts this client's keypair and therefore refuses to redeem the join token.
+// The sidecar's tailnet address (ADR-0017) comes first when known; the token's
+// own advertised addresses are the fallback, so a login whose sidecar has not
+// joined the tailnet yet can still enroll.
+func trustedClientRemoteURLs(incusAddress string, joinToken string) []string {
+	var urls []string
+	seen := map[string]bool{}
+	add := func(url string) {
+		if url == "" || seen[url] {
+			return
+		}
+		seen[url] = true
+		urls = append(urls, url)
+	}
+	if addr := strings.TrimSpace(incusAddress); addr != "" {
+		add("https://" + net.JoinHostPort(addr, "8443"))
+	}
+	for _, address := range incusTokenAddresses(joinToken) {
+		add("https://" + strings.TrimSpace(address))
+	}
+	return urls
 }

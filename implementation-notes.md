@@ -1377,3 +1377,34 @@ Deleted as dead: `TenantSSHKeyManager.SetTenantSSHKey`, `readTenantSSHKey`,
 Verified live on majestix: `sc-adm tenant set-ssh-key e2edns <client key>` puts
 the key in `sc2-e2edns-default`'s default profile, after which `sc c lc2` creates
 a machine and lands a shell as `dev`.
+
+## 2026-07-10 — e2e Phase 9: `sc login` could not enroll, and admin commands ignored the install prefix
+
+**`sc login` died with `incus remote add: exit status 1`.** Same root cause as the
+`sc enroll` bug: the daemon already trusted this client's keypair, so it refused
+to redeem the join token. `addIncusRemoteWithToken` did have a certificate-based
+fallback, but it was gated on `incusAddress != ""` — the sidecar's tailnet
+address, which is unknown until the sidecar has joined the tailnet. On a first
+login (sidecar still joining) the fallback was skipped and login failed.
+
+`trustedClientRemoteURLs` now tries the tailnet address first (ADR-0017) and then
+each address the token itself advertises.
+
+**`sc-adm tenant status <t>` reported another install's tenant.** Two installs
+share one Incus daemon (`sc2-` and `id-`), so a same-named tenant exists once per
+install. The user CLI scopes by install prefix; the admin path did not. Live:
+`SANDCASTLE_INCUS_PROJECT_PREFIX=sc2 sc-adm tenant status e2edns` printed
+`Incus project: id-e2edns-default` and install B's CIDR. `sc-adm tenant list <t>`
+and the new `set-ssh-key` resolved the same way.
+
+All three now use `tenant.ListForPrefix` / `GetStatusWithTopologyForPrefix` with
+`adminConfig.IncusProjectPrefix`. `sc-adm tenant list` with no argument still
+lists every install's tenants — that is useful; resolving *one* tenant by name is
+not. The regression test models both installs with the *other* one first, because
+an unscoped lookup takes the first match: with the fixture the other way round the
+test passes even against the bug.
+
+**Not a bug:** `sc status` prints an empty `Private CIDR` for a tenant user. The
+CIDR lives on the infra project, which a restricted tenant certificate cannot
+read, and the check says so explicitly:
+`cidr: unknown (stored on the infra project …, which a tenant certificate cannot read)`.
