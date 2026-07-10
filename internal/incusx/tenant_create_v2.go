@@ -358,6 +358,12 @@ func ensureV2SharedVolume(server TenantResourceServer, pool string, name string,
 }
 
 func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, shifted bool, projectShort string) error {
+	// The profile's cloud-init embeds http://<DNSAddress>:<port> as the machine
+	// Caddy's TLS signer. An empty address renders "http://:9443" and the machine
+	// serves no HTTPS — fail here instead of writing a profile that cannot work.
+	if strings.TrimSpace(plan.DNSAddress) == "" {
+		return fmt.Errorf("refusing to render the default profile of %s with an empty sidecar DNS address", plan.DefaultProject)
+	}
 	devices := api.DevicesMap{
 		"root":      {"type": "disk", "pool": plan.StoragePool, "path": "/"},
 		"eth0":      {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},

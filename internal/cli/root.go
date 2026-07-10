@@ -45,10 +45,9 @@ type commandConfig struct {
 	tenantStore          tenant.IncusTenantStore
 	adminConfig          scconfig.Admin
 	tenantCreator        incusx.TenantCreator
+	projectSettings      projectSettingsUpdater
+	projectDeleter       projectDeleter
 	tenantDeleter        tenant.Deleter
-	tenantSSHKeyUpdater  tenant.SSHKeyUpdater
-	tenantUpdater        tenant.ProjectUpdater
-	tenantUnixUser       tenant.UnixUserUpdater
 	imageManager         images.Manager
 	imageBuilder         images.Builder
 	imageImporter        images.Importer
@@ -96,6 +95,18 @@ type authWorkloadClient interface {
 	Poll(context.Context, string, authapp.DevicePollRequest) (authapp.DevicePollResult, error)
 	DebugApprove(context.Context, string) error
 	EnableWorkload(context.Context, authapp.WorkloadEnableRequest) (authapp.WorkloadEnableResult, error)
+}
+
+// projectSettingsUpdater persists a v2 project's settings on its Incus project.
+type projectSettingsUpdater interface {
+	SetProjectCloudIdentity(ctx context.Context, incusProject string, cloudIdentity string) error
+	SetProjectDockerAutostart(ctx context.Context, incusProject string, enabled bool) error
+}
+
+// projectDeleter removes one app project of a v2 tenant, with its machines,
+// volumes and profiles.
+type projectDeleter interface {
+	DeleteProjectV2(ctx context.Context, incusProject string, storagePool string) error
 }
 
 type authCloudIdentityClient interface {
@@ -149,29 +160,28 @@ func Execute(name string, args []string) int {
 	}
 	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	cmd := NewRootCommand(commandConfig{
-		name:                name,
-		stdin:               os.Stdin,
-		stdout:              os.Stdout,
-		stderr:              os.Stderr,
-		adminConfig:         adminConfig,
-		tenantStore:         incusx.NewTenantStoreForSharedRemote(sharedRemote),
-		tenantCreator:       incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		tenantDeleter:       incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		tenantSSHKeyUpdater: incusx.NewTenantSSHKeyManagerWithPool(adminConfig.Remote, adminConfig.StoragePool),
-		tenantUpdater:       incusx.NewTenantSSHKeyManagerWithPool(adminConfig.Remote, adminConfig.StoragePool),
-		tenantUnixUser:      incusx.NewTenantSSHKeyManagerWithPool(adminConfig.Remote, adminConfig.StoragePool),
-		imageManager:        incusx.NewImageManager(adminConfig.Remote),
-		imageBuilder:        images.LocalBuilder{},
-		imageImporter:       images.LocalImporter{},
-		imageUploader:       images.LocalUploader{},
-		remoteImageBuilder:  images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr, Verbose: os.Getenv("VERBOSE") == "1"},
-		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
-		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
-		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		localDNS:            localdns.FileManager{},
-		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),
-		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
-		openBrowser:         openBrowser,
+		name:               name,
+		stdin:              os.Stdin,
+		stdout:             os.Stdout,
+		stderr:             os.Stderr,
+		adminConfig:        adminConfig,
+		tenantStore:        incusx.NewTenantStoreForSharedRemote(sharedRemote),
+		tenantCreator:      incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		projectSettings:    incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		tenantDeleter:      incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		projectDeleter:     incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
+		imageManager:       incusx.NewImageManager(adminConfig.Remote),
+		imageBuilder:       images.LocalBuilder{},
+		imageImporter:      images.LocalImporter{},
+		imageUploader:      images.LocalUploader{},
+		remoteImageBuilder: images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr, Verbose: os.Getenv("VERBOSE") == "1"},
+		topologyStore:      incusx.NewTopologyStore(adminConfig.Remote),
+		trustManager:       incusx.NewTrustManager(adminConfig.Remote),
+		machineStore:       incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
+		localDNS:           localdns.FileManager{},
+		tailscale:          incusx.NewTailscaleManager(adminConfig.Remote),
+		localTrust:         incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
+		openBrowser:        openBrowser,
 		loginSetup: realLoginSetupRunner{config: commandConfig{
 			stdin:       os.Stdin,
 			stdout:      os.Stdout,

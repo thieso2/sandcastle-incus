@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/lxc/incus/v6/shared/api"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -14,22 +16,31 @@ import (
 // project (sidecar), and the tenant bridge. v2 deletion is all-or-nothing —
 // the shared volumes live inside the app projects, so there is no meaningful
 // "runtime only" subset (PlanDeleteV2 enforces --purge).
+// resolveDeleteServer connects to the configured Incus remote, or returns the
+// injected server (tests).
+func (d TenantDeleter) resolveDeleteServer() (TenantDeleteServer, error) {
+	if d.Server != nil {
+		return d.Server, nil
+	}
+	loaded, err := LoadCLIConfig(d.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("load Incus config: %w", err)
+	}
+	remote := d.Remote
+	if remote == "" {
+		remote = loaded.DefaultRemote
+	}
+	instanceServer, err := loaded.GetInstanceServer(remote)
+	if err != nil {
+		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+	}
+	return sdkDeleteServer{inner: instanceServer}, nil
+}
+
 func (d TenantDeleter) DeleteTenantV2(ctx context.Context, plan tenant.DeletePlanV2) error {
-	server := d.Server
-	if server == nil {
-		loaded, err := LoadCLIConfig(d.ConfigPath)
-		if err != nil {
-			return fmt.Errorf("load Incus config: %w", err)
-		}
-		remote := d.Remote
-		if remote == "" {
-			remote = loaded.DefaultRemote
-		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
-		if err != nil {
-			return fmt.Errorf("connect to Incus remote %q: %w", remote, err)
-		}
-		server = sdkDeleteServer{inner: instanceServer}
+	server, err := d.resolveDeleteServer()
+	if err != nil {
+		return err
 	}
 	for _, project := range plan.AppProjects {
 		if err := d.deleteV2AppProject(server, project, plan.StoragePool, plan.DurableVolumes); err != nil {
@@ -107,4 +118,26 @@ func (d TenantDeleter) clearVolumeDevicesFromDefaultProfile(server TenantDeleteR
 	}
 	d.log("detach shared volumes from default profile in " + projectName)
 	return server.UpdateProfile("default", profile.Writable(), etag)
+}
+
+// DeleteProjectV2 deletes ONE app project of a v2 tenant: its instances, images,
+// custom profiles, shared home/workspace volumes, and the Incus project itself.
+//
+// `sc project delete` used to only rewrite a `.sandcastle/projects` metadata file
+// that nothing read, so the Incus project, its volumes and its machines survived
+// — the command reported success and deleted nothing. The tenant's project list
+// is derived from its Incus projects, so deleting the project IS the deletion.
+func (d TenantDeleter) DeleteProjectV2(_ context.Context, incusProject string, storagePool string) error {
+	incusProject = strings.TrimSpace(incusProject)
+	if incusProject == "" {
+		return fmt.Errorf("incus project is required")
+	}
+	if strings.TrimSpace(storagePool) == "" {
+		storagePool = scconfig.DefaultStoragePool
+	}
+	server, err := d.resolveDeleteServer()
+	if err != nil {
+		return err
+	}
+	return d.deleteV2AppProject(server, incusProject, storagePool, []string{v2HomeVolumeName, v2WorkspaceVolumeName})
 }

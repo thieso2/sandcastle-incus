@@ -317,3 +317,26 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 		RestrictedProjects: []string{defaultProject},
 	}, nil
 }
+
+// DNSAddressForCIDR returns the sidecar's address inside a tenant's private /24
+// — the host that serves CoreDNS and the TLS leaf signer.
+//
+// Callers that re-render an app project's default profile must supply it: the
+// profile's cloud-init embeds `http://<dns address>:<signer port>` as the machine
+// Caddy's signer URL, and an empty address yields `http://:9443`, so the machine
+// can never fetch its leaf and serves no HTTPS at all.
+func DNSAddressForCIDR(privateCIDR string) (string, error) {
+	privateCIDR = strings.TrimSpace(privateCIDR)
+	if privateCIDR == "" {
+		return "", fmt.Errorf("tenant private CIDR is empty")
+	}
+	prefix, err := netip.ParsePrefix(privateCIDR)
+	if err != nil {
+		return "", fmt.Errorf("parse tenant private CIDR %q: %w", privateCIDR, err)
+	}
+	address, err := roleAddress(prefix, cidr.DNSHostOctet)
+	if err != nil {
+		return "", err
+	}
+	return address.String(), nil
+}
