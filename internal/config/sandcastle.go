@@ -26,6 +26,11 @@ type SandcastleConfig struct {
 	// the matching install without a re-login: the URL-derived remote name
 	// identifies the install, and this map recovers its Auth App URL.
 	Installs map[string]string `yaml:"installs,omitempty"`
+	// AuthTokens maps an install's Auth Hostname to that install's CLI auth
+	// token. The token is minted by ONE install's Auth App and is meaningless
+	// (and must not be presented) to another, so switching remotes must swap it
+	// along with the hostname.
+	AuthTokens map[string]string `yaml:"auth_tokens,omitempty"`
 	// Brokers maps an install's Auth Hostname to that install's Broker URL
 	// (https://<tenant gateway>:9443). Broker is per-install — it addresses the
 	// tenant's gateway on THAT install's CIDR pool — so switching remotes must
@@ -42,6 +47,16 @@ func (c SandcastleConfig) AuthHostnameForRemote(remote string) string {
 		return ""
 	}
 	return strings.TrimSpace(c.Installs[remote])
+}
+
+// AuthTokenForAuthHostname returns the recorded CLI auth token for an install,
+// or "" when none was recorded (a login that predates the auth_tokens map).
+func (c SandcastleConfig) AuthTokenForAuthHostname(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" || c.AuthTokens == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.AuthTokens[host])
 }
 
 // BrokerForAuthHostname returns the recorded Broker URL for an install, or ""

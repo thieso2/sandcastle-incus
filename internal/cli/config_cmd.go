@@ -77,6 +77,8 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			var authSynced string
 			var brokerSynced string
 			var brokerCleared bool
+			var tokenSynced bool
+			var tokenCleared bool
 			if key == "remote" {
 				if host := cfg.AuthHostnameForRemote(value); host != "" {
 					if host != cfg.AuthHostname {
@@ -98,6 +100,20 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 						cfg.Broker = ""
 						brokerCleared = true
 					}
+					// The CLI auth token is minted by one install's Auth App and
+					// is meaningless to another — leaving the previous install's
+					// token in place presents a credential across a trust
+					// boundary, and the target rejects it (403 "user not found",
+					// surfacing as `shares:reconcile: error` in `sc status`).
+					// Swap it, or clear it so the next call fails loudly.
+					switch token := cfg.AuthTokenForAuthHostname(host); {
+					case token != "" && token != cfg.AuthToken:
+						cfg.AuthToken = token
+						tokenSynced = true
+					case token == "" && cfg.AuthToken != "":
+						cfg.AuthToken = ""
+						tokenCleared = true
+					}
 				}
 			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
@@ -112,6 +128,12 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			}
 			if brokerCleared {
 				fmt.Fprintf(cmd.OutOrStdout(), "Broker cleared: none recorded for this install. Run `sc login %s` to record it.\n", cfg.AuthHostname)
+			}
+			if tokenSynced {
+				fmt.Fprintln(cmd.OutOrStdout(), "Auth token switched to this install's token.")
+			}
+			if tokenCleared {
+				fmt.Fprintf(cmd.OutOrStdout(), "Auth token cleared: none recorded for this install. Run `sc login %s` to sign in.\n", cfg.AuthHostname)
 			}
 			// The shared incus dir's current remote is the source of truth for
 			// the user CLI's remote — write through so `sc config set remote`
