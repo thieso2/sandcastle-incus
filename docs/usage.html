@@ -460,6 +460,7 @@ Bootstrap:
 
   <div class="step">
     <h3>Offer a Tenant Storage Share <span class="badge badge-user">user</span></h3>
+    <div class="note"><strong>Not yet supported on v2.</strong> Every <code>sc share</code> command currently exits with <em>"Tenant Storage Shares are not yet supported on v2 (tracked in <a href="https://github.com/thieso2/sandcastle-incus/issues/70">#70</a>)"</em>, and the Auth App's share endpoints return 501. The command surface and its plumbing are complete and tested, but the feature is gated off until the share registry moves off the user-writable <code>/workspace</code> volume (a tenant can otherwise forge it). The commands below describe the intended flow for when it is ungated.</div>
     <p>Creates a pending outbound offer for a workspace subdirectory. Source users keep read/write access through <code>/workspace</code>; accepted recipient shares are reconciled read-only into recipient machines under <code>/shared/&lt;source-tenant&gt;/&lt;source-project&gt;/&lt;share-name&gt;</code>.</p>
     <pre><code><span class="comment"># Admin setup for local two-tenant testing with one GitHub user</span>
 <span class="cmd">sandcastle-admin tenant create</span> <span class="arg">skorfman</span>
@@ -911,7 +912,7 @@ Bootstrap:
         <tr><td>sandcastle image list/save/rm</td><td>Save and manage reusable base images from your machines</td></tr>
         <tr><td>sandcastle project list/create/status/delete</td><td>Manage lightweight projects in the current tenant</td></tr>
         <tr><td>sandcastle project set-docker-autostart &lt;project&gt; on|off</td><td>Control Docker daemon autostart for new machines in a project</td></tr>
-        <tr><td>sandcastle share create/list/status/offers/accept/decline/revoke/delete/reconcile</td><td>Create, accept, revoke, delete, and reconcile Tenant Storage Shares</td></tr>
+        <tr><td>sandcastle share create/list/status/offers/accept/decline/revoke/delete/reconcile</td><td>Create, accept, revoke, delete, and reconcile Tenant Storage Shares &mdash; <strong>not yet supported on v2</strong> (gated off pending <a href="https://github.com/thieso2/sandcastle-incus/issues/70">#70</a>)</td></tr>
         <tr><td>sandcastle cloud-identity gcp setup</td><td>Configure tenant-scoped GCP Workload Identity Federation</td></tr>
         <tr><td>sandcastle trust install [tenant]</td><td>Trust tenant CA locally</td></tr>
         <tr><td>sandcastle trust uninstall [tenant]</td><td>Remove tenant CA trust</td></tr>

@@ -1,13 +1,10 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/thieso2/sandcastle-incus/internal/authapp"
-	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -34,112 +31,11 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			addTenantShareReconciliationHealth(cmd.Context(), config, &status)
-			addTenantShareCounts(cmd.Context(), config, &status)
+			// Tenant Storage Shares are not yet supported on v2 (#70), so `sc
+			// status` reports no share health or counts.
 			return writeOutput(config.stdout, opts.output, formatTenantStatus(status), status)
 		},
 	}
-}
-
-func addTenantShareReconciliationHealth(ctx context.Context, config commandConfig, status *tenant.Status) {
-	result, ok, err := tenantShareReconciliationDryRun(ctx, config, status.Summary)
-	if !ok {
-		return
-	}
-	if err != nil {
-		status.Checks = append(status.Checks, tenant.Check{Name: "shares:reconcile", Status: "error", Detail: err.Error()})
-		return
-	}
-	status.Shares.UnreconciledMachineCount = unreconciledShareMachineCount(result)
-	// A per-machine failure is a failure of the check. Reporting "ok (N machines
-	// checked)" while a machine errored is how a broken reconcile stayed
-	// invisible: `sc status` said ok, and only the machine count hinted at it.
-	if result.HasFailures() {
-		status.Checks = append(status.Checks, tenant.Check{
-			Name:   "shares:reconcile",
-			Status: "error",
-			Detail: shareReconcileFailureDetail(result),
-		})
-		return
-	}
-	detail := fmt.Sprintf("%d machine(s) checked", len(result.Machines))
-	status.Checks = append(status.Checks, tenant.Check{Name: "shares:reconcile", Status: "ok", Detail: detail})
-}
-
-// addTenantShareCounts fills the outbound/inbound/offer counts from the Auth
-// App's share list endpoints. The counts are otherwise computed client-side from
-// tenant.Summary.StorageShares, which the tenant list leaves empty — and the
-// inbound counts need every other tenant's registry, which only the server can
-// read. So `sc status` reported zero shares even when shares existed.
-func addTenantShareCounts(ctx context.Context, config commandConfig, status *tenant.Status) {
-	client, err := shareCountClient(config)
-	if err != nil || client == nil {
-		return
-	}
-	tenantName := status.Summary.Tenant
-	if outbound, err := client.ListShares(ctx, tenantName); err == nil {
-		status.Shares.OutboundShareCount = len(outbound)
-	}
-	if inbound, err := client.ListInboundShares(ctx, tenantName); err == nil {
-		status.Shares.InboundAcceptedCount = len(inbound)
-	}
-	if offers, err := client.ListShareOffers(ctx, tenantName); err == nil {
-		status.Shares.PendingInboundOfferCount = len(offers)
-	}
-}
-
-// shareCountClient resolves the Auth App share client if one is configured,
-// without erroring when it is not (status still renders, just without counts).
-func shareCountClient(config commandConfig) (authShareClient, error) {
-	if config.authShares != nil {
-		return config.authShares, nil
-	}
-	if strings.TrimSpace(config.adminConfig.AuthToken) == "" || strings.TrimSpace(config.adminConfig.AuthHostname) == "" {
-		return nil, nil
-	}
-	return shareClient(config)
-}
-
-// shareReconcileFailureDetail names the machines that failed and why, rather
-// than reporting a bare count the user cannot act on.
-func shareReconcileFailureDetail(result share.ReconcileResult) string {
-	failures := make([]string, 0, len(result.Machines))
-	for _, machine := range result.Machines {
-		if text := strings.TrimSpace(machine.Error); text != "" {
-			failures = append(failures, fmt.Sprintf("%s/%s: %s", machine.Project, machine.Machine, text))
-		}
-	}
-	return strings.Join(failures, "; ")
-}
-
-func tenantShareReconciliationDryRun(ctx context.Context, config commandConfig, summary tenant.Summary) (share.ReconcileResult, bool, error) {
-	if config.shareReconciler != nil {
-		result, err := config.shareReconciler.ReconcileTenantShares(ctx, summary, true)
-		return result, true, err
-	}
-	if config.authShares != nil {
-		result, err := config.authShares.ReconcileShares(ctx, authapp.ShareReconcileRequest{Tenant: summary.Tenant, DryRun: true})
-		return result, true, err
-	}
-	if strings.TrimSpace(config.adminConfig.AuthToken) == "" || strings.TrimSpace(config.adminConfig.AuthHostname) == "" {
-		return share.ReconcileResult{}, false, nil
-	}
-	client, err := shareClient(config)
-	if err != nil {
-		return share.ReconcileResult{}, false, nil
-	}
-	result, err := client.ReconcileShares(ctx, authapp.ShareReconcileRequest{Tenant: summary.Tenant, DryRun: true})
-	return result, true, err
-}
-
-func unreconciledShareMachineCount(result share.ReconcileResult) int {
-	count := 0
-	for _, machine := range result.Machines {
-		if machine.Changed || strings.TrimSpace(machine.Error) != "" {
-			count++
-		}
-	}
-	return count
 }
 
 func formatTenantStatus(status tenant.Status) string {
@@ -148,10 +44,6 @@ func formatTenantStatus(status tenant.Status) string {
 	fmt.Fprintf(&builder, "Incus project: %s\n", status.Summary.IncusName)
 	fmt.Fprintf(&builder, "DNS suffix: %s\n", status.Summary.DNSSuffix)
 	fmt.Fprintf(&builder, "Private CIDR: %s\n", status.Summary.PrivateCIDR)
-	fmt.Fprintf(&builder, "Outbound shares: %d\n", status.Shares.OutboundShareCount)
-	fmt.Fprintf(&builder, "Inbound accepted shares: %d\n", status.Shares.InboundAcceptedCount)
-	fmt.Fprintf(&builder, "Pending inbound share offers: %d\n", status.Shares.PendingInboundOfferCount)
-	fmt.Fprintf(&builder, "Unreconciled share machines: %d\n", status.Shares.UnreconciledMachineCount)
 	for _, publicRoute := range status.Summary.PublicRoutes {
 		fmt.Fprintf(&builder, "Route: %s -> %s/%s:%d\n", publicRoute.Hostname, publicRoute.Project, publicRoute.Machine, publicRoute.RoutePort)
 	}

@@ -60,6 +60,13 @@ type ShareListResult struct {
 	Shares []meta.TenantStorageShare `json:"shares"`
 }
 
+// sharesUnsupportedHandler answers every share endpoint while Tenant Storage
+// Shares are gated off on v2 (#70). v1 is gone, so this is unconditional until
+// the registry moves off the user-writable workspace volume.
+func sharesUnsupportedHandler(w http.ResponseWriter, _ *http.Request) {
+	http.Error(w, "Tenant Storage Shares are not yet supported on v2 (tracked in #70)", http.StatusNotImplemented)
+}
+
 func (h handler) sharesAPI(w http.ResponseWriter, r *http.Request) {
 	user, err := h.requireBearerUser(r)
 	if err != nil {

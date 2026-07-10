@@ -131,7 +131,8 @@ func newAdminTenantStatusCommand(config commandConfig, opts *rootOptions) *cobra
 			if err != nil {
 				return err
 			}
-			addTenantShareReconciliationHealth(cmd.Context(), config, &status)
+			// Tenant Storage Shares are not yet supported on v2 (#70); no share
+			// health is reported.
 			return writeOutput(config.stdout, opts.output, formatTenantStatus(status), status)
 		},
 	}

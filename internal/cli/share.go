@@ -10,10 +10,23 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/share"
 )
 
+// errSharesUnsupportedV2 gates every share surface. v1 is gone (#52), so every
+// tenant is v2, and Tenant Storage Shares are not yet supported there: the
+// registry lives in a user-writable /workspace file a tenant can forge (#70).
+// The v2 plumbing exists and is exercised by tests; it stays dormant behind this
+// gate until the registry moves off the user-writable volume.
+var errSharesUnsupportedV2 = fmt.Errorf("Tenant Storage Shares are not yet supported on v2 (tracked in #70). The share registry is not yet stored securely.")
+
 func newShareCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "share",
-		Short: "Manage Tenant Storage Shares",
+		Short: "Manage Tenant Storage Shares (not yet supported on v2)",
+		// Gate the whole tree in one place. --help still works (cobra handles it
+		// before PersistentPreRunE), so the subcommands stay discoverable.
+		SilenceUsage: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return errSharesUnsupportedV2
+		},
 	}
 	command.AddCommand(newShareCreateCommand(config, opts))
 	command.AddCommand(newShareListCommand(config, opts))

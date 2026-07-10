@@ -59,8 +59,6 @@ type TenantMetadataUpdateResourceServer interface {
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 }
 
-
-
 func (m TenantSSHKeyManager) GetTenantShares(_ context.Context, incusProjectName string) ([]meta.TenantStorageShare, error) {
 	server, err := m.server()
 	if err != nil {
