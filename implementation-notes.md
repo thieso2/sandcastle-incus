@@ -1282,3 +1282,40 @@ Verified the guard fails when the registration is removed again.
 `dns uninstall` / `trust uninstall` are deliberately excluded from the walk: they
 revert local host configuration (resolver entries, trust store) rather than
 destroying server-side state, and have never taken `--yes`.
+
+## 2026-07-10 — e2e Phase 4: three defects in `sc enroll`, all silent
+
+Phase 4 (client enrollment) reported `connected tenant "e2edns" — config at … (0
+project remote(s))` and exited **0**. Three independent bugs, each of which alone
+makes enrollment produce a client that cannot see its own machines.
+
+1. **`--incus-endpoint` defaulted to a hardcoded developer host**
+   (`https://big.thieso2.dev:8443`). On any other install every per-project remote
+   was added against the wrong Incus daemon, or failed with the opaque
+   `Error: EOF`. The endpoint is now read off the base remote that the enrollment
+   token just created (the token carries the daemon's addresses), and the flag has
+   no default.
+
+2. **`shortProjectName` hardcoded the `sc2-` install prefix.** An install created
+   with `sc-adm install --prefix id` has projects `id-<tenant>-<project>`, so every
+   project was filtered out and no project remote was ever added. It now anchors on
+   the `-<tenant>-` segment, which is the part that is actually known. This means
+   the multi-install coexistence the docs advertise never worked through `sc
+   enroll` — only through `sc login`.
+
+3. **No shared-identity fallback.** When the daemon already trusts this client's
+   keypair (because another install on the same host enrolled it), it refuses to
+   redeem a second token with `Failed to create certificate: Client is already
+   trusted`. `addIncusRemoteWithToken` (the `sc login` path) has handled this for a
+   while by adding the remote certificate-based; `sc enroll` called `incus remote
+   add` directly and had no fallback. `sc enroll` now decodes the token's
+   `addresses` and retries certificate-based against each in turn.
+
+And the reason none of this was noticed: **enroll treated "added zero project
+remotes" as success.** Each failure printed `Note: could not add remote …` to
+stderr and continued. It now returns an error when the certificate can see
+projects but not one remote could be added.
+
+`incusTokenAddresses` decodes the base64-JSON Incus certificate add token. A token
+it cannot parse yields no addresses rather than an error — every caller has a
+fallback path.
