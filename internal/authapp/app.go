@@ -615,13 +615,17 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/api/cloud-identities", app.cloudIdentitiesAPI)
 	mux.HandleFunc("/api/tenants", app.tenantsAPI)
 	mux.HandleFunc("/api/projects", app.projectsAPI)
-	mux.HandleFunc("/api/shares", app.sharesAPI)
-	mux.HandleFunc("/api/shares/status", app.shareStatusAPI)
-	mux.HandleFunc("/api/shares/accept", app.shareAcceptAPI)
-	mux.HandleFunc("/api/shares/decline", app.shareDeclineAPI)
-	mux.HandleFunc("/api/shares/revoke", app.shareRevokeAPI)
-	mux.HandleFunc("/api/shares/delete", app.shareDeleteAPI)
-	mux.HandleFunc("/api/shares/reconcile", app.shareReconcileAPI)
+	// Tenant Storage Shares are not yet supported on v2 (#70): the registry lives
+	// in a user-writable /workspace file a tenant can forge, so every share
+	// endpoint is gated off. The handlers (app.sharesAPI, app.shareAcceptAPI, …)
+	// and their plumbing stay intact, dormant behind this gate, ready for when the
+	// registry moves off the user-writable volume — flip these back then.
+	for _, path := range []string{
+		"/api/shares", "/api/shares/status", "/api/shares/accept", "/api/shares/decline",
+		"/api/shares/revoke", "/api/shares/delete", "/api/shares/reconcile",
+	} {
+		mux.HandleFunc(path, sharesUnsupportedHandler)
+	}
 	mux.HandleFunc("/api/device/start", app.deviceStart)
 	mux.HandleFunc("/api/device/poll", app.devicePoll)
 	mux.HandleFunc("/api/workload/enable", app.workloadEnable)

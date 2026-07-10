@@ -140,8 +140,6 @@ const (
 	tenantStorageSharesFile = tenantMetadataDir + "/storage_shares"
 )
 
-
-
 // readTenantStorageShares reads the tenant's shares from the workspace volume.
 // The first argument of GetStorageVolumeFile is a POOL: passing the Incus project
 // name there made Incus answer 404 ("Storage pool not found"), which

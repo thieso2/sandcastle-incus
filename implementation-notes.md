@@ -1504,3 +1504,27 @@ Not addressed (separate from the layout): the share registry lives in a
 user-writable `/workspace/.sandcastle/storage_shares` file, so a tenant can forge
 its own registry. Moving it to non-mounted storage or project config is a
 follow-up.
+
+## 2026-07-10 — `sc share` gated off on v2 (#70), plumbing kept
+
+After #68 made the share flow functional, the registry-location problem (#70 — a
+tenant can rewrite its own `/workspace/.sandcastle/storage_shares`) means shares
+are not safe to present as a supported v2 feature. Per the maintainer, `sc share`
+is gated off rather than shipped:
+
+- The `sc share` command tree gets a `PersistentPreRunE` returning
+  "Tenant Storage Shares are not yet supported on v2 (tracked in #70). …". `--help`
+  still works, so the subcommands stay discoverable.
+- The Auth App's seven `/api/shares*` routes are pointed at a single handler that
+  returns 501. Since every reconcile flows through these endpoints (there is no
+  background/auto reconcile), this also neutralises the forged-registry → mount
+  path via the sanctioned code.
+- `sc status` / `sc-adm tenant status` no longer report share health or counts;
+  the four share lines and the `shares:reconcile` check are removed.
+
+Everything from #68/#69 stays in the tree, dormant behind the gate — the share
+package, the reconciler, the Auth App handlers, and their unit tests. Ungating is
+flipping the two gates back once the registry moves (#70). The CLI/endpoint
+behaviour tests were replaced with two gate tests (`TestShareCommandsAreGatedOnV2`,
+`TestShareEndpointsAreGatedOnV2`); the dormant plumbing keeps its own unit
+coverage in `internal/share` and `internal/incusx`.
