@@ -14,7 +14,6 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
-	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -59,14 +58,6 @@ func ExecuteAdmin(name string, args []string) int {
 	}
 
 	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
-	directRouteManager := incusx.NewRouteManager(adminConfig.Remote)
-	directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
-	directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
-	directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
-	connectCache := incusx.NewConnectCache(adminConfig.Remote)
-	routeBrokerTenants := incusx.NewTenantStoreForSharedRemote(sharedRemote)
-	routeBrokerMachines := incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)
-	routeBrokerTrust := incusx.NewRouteBrokerTrustMapper(adminConfig.Remote)
 	authAppTenants := incusx.NewTenantStoreForSharedRemote(sharedRemote)
 	authAppMachines := incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)
 	authAppCreator := incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
@@ -78,22 +69,9 @@ func ExecuteAdmin(name string, args []string) int {
 	adminShareStore := incusx.NewTenantSSHKeyManager(adminConfig.Remote)
 	adminShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, incusx.NewHostOverrideManagerForSharedRemote(sharedRemote))
 	adminShareReconciler.Admin = adminConfig
-	if routeBrokerServeArgs(args) {
-		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
-			routeBrokerTenants = incusx.NewTenantStoreForServer(socketServer)
-			routeBrokerMachines = incusx.NewHostOverrideManagerForServer(socketServer)
-			directRouteManager = incusx.NewRouteManagerForServer(socketServer)
-			directRouteManager.InfrastructureProject = adminConfig.InfrastructureProject
-			directRouteManager.LetsEncryptEmail = adminConfig.LetsEncryptEmail
-			directRouteManager.InfrastructureTLSMode = adminConfig.InfrastructureTLSMode
-			routeBrokerTrust = incusx.NewRouteBrokerTrustMapperForServer(socketServer)
-		} else if err != nil && verbose {
-			fmt.Fprintf(os.Stderr, "[verbose] route broker unix socket unavailable: %v\n", err)
-		}
-	}
 	var authAppSocketServer incus.InstanceServer
 	if authAppServeArgs(args) {
-		if socketServer, err := routeBrokerSocketServer(); err == nil && socketServer != nil {
+		if socketServer, err := adminSocketServer(); err == nil && socketServer != nil {
 			authAppSocketServer = socketServer
 			authAppTenants = incusx.NewTenantStoreForServer(socketServer)
 			authAppMachines = incusx.NewHostOverrideManagerForServer(socketServer)
@@ -128,21 +106,8 @@ func ExecuteAdmin(name string, args []string) int {
 		topologyStore:       incusx.NewTopologyStore(adminConfig.Remote),
 		trustManager:        incusx.NewTrustManager(adminConfig.Remote),
 		localTrust:          incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
-		machineCreator:      incusx.NewMachineCreator(adminConfig.Remote).WithVerbose(verbose, os.Stderr),
 		machineStore:        incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		machineConnector:    incusx.NewMachineConnector(adminConfig.Remote).WithVerbose(verbose, os.Stderr).WithConnectCache(connectCache),
-		machineControl:      incusx.NewMachineController(adminConfig.Remote),
-		machinePort:         incusx.NewMachinePortSetter(adminConfig.Remote),
-		knownHosts:          newLocalKnownHostsManager(adminConfig.Remote, verbose, os.Stderr),
 		tailscale:           incusx.NewTailscaleManager(adminConfig.Remote),
-		routeBroker: routebroker.HTTPRunner{Server: routebroker.Server{
-			Admin:         adminConfig,
-			Tenants:       routeBrokerTenants,
-			Machines:      routeBrokerMachines,
-			Routes:        directRouteManager,
-			RouteMetadata: directRouteManager,
-			Trust:         routeBrokerTrust,
-		}},
 		authApp: authapp.HTTPRunner{
 			RestrictedUsers:  authAppTrust,
 			Admin:            adminConfig,
@@ -192,23 +157,6 @@ func ExecuteAdmin(name string, args []string) int {
 		return 1
 	}
 	return 0
-}
-
-func routeBrokerSocketServer() (incus.InstanceServer, error) {
-	if _, err := os.Stat("/var/lib/incus/unix.socket"); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return incus.ConnectIncusUnix("/var/lib/incus/unix.socket", nil)
-}
-
-func routeBrokerServeArgs(args []string) bool {
-	if len(args) < 2 {
-		return false
-	}
-	return args[0] == "route-broker" && args[1] == "serve"
 }
 
 func authAppServeArgs(args []string) bool {
@@ -309,11 +257,23 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newAdminBootstrapCommand(config))
 	root.AddCommand(newAdminInstallCommand(config))
 	root.AddCommand(newAdminInstallIncusCommand(config))
-	root.AddCommand(newAdminRouteBrokerCommand(config))
 	root.AddCommand(newAdminAuthAppCommand(config))
 	root.AddCommand(newAdminMachineWorkloadCommand(config, opts))
 	root.AddCommand(newConfigCommand(config, opts))
 	root.AddCommand(newSidecarCommand())
 
 	return root
+}
+
+// adminSocketServer connects to the local Incus unix socket. It was named
+// routeBrokerSocketServer when the v1 route broker was its first caller; the
+// auth-app serve path is now the only one.
+func adminSocketServer() (incus.InstanceServer, error) {
+	if _, err := os.Stat("/var/lib/incus/unix.socket"); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return incus.ConnectIncusUnix("/var/lib/incus/unix.socket", nil)
 }

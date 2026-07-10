@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 )
 
 type fakeMapper struct {
@@ -18,11 +16,11 @@ type fakeMapper struct {
 	err      error
 }
 
-func (f fakeMapper) PrincipalForFingerprint(_ context.Context, fp string) (routebroker.Principal, error) {
+func (f fakeMapper) PrincipalForFingerprint(_ context.Context, fp string) (TrustPrincipal, error) {
 	if f.err != nil {
-		return routebroker.Principal{}, f.err
+		return TrustPrincipal{}, f.err
 	}
-	return routebroker.Principal{Fingerprint: fp, User: f.tenant, Projects: f.projects}, nil
+	return TrustPrincipal{Fingerprint: fp, User: f.tenant, Projects: f.projects}, nil
 }
 
 type fakeCreator struct {

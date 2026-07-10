@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/thieso2/sandcastle-incus/internal/naming"
-	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/svclog"
 )
 
@@ -33,7 +32,7 @@ type Principal struct {
 // TrustMapper resolves a client-certificate fingerprint to its Sandcastle
 // principal (tenant + granted projects). Satisfied by incusx.RouteBrokerTrustMapper.
 type TrustMapper interface {
-	PrincipalForFingerprint(context.Context, string) (routebroker.Principal, error)
+	PrincipalForFingerprint(context.Context, string) (TrustPrincipal, error)
 }
 
 // ProjectCreator performs the privileged scaffolding: create the app Incus

@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -13,9 +11,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
-	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
-	"github.com/thieso2/sandcastle-incus/internal/routebroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -32,7 +28,6 @@ func newAdminCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	admin.AddCommand(newAdminUserCommand(config, opts))
 	admin.AddCommand(newAdminImageCommand(config, opts))
 	admin.AddCommand(newAdminTLDCommand(config, opts))
-	admin.AddCommand(newAdminRouteBrokerCommand(config))
 	admin.AddCommand(newAdminAuthAppCommand(config))
 	return admin
 }
@@ -390,72 +385,30 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 					return fmt.Errorf("delete canceled")
 				}
 			}
-			// v2 tenants have their own shape (per-project Incus projects,
-			// sidecar, bridge) — the v1 plan below would target v1 names
-			// that don't exist and report a silent no-op success.
-			if config.tenantStore != nil {
-				planV2, isV2, err := tenant.PlanDeleteV2(cmd.Context(), config.adminConfig, config.tenantStore, args[0], purge)
-				if err != nil {
-					return err
-				}
-				if isV2 {
-					deleter, ok := config.tenantDeleter.(interface {
-						DeleteTenantV2(context.Context, tenant.DeletePlanV2) error
-					})
-					if !ok {
-						return fmt.Errorf("tenant deletion executor does not support v2 tenants")
-					}
-					if err := deleter.DeleteTenantV2(cmd.Context(), planV2); err != nil {
-						return err
-					}
-					incusx.NewConnectCache(config.adminConfig.Remote).InvalidateTenant(planV2.Reference)
-					return writeOutput(config.stdout, opts.output, formatDeletePlanV2(planV2), planV2)
-				}
-			}
-			plan, err := tenant.PlanDelete(config.adminConfig, tenant.DeleteRequest{
-				Reference: args[0],
-				Purge:     purge,
-			})
+			planV2, isV2, err := tenant.PlanDeleteV2(cmd.Context(), config.adminConfig, config.tenantStore, args[0], purge)
 			if err != nil {
 				return err
 			}
-			if config.shareStore != nil {
-				cleanup, err := share.CleanupTenantDeletion(cmd.Context(), config.tenantStore, config.shareStore, share.TenantCleanupRequest{Tenant: args[0]})
-				if err != nil {
-					return err
-				}
-				if config.shareReconciler != nil {
-					summaries, err := listTenants(cmd.Context(), config.tenantStore)
-					if err != nil {
-						return err
-					}
-					for _, recipient := range cleanup.AffectedRecipients {
-						summary, ok := findTenantSummaryForCleanup(summaries, recipient)
-						if !ok {
-							continue
-						}
-						result, err := config.shareReconciler.ReconcileTenantShares(cmd.Context(), summary, false)
-						if err != nil {
-							return err
-						}
-						if result.HasFailures() {
-							return fmt.Errorf("share cleanup reconciliation failed for tenant %s", recipient)
-						}
-					}
-				}
+			if !isV2 {
+				return fmt.Errorf("Sandcastle tenant %s not found", args[0])
 			}
 			if config.tenantDeleter == nil {
 				return fmt.Errorf("tenant deletion executor is not configured")
 			}
-			if err := config.tenantDeleter.DeleteTenant(cmd.Context(), plan); err != nil {
+			// Storage-share cleanup used to hang off the v1 delete path only, so a
+			// v2 `tenant delete --purge` left the tenant's shares behind. It runs
+			// for v2 now.
+			if config.shareStore != nil {
+				if _, err := share.CleanupTenantDeletion(cmd.Context(), config.tenantStore, config.shareStore, share.TenantCleanupRequest{Tenant: args[0]}); err != nil {
+					return err
+				}
+			}
+			if err := config.tenantDeleter.DeleteTenantV2(cmd.Context(), planV2); err != nil {
 				return err
 			}
-			incusx.NewConnectCache(config.adminConfig.Remote).InvalidateTenant(plan.Reference)
-			incusx.InvalidateTenantCA(config.adminConfig.Remote, plan.IncusProject)
-			return writeOutput(config.stdout, opts.output, formatDeletePlan(plan), plan)
+			return writeOutput(config.stdout, opts.output, formatDeletePlanV2(planV2), planV2)
 		},
 	}
-	command.Flags().BoolVar(&yes, "yes", false, "confirm tenant deletion")
 	command.Flags().BoolVar(&purge, "purge", false, "delete durable tenant volumes and the Incus project")
 	return command
 }
@@ -572,13 +525,6 @@ func formatTenantUsers(result usertrust.TenantUsersResult) string {
 		return fmt.Sprintf("Tenant: %s\nUsers: none", result.Tenant)
 	}
 	return fmt.Sprintf("Tenant: %s\nUsers: %s", result.Tenant, strings.Join(result.Users, ", "))
-}
-
-func formatDeletePlan(plan tenant.DeletePlan) string {
-	if plan.PurgeDurableState {
-		return fmt.Sprintf("Deleted %s and purged durable state.", plan.Reference)
-	}
-	return fmt.Sprintf("Deleted runtime resources for %s; durable state was preserved.", plan.Reference)
 }
 
 func formatDeletePlanV2(plan tenant.DeletePlanV2) string {
@@ -1173,46 +1119,6 @@ func bootstrapTenant(config commandConfig, result usertrust.TokenResult) string 
 	return ""
 }
 
-func newAdminRouteBrokerCommand(config commandConfig) *cobra.Command {
-	routeBroker := &cobra.Command{
-		Use:   "route-broker",
-		Short: "Manage the Sandcastle public route broker",
-	}
-	routeBroker.AddCommand(newAdminRouteBrokerServeCommand(config))
-	return routeBroker
-}
-
-func newAdminRouteBrokerServeCommand(config commandConfig) *cobra.Command {
-	var listen string
-	var certFile string
-	var keyFile string
-	command := &cobra.Command{
-		Use:   "serve",
-		Short: "Serve the public route broker API over mTLS",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := routebroker.PlanServe(routebroker.ServeRequest{
-				Address:  listen,
-				CertFile: certFile,
-				KeyFile:  keyFile,
-			})
-			if err != nil {
-				return err
-			}
-			if config.routeBroker == nil {
-				return fmt.Errorf("route broker server is not configured")
-			}
-			return config.routeBroker.Serve(cmd.Context(), plan)
-		},
-	}
-	command.Flags().StringVar(&listen, "listen", ":9443", "route broker listen address")
-	command.Flags().StringVar(&certFile, "cert", "", "route broker TLS certificate file")
-	command.Flags().StringVar(&keyFile, "key", "", "route broker TLS key file")
-	_ = command.MarkFlagRequired("cert")
-	_ = command.MarkFlagRequired("key")
-	return command
-}
-
 func newAdminAuthAppCommand(config commandConfig) *cobra.Command {
 	auth := &cobra.Command{
 		Use:   "auth-app",
@@ -1288,90 +1194,5 @@ func newAdminMachineWorkloadCommand(config commandConfig, opts *rootOptions) *co
 		Use:   "workload",
 		Short: "Manage workload identity for machines",
 	}
-	cmd.AddCommand(newAdminMachineWorkloadEnableCommand(config, opts))
 	return cmd
-}
-
-func newAdminMachineWorkloadEnableCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var databasePath string
-	var authHostname string
-	command := &cobra.Command{
-		Use:   "enable [project:]machine",
-		Short: "Enable workload identity for a machine",
-		Long: `Enable workload identity for a machine.
-
-Registers the machine in the auth app database and writes the runtime secret,
-token endpoint, and machine identity files to the machine. The machine can then
-exchange the runtime secret for a short-lived JWT at the token endpoint.
-
-From within the machine:
-  secret=$(cat /var/lib/sandcastle/workload/runtime-secret)
-  endpoint=$(cat /var/lib/sandcastle/workload/token-endpoint)
-  tenant=$(cat /var/lib/sandcastle/workload/tenant)
-  project=$(cat /var/lib/sandcastle/workload/project)
-  machine=$(cat /var/lib/sandcastle/workload/machine)
-  audience="//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/sandcastle-$tenant/providers/sandcastle"
-  curl -s -X POST "$endpoint" \
-    -H "Content-Type: application/json" \
-    -d "{\"tenant\":\"$tenant\",\"project\":\"$project\",\"machine\":\"$machine\",\"runtime_secret\":\"$secret\",\"audience\":\"$audience\"}"`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			host := strings.TrimSpace(authHostname)
-			if host == "" {
-				host = config.adminConfig.AuthHostname
-			}
-			if host == "" {
-				return fmt.Errorf("--auth-hostname is required (or set SANDCASTLE_AUTH_HOSTNAME)")
-			}
-			createTenantStore := tenantStoreWithSSHKeyMetadata(config.tenantStore)
-			plan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, createTenantStore, config.machineStore, machine.CreateRequest{
-				Reference: args[0],
-			})
-			if err != nil {
-				return err
-			}
-			db, err := sql.Open("sqlite", databasePath)
-			if err != nil {
-				return fmt.Errorf("open auth database: %w", err)
-			}
-			defer db.Close()
-			result, err := authapp.EnableMachineWorkloadIdentity(cmd.Context(), db, host, authapp.MachineRuntimeSecretRequest{
-				Tenant:         plan.Tenant.Tenant,
-				Project:        plan.Project,
-				Machine:        plan.Name,
-				UserKey:        plan.Tenant.Tenant,
-				GitHubUsername: plan.Tenant.Tenant,
-			})
-			if err != nil {
-				return fmt.Errorf("enable workload identity: %w", err)
-			}
-			plan.WorkloadFiles, err = machine.WorkloadIdentityFiles(&machine.WorkloadIdentityRequest{
-				TokenEndpoint: result.TokenEndpoint,
-				RuntimeSecret: result.RuntimeSecret,
-				Tenant:        plan.Tenant.Tenant,
-				Project:       plan.Project,
-				Machine:       plan.Name,
-			})
-			if err != nil {
-				return fmt.Errorf("build workload identity files: %w", err)
-			}
-			plan.CertificateFiles = []machine.File{} // skip cert re-issue; only update workload files
-			if config.machineCreator == nil {
-				return fmt.Errorf("machine creator is not configured")
-			}
-			if err := config.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, fmt.Sprintf(
-				"Workload identity enabled for %s/%s/%s\nToken endpoint: %s\nOIDC issuer:    %s",
-				plan.Tenant.Tenant, plan.Project, plan.Name,
-				result.TokenEndpoint,
-				result.Issuer,
-			), result)
-		},
-	}
-	command.Flags().StringVar(&databasePath, "database", "", "SQLite auth database path")
-	command.Flags().StringVar(&authHostname, "auth-hostname", "", "public Auth Hostname (overrides SANDCASTLE_AUTH_HOSTNAME)")
-	_ = command.MarkFlagRequired("database")
-	return command
 }

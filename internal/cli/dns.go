@@ -23,12 +23,7 @@ func newDNSCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Use:   "dns",
 		Short: "Manage tenant DNS",
 	}
-	command.AddCommand(newDNSApplyCommand(config, opts))
-	command.AddCommand(newDNSStatusCommand(config, opts))
-	command.AddCommand(newDNSSetupCommand(config, opts))
 	command.AddCommand(newDNSTeardownCommand(config, opts))
-	command.AddCommand(newDNSInstallCommand(config, opts))
-	command.AddCommand(newDNSRefreshCommand(config, opts))
 	command.AddCommand(newDNSUninstallCommand(config, opts))
 	command.AddCommand(newDNSApplyElevatedCommand())
 	return command
@@ -77,62 +72,6 @@ type dnsTeardownResult struct {
 
 type dnsElevatedActionResult struct {
 	Action string `json:"action"`
-}
-
-func newDNSSetupCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "setup [tenant]",
-		Short: "Apply tenant DNS and install local resolver config",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := runDNSSetup(cmd.Context(), config, optionalArg(args))
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatDNSSetup(result), result)
-		},
-	}
-	return command
-}
-
-func runDNSSetup(ctx context.Context, config commandConfig, reference string) (dnsSetupResult, error) {
-	installPlan, err := localdns.PlanInstall(ctx, config.adminConfig, config.tenantStore, localdns.Request{Reference: reference})
-	if err != nil {
-		return dnsSetupResult{}, err
-	}
-	summary, err := findTenantSummary(ctx, config, installPlan.Reference)
-	if err != nil {
-		return dnsSetupResult{}, err
-	}
-	if config.dnsApplier == nil {
-		return dnsSetupResult{}, fmt.Errorf("DNS apply executor is not configured")
-	}
-	applyResult, err := config.dnsApplier.Apply(ctx, dnsProject(summary))
-	if err != nil {
-		return dnsSetupResult{}, err
-	}
-	if config.localDNS == nil {
-		return dnsSetupResult{}, fmt.Errorf("local DNS executor is not configured")
-	}
-	installResult, installElevated, err := runLocalDNSWithSudoFallback(ctx, config, "install", installPlan)
-	if err != nil {
-		return dnsSetupResult{}, err
-	}
-	refreshPlan, err := localdns.PlanRefresh(ctx, config.adminConfig, config.tenantStore, localdns.Request{Reference: installPlan.Reference})
-	if err != nil {
-		return dnsSetupResult{}, err
-	}
-	refreshResult, refreshElevated, err := runLocalDNSWithSudoFallback(ctx, config, "refresh", refreshPlan)
-	if err != nil {
-		return dnsSetupResult{}, err
-	}
-	return dnsSetupResult{
-		Reference: installPlan.Reference,
-		Apply:     applyResult,
-		Install:   installResult,
-		Refresh:   refreshResult,
-		Elevated:  elevatedActions([]string{"install", "refresh"}, installElevated, refreshElevated),
-	}, nil
 }
 
 // installV2LocalResolver installs the client-side split-DNS resolver for a v2
@@ -188,103 +127,6 @@ func newDNSTeardownCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			return writeOutput(config.stdout, opts.output, formatDNSTeardown(result), result)
 		},
 	}
-	return command
-}
-
-func newDNSApplyCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	return &cobra.Command{
-		Use:   "apply tenant",
-		Short: "Render and apply tenant CoreDNS records",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findTenantSummary(cmd.Context(), config, args[0])
-			if err != nil {
-				return err
-			}
-			if config.dnsApplier == nil {
-				return fmt.Errorf("DNS apply executor is not configured")
-			}
-			result, err := config.dnsApplier.Apply(cmd.Context(), dnsProject(summary))
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatDNSApply(result), result)
-		},
-	}
-}
-
-func newDNSStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	return &cobra.Command{
-		Use:   "status tenant",
-		Short: "Render tenant DNS status without applying it",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := findTenantSummary(cmd.Context(), config, args[0])
-			if err != nil {
-				return err
-			}
-			result, err := dns.PlanApply(dnsProject(summary), nil)
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatDNSApply(result), result)
-		},
-	}
-}
-
-func newDNSInstallCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var dryRun bool
-	command := &cobra.Command{
-		Use:   "install [tenant]",
-		Short: "Install local resolver state for a tenant",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanInstall(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: optionalReference(args)})
-			if err != nil {
-				return err
-			}
-			if dryRun {
-				return writeOutput(config.stdout, opts.output, formatLocalDNSPlan("Install", plan), plan)
-			}
-			if config.localDNS == nil {
-				return fmt.Errorf("local DNS executor is not configured")
-			}
-			result, err := config.localDNS.Install(cmd.Context(), plan)
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatLocalDNSResult(result), result)
-		},
-	}
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS install plan without changing local resolver state")
-	return command
-}
-
-func newDNSRefreshCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	var dryRun bool
-	command := &cobra.Command{
-		Use:   "refresh [tenant]",
-		Short: "Refresh local resolver state for a tenant",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := localdns.PlanRefresh(cmd.Context(), config.adminConfig, config.tenantStore, localdns.Request{Reference: optionalReference(args)})
-			if err != nil {
-				return err
-			}
-			if dryRun {
-				return writeOutput(config.stdout, opts.output, formatLocalDNSPlan("Refresh", plan), plan)
-			}
-			if config.localDNS == nil {
-				return fmt.Errorf("local DNS executor is not configured")
-			}
-			result, err := config.localDNS.Refresh(cmd.Context(), plan)
-			if err != nil {
-				return err
-			}
-			return writeOutput(config.stdout, opts.output, formatLocalDNSResult(result), result)
-		},
-	}
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the local DNS refresh plan without changing local resolver state")
 	return command
 }
 

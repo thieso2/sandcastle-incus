@@ -86,7 +86,6 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 	config.adminConfig.Tenant = request.Tenant
 	config.adminConfig.Project = ""
 	config.tenantStore = incusx.TenantStore{Remote: request.RemoteName, ConfigPath: incusConfigFile}
-	config.dnsApplier = incusx.DNSManager{Remote: request.RemoteName, ConfigPath: incusConfigFile}
 	config.localDNS = localdns.FileManager{}
 	config.localTrust = incusx.LocalTrustManager{Remote: request.RemoteName, ConfigPath: incusConfigFile, Store: localtrust.NewPlatformStore()}
 	config.tailscale = incusx.TailscaleManager{Remote: request.RemoteName, ConfigPath: incusConfigFile}
@@ -114,68 +113,10 @@ func (r realLoginSetupRunner) RunPostLoginSetup(ctx context.Context, request log
 		})
 		return loginSetupResult{}, nil
 	}
-
-	var dnsResult dnsSetupResult
-	if err := steps.run("setup DNS", func() error {
-		var err error
-		dnsResult, err = runDNSSetup(ctx, config, request.Tenant)
-		return err
-	}); err != nil {
-		return loginSetupResult{}, err
-	}
-	var trustPlan localtrust.Plan
-	if err := steps.run("plan trust install", func() error {
-		var err error
-		trustPlan, err = localtrust.PlanInstall(ctx, config.adminConfig, config.tenantStore, trustRequest(config, request.Tenant))
-		return err
-	}); err != nil {
-		return loginSetupResult{}, err
-	}
-	if config.localTrust == nil {
-		return loginSetupResult{}, fmt.Errorf("local trust executor is not configured")
-	}
-	if err := writeTrustWarning(config, &rootOptions{output: outputText}, trustPlan); err != nil {
-		return loginSetupResult{}, err
-	}
-	var trustResult localtrust.Result
-	if err := steps.run("install trust", func() error {
-		var err error
-		trustResult, err = config.localTrust.Install(ctx, trustPlan)
-		return err
-	}); err != nil {
-		return loginSetupResult{}, err
-	}
-	var tailscalePlan tailscale.UpPlan
-	if err := steps.run("plan Tailscale up", func() error {
-		var err error
-		tailscalePlan, err = tailscale.PlanUp(ctx, config.adminConfig, config.tenantStore, tailscale.UpRequest{
-			Reference:     request.Tenant,
-			AuthKey:       request.TailscaleAuthKey,
-			AdvertiseTags: defaultAdvertiseTags(),
-		})
-		return err
-	}); err != nil {
-		return loginSetupResult{}, err
-	}
-	if config.tailscale == nil {
-		return loginSetupResult{}, fmt.Errorf("tailscale executor is not configured")
-	}
-	if err := steps.run("run Tailscale up", func() error {
-		return config.tailscale.RunUp(ctx, tailscalePlan, tailscale.RunSession{
-			Stdin:  config.stdin,
-			Stdout: config.stdout,
-			Stderr: config.stderr,
-		})
-	}); err != nil {
-		return loginSetupResult{}, err
-	}
-	return loginSetupResult{DNS: dnsResult, Trust: trustResult, Tailscale: tailscalePlan}, nil
+	// Only v2 tenants exist, and provisioning always assigns a private CIDR.
+	return loginSetupResult{}, fmt.Errorf("tenant %s has no private CIDR; re-run `sc login` to reprovision", request.Tenant)
 }
 
-// installV2TenantCATrust fetches the tenant CA from the sidecar leaf signer
-// (over the tenant subnet route) and installs it into the local trust store, so
-// the browser trusts https://<machine>.<project>.<suffix> that Caddy serves on
-// the machines (ADR-0011). Best-effort: a failure only warns, never blocks login.
 func installV2TenantCATrust(ctx context.Context, stdout, stderr io.Writer, tenantName, privateCIDR string) {
 	dnsAddr, err := signerAddrFromCIDR(privateCIDR)
 	if err != nil {
