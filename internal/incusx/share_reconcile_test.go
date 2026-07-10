@@ -340,17 +340,3 @@ func TestShareReconcilerUsesV2InstanceNamesAndPerProjectIncusProjects(t *testing
 }
 
 // v1 keeps the packed instance name inside the tenant's single Incus project.
-func TestShareReconcilerKeepsV1InstanceNames(t *testing.T) {
-	reconciler, server := recordingShareReconciler(t, []meta.Machine{
-		{Tenant: "alice", Project: "default", Name: "web", Type: meta.MachineTypeContainer},
-	})
-	if _, err := reconciler.ReconcileTenantShares(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, true); err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Join(server.projects, ","); got != "sc-alice" {
-		t.Fatalf("v1 project = %q", got)
-	}
-	if got := strings.Join(server.resource.instances, ","); got != "default-web" {
-		t.Fatalf("v1 instance name = %q", got)
-	}
-}

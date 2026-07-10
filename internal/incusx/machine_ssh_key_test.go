@@ -26,93 +26,6 @@ func TestMachineSSHKeyReconcilerSkipsWhenNoMachinesExist(t *testing.T) {
 	}
 }
 
-func TestMachineSSHKeyReconcilerUpdatesExistingMachines(t *testing.T) {
-	resource := &fakeMachineSSHKeyResource{}
-	reconciler := MachineSSHKeyReconciler{
-		Store: fakeMachineSSHKeyStore{machines: []meta.Machine{
-			{Tenant: "alice", Project: "default", Name: "dev", LinuxUser: "alice"},
-			{Tenant: "alice", Project: "work", Name: "api", LinuxUser: "alice"},
-		}},
-		Server: &fakeMachineSSHKeyServer{resource: resource},
-	}
-	if err := reconciler.ReconcileUserSSHKey(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, "alice", "ssh-ed25519 key"); err != nil {
-		t.Fatal(err)
-	}
-	if len(resource.execs) != 2 || resource.execs[0].instance != "default-dev" || resource.execs[1].instance != "work-api" {
-		t.Fatalf("execs = %#v", resource.execs)
-	}
-	for _, exec := range resource.execs {
-		if exec.environment["SANDCASTLE_SSH_PUBLIC_KEY"] != "ssh-ed25519 key" || exec.environment["SANDCASTLE_USER"] != "alice" {
-			t.Fatalf("environment = %#v", exec.environment)
-		}
-		script := strings.Join(exec.command, " ")
-		for _, want := range []string{"sandcastle user ssh key begin", "authorized_keys", "awk"} {
-			if !strings.Contains(script, want) {
-				t.Fatalf("script missing %q: %s", want, script)
-			}
-		}
-	}
-}
-
-func TestMachineSSHKeyReconcilerCanRetryAfterPartialFailure(t *testing.T) {
-	resource := &fakeMachineSSHKeyResource{failAt: 2}
-	reconciler := MachineSSHKeyReconciler{
-		Store: fakeMachineSSHKeyStore{machines: []meta.Machine{
-			{Tenant: "alice", Project: "default", Name: "one", LinuxUser: "alice"},
-			{Tenant: "alice", Project: "default", Name: "two", LinuxUser: "alice"},
-		}},
-		Server: &fakeMachineSSHKeyServer{resource: resource},
-	}
-	err := reconciler.ReconcileUserSSHKey(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, "alice", "ssh-ed25519 key")
-	if err == nil || !strings.Contains(err.Error(), "default-two") {
-		t.Fatalf("error = %v", err)
-	}
-	resource.failAt = 0
-	if err := reconciler.ReconcileUserSSHKey(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, "alice", "ssh-ed25519 key"); err != nil {
-		t.Fatal(err)
-	}
-	if len(resource.execs) != 4 {
-		t.Fatalf("execs after retry = %#v", resource.execs)
-	}
-}
-
-func TestMachineSSHKeyReconcilerRevokesExistingMachineAccess(t *testing.T) {
-	resource := &fakeMachineSSHKeyResource{}
-	reconciler := MachineSSHKeyReconciler{
-		Store: fakeMachineSSHKeyStore{machines: []meta.Machine{
-			{Tenant: "alice", Project: "default", Name: "dev", LinuxUser: "alice"},
-		}},
-		Server: &fakeMachineSSHKeyServer{resource: resource},
-	}
-	if err := reconciler.RevokeUserSSHKey(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, "alice"); err != nil {
-		t.Fatal(err)
-	}
-	if len(resource.execs) != 1 || resource.execs[0].instance != "default-dev" {
-		t.Fatalf("execs = %#v", resource.execs)
-	}
-	if resource.execs[0].environment["SANDCASTLE_SSH_PUBLIC_KEY"] != "" || resource.execs[0].environment["SANDCASTLE_USER"] != "alice" {
-		t.Fatalf("environment = %#v", resource.execs[0].environment)
-	}
-	script := strings.Join(resource.execs[0].command, " ")
-	if !strings.Contains(script, "sandcastle user ssh key begin") || strings.Contains(script, "SANDCASTLE_SSH_PUBLIC_KEY") {
-		t.Fatalf("revoke script = %s", script)
-	}
-}
-
-func TestMachineSSHKeyReconcilerRevokeSkipsWhenNoMachinesExist(t *testing.T) {
-	server := &fakeMachineSSHKeyServer{}
-	reconciler := MachineSSHKeyReconciler{
-		Store:  fakeMachineSSHKeyStore{},
-		Server: server,
-	}
-	if err := reconciler.RevokeUserSSHKey(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, "alice"); err != nil {
-		t.Fatal(err)
-	}
-	if len(server.resources) != 0 {
-		t.Fatalf("server resources = %#v", server.resources)
-	}
-}
-
 type fakeMachineSSHKeyStore struct {
 	machines []meta.Machine
 }
@@ -317,5 +230,37 @@ func v2Summary() tenant.Summary {
 		InfraProject: "sc2-alice",
 		IncusName:    "sc2-alice-default",
 		UnixUser:     "sc",
+	}
+}
+
+// Revoking a user's SSH access must reach v2 machines: bare instance names,
+// per-project Incus projects, one write per project (machines share /home).
+func TestMachineSSHKeyReconcilerRevokeUsesV2NamesAndWritesOncePerProject(t *testing.T) {
+	resource := &fakeMachineSSHKeyResource{}
+	server := &fakeMachineSSHKeyServer{resource: resource}
+	reconciler := MachineSSHKeyReconciler{
+		Store: fakeMachineSSHKeyStore{machines: []meta.Machine{
+			{Tenant: "alice", Project: "default", Name: "stopped", Running: false},
+			{Tenant: "alice", Project: "default", Name: "web", Running: true},
+			{Tenant: "alice", Project: "backend", Name: "api", Running: true},
+		}},
+		Server: server,
+	}
+	if err := reconciler.RevokeUserSSHKey(context.Background(), v2Summary(), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(server.resources, ","); got != "sc2-alice-default,sc2-alice-backend" {
+		t.Fatalf("incus projects = %q", got)
+	}
+	if len(resource.execs) != 2 || resource.execs[0].instance != "web" || resource.execs[1].instance != "api" {
+		t.Fatalf("execs = %#v (bare v2 names, stopped machine skipped)", resource.execs)
+	}
+	for _, exec := range resource.execs {
+		if exec.environment["SANDCASTLE_USER"] != "sc" {
+			t.Fatalf("SANDCASTLE_USER = %q, want the tenant Unix user", exec.environment["SANDCASTLE_USER"])
+		}
+		if strings.Contains(strings.Join(exec.command, " "), "SANDCASTLE_SSH_PUBLIC_KEY") {
+			t.Fatal("revoke must not write a key")
+		}
 	}
 }

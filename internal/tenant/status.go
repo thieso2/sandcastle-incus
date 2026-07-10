@@ -192,14 +192,11 @@ func cidrCheck(summary Summary) Check {
 	if summary.PrivateCIDR != "" {
 		return Check{Name: "cidr", Status: "ok", Detail: summary.PrivateCIDR}
 	}
-	if summary.Version == 2 {
-		return Check{
-			Name:   "cidr",
-			Status: "unknown",
-			Detail: "stored on the infra project " + summary.InfraProject + ", which a tenant certificate cannot read",
-		}
+	return Check{
+		Name:   "cidr",
+		Status: "unknown",
+		Detail: "stored on the infra project " + summary.InfraProject + ", which a tenant certificate cannot read",
 	}
-	return Check{Name: "cidr", Status: "missing"}
 }
 
 // topologyErrorCheck downgrades the one failure that is expected rather than
@@ -207,7 +204,7 @@ func cidrCheck(summary Summary) Check {
 // tenant certificate is not granted that project. Reading topology needs an
 // admin remote.
 func topologyErrorCheck(summary Summary, err error) Check {
-	if summary.Version == 2 && isProjectPermissionError(err) {
+	if isProjectPermissionError(err) {
 		return Check{
 			Name:   "topology",
 			Status: "unknown",

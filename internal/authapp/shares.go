@@ -9,7 +9,6 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/svclog"
-	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 type ShareCreateRequest struct {
@@ -461,24 +460,10 @@ func (h handler) requireTenantAccess(r *http.Request, userKey string, tenantName
 	// healthy v2 tenant is refused their own tenant — `sc status` reported
 	// "shares:reconcile: error (user … is not granted access to tenant …)" and the
 	// auth-app logged POST /api/shares/reconcile status=403.
-	if summary.Version == 2 {
-		if summary.Tenant == normalizedUser {
-			return nil
-		}
-		return fmt.Errorf("user %s is not granted access to tenant %s", normalizedUser, summary.Tenant)
-	}
-	plan, err := usertrust.PlanTenantUsersForRequest(h.admin, usertrust.TenantAccessRequest{Tenant: summary.Tenant, Personal: summary.Personal})
-	if err != nil {
-		return err
-	}
-	result, err := h.tenantAccess.ListTenantUsers(r.Context(), plan)
-	if err != nil {
-		return err
-	}
-	for _, candidate := range result.Users {
-		if NormalizeGitHubUsername(candidate) == normalizedUser {
-			return nil
-		}
+	// A personal tenant belongs to the user whose key names it. There is no
+	// tenant-user metadata to consult any more.
+	if summary.Tenant == normalizedUser {
+		return nil
 	}
 	return fmt.Errorf("user %s is not granted access to tenant %s", normalizedUser, summary.Tenant)
 }

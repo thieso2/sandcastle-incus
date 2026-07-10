@@ -45,7 +45,7 @@ func PlanDeleteV2(ctx context.Context, admin config.Admin, store IncusTenantStor
 		return DeletePlanV2{}, false, err
 	}
 	for _, summary := range summaries {
-		if summary.Tenant != ref.Tenant || summary.Version != 2 {
+		if summary.Tenant != ref.Tenant {
 			continue
 		}
 		if !purge {

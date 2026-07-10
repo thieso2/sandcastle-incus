@@ -111,10 +111,8 @@ func trustName(ref naming.TenantRef) string {
 // a filename that never matches what was installed, so `sc trust uninstall`
 // removed nothing and reported success.
 func planTrustName(ref naming.TenantRef, summary tenant.Summary) string {
-	if summary.Version == 2 {
-		if suffix := strings.TrimSpace(summary.DNSSuffix); suffix != "" {
-			return "Sandcastle " + suffix + " tenant CA"
-		}
+	if suffix := strings.TrimSpace(summary.DNSSuffix); suffix != "" {
+		return "Sandcastle " + suffix + " tenant CA"
 	}
 	return trustName(ref)
 }

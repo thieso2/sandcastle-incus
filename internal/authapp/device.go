@@ -223,10 +223,6 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := h.setPersonalTenantSSHKey(r.Context(), login.UserKey, stored.PublicKey); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 		sshFingerprint = stored.Fingerprint
 	} else if login.Status == DeviceStatusApproved && login.UserKey != "" {
 		if stored, err := GetUserSSHKey(r.Context(), h.db, login.UserKey); err == nil {
@@ -301,28 +297,6 @@ func (h handler) reconcilePersonalTenantSSHKey(ctx context.Context, userKey stri
 			}
 			return nil
 		}
-	}
-	return nil
-}
-
-func (h handler) setPersonalTenantSSHKey(ctx context.Context, userKey string, publicKey string) error {
-	if h.tenantSSHKeys == nil {
-		return nil
-	}
-	if h.tenants == nil {
-		return fmt.Errorf("cannot set Personal Tenant SSH metadata: tenant store is not configured")
-	}
-	summary, err := h.findPersonalTenant(ctx, userKey)
-	if err != nil {
-		return nil
-	}
-	// v2 tenants have no v1 Personal Tenant metadata to stamp — the key is
-	// already in the default-project profile from create. Skip rather than fail.
-	if summary.Version == 2 {
-		return nil
-	}
-	if err := h.tenantSSHKeys.SetTenantSSHKey(ctx, summary.IncusName, publicKey); err != nil {
-		return fmt.Errorf("set Personal Tenant SSH metadata for %s: %w", summary.Tenant, err)
 	}
 	return nil
 }

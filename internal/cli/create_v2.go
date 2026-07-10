@@ -35,7 +35,7 @@ func v2TenantSummary(ctx context.Context, config commandConfig) (tenant.Summary,
 		return tenant.Summary{}, false
 	}
 	for _, candidate := range tenants {
-		if candidate.Tenant == name && candidate.Version == 2 {
+		if candidate.Tenant == name {
 			return candidate, true
 		}
 	}
