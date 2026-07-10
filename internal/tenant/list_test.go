@@ -32,10 +32,7 @@ func TestListManagedTenants(t *testing.T) {
 }
 
 func TestAllocatedCIDRsSpansV1AndV2(t *testing.T) {
-	v1Config, err := meta.TenantConfig(meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.0.0/24"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	v1Config := map[string]string{meta.KeyKind: legacyTenantKind, meta.KeyVersion: "1", meta.KeyTenant: "acme", meta.KeyPrivateCIDR: "10.248.0.0/24"}
 	store := MemoryStore{Projects: []IncusProject{
 		{Name: "default", Config: map[string]string{}}, // unmanaged
 		{Name: "sc-acme", Config: v1Config},            // v1 tenant
@@ -60,10 +57,7 @@ func TestAllocatedCIDRsSpansV1AndV2(t *testing.T) {
 }
 
 func TestCIDRAllocationInputsSplitsOwnFromOthers(t *testing.T) {
-	acme, err := meta.TenantConfig(meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.0.0/24"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	acme := map[string]string{meta.KeyKind: legacyTenantKind, meta.KeyVersion: "1", meta.KeyTenant: "acme", meta.KeyPrivateCIDR: "10.248.0.0/24"}
 	store := MemoryStore{Projects: []IncusProject{
 		{Name: "sc-acme", Config: acme}, // v1, other tenant
 		{Name: "sc2-zeus", Config: map[string]string{meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "zeus", meta.KeyV2CIDR: "10.249.0.0/24"}},
@@ -199,10 +193,7 @@ func TestProvisionReuseInputsScopedToInstallPrefix(t *testing.T) {
 // treating it as own made provisioning reuse the CIDR and collide with the
 // live v1 bridge's dnsmasq on the gateway IP ("Address already in use").
 func TestProvisionReuseInputsNeverOwnsV1CIDR(t *testing.T) {
-	v1Config, err := meta.TenantConfig(meta.Tenant{Tenant: "thieso2", PrivateCIDR: "10.248.1.0/24"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	v1Config := map[string]string{meta.KeyKind: legacyTenantKind, meta.KeyVersion: "1", meta.KeyTenant: "thieso2", meta.KeyPrivateCIDR: "10.248.1.0/24"}
 	store := MemoryStore{Projects: []IncusProject{
 		{Name: "sc-thieso2", Config: v1Config},
 	}}

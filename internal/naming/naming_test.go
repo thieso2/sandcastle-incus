@@ -25,26 +25,6 @@ func TestParseProjectRef(t *testing.T) {
 	}
 }
 
-func TestParseAdminMachineRefDefaultsProject(t *testing.T) {
-	ref, err := ParseAdminMachineRef("acme/codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ref.Tenant != "acme" || ref.Project != DefaultProjectName || ref.Machine != "codex" {
-		t.Fatalf("ref = %#v", ref)
-	}
-}
-
-func TestParseAdminMachineRefWithProject(t *testing.T) {
-	ref, err := ParseAdminMachineRef("acme/website/codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ref.Tenant != "acme" || ref.Project != "website" || ref.Machine != "codex" {
-		t.Fatalf("ref = %#v", ref)
-	}
-}
-
 func TestParseUserMachineRefDefaultsProject(t *testing.T) {
 	projectRef, machine, err := ParseUserMachineRef("codex", "")
 	if err != nil {
@@ -133,16 +113,6 @@ func TestTenantIncusProjectNameLengthLimit(t *testing.T) {
 	tooLong := strings.Repeat("a", 54)
 	if _, err := TenantIncusProjectName(TenantRef{Tenant: tooLong}); err == nil {
 		t.Fatal("expected error for 54-char tenant")
-	}
-}
-
-func TestMachineIncusInstanceName(t *testing.T) {
-	name, err := MachineIncusInstanceName(MachineRef{Tenant: "acme", Project: "website", Machine: "codex"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if name != "website-codex" {
-		t.Fatalf("name = %q, want website-codex", name)
 	}
 }
 

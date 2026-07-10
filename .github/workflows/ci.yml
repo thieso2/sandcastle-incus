@@ -28,6 +28,19 @@ jobs:
       - name: Install the Incus client
         run: sudo apt-get update && sudo apt-get install -y incus-client
 
+
+      - name: v1 shapes stay impossible
+        run: |
+          set -euo pipefail
+          # v1 is removed (#52). These symbols minted the v1 name shapes that
+          # leaked into v2 paths and caused #51, #55 and the share-reconcile bug.
+          # If one reappears, the shape is constructable again.
+          if grep -rn --include='*.go' -e 'MachineIncusInstanceName' -e 'meta.KindTenant' internal/ cmd/; then
+            echo "::error::v1 name shape reintroduced (see #52)"
+            exit 1
+          fi
+          echo "no v1 name shapes"
+
       - name: Unit tests
         run: scripts/e2e.sh unit
 

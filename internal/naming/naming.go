@@ -53,18 +53,6 @@ func ParseProjectRef(value string) (ProjectRef, error) {
 	return ref, nil
 }
 
-func ParseAdminMachineRef(value string) (MachineRef, error) {
-	parts := strings.Split(value, "/")
-	switch len(parts) {
-	case 2:
-		return validateMachineRef(MachineRef{Tenant: parts[0], Project: DefaultProjectName, Machine: parts[1]})
-	case 3:
-		return validateMachineRef(MachineRef{Tenant: parts[0], Project: parts[1], Machine: parts[2]})
-	default:
-		return MachineRef{}, fmt.Errorf("machine reference must be tenant/machine or tenant/project/machine")
-	}
-}
-
 func ParseUserMachineRef(value string, currentProject string) (ProjectRef, string, error) {
 	value = strings.TrimSpace(value)
 	if scope, rest, ok := strings.Cut(value, "/"); ok && strings.Contains(rest, ":") {
@@ -200,17 +188,6 @@ func TenantInfraIncusProjectName(mainProjectName string) string {
 // TenantNativeIncusProjectName returns the Incus project name for a tenant's freeform native workspace.
 func TenantNativeIncusProjectName(mainProjectName string) string {
 	return mainProjectName + "-native"
-}
-
-func MachineIncusInstanceName(ref MachineRef) (string, error) {
-	if err := ref.Validate(); err != nil {
-		return "", err
-	}
-	name := ref.Project + "-" + ref.Machine
-	if len(name) > 63 {
-		return "", fmt.Errorf("incus instance name %q exceeds 63 characters", name)
-	}
-	return name, nil
 }
 
 func ValidateTenantName(name string) error {

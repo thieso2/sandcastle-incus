@@ -3080,39 +3080,6 @@ type fakeProjectUpdater struct {
 	projects     []meta.Project
 }
 
-type fakeUnixUserUpdater struct {
-	config map[string]string
-	calls  []struct {
-		incusProject string
-		unixUser     string
-	}
-}
-
-func (f *fakeUnixUserUpdater) SetTenantUnixUser(ctx context.Context, incusProjectName string, unixUser string) error {
-	f.calls = append(f.calls, struct {
-		incusProject string
-		unixUser     string
-	}{incusProject: incusProjectName, unixUser: unixUser})
-	if f.config != nil {
-		metadata, err := meta.ParseTenantConfig(f.config)
-		if err != nil {
-			return err
-		}
-		metadata.UnixUser = unixUser
-		updated, err := meta.TenantConfig(metadata)
-		if err != nil {
-			return err
-		}
-		for key := range f.config {
-			delete(f.config, key)
-		}
-		for key, value := range updated {
-			f.config[key] = value
-		}
-	}
-	return nil
-}
-
 func (f *fakeProjectUpdater) SetTenantProjects(ctx context.Context, incusProjectName string, projects []meta.Project) error {
 	f.called = true
 	f.incusProject = incusProjectName

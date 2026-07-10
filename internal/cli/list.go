@@ -59,15 +59,6 @@ func listTenants(ctx context.Context, store tenant.IncusTenantStore) ([]tenant.S
 	return tenant.List(ctx, store)
 }
 
-func tenantStoreWithSSHKeyMetadata(store tenant.IncusTenantStore) tenant.IncusTenantStore {
-	if hydrator, ok := store.(interface {
-		WithSSHKeyMetadata() tenant.IncusTenantStore
-	}); ok {
-		return hydrator.WithSSHKeyMetadata()
-	}
-	return store
-}
-
 func formatTenantList(tenants []tenant.Summary) string {
 	if len(tenants) == 0 {
 		return "No Sandcastle tenants found."

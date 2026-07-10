@@ -36,7 +36,6 @@ const (
 	KeyCreatedBy = Prefix + "created_by"
 	KeyState     = Prefix + "state"
 
-	KindTenant    = "tenant"
 	KindMachine   = "machine"
 	KindRoute     = "route"
 	KindSidecar   = "sidecar"
@@ -49,20 +48,6 @@ const (
 
 	TailscaleStateRunningLoggedOut = "running-logged-out"
 )
-
-type Tenant struct {
-	Tenant        string               `json:"tenant"`
-	Personal      bool                 `json:"personal,omitempty"`
-	CreatedBy     string               `json:"createdBy,omitempty"`
-	UnixUser      string               `json:"unixUser,omitempty"`
-	Projects      []Project            `json:"projects"`
-	StorageShares []TenantStorageShare `json:"storageShares,omitempty"`
-	PrivateCIDR   string               `json:"privateCIDR"`
-	SSHPublicKey  string               `json:"sshPublicKey,omitempty"`
-	Tailscale     Tailscale            `json:"tailscale,omitempty"`
-	Machines      []MachineRef         `json:"machines,omitempty"`
-	PublicRoutes  []PublicRoute        `json:"publicRoutes,omitempty"`
-}
 
 type Project struct {
 	Name            string `json:"name"`
@@ -145,31 +130,6 @@ type Route struct {
 	RoutePort       int    `json:"routePort"`
 	CreatedBy       string `json:"createdBy,omitempty"`
 	IngressAttached bool   `json:"ingressAttached,omitempty"`
-}
-
-func TenantConfig(tenant Tenant) (map[string]string, error) {
-	state, err := encodeState(tenant)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{
-		KeyKind:        KindTenant,
-		KeyVersion:     strconv.Itoa(Version),
-		KeyTenant:      tenant.Tenant,
-		KeyPrivateCIDR: tenant.PrivateCIDR,
-		KeyState:       state,
-	}, nil
-}
-
-func ParseTenantConfig(config map[string]string) (Tenant, error) {
-	if err := requireKind(config, KindTenant); err != nil {
-		return Tenant{}, err
-	}
-	var tenant Tenant
-	if err := decodeState(config[KeyState], &tenant); err != nil {
-		return Tenant{}, err
-	}
-	return tenant, nil
 }
 
 func MachineConfig(machine Machine) (map[string]string, error) {

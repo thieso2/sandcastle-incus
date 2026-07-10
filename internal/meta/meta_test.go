@@ -2,53 +2,6 @@ package meta
 
 import "testing"
 
-func TestTenantConfigRoundTrip(t *testing.T) {
-	input := Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.88.17.0/24",
-		Projects: []Project{
-			{Name: "default"},
-			{Name: "website", CreatedBy: "alice", DockerAutostart: true},
-		},
-		Tailscale: Tailscale{
-			State:            "connected",
-			AdvertisedRoutes: []string{"10.88.17.0/24"},
-		},
-		PublicRoutes: []PublicRoute{{
-			Hostname:  "app.example.com",
-			Project:   "website",
-			Machine:   "codex",
-			RoutePort: 5173,
-		}},
-	}
-	config, err := TenantConfig(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config[KeyKind] != KindTenant {
-		t.Fatalf("kind = %q", config[KeyKind])
-	}
-	if config[KeyTenant] != "acme" {
-		t.Fatalf("tenant scalar = %q", config[KeyTenant])
-	}
-	output, err := ParseTenantConfig(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output.Tenant != input.Tenant || output.PrivateCIDR != input.PrivateCIDR {
-		t.Fatalf("round trip = %#v, want %#v", output, input)
-	}
-	if len(output.Projects) != 2 || output.Projects[1].Name != "website" || !output.Projects[1].DockerAutostart {
-		t.Fatalf("projects = %#v", output.Projects)
-	}
-	if len(output.Tailscale.AdvertisedRoutes) != 1 {
-		t.Fatalf("advertised routes = %#v", output.Tailscale.AdvertisedRoutes)
-	}
-	if len(output.PublicRoutes) != 1 || output.PublicRoutes[0].Machine != "codex" {
-		t.Fatalf("public routes = %#v", output.PublicRoutes)
-	}
-}
-
 func TestMachineConfigRoundTrip(t *testing.T) {
 	input := Machine{
 		Tenant:          "acme",
@@ -132,7 +85,7 @@ func TestRouteConfigRoundTrip(t *testing.T) {
 }
 
 func TestParseRejectsUnmanagedConfig(t *testing.T) {
-	_, err := ParseTenantConfig(map[string]string{})
+	_, err := ParseMachineConfig(map[string]string{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -142,7 +95,7 @@ func TestIsManaged(t *testing.T) {
 	if IsManaged(map[string]string{}) {
 		t.Fatal("empty config should be unmanaged")
 	}
-	if !IsManaged(map[string]string{KeyKind: KindTenant, KeyVersion: "1"}) {
+	if !IsManaged(map[string]string{KeyKind: KindInfra, KeyVersion: "1"}) {
 		t.Fatal("Sandcastle config should be managed")
 	}
 }

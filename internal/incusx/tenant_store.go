@@ -33,9 +33,7 @@ type TenantStore struct {
 	Remote       string
 	ConfigPath   string
 	Server       TenantListServer
-	Metadata     TenantMetadataServer
 	Log          func(string)
-	LoadSSHKey   bool
 	TenantFilter []string
 }
 
@@ -44,16 +42,11 @@ func NewTenantStore(remote string) TenantStore {
 }
 
 func NewTenantStoreForServer(server incus.InstanceServer) TenantStore {
-	return TenantStore{Server: server, Metadata: sdkTenantMetadataServer{inner: server}}
+	return TenantStore{Server: server}
 }
 
 func NewTenantStoreForSharedRemote(remote *SharedRemote) TenantStore {
-	return TenantStore{Server: sharedTenantListServer{remote: remote}, Metadata: sharedTenantMetadataServer{remote: remote}, Log: remote.Log}
-}
-
-func (s TenantStore) WithSSHKeyMetadata() tenant.IncusTenantStore {
-	s.LoadSSHKey = true
-	return s
+	return TenantStore{Server: sharedTenantListServer{remote: remote}, Log: remote.Log}
 }
 
 func (s TenantStore) WithTenantFilter(names ...string) tenant.IncusTenantStore {
@@ -70,7 +63,6 @@ func (s TenantStore) WithVerbose(enabled bool, w io.Writer) TenantStore {
 
 func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, error) {
 	server := s.Server
-	metadata := s.Metadata
 	if server == nil {
 		loaded, err := LoadCLIConfig(s.ConfigPath)
 		if err != nil {
@@ -87,7 +79,6 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
 		server = loadedServer
-		metadata = sdkTenantMetadataServer{inner: loadedServer, Log: s.Log}
 	}
 	if connector, ok := server.(interface{ ensureConnected() error }); ok {
 		if err := connector.ensureConnected(); err != nil {
@@ -101,16 +92,6 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 	}
 	output := FromAPIProjects(projects)
 	output = filterTenantProjects(output, s.TenantFilter)
-	if metadata == nil {
-		return output, nil
-	}
-	for i := range output {
-		config, err := tenantConfigWithMetadataFiles(metadata.UseProject(output[i].Name), output[i].Name, output[i].Config, s.LoadSSHKey)
-		if err != nil {
-			return nil, err
-		}
-		output[i].Config = config
-	}
 	return output, nil
 }
 
@@ -131,15 +112,6 @@ func filterTenantProjects(projects []tenant.IncusProject, tenantNames []string) 
 			continue
 		}
 		switch project.Config[meta.KeyKind] {
-		case meta.KindTenant:
-			tenantConfig, err := meta.ParseTenantConfig(project.Config)
-			if err != nil {
-				output = append(output, project)
-				continue
-			}
-			if _, ok := filter[tenantConfig.Tenant]; ok {
-				output = append(output, project)
-			}
 		case meta.KindV2Project, meta.KindInfra:
 			// v2 tenants: the owning tenant is a plain config key. Dropping
 			// these made every tenant-filtered lookup report a v2 tenant as
@@ -170,43 +142,6 @@ const (
 	tenantUnixUserFile      = tenantMetadataDir + "/unix_user"
 	tenantStorageSharesFile = tenantMetadataDir + "/storage_shares"
 )
-
-func tenantConfigWithMetadataFiles(server TenantMetadataResourceServer, incusProjectName string, config map[string]string, loadSSHKey bool) (map[string]string, error) {
-	if !meta.IsManaged(config) || config[meta.KeyKind] != meta.KindTenant {
-		return config, nil
-	}
-	managed, err := meta.ParseTenantConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("parse tenant metadata for %s: %w", incusProjectName, err)
-	}
-	if loadSSHKey {
-		if sshKey, ok, err := readTenantSSHKey(server, incusProjectName); err != nil {
-			return nil, err
-		} else if ok {
-			managed.SSHPublicKey = sshKey
-		}
-	}
-	if projects, ok, err := readTenantProjects(server, incusProjectName); err != nil {
-		return nil, err
-	} else if ok {
-		managed.Projects = projects
-	}
-	if unixUser, ok, err := readTenantUnixUser(server, incusProjectName); err != nil {
-		return nil, err
-	} else if ok {
-		managed.UnixUser = unixUser
-	}
-	if shares, ok, err := readTenantStorageShares(server, incusProjectName); err != nil {
-		return nil, err
-	} else if ok {
-		managed.StorageShares = shares
-	}
-	updated, err := meta.TenantConfig(managed)
-	if err != nil {
-		return nil, err
-	}
-	return updated, nil
-}
 
 func readTenantSSHKey(server TenantMetadataResourceServer, incusProjectName string) (string, bool, error) {
 	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantSSHPublicKeyFile)
