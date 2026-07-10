@@ -270,3 +270,87 @@ func acceptedShare() meta.TenantStorageShare {
 		}},
 	}
 }
+
+// recordingShareServer records which Incus project each machine is looked up in,
+// and which instance name is asked for.
+type recordingShareServer struct {
+	resource *recordingShareResource
+	projects []string
+}
+
+func (s *recordingShareServer) UseProject(name string) ShareReconcileResourceServer {
+	s.projects = append(s.projects, name)
+	return s.resource
+}
+
+type recordingShareResource struct {
+	fakeShareReconcileResource
+	instances []string
+}
+
+func (r *recordingShareResource) GetInstance(name string) (*api.Instance, string, error) {
+	r.instances = append(r.instances, name)
+	return r.fakeShareReconcileResource.GetInstance(name)
+}
+
+func recordingShareReconciler(t *testing.T, machines []meta.Machine) (ShareReconciler, *recordingShareServer) {
+	t.Helper()
+	resource := &recordingShareResource{fakeShareReconcileResource: fakeShareReconcileResource{
+		instance: &api.Instance{InstancePut: api.InstancePut{Devices: map[string]map[string]string{
+			"root": {"type": "disk", "path": "/"},
+		}}},
+	}}
+	server := &recordingShareServer{resource: resource}
+	return ShareReconciler{
+		Admin:  config.Admin{IncusProjectPrefix: config.DefaultIncusProjectPrefix},
+		Server: server,
+		Store:  fakeShareReconcileStore{machines: machines},
+	}, server
+}
+
+// Regression: the share reconciler used the v1 "<project>-<machine>" instance
+// name inside the tenant's single Incus project. On a v2 tenant that looked up
+// "default-web" in sc2-<tenant>-default and reported every container as failed
+// ("Instance not found"), which `sc status` then surfaced as an unreconciled
+// machine count on a tenant that has no shares at all.
+func TestShareReconcilerUsesV2InstanceNamesAndPerProjectIncusProjects(t *testing.T) {
+	reconciler, server := recordingShareReconciler(t, []meta.Machine{
+		{Tenant: "alice", Project: "default", Name: "web", Type: meta.MachineTypeContainer},
+		{Tenant: "alice", Project: "backend", Name: "api", Type: meta.MachineTypeContainer},
+	})
+	summary := tenant.Summary{Tenant: "alice", Version: 2, InfraProject: "sc2-alice", IncusName: "sc2-alice-default"}
+	result, err := reconciler.ReconcileTenantShares(context.Background(), summary, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.HasFailures() {
+		t.Fatalf("v2 machines must resolve, got %#v", result.Machines)
+	}
+	if got := strings.Join(server.projects, ","); got != "sc2-alice-default,sc2-alice-backend" {
+		t.Fatalf("incus projects = %q", got)
+	}
+	if got := strings.Join(server.resource.instances, ","); got != "web,api" {
+		t.Fatalf("instance names = %q, want bare v2 names", got)
+	}
+	for _, machine := range result.Machines {
+		if machine.Status != "current" {
+			t.Fatalf("a tenant with no shares needs no change: %#v", machine)
+		}
+	}
+}
+
+// v1 keeps the packed instance name inside the tenant's single Incus project.
+func TestShareReconcilerKeepsV1InstanceNames(t *testing.T) {
+	reconciler, server := recordingShareReconciler(t, []meta.Machine{
+		{Tenant: "alice", Project: "default", Name: "web", Type: meta.MachineTypeContainer},
+	})
+	if _, err := reconciler.ReconcileTenantShares(context.Background(), tenant.Summary{Tenant: "alice", IncusName: "sc-alice"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(server.projects, ","); got != "sc-alice" {
+		t.Fatalf("v1 project = %q", got)
+	}
+	if got := strings.Join(server.resource.instances, ","); got != "default-web" {
+		t.Fatalf("v1 instance name = %q", got)
+	}
+}

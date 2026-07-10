@@ -64,8 +64,31 @@ func addTenantShareReconciliationHealth(ctx context.Context, config commandConfi
 		return
 	}
 	status.Shares.UnreconciledMachineCount = unreconciledShareMachineCount(result)
+	// A per-machine failure is a failure of the check. Reporting "ok (N machines
+	// checked)" while a machine errored is how a broken reconcile stayed
+	// invisible: `sc status` said ok, and only the machine count hinted at it.
+	if result.HasFailures() {
+		status.Checks = append(status.Checks, tenant.Check{
+			Name:   "shares:reconcile",
+			Status: "error",
+			Detail: shareReconcileFailureDetail(result),
+		})
+		return
+	}
 	detail := fmt.Sprintf("%d machine(s) checked", len(result.Machines))
 	status.Checks = append(status.Checks, tenant.Check{Name: "shares:reconcile", Status: "ok", Detail: detail})
+}
+
+// shareReconcileFailureDetail names the machines that failed and why, rather
+// than reporting a bare count the user cannot act on.
+func shareReconcileFailureDetail(result share.ReconcileResult) string {
+	failures := make([]string, 0, len(result.Machines))
+	for _, machine := range result.Machines {
+		if text := strings.TrimSpace(machine.Error); text != "" {
+			failures = append(failures, fmt.Sprintf("%s/%s: %s", machine.Project, machine.Machine, text))
+		}
+	}
+	return strings.Join(failures, "; ")
 }
 
 func tenantShareReconciliationDryRun(ctx context.Context, config commandConfig, summary tenant.Summary) (share.ReconcileResult, bool, error) {
