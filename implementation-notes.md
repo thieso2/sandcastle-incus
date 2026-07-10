@@ -1232,15 +1232,27 @@ the model, so the command had become a verbatim alias for `sc incus`. Alternativ
 considered: keep it as an alias. Rejected — it documents a project split that no
 longer exists. `sc incus` and `sc incus-infra` remain.
 
-**`usertrust.tenantAccessProjects` was granting two projects that do not exist.**
-It restricted a tenant user's cert to `<prefix>-<tenant>`, `…-infra` and
-`…-native`. Under v2 only the first exists (it is the infra project); the apps
-live in `<prefix>-<tenant>-<project>`. Incus validates a restricted cert's
-project list, so `sc-adm user grant-tenant` was handing it names it would reject.
+**`sc-adm tenant grant` never granted access to the tenant's machines.**
+`usertrust.tenantAccessProjects` restricted a tenant user's cert to
+`<prefix>-<tenant>`, `…-infra` and `…-native`. Under v2 only the first exists —
+and it is the *infra* project, holding the sidecar. The machines live in the app
+project `<prefix>-<tenant>-<project>`, which was never on the list. So a granted
+user received access to the sidecar project plus two projects that do not exist,
+and none to their own machines.
+
+I first assumed Incus would reject a restriction naming a nonexistent project,
+and wrote that into the commit message. Verified on majestix: it does **not** —
+`incus config trust add v52probe-tok --restricted --projects sc2-e2edns-infra`
+exits 0. The grant therefore failed quietly, in the house style (cf.
+`docs/e2e-sc2.md`, "Problems encountered"): the command succeeded and produced a
+certificate that could not see the tenant's machines. Claim corrected.
+
 It now grants the infra project plus `-default`, matching the `RestrictedProjects`
-that `tenant.CreatePlanV2` already grants at provisioning time. This is a
-behaviour fix, not just a rename, and it is untested against a live Incus daemon
-— it is on the majestix verification list below.
+that `tenant.CreatePlanV2` already grants at provisioning time. Verified live:
+against tenant `e2edns` on majestix, `main` planned
+`[sc2-e2edns, sc2-e2edns-infra, sc2-e2edns-native]` while the branch plans
+`[sc2-e2edns, sc2-e2edns-default]`; only the latter two projects exist, and
+`sc2-e2edns-default` is where `web` and `vm1` actually live.
 
 **A latent limit, recorded rather than fixed:** `ValidateTenantName` accepts a
 53-character tenant, sized for v1's 7-char `-native` suffix. v2 appends
