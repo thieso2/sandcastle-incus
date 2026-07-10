@@ -118,6 +118,18 @@ func (h handler) findTenantSummary(r *http.Request, tenantName string) (tenant.S
 	normalized := NormalizeGitHubUsername(tenantName)
 	for _, summary := range summaries {
 		if summary.Tenant == normalized {
+			// tenant.ListForPrefix builds summaries from Incus project state and
+			// leaves StorageShares empty. The share reconciler mounts exactly what
+			// is in summary.StorageShares, and `shareHealth` counts from it, so a
+			// summary without the registry makes a real (non-dry-run) accept mount
+			// nothing and `sc status` report zero shares. Read the registry in.
+			if h.shareStore != nil {
+				shares, err := h.shareStore.GetTenantShares(r.Context(), summary.IncusName)
+				if err != nil {
+					return tenant.Summary{}, err
+				}
+				summary.StorageShares = shares
+			}
 			return summary, nil
 		}
 	}

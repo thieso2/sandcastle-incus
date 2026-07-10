@@ -148,7 +148,7 @@ const (
 // isMissingTenantMetadata treats as "no metadata" — so every tenant silently had
 // zero shares.
 func readTenantStorageShares(server TenantMetadataResourceServer, pool string, incusProjectName string) ([]meta.TenantStorageShare, bool, error) {
-	content, _, err := server.GetStorageVolumeFile(pool, "custom", tenant.WorkspaceVolumeName, tenantStorageSharesFile)
+	content, _, err := server.GetStorageVolumeFile(pool, "custom", tenant.V2WorkspaceVolumeName, tenantStorageSharesFile)
 	if isMissingTenantMetadata(err) {
 		return nil, false, nil
 	}

@@ -101,7 +101,7 @@ func TestShareReconcilerAddsAcceptedShareDevice(t *testing.T) {
 	if device["readonly"] != "true" || device["pool"] != "" || device["path"] != "/shared/thieso2/default/docs" {
 		t.Fatalf("device = %#v", device)
 	}
-	if device["source"] != "/var/lib/incus/storage-pools/sc-thieso2/custom/sc-thieso2_sc-workspace/default/docs" {
+	if device["source"] != "/var/lib/incus/storage-pools/default/custom/sc2-thieso2-default_workspace/docs" {
 		t.Fatalf("device = %#v", device)
 	}
 }
@@ -110,7 +110,7 @@ func TestShareReconcilerIsIdempotent(t *testing.T) {
 	storageShare := acceptedShare()
 	resource := &fakeShareReconcileResource{instance: &api.Instance{
 		InstancePut: api.InstancePut{Devices: map[string]map[string]string{
-			share.DeviceName(storageShare): share.DesiredDevice(storageShare, "sc-thieso2", tenant.WorkspaceVolumeName),
+			share.DeviceName(storageShare): share.DesiredDevice(storageShare, "sc2-thieso2-default", "default", tenant.V2WorkspaceVolumeName),
 		}},
 	}}
 	result, err := shareReconcilerForTest(resource).ReconcileTenantShares(context.Background(), tenantSummaryWithShare(), false)
@@ -181,7 +181,7 @@ func TestShareReconcilerRemovesUnavailableShareDevice(t *testing.T) {
 	storageShare := acceptedShare()
 	resource := &fakeShareReconcileResource{instance: &api.Instance{
 		InstancePut: api.InstancePut{Devices: map[string]map[string]string{
-			share.DeviceName(storageShare): share.DesiredDevice(storageShare, "sc-thieso2", tenant.WorkspaceVolumeName),
+			share.DeviceName(storageShare): share.DesiredDevice(storageShare, "sc2-thieso2-default", "default", tenant.V2WorkspaceVolumeName),
 		}},
 	}}
 	reconciler := shareReconcilerForTest(resource)
@@ -241,18 +241,19 @@ func (s fakeShareStatusStore) SetTenantShares(ctx context.Context, incusProjectN
 	return nil
 }
 
-func (s fakeShareStatusStore) SourceDirectoryExists(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error) {
+func (s fakeShareStatusStore) SourceDirectoryExists(ctx context.Context, incusProjectName string, workspaceRelativeDir string) (bool, error) {
 	return s.status.Exists && s.status.Safe, nil
 }
 
-func (s fakeShareStatusStore) SourceDirectoryStatus(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (share.SourceStatus, error) {
+func (s fakeShareStatusStore) SourceDirectoryStatus(ctx context.Context, incusProjectName string, workspaceRelativeDir string) (share.SourceStatus, error) {
 	return s.status, nil
 }
 
 func tenantSummaryWithShare() tenant.Summary {
 	return tenant.Summary{
 		Tenant:        "skorfman",
-		IncusName:     "sc-skorfman",
+		IncusName:     "sc2-skorfman-default",
+		InfraProject:  "sc2-skorfman",
 		StorageShares: []meta.TenantStorageShare{acceptedShare()},
 	}
 }
@@ -340,3 +341,38 @@ func TestShareReconcilerUsesV2InstanceNamesAndPerProjectIncusProjects(t *testing
 }
 
 // v1 keeps the packed instance name inside the tenant's single Incus project.
+
+// The source directory of a share lives in the SOURCE project's own workspace
+// volume, and the install prefix must come from the recipient's infra project —
+// the user-facing default "sc" maps to the real v2 prefix "sc2", so deriving the
+// project name from the admin config missed the real projects. A share from a
+// non-default source project must resolve to that project's volume, mounting the
+// bare SourceDir (no per-project subdirectory, that was the v1 single-volume
+// layout).
+func TestShareReconcilerResolvesSourceProjectVolume(t *testing.T) {
+	resource := &fakeShareReconcileResource{instance: &api.Instance{
+		InstancePut: api.InstancePut{Devices: map[string]map[string]string{"root": {"type": "disk", "path": "/"}}},
+	}}
+	reconciler := shareReconcilerForTest(resource) // Admin prefix is the default "sc"
+	summary := tenant.Summary{
+		Tenant:       "skorfman",
+		IncusName:    "sc2-skorfman-default",
+		InfraProject: "sc2-skorfman", // real prefix is sc2, not the admin "sc"
+		StorageShares: []meta.TenantStorageShare{{
+			SourceTenant:  "thieso2",
+			SourceProject: "backend",
+			SourceDir:     "data/sets",
+			Name:          "sets",
+			Availability:  share.AvailabilityAvailable,
+			Recipients:    []meta.TenantStorageShareRecipient{{Tenant: "skorfman", State: share.RecipientStateAccepted}},
+		}},
+	}
+	if _, err := reconciler.ReconcileTenantShares(context.Background(), summary, false); err != nil {
+		t.Fatal(err)
+	}
+	device := resource.updated.Devices[share.DeviceName(summary.StorageShares[0])]
+	want := "/var/lib/incus/storage-pools/default/custom/sc2-thieso2-backend_workspace/data/sets"
+	if device["source"] != want {
+		t.Fatalf("source = %q, want %q", device["source"], want)
+	}
+}

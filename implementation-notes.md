@@ -1456,3 +1456,51 @@ about code that was never deployed. `scratchpad/e2e/deploy.sh` now stops the uni
 pushes beside the target and renames over it (rename leaves the running process on
 the old inode), and **verifies every binary by sha256**, failing loudly on a stale
 one.
+
+## 2026-07-10 — #68: Tenant Storage Shares made to work under v2
+
+Five bugs, four of them the v1 single-volume layout, one a missing registry read.
+All found and fixed against the running majestix stack.
+
+1. **Source Incus project.** The reconciler derived `<prefix>-<sourceTenant>` (the
+   infra project, no workspace volume). Now `<prefix>-<sourceTenant>-<sourceProject>`.
+   The prefix is taken from the recipient summary's `InfraProject`, not
+   `r.Admin.IncusProjectPrefix`: the user-facing default "sc" maps to the real v2
+   prefix "sc2", so the admin value would miss the real projects.
+2. **Volume name.** Every share store access used `tenant.WorkspaceVolumeName`
+   (`"sc-workspace"`, v1). v2 volumes are `workspace` (`V2WorkspaceVolumeName`), so
+   reads 404'd → "source directory does not exist" and "zero shares".
+3. **In-volume path.** The source check looked at `<project>/<dir>`; each v2
+   project has its own volume mounted at `/workspace`, so it is `<dir>` alone.
+   Dropped the redundant `project` parameter from the SourceStatus/Exists interface
+   so the v1 shape cannot be passed again.
+4. **Host bind-mount path.** `HostSourcePath` used the Incus project as the
+   storage-pool path segment and appended a per-project subdirectory. Corrected to
+   `/var/lib/incus/storage-pools/<pool>/custom/<sourceIncusProject>_workspace/<dir>`,
+   verified against the on-disk layout on majestix.
+5. **Registry never read into the summary.** `tenant.ListForPrefix` leaves
+   `Summary.StorageShares` empty, and the auth-app's `findTenantSummary` returned it
+   as-is. The reconciler mounts exactly what is in `StorageShares`, so a real accept
+   mounted nothing (only the dry-run branches patched it in). `findTenantSummary`
+   now reads the registry via the share store.
+
+`sc status` share counts were computed client-side from the empty summaries, and
+the inbound counts need every other tenant's registry — which only the server can
+read. `sc status` now fills the counts from the Auth App's list endpoints
+(`ListShares`/`ListInboundShares`/`ListShareOffers`).
+
+The test fakes were the reason none of this failed in CI: they accepted any
+`incusProject`/`dir`/`pool`. The share-package fake now records every source
+lookup so a test can assert the resolved project and path, and a reconcile test
+pins the full on-disk source path.
+
+Verified live: thieso2 shares `/workspace/shared68` to octocat; octocat accepts;
+reconcile adds a read-only disk device with source
+`/var/lib/incus/storage-pools/default/custom/sc2-thieso2-default_workspace/shared68`;
+the recipient reads the payload and cannot write it; `sc status` shows outbound 1
+for thieso2 and inbound-accepted 1 for octocat.
+
+Not addressed (separate from the layout): the share registry lives in a
+user-writable `/workspace/.sandcastle/storage_shares` file, so a tenant can forge
+its own registry. Moving it to non-mounted storage or project config is a
+follow-up.

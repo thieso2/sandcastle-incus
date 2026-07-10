@@ -35,6 +35,7 @@ func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			addTenantShareReconciliationHealth(cmd.Context(), config, &status)
+			addTenantShareCounts(cmd.Context(), config, &status)
 			return writeOutput(config.stdout, opts.output, formatTenantStatus(status), status)
 		},
 	}
@@ -63,6 +64,40 @@ func addTenantShareReconciliationHealth(ctx context.Context, config commandConfi
 	}
 	detail := fmt.Sprintf("%d machine(s) checked", len(result.Machines))
 	status.Checks = append(status.Checks, tenant.Check{Name: "shares:reconcile", Status: "ok", Detail: detail})
+}
+
+// addTenantShareCounts fills the outbound/inbound/offer counts from the Auth
+// App's share list endpoints. The counts are otherwise computed client-side from
+// tenant.Summary.StorageShares, which the tenant list leaves empty — and the
+// inbound counts need every other tenant's registry, which only the server can
+// read. So `sc status` reported zero shares even when shares existed.
+func addTenantShareCounts(ctx context.Context, config commandConfig, status *tenant.Status) {
+	client, err := shareCountClient(config)
+	if err != nil || client == nil {
+		return
+	}
+	tenantName := status.Summary.Tenant
+	if outbound, err := client.ListShares(ctx, tenantName); err == nil {
+		status.Shares.OutboundShareCount = len(outbound)
+	}
+	if inbound, err := client.ListInboundShares(ctx, tenantName); err == nil {
+		status.Shares.InboundAcceptedCount = len(inbound)
+	}
+	if offers, err := client.ListShareOffers(ctx, tenantName); err == nil {
+		status.Shares.PendingInboundOfferCount = len(offers)
+	}
+}
+
+// shareCountClient resolves the Auth App share client if one is configured,
+// without erroring when it is not (status still renders, just without counts).
+func shareCountClient(config commandConfig) (authShareClient, error) {
+	if config.authShares != nil {
+		return config.authShares, nil
+	}
+	if strings.TrimSpace(config.adminConfig.AuthToken) == "" || strings.TrimSpace(config.adminConfig.AuthHostname) == "" {
+		return nil, nil
+	}
+	return shareClient(config)
 }
 
 // shareReconcileFailureDetail names the machines that failed and why, rather

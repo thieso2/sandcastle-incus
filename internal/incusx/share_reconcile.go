@@ -157,15 +157,32 @@ func (r ShareReconciler) reconcileMachine(ctx context.Context, server ShareRecon
 
 func (r ShareReconciler) desiredShareDevices(ctx context.Context, summary tenant.Summary) (map[string]map[string]string, error) {
 	devices := map[string]map[string]string{}
-	prefix := strings.TrimSpace(r.Admin.IncusProjectPrefix)
+	// The install prefix must come from live data, not r.Admin.IncusProjectPrefix:
+	// the user-facing default "sc" maps to the actual v2 project prefix "sc2"
+	// (see v2Summaries), so deriving "sc-<tenant>-<project>" from the admin config
+	// misses the real "sc2-<tenant>-<project>" projects. The recipient's own infra
+	// project (<prefix>-<recipientTenant>) encodes the real prefix, and shares are
+	// within one install, so the source tenant shares it.
+	prefix := strings.TrimSuffix(strings.TrimSpace(summary.InfraProject), "-"+summary.Tenant)
+	if prefix == "" || prefix == summary.InfraProject {
+		prefix = strings.TrimSpace(r.Admin.IncusProjectPrefix)
+	}
 	if prefix == "" {
 		prefix = config.DefaultIncusProjectPrefix
+	}
+	pool := strings.TrimSpace(r.Admin.StoragePool)
+	if pool == "" {
+		pool = config.DefaultStoragePool
 	}
 	for _, storageShare := range summary.StorageShares {
 		if !share.IsAcceptedAvailable(storageShare, summary.Tenant) {
 			continue
 		}
-		sourceIncusProject, err := naming.TenantIncusProjectNameWithPrefix(prefix, naming.TenantRef{Tenant: storageShare.SourceTenant})
+		// The source directory lives in the SOURCE project's own workspace volume,
+		// <prefix>-<sourceTenant>-<sourceProject>. The old code derived
+		// <prefix>-<sourceTenant> — the infra project, which has no workspace
+		// volume — so no accepted share ever mounted.
+		sourceIncusProject, err := naming.V2ProjectName(prefix, storageShare.SourceTenant, storageShare.SourceProject)
 		if err != nil {
 			return nil, err
 		}
@@ -178,16 +195,16 @@ func (r ShareReconciler) desiredShareDevices(ctx context.Context, summary tenant
 				continue
 			}
 		}
-		devices[share.DeviceName(storageShare)] = share.DesiredDevice(storageShare, sourceIncusProject, tenant.WorkspaceVolumeName)
+		devices[share.DeviceName(storageShare)] = share.DesiredDevice(storageShare, sourceIncusProject, pool, tenant.V2WorkspaceVolumeName)
 	}
 	return devices, nil
 }
 
 func sourceShareStatus(ctx context.Context, store share.Store, sourceIncusProject string, storageShare meta.TenantStorageShare) (share.SourceStatus, error) {
 	if typed, ok := store.(share.SourceStatusStore); ok {
-		return typed.SourceDirectoryStatus(ctx, sourceIncusProject, storageShare.SourceProject, storageShare.SourceDir)
+		return typed.SourceDirectoryStatus(ctx, sourceIncusProject, storageShare.SourceDir)
 	}
-	exists, err := store.SourceDirectoryExists(ctx, sourceIncusProject, storageShare.SourceProject, storageShare.SourceDir)
+	exists, err := store.SourceDirectoryExists(ctx, sourceIncusProject, storageShare.SourceDir)
 	if err != nil {
 		return share.SourceStatus{}, err
 	}
