@@ -7,32 +7,18 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
-	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func newStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status [machine|tenant]",
-		Short: "Show Sandcastle tenant or machine status",
+		Use:   "status [tenant]",
+		Short: "Show Sandcastle tenant status",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 1 && args[0] != config.adminConfig.Tenant {
-				result, err := machine.GetStatus(
-					cmd.Context(),
-					config.adminConfig,
-					config.tenantStore,
-					config.machineStore,
-					machine.StatusRequest{Reference: args[0]},
-				)
-				if err == nil {
-					return writeOutput(config.stdout, opts.output, formatMachineStatus(result), result)
-				}
-				if machine.IsAmbiguousMachineError(err) || strings.Contains(args[0], "/") || strings.Contains(args[0], ":") {
-					return err
-				}
-			}
+			// `sc status <machine>` was the v1 per-machine status. v2 has no
+			// per-machine status, so the argument is always a tenant name.
 			reference := config.adminConfig.Tenant
 			if len(args) == 1 {
 				reference = args[0]

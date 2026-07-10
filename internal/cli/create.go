@@ -1,26 +1,12 @@
 package cli
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/spf13/cobra"
-	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 )
 
 func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var dryRun bool
 	var detach bool
-	var template string
-	var appPort int
-	var homeDir string
-	var workspaceDir string
-	var shareHome bool
-	var containerTools bool
-	var cloudIdentity string
-	var authHostname string
-	var maxPolls int
-	var debugApprove bool
 	var image string
 	var vm bool
 	command := &cobra.Command{
@@ -28,146 +14,23 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Create a Sandcastle container machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// v2 tenants launch freeform machines (stock cloud image + the
-			// project default profile); the whole v1 plan below is v1-only.
-			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
-				for flagName, set := range map[string]bool{
-					"template": template != "", "app-port": appPort != 0,
-					"home-dir": homeDir != "", "workspace-dir": workspaceDir != "",
-					"container-tools": containerTools, "cloud-identity": cloudIdentity != "",
-				} {
-					if set {
-						return fmt.Errorf("--%s is not supported for v2 tenants", flagName)
-					}
-				}
-				return runCreateMachineV2(cmd.Context(), config, opts, summary, args[0], createV2Options{
-					Image:  image,
-					VM:     vm,
-					DryRun: dryRun,
-				})
-			}
-			if vm {
-				return fmt.Errorf("--vm is only supported for v2 tenants")
-			}
-			if image != "" {
-				return fmt.Errorf("--image is only supported for v2 tenants (v1 uses --template)")
-			}
-			createTenantStore := tenantStoreWithSSHKeyMetadata(config.tenantStore)
-			plan, err := machine.PlanCreate(cmd.Context(), config.adminConfig, createTenantStore, config.machineStore, machine.CreateRequest{
-				Reference:      args[0],
-				Template:       template,
-				AppPort:        appPort,
-				HomeDir:        homeDir,
-				WorkspaceDir:   workspaceDir,
-				ShareHome:      shareHome,
-				ContainerTools: containerTools,
-			})
+			summary, err := requireV2Tenant(cmd.Context(), config)
 			if err != nil {
 				return err
 			}
-			if !dryRun {
-				if err := ensureTenantUnixUserForMachineCreate(cmd.Context(), config, plan.Tenant); err != nil {
-					return err
-				}
-				plan, err = machine.PlanCreate(cmd.Context(), config.adminConfig, createTenantStore, config.machineStore, machine.CreateRequest{
-					Reference:      args[0],
-					Template:       template,
-					AppPort:        appPort,
-					HomeDir:        homeDir,
-					WorkspaceDir:   workspaceDir,
-					ShareHome:      shareHome,
-					ContainerTools: containerTools,
-				})
-				if err != nil {
-					return err
-				}
-				if config.machineCreator == nil {
-					return fmt.Errorf("machine creation executor is not configured")
-				}
-				effectiveCloudIdentity := effectiveProjectCloudIdentity(config, plan.Tenant, plan.Project, cloudIdentity)
-				if strings.TrimSpace(effectiveCloudIdentity) == "" {
-					verboseCLI(config, "workload identity: not requested for create %s; gcloud credentials will not be configured (use --cloud-identity gcp)", plan.Reference)
-				}
-				if err := config.machineCreator.CreateMachine(cmd.Context(), plan); err != nil {
-					return err
-				}
-				if strings.TrimSpace(effectiveCloudIdentity) != "" {
-					result, err := enableWorkloadIdentityForPlan(cmd.Context(), config, plan, workloadEnableOptions{
-						AuthHostname:  authHostname,
-						CloudIdentity: effectiveCloudIdentity,
-						MaxPolls:      maxPolls,
-						DebugApprove:  debugApprove,
-					})
-					if err != nil {
-						return err
-					}
-					if err := applyWorkloadIdentityToMachine(cmd.Context(), config, plan, result); err != nil {
-						return err
-					}
-				}
-				if err := refreshTenantDNS(cmd.Context(), config, plan.Tenant); err != nil {
-					return err
-				}
-				if err := refreshMachineKnownHosts(cmd.Context(), config, plan); err != nil {
-					return err
-				}
-				if !detach {
-					if config.machineConnector == nil {
-						return fmt.Errorf("machine connect executor is not configured")
-					}
-					connectPlan, err := machine.PlanConnect(cmd.Context(), config.adminConfig, config.tenantStore, config.machineStore, machine.ConnectRequest{Reference: args[0]})
-					if err != nil {
-						return err
-					}
-					connectPlan = withTenantKnownHostsFile(config, connectPlan)
-					if err := config.machineConnector.ConnectMachine(cmd.Context(), connectPlan, machine.ConnectSession{
-						Stdin:  config.stdin,
-						Stdout: config.stdout,
-						Stderr: config.stderr,
-					}); err != nil {
-						return err
-					}
-				}
-			}
-			return writeOutput(config.stdout, opts.output, formatMachinePlan(plan), plan)
+			return runCreateMachineV2(cmd.Context(), config, opts, summary, args[0], createV2Options{
+				Image:  image,
+				VM:     vm,
+				DryRun: dryRun,
+			})
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "render the machine creation plan without creating a container")
-	command.Flags().BoolVar(&detach, "detach", false, "create the machine without connecting to it")
-	command.Flags().BoolVar(&detach, "background", false, "create the machine without connecting to it")
-	command.Flags().StringVar(&template, "template", "", "machine template to use (ai or base)")
-	command.Flags().IntVar(&appPort, "app-port", 0, "application port proxied by machine Caddy")
-	command.Flags().StringVar(&homeDir, "home-dir", "", "project home volume subdirectory")
-	command.Flags().StringVar(&workspaceDir, "workspace-dir", "", "project workspace volume subdirectory")
-	command.Flags().BoolVar(&shareHome, "share-home", false, "deprecated no-op; project home storage is shared by default")
-	command.Flags().BoolVar(&containerTools, "container-tools", false, "enable nested container tooling for this machine")
-	command.Flags().StringVar(&cloudIdentity, "cloud-identity", "", "Cloud Identity Config name to inject, for example gcp")
-	command.Flags().StringVar(&image, "image", "", "v2 only: image to launch (default "+v2DefaultMachineImage+")")
-	command.Flags().BoolVar(&vm, "vm", false, "v2 only: launch a virtual machine instead of a container")
-	command.Flags().StringVar(&authHostname, "auth-hostname", "", "public Auth Hostname (overrides config auth.hostname)")
-	command.Flags().IntVar(&maxPolls, "max-polls", 300, "maximum device login poll attempts when enabling workload identity")
-	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve workload identity device login (requires server --debug-device-user)")
+	// --detach/--background are accepted no-ops: v2 machine creation never
+	// attaches, and the e2e protocol passes --detach throughout.
+	command.Flags().BoolVar(&detach, "detach", false, "deprecated no-op; machine creation never attaches")
+	command.Flags().BoolVar(&detach, "background", false, "deprecated no-op; machine creation never attaches")
+	command.Flags().StringVar(&image, "image", "", "image to launch (default "+v2DefaultMachineImage+")")
+	command.Flags().BoolVar(&vm, "vm", false, "launch a virtual machine instead of a container")
 	return command
-}
-
-func formatMachinePlan(plan machine.CreatePlan) string {
-	var builder strings.Builder
-	fmt.Fprintf(&builder, "Machine: %s\n", plan.Reference)
-	fmt.Fprintf(&builder, "Instance: %s\n", plan.InstanceName)
-	fmt.Fprintf(&builder, "Private IP: %s\n", plan.PrivateIP)
-	fmt.Fprintf(&builder, "App port: %d\n", plan.AppPort)
-	fmt.Fprintf(&builder, "Linux user: %s\n", plan.LinuxUser)
-	fmt.Fprintf(&builder, "Template: %s\n", plan.Template)
-	fmt.Fprintf(&builder, "Home dir: %s\n", plan.HomeDir)
-	fmt.Fprintf(&builder, "Workspace dir: %s\n", plan.WorkspaceDir)
-	fmt.Fprintf(&builder, "Container tools: %s\n", enabledString(plan.ContainerTools))
-	fmt.Fprintf(&builder, "Image: %s", plan.ImageAlias)
-	return builder.String()
-}
-
-func enabledString(enabled bool) string {
-	if enabled {
-		return "enabled"
-	}
-	return "disabled"
 }
