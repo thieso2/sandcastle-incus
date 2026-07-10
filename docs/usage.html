@@ -927,6 +927,7 @@ Bootstrap:
         <tr><td>sandcastle-admin tenant set-ssh-key &lt;tenant&gt; &lt;key&gt;</td><td>Set or update a tenant's SSH public key</td></tr>
         <tr><td>sandcastle-admin tenant delete [--purge]</td><td>Delete a tenant; with <code>--purge</code>, also destroy durable volumes and the Incus projects</td></tr>
         <tr><td>sandcastle-admin project create &lt;tenant&gt; &lt;project&gt;</td><td>Create a project for a tenant</td></tr>
+        <tr><td>sandcastle-admin project delete &lt;tenant&gt; &lt;project&gt; --yes</td><td>Delete a project of a tenant (machines, volumes, profiles, Incus project). Refuses the <code>default</code> project. The only working path: a tenant certificate may not delete an Incus project and the tenant plane has no delete endpoint</td></tr>
         <tr><td>sandcastle-admin user create &lt;user&gt; --tenant &lt;tenant&gt;</td><td>Create pre-granted restricted user token</td></tr>
         <tr><td>sandcastle-admin user delete &lt;user&gt;</td><td>Delete restricted user certificate</td></tr>
         <tr><td>sandcastle-admin user token &lt;user&gt; --tenant &lt;tenant&gt;</td><td>Re-issue pre-granted add-token for user</td></tr>
