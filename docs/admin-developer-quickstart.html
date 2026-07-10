@@ -317,7 +317,6 @@ mise run build:linux-amd64</code></pre>
 export SANDCASTLE_STORAGE_POOL=default
 export SANDCASTLE_CIDR_POOL=10.248.0.0/16
 export SANDCASTLE_INCUS_PROJECT_PREFIX=sc
-export SANDCASTLE_INFRA_PROJECT=sc-infra
 export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
 export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
 
@@ -336,33 +335,9 @@ SANDCASTLE_GEMINI_VERSION=0.42.0 \
       <p>Or import a pre-built image from a registry:</p>
       <pre><code>./bin/sc-adm image import ai SOURCE_REF</code></pre>
 
-      <h3>3a. Create shared route infrastructure (optional)</h3>
-      <p>Set the Auth Hostname, GitHub OAuth credentials, initial Sandcastle Admin GitHub usernames, and admin binary when this environment will serve the Auth App and public route mutations through infrastructure sidecars. <code>infra create</code> mounts the default host Incus socket automatically; set <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> only for a non-default host socket path.</p>
-      <pre><code>export SANDCASTLE_AUTH_HOSTNAME=auth.example.com
-export SANDCASTLE_AUTH_GITHUB_CLIENT_ID=...
-export SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET=...
-export SANDCASTLE_AUTH_ADMIN_GITHUB_USERS=octocat,hubot
-export SANDCASTLE_AUTH_DEBUG_DEVICE_USER=octocat   # optional lab-only device approval bypass
-export SANDCASTLE_AUTH_TAILSCALE_AUTHKEY=tskey-auth-...   # optional lab-only unattended Tailscale setup
-export SANDCASTLE_INFRA_TLS_MODE=internal   # optional debug TLS; default is acme
-export SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE=~/.config/sandcastle/infra-caddy-data/big/sc-infra/caddy-data.tgz   # optional ACME reuse
-mise run build:linux-amd64
-export SANDCASTLE_ADMIN_BIN=$PWD/bin/linux-amd64/sc-adm
-./bin/sc-adm infra gen-seed --name lab
-./bin/sc-adm infra create --name lab
-# Override the Unix user for machines provisioned through this Auth App:
-./bin/sc-adm infra create --username alice</code></pre>
-      <p><code>infra gen-seed</code> writes a private YAML infrastructure seed at <code>~/.config/sandcastle/&lt;deployment&gt;.seed.yml</code>. <code>infra create</code> reads that seed by default, or accepts <code>--seed &lt;file&gt;</code>; if the default seed is missing, <code>infra create</code> creates it before provisioning. For infrastructure creation, CLI flags override environment variables, environment variables override seed values, and seed values override built-in defaults. The seed can contain GitHub OAuth secrets, Tailscale auth keys, private TLS key material, and ACME account state, so do not commit it.</p>
-      <p>The seed fields needed to launch infrastructure containers are <code>infra.remote</code>, <code>infra.storagePool</code>, <code>infra.project</code>, <code>infra.tlsMode</code>, and <code>images.base</code>. Debug login, Tailscale auth keys, and default Unix user are not seed inputs; pass them through CLI flags or environment variables only when those service behaviors are needed. The Incus socket mount uses the built-in default unless <code>SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET</code> overrides the host path.</p>
-      <p><code>infra create</code> and <code>infra delete</code> print a configuration banner before mutation. Verify the remote, infrastructure project, TLS mode, image aliases, uploaded Linux admin binary, Auth Hostname, GitHub OAuth client ID, initial admin users, and Incus socket path; the GitHub OAuth client secret is shown only as set or unset. <code>infra delete</code> removes infrastructure resources; add <code>--purge</code> only when deleting Sandcastle tenant projects and durable data for the configured project prefix.</p>
-      <p>The Auth App sidecar runs <code>sandcastle-admin auth-app serve</code> with a persistent SQLite database. Initial admins can sign in with GitHub, manage explicit GitHub users at <code>/admin/allowlist</code>, manage Tenant Access at <code>/admin/access</code>, and browse the <strong>Activity Log</strong> at <code>/logs</code> (an admin sees every user's requests and work spans with timestamps and durations; a regular user sees only her own). The same verbose lines stream to the systemd journal &mdash; <code>journalctl -u sandcastle-auth-app -f</code> for the Auth App and <code>journalctl -u sandcastle-broker -f</code> for the broker. In disposable lab environments, <code>SANDCASTLE_AUTH_DEBUG_DEVICE_USER</code> enables <code>POST /debug/device/approve</code> to approve CLI Device Login as that allowlisted user without a browser session, and <code>SANDCASTLE_AUTH_TAILSCALE_AUTHKEY</code> lets approved CLI Device Login clients receive a Tailscale auth key for unattended tenant sidecar attachment. Machines provisioned through the Auth App use the local OS username sent by the user CLI during CLI Device Login; <code>--username</code> is only a fallback default. The route broker sidecar runs <code>sandcastle-admin route-broker serve</code>. Both sidecars use the mounted Incus socket when route infrastructure is configured this way.</p>
-      <p>The shared Caddy sidecar publishes host ports <code>80</code> and <code>443</code> through Incus proxy devices and routes the configured Auth Hostname to the Auth App over the infrastructure bridge network. Before launch, <code>infra create</code> builds and uploads configured Sandcastle images unless an image ref starts with <code>oci:</code>, which is treated as a complete external image source. Local builds target <code>linux/amd64</code> by default; override this with <code>SANDCASTLE_IMAGE_PLATFORM</code> or <code>DOCKER_DEFAULT_PLATFORM</code> only when the remote needs a different architecture. With <code>SANDCASTLE_INFRA_TLS_MODE=internal</code>, Caddy uses a persistent internal CA cached at <code>~/.config/sandcastle/infra-ca/&lt;remote&gt;/&lt;infra-project&gt;</code>, and <code>infra create</code> installs that CA into local trust after the sidecar starts. This lets one trusted debug CA survive <code>infra delete --purge</code> and later recreates. In ACME mode, <code>infra create</code> restores Caddy ACME data embedded in the seed before Caddy starts, then captures the current Caddy ACME storage back into the seed after successful provisioning. <code>SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE</code> can still point at an external archive and takes precedence over the seed. Reinstall or remove internal debug trust with <code>./bin/sc-adm infra trust install</code> and <code>./bin/sc-adm infra trust uninstall</code>.</p>
-      <p>The Auth App publishes OIDC discovery and JWKS endpoints under the Auth Hostname. Signing keys are bootstrapped into the SQLite database with encrypted private key storage.</p>
-      <p>Workload identity uses per-Machine runtime secrets. The Auth App stores only verifiers, mints 15-minute tokens, and lets users manage User-owned, tenant-scoped GCP Cloud Identity Configs at <code>/cloud-identities</code>. Project defaults validate that the named config exists for the current tenant before metadata is updated.</p>
-      <p>Allowlisted users first see the Auth App Onboarding Page after GitHub OAuth. If they are not on the Login Allowlist, the page tells them to ask a Sandcastle Admin for access; browser-only GitHub login does not provision a Personal Tenant.</p>
-      <p>CLI Device Login starts with <code>sc login https://auth.example.com</code>. The CLI prints a verification URL and user code, prepares the User SSH Public Key for Machine SSH Access, and polls while the Auth App creates or ensures the user's Personal Tenant, Default Project, Tenant Tailnet readiness, and restricted Incus certificate add token. The CLI enrolls the Incus remote with its own local client key, then uses that newly enrolled Incus config to set up tenant DNS, install local tenant CA trust, and run <code>tailscale up</code> for a single accessible tenant.</p>
-      <p><strong>Dev/e2e without a GitHub OAuth app:</strong> deploy the Auth App with <code>--simulate-github-token &lt;secret&gt;</code> and log in with <code>sc login &lt;auth-host&gt; --simulate-token &lt;secret&gt; --as &lt;username&gt;</code>. This approves the device login offline (no browser, no GitHub). Never enable simulated mode in production.</p>
-      <p>Login Readiness requires the local Tailscale Prerequisite when a Tenant Tailnet is returned: the user must be connected to the selected Tenant Tailnet and have a Tailscale IP. Revoking Tenant Access or removing a user from the Login Allowlist also removes that user's managed Machine SSH Access block from Machines in the affected Tenant.</p>
+      <h3>3a. Deploy the Auth App and broker (optional)</h3>
+      <p>The manual, per-service infrastructure deploy that used to live here (<code>sc-adm infra …</code> plus a separate route broker) has been removed along with tenant v1. Server-side deployment is now a single command &mdash; see <a href="#install">Install a Sandcastle (current)</a> at the top of this page (<code>sc-adm install</code>), and <a href="auth-app-full-setup.html">Full Auth App Setup</a> for the OIDC provider, workload identity, and Cloud Identity details. Public routes and the <code>sc route</code> command were removed with tenant v1 and have no replacement.</p>
+      <p><strong>Dev/e2e without a GitHub OAuth app:</strong> install with <code>sc-adm install --simulate-github-token &lt;secret&gt;</code> and log in with <code>sc login &lt;auth-host&gt; --simulate-token &lt;secret&gt; --as &lt;username&gt;</code>. This approves the device login offline (no browser, no GitHub). Never enable simulated mode in production.</p>
 
       <h3>4. Create the tenant</h3>
       <pre><code>./bin/sc-adm tenant create acme</code></pre>
@@ -434,35 +409,36 @@ sc version</code></pre>
 sc project list
 sc status</code></pre>
 
-      <h3>4. Publish the developer SSH key</h3>
-      <pre><code>sc ssh-key set --file ~/.ssh/id_ed25519.pub</code></pre>
-      <p>The developer owns this key. Sandcastle stores it in tenant metadata and injects it into machines created or re-ensured after this point.</p>
+      <h3>4. Provide the developer SSH key</h3>
+      <p>The self-service <code>sc ssh-key</code> command was removed with tenant v1. The key that authorizes Machine SSH Access is now supplied out of band: the developer passes it at login with <code>sc login &lt;auth-host&gt; --ssh-public-key ~/.ssh/id_ed25519.pub</code>, or the admin bakes it into the tenant's default project profile:</p>
+      <pre><code># Admin, on the admin host:
+./bin/sc-adm tenant set-ssh-key acme "$(cat ~alice/.ssh/id_ed25519.pub)"</code></pre>
+      <p>Sandcastle stores the key in tenant metadata and injects it into machines created or re-ensured after this point.</p>
 
       <h3>5. Create or select a lightweight project</h3>
       <pre><code>sc project create website
 sc config set project website
 sc project status website</code></pre>
-      <p>Docker is installed in the base machine image, but the daemon is disabled by default. Use <code>sc project set-docker-autostart website on</code> only for projects where new machines should start Docker automatically; this also enables nested container tooling for those machines. Otherwise developers can run <code>sudo systemctl start docker</code> inside an individual machine created with <code>--container-tools</code>.</p>
+      <p>Docker is installed in the base machine image, but the daemon is disabled by default. Use <code>sc project set-docker-autostart website on</code> only for projects where new machines should start Docker automatically; this also enables nested container tooling for those machines. Otherwise developers can run <code>sudo systemctl start docker</code> inside an individual machine.</p>
 
       <h3>6. Attach the tenant to the developer's Tailscale network</h3>
       <pre><code>sc tailscale up</code></pre>
       <p>The command runs <code>tailscale up --timeout=60s</code> inside the current tenant's Tailscale sidecar and advertises the tenant private CIDR. For unattended environments, pass an auth key with <code>--auth-key tskey-auth-...</code>; without one, Tailscale may print a browser auth URL but the command remains bounded by the timeout.</p>
 
-      <h3>7. Install local DNS</h3>
-      <pre><code>sc dns setup</code></pre>
-      <p>The setup command applies tenant DNS records and installs a local resolver for the current tenant suffix. The resolver points directly at the tenant <code>sc-dns</code> sidecar.</p>
+      <h3>7. Local DNS resolver</h3>
+      <p>The standalone <code>sc dns setup</code> command was removed. The local resolver for the tenant suffix is now installed automatically during <code>sc login</code> (pass <code>--skip-setup</code> to suppress it), pointing directly at the tenant CoreDNS sidecar. The remaining <code>sc dns</code> subcommands are <code>teardown</code> and <code>uninstall</code>, which remove that resolver config again.</p>
 
       <h3>8. Trust the tenant CA for private HTTPS</h3>
       <pre><code>sc trust install</code></pre>
-      <p>On macOS, the CLI writes trust to the user's login keychain with <code>security add-trusted-cert</code>. Override the keychain with <code>SANDCASTLE_DARWIN_TRUST_KEYCHAIN</code> when a different local trust target is needed. After a successful install, the CLI caches the tenant CA keypair at <code>~/.config/sandcastle/tenant-ca/&lt;remote&gt;/&lt;tenant-project&gt;</code> and restores it into recreated tenant storage before checking local trust, which keeps one approved tenant CA stable across <code>infra delete --purge</code> and later recreates.</p>
+      <p>On macOS, the CLI writes trust to the user's login keychain with <code>security add-trusted-cert</code>. Override the keychain with <code>SANDCASTLE_DARWIN_TRUST_KEYCHAIN</code> when a different local trust target is needed. After a successful install, the CLI caches the tenant CA keypair at <code>~/.config/sandcastle/tenant-ca/&lt;remote&gt;/&lt;tenant-project&gt;</code> and restores it into recreated tenant storage before checking local trust, which keeps one approved tenant CA stable across <code>sc-adm tenant delete --purge</code> and later recreates.</p>
       <p class="callout warn">This is explicit local-machine trust. Only install trust for tenants the developer owns and understands.</p>
 
       <h3>9. Create and connect to a machine</h3>
-      <pre><code>sc create codex
-# Automation-friendly:
-sc create codex --detach</code></pre>
-      <p>By default, Sandcastle uses the AI machine template. Use <code>--template base</code> for a smaller machine.</p>
-      <p>Machine creation refreshes Sandcastle's per-remote, per-tenant known-hosts file at <code>~/.config/sandcastle/&lt;remote&gt;/known_hosts/&lt;tenant&gt;</code> before connecting, so reused names and addresses get the current SSH host key without sharing entries through the global <code>~/.ssh/known_hosts</code>. Connect starts a stopped managed machine before keyscan and SSH, then uses the machine private IP; pass <code>--mosh</code> to use Mosh for the terminal while keeping the same SSH authentication setup. The tenant Tailscale sidecar advertises the tenant CIDR instead of giving each container its own Tailscale IP.</p>
+      <pre><code>sc create codex          # create only; does not attach
+sc connect codex         # SSH into it (alias: sc c codex)
+sc c codex               # create-if-missing, then SSH, in one step</code></pre>
+      <p>Machines launch from <code>images:debian/13/cloud</code> by default. Override the image with <code>--image &lt;ref&gt;</code>, or pass <code>--vm</code> to launch a virtual machine instead of a container. <code>sc create</code> no longer attaches automatically (the old <code>--detach</code>/<code>--background</code> flags are deprecated no-ops); use <code>sc connect</code> to open a shell.</p>
+      <p>Connect refreshes Sandcastle's per-remote, per-tenant known-hosts file at <code>~/.config/sandcastle/&lt;remote&gt;/known_hosts/&lt;tenant&gt;</code> before connecting, so reused names and addresses get the current SSH host key without sharing entries through the global <code>~/.ssh/known_hosts</code>. Connect starts a stopped managed machine before keyscan and SSH, then uses the machine private IP. The tenant Tailscale sidecar advertises the tenant CIDR instead of giving each container its own Tailscale IP.</p>
     </section>
 
     <section id="verify">
@@ -484,13 +460,12 @@ sc create codex --detach</code></pre>
           <h3>Admin checks</h3>
           <pre><code># Tenant resource and sidecar health
 sc-adm tenant status acme
-sc-adm tenant list acme       # shows machines + metadata
+sc-adm tenant list acme       # all resources across the tenant's projects
 
-# Tailscale route
-sc-adm tailscale status acme
-
-# List all resources in tenant across all projects
+# Resources in the tenant infra project (sidecars + shared volumes);
+# machines live in the per-project app projects sc-acme-&lt;project&gt;
 incus list REMOTE: --project sc-acme
+incus list REMOTE: --project sc-acme-website
 
 # Verbose service logs (timestamps + durations for every request and work span)
 journalctl -u sandcastle-auth-app -n 50 --no-pager
@@ -500,19 +475,15 @@ journalctl -u sandcastle-broker  -n 50 --no-pager
         </div>
         <div class="panel">
           <h3>Developer checks</h3>
-          <pre><code># Status and DNS
+          <pre><code># Tenant status
 sc status
-sc dns status
 
 # SSH connect (uses private IP, no Tailscale required)
 sc connect codex
 sc c codex
 
 # HTTPS trust (must succeed after sc trust install)
-curl https://codex.website.acme
-
-# Connect cache health (clear if tenant was recreated)
-sc cache clear acme</code></pre>
+curl https://codex.website.acme</code></pre>
         </div>
       </div>
 
@@ -530,19 +501,18 @@ sc cache clear acme</code></pre>
       <h3>After tenant recreation</h3>
       <p>When a tenant is deleted and recreated, the following local state becomes stale and must be refreshed:</p>
       <ul>
-        <li><strong>Connect cache</strong> — cached IPs point to the old machines. Run <code>sc cache clear &lt;tenant&gt;</code> or let <code>sc c</code> self-heal via the TCP probe (detects unreachable IPs and re-resolves automatically).</li>
-        <li><strong>Known hosts</strong> — old host keys remain in <code>~/.ssh/known_hosts</code>. <code>sc c</code> removes and re-scans them automatically on first connect. SSH with <code>StrictHostKeyChecking=accept-new</code> also handles this without errors.</li>
+        <li><strong>Known hosts</strong> — old host keys remain in the per-tenant known-hosts file (and in <code>~/.ssh/known_hosts</code>). <code>sc c</code> removes and re-scans them automatically on first connect. SSH with <code>StrictHostKeyChecking=accept-new</code> also handles this without errors.</li>
         <li><strong>Tenant CA trust</strong> — the new tenant has a new CA key pair. Run <code>sc trust install</code> to install the fresh CA. The CLI always reads the CA directly from Incus (never from stale local cache) and installs it if the keychain has an older version.</li>
         <li><strong>Local DNS</strong> — DNS suffix does not change when a tenant is recreated with the same name; no action needed.</li>
       </ul>
 
       <h3>Disposable VM local e2e</h3>
-      <p>Use the host-side VM harness for local DNS resolver, platform trust, and <code>/etc/hosts</code> mutation coverage. The harness creates a 20GiB root disk by default.</p>
+      <p>Use the host-side VM harness for local DNS resolver and platform trust coverage. The harness creates a 20GiB root disk by default.</p>
       <p>Test tenant private DNS suffixes are derived from the disposable tenant names; there is no separate e2e domain-suffix setting.</p>
       <pre><code>scripts/e2e-local-vm.sh
 SANDCASTLE_E2E_VM_KEEP=1 scripts/e2e-local-vm.sh</code></pre>
       <p>Run <code>go test ./internal/e2e -run TestFirstRunLoginWithMockGitHubOAuth -count=1 -v</code> to exercise the first-run login mock GitHub OAuth path without external GitHub calls.</p>
-      <p>For repo-level coverage, the destructive <code>scripts/e2e.sh incus</code> tier covers tenant create/purge and listing, tenant DNS, the current <code>sc create</code> and <code>sc connect</code> machine flows, local trust, host override create/list/delete, infrastructure, and image-sync checks.</p>
+      <p>For repo-level coverage, the destructive <code>scripts/e2e.sh incus</code> tier covers tenant create/purge and listing, tenant DNS, the current <code>sc create</code> and <code>sc connect</code> machine flows, local trust, and image-sync checks.</p>
     </section>
 
     <section id="cleanup">
@@ -558,9 +528,9 @@ sc tailscale down acme</code></pre>
       <h3>Admin cleanup</h3>
       <pre><code>./bin/sc-adm tenant revoke acme alice
 ./bin/sc-adm user delete alice
-./bin/sc-adm tenant delete acme --yes
+./bin/sc-adm tenant delete acme
 # For disposable tenants only:
-./bin/sc-adm tenant delete acme --yes --purge</code></pre>
+./bin/sc-adm tenant delete acme --purge</code></pre>
       <p><code>--purge</code> removes durable tenant state. Omit it when preserving home/workspace/CA volumes is required.</p>
     </section>
   </main>

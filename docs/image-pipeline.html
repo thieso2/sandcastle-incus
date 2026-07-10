@@ -274,8 +274,7 @@
   <div class="step">
     <h3>New machines</h3>
     <p>The tenant alias only stamps a machine at <em>create</em> time, so a new image reaches a machine when you create it:</p>
-    <pre><code><span class="cmd">sc create</span> <span class="arg">&lt;name&gt;</span>      <span class="comment"># boots from the tenant's current sandcastle/ai:latest</span>
-<span class="cmd">sc password set</span>      <span class="comment"># set Unix + Samba password on all tenant machines</span></code></pre>
+    <pre><code><span class="cmd">sc create</span> <span class="arg">&lt;name&gt;</span>      <span class="comment"># boots from the tenant's current sandcastle/ai:latest</span></code></pre>
   </div>
 
   <div class="step">
@@ -293,7 +292,8 @@
       <li>default project: <code>&lt;machine&gt;-home</code>, <code>&lt;machine&gt;-workspace</code></li>
       <li>other projects: <code>&lt;project&gt;-&lt;machine&gt;-home</code>, <code>&lt;project&gt;-&lt;machine&gt;-workspace</code></li>
     </ul>
-    <p>Mount from macOS after <code>sc password set</code>: Finder &rarr; &#8984;K &rarr; <code>smb://&lt;machine&gt;.&lt;project&gt;.&lt;tenant&gt;</code>, user = the tenant Linux user. <code>smbd</code> autostarts but exposes nothing until a Samba account exists (created by <code>sc password set</code>).</p>
+    <p>Mount from macOS: Finder &rarr; &#8984;K &rarr; <code>smb://&lt;machine&gt;.&lt;project&gt;.&lt;tenant&gt;</code>, user = the tenant Linux user. <code>smbd</code> autostarts but exposes nothing until a Samba account exists on the machine.</p>
+    <div class="note"><strong>No Samba account is created for you.</strong> <code>sc password set</code> created it, and that command was removed with tenant&nbsp;v1 (issue&nbsp;#52): it addressed machines by the v1 instance name <code>&lt;project&gt;-&lt;machine&gt;</code> and so could never reach a v2 machine. Until a v2 replacement exists, create the account by hand on each machine: <code>sc connect &lt;machine&gt; -- sudo smbpasswd -a $(id -un)</code>.</div>
   </div>
 </section>
 
@@ -329,7 +329,7 @@
 
   <div class="step">
     <h3>macOS &ldquo;authentication error&rdquo; mounting a share</h3>
-    <p>Either no Samba account exists on that machine (run <code>sc password set</code>), or macOS cached a stale credential &mdash; delete the entry for the host in Keychain Access and reconnect. Avoid <code>!</code> in passwords typed at an interactive zsh prompt (history expansion).</p>
+    <p>Either no Samba account exists on that machine (create one with <code>sc connect &lt;machine&gt; -- sudo smbpasswd -a $(id -un)</code>; <code>sc password set</code> was removed with tenant&nbsp;v1), or macOS cached a stale credential &mdash; delete the entry for the host in Keychain Access and reconnect. Avoid <code>!</code> in passwords typed at an interactive zsh prompt (history expansion).</p>
   </div>
 
   <div class="note"><strong>Roadmap:</strong> the install step is interim. The intended design is a global <code>sc-images</code> store plus a self-service <code>sc image update</code> that pulls the latest image into a tenant via the Auth App. Until then, <code>scripts/install-image-to-tenant.sh</code> is the command.</div>

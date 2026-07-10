@@ -387,7 +387,8 @@
   --tenant acme \
   --auth-hostname auth.example.com</code></pre>
 
-      <p>Enable workload identity on a tenant machine with <code>sc workload enable &lt;machine&gt; --cloud-identity gcp</code>. The command rotates the Machine Runtime Secret through the Auth App and injects the helper, external account credential file, and profile exports:</p>
+      <p>Enabling workload identity on a tenant machine rotates the Machine Runtime Secret through the Auth App and injects the helper, external account credential file, and profile exports:</p>
+      <div class="note"><strong>No per-machine enable command right now.</strong> <code>sc workload enable</code> was removed with tenant&nbsp;v1 (issue&nbsp;#52): it resolved the target through the v1 machine planner and addressed the instance as <code>&lt;project&gt;-&lt;machine&gt;</code>, so it could never reach a v2 machine. The Auth App still issues Workload Identity Tokens and <code>sc cloud-identity gcp setup</code> / <code>sc project set-cloud-identity</code> still configure federation; what is missing is the CLI step that injects the Machine Runtime Secret and credential files into one machine. That step needs a v2 implementation.</div>
       <table>
         <thead>
           <tr><th>Machine File</th><th>Purpose</th></tr>

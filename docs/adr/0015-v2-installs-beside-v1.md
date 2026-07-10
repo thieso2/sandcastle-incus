@@ -1,9 +1,11 @@
 # v2 Installs as a Parallel Deployment Beside v1
 
 > Status: **superseded — v1 retired.** The requirement to install beside a running
-> v1 instance is moot now that v1 no longer exists; multi-installation coexistence
-> on one host is instead served generally by the `--prefix` install flag (see
-> `../topology.md`). Retained as a dated decision record. Built on ADR-0011→0014. Captured 2026-07-01.
+> v1 instance is moot now that v1 no longer exists; the v1 topology and its code were
+> removed entirely in issue #52, so installs no longer coexist. Multi-installation
+> coexistence on one host is instead served generally by the `--prefix` install flag
+> (see `../topology.md`). Retained as a dated decision record. Built on ADR-0011→0014.
+> Captured 2026-07-01.
 
 v2 is a **different topology** (ADR-0011: User boundary, Project = Incus project) and migration is **re-onboard, preserving volumes** (ADR-0014). To migrate without a flag-day, v2 is deployed as a **separate Sandcastle deployment alongside the live v1 deployment** on the same Incus host (`big`); users migrate one at a time; v1 is retired only after v2 is verified.
 
@@ -29,4 +31,3 @@ Two host-global singletons are hardcoded and must become **deployment-scoped** (
 - **Non-overlapping CIDR is mandatory** (else tenant/user subnets collide on the host).
 - **Image aliases** (`base`/`ai`) are host-level; prefix them per deployment if v1 and v2 need independent image versions.
 - The prerequisite work (deployment-scoping the front door + infra bridge/octets) also unlocks running **any** number of Sandcastle deployments on one host, not just v1+v2.
-</content>

@@ -336,7 +336,7 @@ curl https://auth.example.com/t/acme/.well-known/jwks.json</code></pre>
   --tenant acme \
   --auth-hostname auth.example.com</code></pre>
       <pre><code>https://auth.example.com/cloud-identities</code></pre>
-      <pre><code>sc workload enable codex --cloud-identity gcp</code></pre>
+      <div class="note"><strong>No per-machine enable command right now.</strong> <code>sc workload enable</code> was removed with tenant&nbsp;v1 (issue&nbsp;#52): it resolved the target through the v1 machine planner and addressed the instance as <code>&lt;project&gt;-&lt;machine&gt;</code>, so it could never reach a v2 machine. The Auth App still issues Workload Identity Tokens and <code>sc cloud-identity gcp setup</code> / <code>sc project set-cloud-identity</code> still configure federation; what is missing is the CLI step that injects the Machine Runtime Secret and credential files into one machine. That step needs a v2 implementation.</div>
       <p>When workload identity is enabled for a Machine, Sandcastle rotates a Machine Runtime Secret through the Auth App, stores only a verifier in the Auth Database, injects token endpoint metadata and <code>/usr/local/bin/sandcastle-workload-token</code>, and writes GCP external account credentials plus shell environment variables into the Machine.</p>
       <table>
         <thead><tr><th>Machine File</th><th>Purpose</th></tr></thead>
