@@ -69,7 +69,6 @@ type MachineSSHKeyReconciler interface {
 }
 
 type TenantSSHKeyUpdater interface {
-	SetTenantSSHKey(context.Context, string, string) error
 }
 
 type MachineSSHAccessRevoker interface {

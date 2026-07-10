@@ -11,6 +11,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/domain"
 	"github.com/thieso2/sandcastle-incus/internal/images"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -429,14 +430,30 @@ func newAdminTenantSetSSHKeyCommand(config commandConfig) *cobra.Command {
 		Short: "Set or update the SSH public key for a Sandcastle tenant",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if config.tenantSSHKeyUpdater == nil {
-				return fmt.Errorf("tenant SSH key updater is not configured")
-			}
-			ref, err := tenant.ParseRef(config.adminConfig, args[0])
+			// The key lives in the infra project's config and is rendered into
+			// each app project's default profile. Resolve the tenant's real
+			// projects rather than deriving a single Incus project name.
+			summaries, err := tenant.List(cmd.Context(), config.tenantStore)
 			if err != nil {
 				return err
 			}
-			return config.tenantSSHKeyUpdater.SetTenantSSHKey(cmd.Context(), ref.IncusProject, args[1])
+			summary, ok := findTenantSummaryForCleanup(summaries, args[0])
+			if !ok {
+				return fmt.Errorf("Sandcastle tenant %s not found", args[0])
+			}
+			projects := make([]string, 0, len(summary.Projects))
+			for _, project := range summary.Projects {
+				projects = append(projects, project.Name)
+			}
+			if len(projects) == 0 {
+				projects = []string{naming.DefaultProjectName}
+			}
+			if err := config.tenantCreator.SetTenantSSHKeyV2(cmd.Context(), config.adminConfig.IncusProjectPrefix, summary.Tenant, args[1], projects); err != nil {
+				return err
+			}
+			fmt.Fprintf(config.stdout, "Updated the SSH key for tenant %s across project(s): %s\n", summary.Tenant, strings.Join(projects, ", "))
+			fmt.Fprintf(config.stdout, "Existing machines keep their current key; recreate them, or rotate a running machine through the Auth App.\n")
+			return nil
 		},
 	}
 }

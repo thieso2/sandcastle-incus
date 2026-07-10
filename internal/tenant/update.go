@@ -10,7 +10,6 @@ import (
 )
 
 type SSHKeyUpdater interface {
-	SetTenantSSHKey(ctx context.Context, incusProjectName string, sshKey string) error
 }
 
 type ProjectUpdater interface {

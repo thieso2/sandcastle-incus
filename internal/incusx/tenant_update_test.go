@@ -41,29 +41,6 @@ func TestSetTenantProjectsWritesMetadataFile(t *testing.T) {
 	}
 }
 
-func TestSetTenantSSHKeyWritesMetadataFile(t *testing.T) {
-	resource := &fakeTenantMetadataUpdateResource{}
-	server := &fakeTenantMetadataUpdateServer{resource: resource}
-	manager := TenantSSHKeyManager{Server: server}
-
-	err := manager.SetTenantSSHKey(context.Background(), "sc-acme", "ssh-ed25519 test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if server.usedProject != "sc-acme" {
-		t.Fatalf("usedProject = %q", server.usedProject)
-	}
-	if !resource.createdDir {
-		t.Fatal("metadata directory was not created")
-	}
-	if resource.filePath != tenantSSHPublicKeyFile {
-		t.Fatalf("filePath = %q", resource.filePath)
-	}
-	if resource.content != "ssh-ed25519 test\n" {
-		t.Fatalf("content = %q", resource.content)
-	}
-}
-
 func TestSourceDirectoryStatusAcceptsSafeTreeWithDotfiles(t *testing.T) {
 	manager := TenantSSHKeyManager{Server: &fakeTenantMetadataUpdateServer{resource: &fakeTenantMetadataUpdateResource{files: map[string]fakeVolumeFile{
 		"default/docs":                  {typ: "directory", entries: []string{".env", "nested"}},
