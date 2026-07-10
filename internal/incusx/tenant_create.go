@@ -125,68 +125,6 @@ func restartCoreDNS(server coreDNSRestarter) error {
 	return nil
 }
 
-func configureSidecarNetwork(server TenantResourceServer, sidecar tenant.SidecarPlan, privateCIDR string) error {
-	if sidecar.Address == "" || privateCIDR == "" {
-		return nil
-	}
-	prefix, err := netip.ParsePrefix(privateCIDR)
-	if err != nil {
-		return fmt.Errorf("parse private CIDR %s: %w", privateCIDR, err)
-	}
-	ipWithPrefix := sidecar.Address + fmt.Sprintf("/%d", prefix.Bits())
-	gateway, err := gatewayIPFromCIDR(privateCIDR)
-	if err != nil {
-		return err
-	}
-	var stderr strings.Builder
-	dataDone := make(chan bool)
-	cmds := []string{
-		"install -d -m 0755 /usr/local/sbin /etc/systemd/system /etc/systemd/system/multi-user.target.wants",
-		"printf '%s\n' '#!/bin/sh' 'set -eu' '/usr/sbin/ip link set eth0 up' '/usr/sbin/ip addr replace " + ipWithPrefix + " dev eth0' '/usr/sbin/ip route replace default via " + gateway + "' > /usr/local/sbin/sandcastle-sidecar-network",
-		"chmod 0755 /usr/local/sbin/sandcastle-sidecar-network",
-		"printf '%s\n' '[Unit]' 'Description=Sandcastle sidecar static network' 'After=network-pre.target' 'Before=network-online.target' '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/sbin/sandcastle-sidecar-network' 'RemainAfterExit=yes' '' '[Install]' 'WantedBy=multi-user.target' > /etc/systemd/system/sandcastle-sidecar-network.service",
-		// Enable the unit by creating the wants-symlink directly. This runs right
-		// after the sidecar starts, when systemd's D-Bus may not be up yet, so a
-		// plain `systemctl enable` can fail and silently leave the unit disabled —
-		// the immediate apply below still sets the IP live, but after a host reboot
-		// nothing reapplies it and the sidecar (e.g. sc-dns) comes up with no eth0
-		// address, breaking tenant DNS. The symlink does not need the bus.
-		"ln -sf /etc/systemd/system/sandcastle-sidecar-network.service /etc/systemd/system/multi-user.target.wants/sandcastle-sidecar-network.service",
-		"systemctl daemon-reload 2>/dev/null || true",
-		"systemctl enable sandcastle-sidecar-network.service 2>/dev/null || true",
-		"/usr/local/sbin/sandcastle-sidecar-network",
-	}
-	if sidecar.Role == "dns" {
-		cmds = append(cmds,
-			"pkill -x tailscaled >/dev/null 2>&1 || true",
-			"systemctl disable --now tailscaled.service 2>/dev/null || true",
-			"systemctl mask tailscaled.service 2>/dev/null || true",
-		)
-	}
-	if sidecar.Role == "tailscale" {
-		cmds = append(cmds,
-			"systemctl unmask tailscaled.service 2>/dev/null || true",
-			"systemctl disable --now tailscaled.service 2>/dev/null || true",
-		)
-	}
-	op, err := server.ExecInstance(sidecar.Name, api.InstanceExecPost{
-		Command:   []string{"/bin/sh", "-c", strings.Join(cmds, " && ")},
-		WaitForWS: true,
-	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(""),
-		Stderr:   &stderr,
-		DataDone: dataDone,
-	})
-	if err != nil {
-		return fmt.Errorf("configure network for sidecar %s: %w", sidecar.Name, err)
-	}
-	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for sidecar %s network config (stderr: %s): %w", sidecar.Name, stderr.String(), err)
-	}
-	<-dataDone
-	return nil
-}
-
 func ensureExactProfile(server TenantResourceServer, name string, profilePut api.ProfilePut) error {
 	_, etag, err := server.GetProfile(name)
 	if err == nil {
