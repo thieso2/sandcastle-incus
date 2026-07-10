@@ -104,11 +104,15 @@ func PlanGrant(admin config.Admin, request GrantRequest) (UserPlan, error) {
 	return base, nil
 }
 
-func tenantAccessProjects(mainProject string) []string {
+// tenantAccessProjects lists the Incus projects a tenant's restricted user cert
+// may touch. Under v2 `<prefix>-<tenant>` is the tenant's infra project, and its
+// apps live in `<prefix>-<tenant>-<project>`. The v1 shape granted
+// `<project>-infra` and `<project>-native` as well; neither project exists in a
+// v2 tenant, so granting them made Incus reject the whole restriction list.
+func tenantAccessProjects(infraProject string) []string {
 	return []string{
-		mainProject,
-		naming.TenantInfraIncusProjectName(mainProject),
-		naming.TenantNativeIncusProjectName(mainProject),
+		infraProject,
+		infraProject + "-" + naming.DefaultProjectName,
 	}
 }
 

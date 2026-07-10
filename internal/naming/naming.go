@@ -180,16 +180,6 @@ func tenantIncusProjectNameWithPrefix(prefix string, tenant string, validate fun
 	return name, nil
 }
 
-// TenantInfraIncusProjectName returns the Incus project name for a tenant's sidecar infrastructure.
-func TenantInfraIncusProjectName(mainProjectName string) string {
-	return mainProjectName + "-infra"
-}
-
-// TenantNativeIncusProjectName returns the Incus project name for a tenant's freeform native workspace.
-func TenantNativeIncusProjectName(mainProjectName string) string {
-	return mainProjectName + "-native"
-}
-
 func ValidateTenantName(name string) error {
 	if !safeNamePattern.MatchString(name) {
 		return fmt.Errorf("invalid tenant %q", name)

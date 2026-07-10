@@ -1210,3 +1210,41 @@ client" during the coexistence e2e. Four linked fixes:
 - Verified the admin version help cleanup with `go test ./internal/cli`, `go
   test ./...`, `scripts/e2e.sh gated`, and `scripts/e2e.sh local` run
   `e2e-20260521-161041-228322`.
+
+## 2026-07-10 — #52: closing the last v1 name shapes (`<project>-infra`, `<project>-native`)
+
+Deleting `naming.MachineIncusInstanceName` proved no code could build a v1
+*instance* name. Three call sites could still build a v1 *project* name, so the
+`<project>-infra` shape behind #51/#55 stayed constructable. All three are now
+gone, and `naming.TenantInfraIncusProjectName` / `TenantNativeIncusProjectName`
+are deleted — the build passing is the proof, and the CI guard keeps it that way.
+
+**`sc incus` no longer derives its project from the tenant name.** It had a
+fallback: use the live v2 summary if one exists, else derive `sc-<tenant>` and
+append `-infra`/`-native`. That fallback is precisely the bug pattern — a name
+computed from a string rather than read from live state. It now calls
+`requireV2Tenant` and reads `summary.V2IncusProjectName` / `summary.InfraProject`.
+No tenant means a clear error, not a request against a project that never existed.
+
+**`sc incus-native` is deleted.** It scoped `incus` to the tenant's freeform
+project, which only existed beside the v1 main project. Under v2 freeform *is*
+the model, so the command had become a verbatim alias for `sc incus`. Alternative
+considered: keep it as an alias. Rejected — it documents a project split that no
+longer exists. `sc incus` and `sc incus-infra` remain.
+
+**`usertrust.tenantAccessProjects` was granting two projects that do not exist.**
+It restricted a tenant user's cert to `<prefix>-<tenant>`, `…-infra` and
+`…-native`. Under v2 only the first exists (it is the infra project); the apps
+live in `<prefix>-<tenant>-<project>`. Incus validates a restricted cert's
+project list, so `sc-adm user grant-tenant` was handing it names it would reject.
+It now grants the infra project plus `-default`, matching the `RestrictedProjects`
+that `tenant.CreatePlanV2` already grants at provisioning time. This is a
+behaviour fix, not just a rename, and it is untested against a live Incus daemon
+— it is on the majestix verification list below.
+
+**A latent limit, recorded rather than fixed:** `ValidateTenantName` accepts a
+53-character tenant, sized for v1's 7-char `-native` suffix. v2 appends
+`-default` (8), so `V2ProjectName` rejects the resulting 64-char project name.
+It fails closed — the tenant name is rejected at plan time with a clear message,
+not truncated — so this is a usability wart, not a correctness bug.
+`TestV2ProjectNameLengthLimit` pins the fail-closed property.

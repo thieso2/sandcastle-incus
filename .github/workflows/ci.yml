@@ -35,7 +35,12 @@ jobs:
           # v1 is removed (#52). These symbols minted the v1 name shapes that
           # leaked into v2 paths and caused #51, #55 and the share-reconcile bug.
           # If one reappears, the shape is constructable again.
-          if grep -rn --include='*.go' -e 'MachineIncusInstanceName' -e 'meta.KindTenant' internal/ cmd/; then
+          if grep -rn --include='*.go' \
+              -e 'MachineIncusInstanceName' \
+              -e 'meta.KindTenant' \
+              -e 'TenantInfraIncusProjectName' \
+              -e 'TenantNativeIncusProjectName' \
+              internal/ cmd/; then
             echo "::error::v1 name shape reintroduced (see #52)"
             exit 1
           fi

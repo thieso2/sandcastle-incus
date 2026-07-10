@@ -83,9 +83,9 @@ func matchesTenantRun(summary tenant.Summary, runID string) bool {
 func tenantTopologyDiagnostics(ctx context.Context, topologyStore tenant.TopologyStore, summary tenant.Summary) string {
 	topology, err := topologyStore.GetTopology(ctx, tenant.TopologyRequest{
 		IncusProject: summary.IncusName,
-		// summary.InfraProject, not naming.TenantInfraIncusProjectName(IncusName):
-		// under v2 IncusName is the -default APP project, so the v1 rule built
-		// "<prefix>-<tenant>-default-infra", which does not exist (cf. #55).
+		// Read the infra project off the summary; never derive it from IncusName.
+		// Under v2 IncusName is the -default APP project, so the old derivation
+		// built "<prefix>-<tenant>-default-infra", which does not exist (cf. #55).
 		InfraProject: summary.InfraProject,
 		DNSSuffix:    summary.DNSSuffix,
 	})

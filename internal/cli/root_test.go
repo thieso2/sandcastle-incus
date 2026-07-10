@@ -2248,6 +2248,7 @@ func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:        "sandcastle",
 		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", IncusProjectPrefix: "sc"},
+		tenantStore: tenant.MemoryStore{Projects: v2TenantProjects("acme", "10.248.0.0/24", "default")},
 		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 			gotArgs = append([]string{}, args...)
 			gotEnv = append([]string{}, env...)
@@ -2267,8 +2268,8 @@ func TestIncusCommandUsesActiveRemoteConfig(t *testing.T) {
 	if !envContains(gotEnv, "INCUS_CONF="+incusDir) {
 		t.Fatalf("env missing INCUS_CONF=%s", incusDir)
 	}
-	if !envContains(gotEnv, "INCUS_PROJECT=sc-acme") {
-		t.Fatalf("env missing INCUS_PROJECT=sc-acme")
+	if !envContains(gotEnv, "INCUS_PROJECT=sc2-acme-default") {
+		t.Fatalf("env missing INCUS_PROJECT=sc2-acme-default: %#v", gotEnv)
 	}
 }
 
@@ -2285,6 +2286,7 @@ func TestIncusCommandVerboseShowsEnvAndCommand(t *testing.T) {
 	_, stderr, err := executeForTestWithConfigAndStderr(t, commandConfig{
 		name:        "sandcastle",
 		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme", IncusProjectPrefix: "sc"},
+		tenantStore: tenant.MemoryStore{Projects: v2TenantProjects("acme", "10.248.0.0/24", "default")},
 		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 			return nil
 		},
@@ -2293,7 +2295,7 @@ func TestIncusCommandVerboseShowsEnvAndCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"[verbose] sc incus env: INCUS_CONF=" + incusDir + " INCUS_PROJECT=sc-acme",
+		"[verbose] sc incus env: INCUS_CONF=" + incusDir + " INCUS_PROJECT=sc2-acme-default",
 		"[verbose] sc incus command: incus ls",
 	} {
 		if !strings.Contains(stderr, want) {
@@ -2903,7 +2905,7 @@ func TestAdminTenantGrantDryRunJSON(t *testing.T) {
 	if payload.CertificateName != "sandcastle-alice" {
 		t.Fatalf("CertificateName = %q", payload.CertificateName)
 	}
-	if !slices.Equal(payload.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
+	if !slices.Equal(payload.Projects, []string{"sc-acme", "sc-acme-default"}) {
 		t.Fatalf("Projects = %#v", payload.Projects)
 	}
 }
@@ -2918,7 +2920,7 @@ func TestAdminTenantGrantCallsTrustManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !manager.grantCalled || manager.plan.User != "alice" || !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
+	if !manager.grantCalled || manager.plan.User != "alice" || !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-default"}) {
 		t.Fatalf("manager = %#v", manager)
 	}
 }
@@ -2933,7 +2935,7 @@ func TestAdminTenantRevokeCallsTrustManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !manager.revokeCalled || manager.plan.User != "alice" || !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
+	if !manager.revokeCalled || manager.plan.User != "alice" || !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-default"}) {
 		t.Fatalf("manager = %#v", manager)
 	}
 }
@@ -3018,7 +3020,7 @@ func TestAdminUserTokenSupportsPreGrantedTenant(t *testing.T) {
 	if !manager.tokenCalled {
 		t.Fatal("expected token manager to be called")
 	}
-	if !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
+	if !slices.Equal(manager.plan.Projects, []string{"sc-acme", "sc-acme-default"}) {
 		t.Fatalf("Projects = %#v", manager.plan.Projects)
 	}
 	if !strings.Contains(stdout, "sc remote add sandcastle-alice certificate-add-token --tenant acme") {
