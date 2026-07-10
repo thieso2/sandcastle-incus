@@ -37,7 +37,8 @@ type ShareReconciler struct {
 }
 
 func NewShareReconciler(remote string, store machine.Store) ShareReconciler {
-	return ShareReconciler{Remote: remote, Store: store, ShareStore: NewTenantSSHKeyManager(remote), Admin: config.LoadAdmin()}
+	admin := config.LoadAdmin()
+	return ShareReconciler{Remote: remote, Store: store, ShareStore: NewTenantSSHKeyManagerWithPool(remote, admin.StoragePool), Admin: admin}
 }
 
 func NewShareReconcilerForServer(server incus.InstanceServer, store machine.Store, shareStore share.Store, admin config.Admin) ShareReconciler {
