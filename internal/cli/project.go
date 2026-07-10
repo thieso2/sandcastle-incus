@@ -111,10 +111,21 @@ func newProjectDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Com
 			}
 			plan.Tenant = tenantSummary
 			if !dryRun {
-				if config.tenantUpdater == nil {
-					return fmt.Errorf("project metadata updater is not configured")
+				// Deleting the Incus project IS the deletion: a tenant's project
+				// list is derived from its Incus projects. This used to only
+				// rewrite a metadata file nothing read, so the project, its
+				// volumes and its machines all survived a "successful" delete.
+				if config.projectDeleter == nil {
+					return fmt.Errorf("project deleter is not configured")
 				}
-				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
+				if err := config.projectDeleter.DeleteProjectV2(cmd.Context(), tenantSummary.V2IncusProjectName(args[0]), config.adminConfig.StoragePool); err != nil {
+					// A tenant's restricted certificate may not delete an Incus
+					// project, and the tenant plane has no delete endpoint yet
+					// (it exposes POST /api/projects only). Say so, rather than
+					// surfacing a bare "Certificate is restricted".
+					if strings.Contains(err.Error(), "restricted") || strings.Contains(err.Error(), "not authorized") {
+						return fmt.Errorf("deleting a project needs admin rights: your tenant certificate is restricted and the Auth App has no project-delete endpoint yet.\nAsk an admin to run: sc-adm project delete %s %s --yes", tenantSummary.Tenant, args[0])
+					}
 					return err
 				}
 			}
@@ -144,10 +155,12 @@ func newProjectSetCloudIdentityCommand(config commandConfig, opts *rootOptions) 
 				return err
 			}
 			if !dryRun {
-				if config.tenantUpdater == nil {
-					return fmt.Errorf("project metadata updater is not configured")
+				// Persist on the project's own Incus project — that is where
+				// tenant.v2Summaries reads it back from.
+				if config.projectSettings == nil {
+					return fmt.Errorf("project settings updater is not configured")
 				}
-				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
+				if err := config.projectSettings.SetProjectCloudIdentity(cmd.Context(), plan.Tenant.V2IncusProjectName(args[0]), strings.TrimSpace(args[1])); err != nil {
 					return err
 				}
 			}
@@ -196,14 +209,6 @@ func newProjectUnsetCloudIdentityCommand(config commandConfig, opts *rootOptions
 			if err != nil {
 				return err
 			}
-			if !dryRun {
-				if config.tenantUpdater == nil {
-					return fmt.Errorf("project metadata updater is not configured")
-				}
-				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
-					return err
-				}
-			}
 			return writeOutput(config.stdout, opts.output, formatProjectMutationPlan(plan), plan)
 		},
 	}
@@ -230,10 +235,10 @@ func newProjectSetDockerAutostartCommand(config commandConfig, opts *rootOptions
 				return err
 			}
 			if !dryRun {
-				if config.tenantUpdater == nil {
-					return fmt.Errorf("project metadata updater is not configured")
+				if config.projectSettings == nil {
+					return fmt.Errorf("project settings updater is not configured")
 				}
-				if err := config.tenantUpdater.SetTenantProjects(cmd.Context(), plan.IncusProject, plan.Projects); err != nil {
+				if err := config.projectSettings.SetProjectDockerAutostart(cmd.Context(), plan.Tenant.V2IncusProjectName(args[0]), enabled); err != nil {
 					return err
 				}
 			}

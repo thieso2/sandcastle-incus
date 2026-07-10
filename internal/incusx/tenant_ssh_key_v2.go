@@ -59,6 +59,13 @@ func (c TenantCreator) SetTenantSSHKeyV2(_ context.Context, installPrefix string
 	if prefix == "" {
 		prefix = naming.V2IncusProjectPrefix
 	}
+	// Re-rendering the profile rebuilds its cloud-init, which embeds the machine
+	// Caddy's signer URL. Derive the sidecar address or we would silently replace
+	// a working signer with "http://:9443".
+	dnsAddress, err := tenant.DNSAddressForCIDR(config[keyV2CIDR])
+	if err != nil {
+		return fmt.Errorf("tenant %q: %w", tenantName, err)
+	}
 	// Re-render every app project's default profile so machines created from now
 	// on authorize the new key. Without this the command changed nothing a
 	// machine could observe.
@@ -79,6 +86,7 @@ func (c TenantCreator) SetTenantSSHKeyV2(_ context.Context, installPrefix string
 			DefaultProfileUser: config[keyV2User],
 			SSHPublicKey:       sshKey,
 			DNSSuffix:          config[keyV2Suffix],
+			DNSAddress:         dnsAddress,
 		}
 		if plan.DefaultProfileUser == "" {
 			plan.DefaultProfileUser = tenant.DefaultV2UnixUser

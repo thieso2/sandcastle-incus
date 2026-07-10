@@ -137,49 +137,18 @@ func FromAPIProjects(projects []api.Project) []tenant.IncusProject {
 
 const (
 	tenantMetadataDir       = "/.sandcastle"
-	tenantProjectsFile      = tenantMetadataDir + "/projects"
-	tenantUnixUserFile      = tenantMetadataDir + "/unix_user"
 	tenantStorageSharesFile = tenantMetadataDir + "/storage_shares"
 )
 
-func readTenantUnixUser(server TenantMetadataResourceServer, incusProjectName string) (string, bool, error) {
-	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantUnixUserFile)
-	if isMissingTenantMetadata(err) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, fmt.Errorf("read tenant Unix user metadata for %s: %w", incusProjectName, err)
-	}
-	defer content.Close()
-	data, err := io.ReadAll(content)
-	if err != nil {
-		return "", false, fmt.Errorf("read tenant Unix user metadata for %s: %w", incusProjectName, err)
-	}
-	return strings.TrimSpace(string(data)), true, nil
-}
 
-func readTenantProjects(server TenantMetadataResourceServer, incusProjectName string) ([]meta.Project, bool, error) {
-	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantProjectsFile)
-	if isMissingTenantMetadata(err) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("read tenant projects metadata for %s: %w", incusProjectName, err)
-	}
-	defer content.Close()
-	data, err := io.ReadAll(content)
-	if err != nil {
-		return nil, false, fmt.Errorf("read tenant projects metadata for %s: %w", incusProjectName, err)
-	}
-	var projects []meta.Project
-	if err := json.Unmarshal(data, &projects); err != nil {
-		return nil, false, fmt.Errorf("parse tenant projects metadata for %s: %w", incusProjectName, err)
-	}
-	return projects, true, nil
-}
 
-func readTenantStorageShares(server TenantMetadataResourceServer, incusProjectName string) ([]meta.TenantStorageShare, bool, error) {
-	content, _, err := server.GetStorageVolumeFile(incusProjectName, "custom", tenant.WorkspaceVolumeName, tenantStorageSharesFile)
+// readTenantStorageShares reads the tenant's shares from the workspace volume.
+// The first argument of GetStorageVolumeFile is a POOL: passing the Incus project
+// name there made Incus answer 404 ("Storage pool not found"), which
+// isMissingTenantMetadata treats as "no metadata" — so every tenant silently had
+// zero shares.
+func readTenantStorageShares(server TenantMetadataResourceServer, pool string, incusProjectName string) ([]meta.TenantStorageShare, bool, error) {
+	content, _, err := server.GetStorageVolumeFile(pool, "custom", tenant.WorkspaceVolumeName, tenantStorageSharesFile)
 	if isMissingTenantMetadata(err) {
 		return nil, false, nil
 	}

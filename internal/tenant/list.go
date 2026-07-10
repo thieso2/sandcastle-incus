@@ -142,7 +142,11 @@ func v2Summaries(projects []IncusProject, installPrefix string) []Summary {
 		if shortName == naming.DefaultProjectName || summary.IncusName == "" {
 			summary.IncusName = incusProject.Name
 		}
-		summary.Projects = append(summary.Projects, meta.Project{Name: shortName})
+		summary.Projects = append(summary.Projects, meta.Project{
+			Name:            shortName,
+			CloudIdentity:   strings.TrimSpace(incusProject.Config[meta.KeyV2CloudIdentity]),
+			DockerAutostart: strings.TrimSpace(incusProject.Config[meta.KeyV2DockerAutostart]) == "true",
+		})
 	}
 	summaries := make([]Summary, 0, len(order))
 	for _, infraName := range order {

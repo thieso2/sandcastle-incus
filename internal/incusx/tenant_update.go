@@ -59,24 +59,14 @@ type TenantMetadataUpdateResourceServer interface {
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 }
 
-func (m TenantSSHKeyManager) SetTenantProjects(_ context.Context, incusProjectName string, projects []meta.Project) error {
-	data, err := json.Marshal(projects)
-	if err != nil {
-		return fmt.Errorf("encode projects for %s: %w", incusProjectName, err)
-	}
-	return m.writeTenantMetadataFile(incusProjectName, tenantProjectsFile, string(data), "write tenant projects metadata")
-}
 
-func (m TenantSSHKeyManager) SetTenantUnixUser(_ context.Context, incusProjectName string, unixUser string) error {
-	return m.writeTenantMetadataFile(incusProjectName, tenantUnixUserFile, strings.TrimSpace(unixUser)+"\n", "write tenant Unix user metadata")
-}
 
 func (m TenantSSHKeyManager) GetTenantShares(_ context.Context, incusProjectName string) ([]meta.TenantStorageShare, error) {
 	server, err := m.server()
 	if err != nil {
 		return nil, err
 	}
-	shares, ok, err := readTenantStorageShares(server.UseProject(incusProjectName), incusProjectName)
+	shares, ok, err := readTenantStorageShares(server.UseProject(incusProjectName), m.pool(), incusProjectName)
 	if err != nil {
 		return nil, err
 	}

@@ -1408,3 +1408,51 @@ test passes even against the bug.
 CIDR lives on the infra project, which a restricted tenant certificate cannot
 read, and the check says so explicitly:
 `cidr: unknown (stored on the infra project …, which a tenant certificate cannot read)`.
+
+## 2026-07-10 — e2e Phase 8c: the whole tenant-metadata-file mechanism was write-only
+
+Phase 8c (machine HTTPS) failed because machines in a project created *after* the
+tenant had `SIGNER=http://:9443` in `/etc/sandcastle/machine.env`: an empty
+sidecar address. `CreateProjectV2` built the profile plan without `DNSAddress`, so
+the cloud-init that installs the machine's Caddy pointed it at nothing and no leaf
+was ever fetched. **My own `SetTenantSSHKeyV2` copied the same omission.**
+
+`tenant.DNSAddressForCIDR` now derives it from the infra project's CIDR, both call
+sites use it, and `ensureV2AppProfile` refuses to render a profile with an empty
+address rather than emitting `http://:9443`.
+
+Pulling that thread exposed that the tenant-metadata files on the workspace volume
+are **write-only**, across the board:
+
+- `readTenantSSHKey`, `readTenantProjects`, `readTenantUnixUser`: zero callers.
+- `readTenantStorageShares` (the one live reader) passed the Incus project name in
+  the `pool` argument. Incus answers 404, and `isMissingTenantMetadata` maps 404 to
+  "no metadata" — so **every tenant read as having zero shares**.
+- `Summary.Projects` is built from Incus projects and never carried the settings,
+  so `sc project set-cloud-identity` / `set-docker-autostart` wrote a file nobody
+  read: no-ops that printed a plan.
+- `sc project delete` only rewrote that same file. The Incus project, its volumes
+  and its machines survived a "successful" delete.
+
+So: project settings now live on the project's own Incus project config
+(`user.sandcastle.v2.cloud-identity`, `…docker-autostart`), which `v2Summaries`
+reads back; the shares reader takes a real pool; `sc project delete` deletes the
+Incus project (`TenantDeleter.DeleteProjectV2`); and the dead readers/writers are
+gone, along with `ensureTenantUnixUserForMachineCreate`, which had no callers.
+
+A tenant's restricted certificate may not delete an Incus project, and the tenant
+plane exposes `POST /api/projects` with no delete. `sc project delete` now says
+that in words instead of surfacing `Certificate is restricted`, and
+**`sc-adm project delete <tenant> <project>`** is the working path — symmetric
+with `sc-adm project create`, refusing the default project. Adding a destructive
+DELETE endpoint to the Auth App is a product decision, not one to make mid-e2e.
+
+### The trap that hid all of it for an hour
+
+`incus file push` onto a **running** executable fails with `text file busy`, and I
+was discarding its stderr. The auth-app appliance ran the original pre-fix binary
+for the whole middle of this run, so several "the fix didn't work" conclusions were
+about code that was never deployed. `scratchpad/e2e/deploy.sh` now stops the unit,
+pushes beside the target and renames over it (rename leaves the running process on
+the old inode), and **verifies every binary by sha256**, failing loudly on a stale
+one.

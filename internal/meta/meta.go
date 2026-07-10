@@ -30,11 +30,18 @@ const (
 	// KeyV2User is where v2 stores the profile login (Unix) user, on the
 	// kind=infra project. It is the actual user@host for SSH — NOT the tenant
 	// name. Must match incusx's keyV2User.
-	KeyV2User    = Prefix + "v2.user"
-	KeyAppPort   = Prefix + "app_port"
-	KeyLinuxUser = Prefix + "linux_user"
-	KeyCreatedBy = Prefix + "created_by"
-	KeyState     = Prefix + "state"
+	KeyV2User = Prefix + "v2.user"
+
+	// KeyV2CloudIdentity / KeyV2DockerAutostart hold a v2 project's settings on
+	// its own kind=project Incus project. They used to be written into a
+	// `.sandcastle/projects` file on the tenant's workspace volume that nothing
+	// ever read back, so `sc project set-cloud-identity` was a no-op.
+	KeyV2CloudIdentity   = Prefix + "v2.cloud-identity"
+	KeyV2DockerAutostart = Prefix + "v2.docker-autostart"
+	KeyAppPort           = Prefix + "app_port"
+	KeyLinuxUser         = Prefix + "linux_user"
+	KeyCreatedBy         = Prefix + "created_by"
+	KeyState             = Prefix + "state"
 
 	KindMachine   = "machine"
 	KindRoute     = "route"

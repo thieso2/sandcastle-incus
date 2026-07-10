@@ -2033,8 +2033,8 @@ func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:              "sandcastle",
 		authCloudIdentity: authClient,
+		projectSettings:   updater,
 		tenantStore:       tenant.MemoryStore{Projects: projects},
-		tenantUpdater:     updater,
 	}, "project", "set-cloud-identity", "default", "gcp")
 	if err != nil {
 		t.Fatal(err)
@@ -2042,7 +2042,9 @@ func TestProjectSetCloudIdentityUpdatesDefaultProject(t *testing.T) {
 	if !strings.Contains(stdout, "set cloud identity on project default") {
 		t.Fatalf("stdout = %q", stdout)
 	}
-	if !updater.called || updater.incusProject != "sc2-acme-default" || !projectHasCloudIdentity(updater.projects, "default", "gcp") {
+	// It must land on the project's OWN Incus project, which is what
+	// tenant.v2Summaries reads the setting back from.
+	if !updater.called || updater.incusProject != "sc2-acme-default" || updater.cloudIdentity != "gcp" {
 		t.Fatalf("updater = %#v", updater)
 	}
 	if len(authClient.getRequests) != 1 || authClient.getRequests[0].tenant != "acme" || authClient.getRequests[0].name != "gcp" {
@@ -2060,8 +2062,8 @@ func TestProjectSetCloudIdentityRejectsMissingTenantConfig(t *testing.T) {
 		name:              "sandcastle",
 		adminConfig:       admin,
 		authCloudIdentity: authClient,
+		projectSettings:   updater,
 		tenantStore:       tenant.MemoryStore{Projects: projects},
-		tenantUpdater:     updater,
 	}, "project", "set-cloud-identity", "io", "gcp")
 	if err == nil {
 		t.Fatal("expected error")
@@ -2078,9 +2080,9 @@ func TestProjectSetDockerAutostartUpdatesDefaultProject(t *testing.T) {
 	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
 	updater := &fakeProjectUpdater{}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
-		name:          "sandcastle",
-		tenantStore:   tenant.MemoryStore{Projects: projects},
-		tenantUpdater: updater,
+		name:            "sandcastle",
+		projectSettings: updater,
+		tenantStore:     tenant.MemoryStore{Projects: projects},
 	}, "project", "set-docker-autostart", "default", "on")
 	if err != nil {
 		t.Fatal(err)
@@ -2088,7 +2090,7 @@ func TestProjectSetDockerAutostartUpdatesDefaultProject(t *testing.T) {
 	if !strings.Contains(stdout, "enable Docker autostart for project default") {
 		t.Fatalf("stdout = %q", stdout)
 	}
-	if !updater.called || updater.incusProject != "sc2-acme-default" || !projectHasDockerAutostart(updater.projects, "default") {
+	if !updater.called || updater.incusProject != "sc2-acme-default" || !updater.dockerAutostart {
 		t.Fatalf("updater = %#v", updater)
 	}
 }
@@ -2108,21 +2110,57 @@ func TestProjectDeleteRejectsNonEmptyProject(t *testing.T) {
 	}
 }
 
-func TestProjectDeleteCallsUpdater(t *testing.T) {
+// `sc project delete` used to only rewrite a `.sandcastle/projects` metadata file
+// that nothing read: the Incus project, its volumes and its machines survived a
+// "successful" delete. Deleting the Incus project IS the deletion.
+func TestProjectDeleteDeletesTheIncusProject(t *testing.T) {
 	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
-	updater := &fakeProjectUpdater{}
+	settings := &fakeProjectUpdater{}
+	deleter := &fakeProjectDeleter{}
 	_, err := executeForTestWithConfig(t, commandConfig{
-		name:          "sandcastle",
-		tenantStore:   tenant.MemoryStore{Projects: projects},
-		machineStore:  fakeMachineStatusStore{},
-		tenantUpdater: updater,
+		name:            "sandcastle",
+		projectSettings: settings,
+		projectDeleter:  deleter,
+		tenantStore:     tenant.MemoryStore{Projects: projects},
+		machineStore:    fakeMachineStatusStore{},
 	}, "project", "delete", "website", "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !updater.called || len(updater.projects) != 1 || updater.projects[0].Name != "default" {
-		t.Fatalf("updater = %#v", updater)
+	if deleter.incusProject != "sc2-acme-website" {
+		t.Fatalf("deleted project = %q, want sc2-acme-website", deleter.incusProject)
 	}
+	if settings.called {
+		t.Fatalf("project delete wrote project settings: %#v", settings)
+	}
+}
+
+// --dry-run must plan and delete nothing.
+func TestProjectDeleteDryRunDeletesNothing(t *testing.T) {
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default", "website")
+	deleter := &fakeProjectDeleter{}
+	if _, err := executeForTestWithConfig(t, commandConfig{
+		name:           "sandcastle",
+		projectDeleter: deleter,
+		tenantStore:    tenant.MemoryStore{Projects: projects},
+		machineStore:   fakeMachineStatusStore{},
+	}, "project", "delete", "website", "--yes", "--dry-run"); err != nil {
+		t.Fatal(err)
+	}
+	if deleter.incusProject != "" {
+		t.Fatalf("dry-run deleted %q", deleter.incusProject)
+	}
+}
+
+type fakeProjectDeleter struct {
+	incusProject string
+	storagePool  string
+}
+
+func (f *fakeProjectDeleter) DeleteProjectV2(_ context.Context, incusProject string, storagePool string) error {
+	f.incusProject = incusProject
+	f.storagePool = storagePool
+	return nil
 }
 
 func TestStatusJSON(t *testing.T) {
@@ -3108,15 +3146,23 @@ func TestRejectsUnknownOutputFormat(t *testing.T) {
 }
 
 type fakeProjectUpdater struct {
-	called       bool
-	incusProject string
-	projects     []meta.Project
+	called          bool
+	incusProject    string
+	cloudIdentity   string
+	dockerAutostart bool
 }
 
-func (f *fakeProjectUpdater) SetTenantProjects(ctx context.Context, incusProjectName string, projects []meta.Project) error {
+func (f *fakeProjectUpdater) SetProjectCloudIdentity(_ context.Context, incusProject string, cloudIdentity string) error {
 	f.called = true
-	f.incusProject = incusProjectName
-	f.projects = append([]meta.Project{}, projects...)
+	f.incusProject = incusProject
+	f.cloudIdentity = cloudIdentity
+	return nil
+}
+
+func (f *fakeProjectUpdater) SetProjectDockerAutostart(_ context.Context, incusProject string, enabled bool) error {
+	f.called = true
+	f.incusProject = incusProject
+	f.dockerAutostart = enabled
 	return nil
 }
 

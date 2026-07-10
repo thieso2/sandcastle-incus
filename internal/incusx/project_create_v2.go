@@ -64,6 +64,13 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string
 	if err := ensureV2Project(server, incusProject, "Sandcastle v2 project "+project+" for "+tenantName, "project", tenantName, true, map[string]string{meta.KeyV2Suffix: cfg[keyV2Suffix]}); err != nil {
 		return CreateProjectV2Result{}, err
 	}
+	// The sidecar address must be derived from the tenant CIDR. Omitting it
+	// rendered the machine Caddy's signer URL as "http://:9443", so every machine
+	// in a project created after the tenant served no HTTPS at all.
+	dnsAddress, err := tenant.DNSAddressForCIDR(cfg[keyV2CIDR])
+	if err != nil {
+		return CreateProjectV2Result{}, fmt.Errorf("tenant %q: %w", tenantName, err)
+	}
 	profilePlan := tenant.CreatePlanV2{
 		Tenant:             tenantName,
 		DefaultProject:     incusProject,
@@ -72,6 +79,7 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string
 		DefaultProfileUser: cfg[keyV2User],
 		SSHPublicKey:       cfg[keyV2SSHKey],
 		DNSSuffix:          cfg[keyV2Suffix],
+		DNSAddress:         dnsAddress,
 	}
 	if profilePlan.DefaultProfileUser == "" {
 		profilePlan.DefaultProfileUser = tenant.DefaultV2UnixUser

@@ -271,6 +271,52 @@ func newAdminProjectCreateV2Command(config commandConfig, opts *rootOptions) *co
 	return command
 }
 
+// newAdminProjectDeleteV2Command is the only working path to delete a v2 app
+// project: the tenant plane exposes POST /api/projects but no delete, and a
+// tenant's restricted certificate may not delete an Incus project.
+func newAdminProjectDeleteV2Command(config commandConfig, opts *rootOptions) *cobra.Command {
+	var yes bool
+	command := &cobra.Command{
+		Use:   "delete tenant project",
+		Short: "Delete a project of a tenant (machines, volumes, profiles, Incus project)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				confirmed, err := confirmMissingYes(config, fmt.Sprintf("Delete project %s of tenant %s, with its machines and volumes?", args[1], args[0]), "refusing to delete project without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return fmt.Errorf("delete canceled")
+				}
+			}
+			summaries, err := tenant.ListForPrefix(cmd.Context(), config.tenantStore, config.adminConfig.IncusProjectPrefix)
+			if err != nil {
+				return err
+			}
+			summary, ok := findTenantSummaryForCleanup(summaries, args[0])
+			if !ok {
+				return fmt.Errorf("Sandcastle tenant %s not found", args[0])
+			}
+			if args[1] == naming.DefaultProjectName {
+				return fmt.Errorf("refusing to delete the default project of tenant %s; delete the tenant instead", summary.Tenant)
+			}
+			incusProject := summary.V2IncusProjectName(args[1])
+			if config.projectDeleter == nil {
+				return fmt.Errorf("project deleter is not configured")
+			}
+			if err := config.projectDeleter.DeleteProjectV2(cmd.Context(), incusProject, config.adminConfig.StoragePool); err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, "deleted project "+args[1]+" ("+incusProject+")", map[string]string{
+				"tenant": summary.Tenant, "project": args[1], "incusProject": incusProject,
+			})
+		},
+	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm project deletion")
+	return command
+}
+
 func newAdminBootstrapCommand(config commandConfig) *cobra.Command {
 	var baseImage, sidecarImage, binaryPath, bridge, storagePool, hostname, cidrPool, port string
 	command := &cobra.Command{
@@ -325,6 +371,7 @@ func newAdminProjectCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 		Short: "Admin project operations (v2)",
 	}
 	command.AddCommand(newAdminProjectCreateV2Command(config, opts))
+	command.AddCommand(newAdminProjectDeleteV2Command(config, opts))
 	command.AddCommand(newAdminProjectBrokerServeCommand(config))
 	return command
 }
