@@ -55,24 +55,7 @@ func (r MachineSSHKeyReconciler) ReconcileUserSSHKey(ctx context.Context, summar
 	if err != nil {
 		return err
 	}
-	if summary.Version == 2 {
-		return r.reconcileV2(ctx, server, summary, userKey, publicKey, machines)
-	}
-	projectServer := server.UseProject(summary.IncusName)
-	for _, managed := range machines {
-		instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{
-			Tenant:  summary.Tenant,
-			Project: managed.Project,
-			Machine: managed.Name,
-		})
-		if err != nil {
-			return err
-		}
-		if err := r.reconcileMachine(ctx, projectServer, instanceName, managed, userKey, publicKey); err != nil {
-			return err
-		}
-	}
-	return nil
+	return r.reconcileV2(ctx, server, summary, userKey, publicKey, machines)
 }
 
 // reconcileV2 writes the rotated key into each v2 project's shared /home.
@@ -142,31 +125,6 @@ func v2LoginUser(summary tenant.Summary, managed meta.Machine, userKey string) s
 		return user
 	}
 	return userKey
-}
-
-func (r MachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summary tenant.Summary, userKey string) error {
-	store := r.Store
-	if store == nil {
-		return fmt.Errorf("machine store is not configured")
-	}
-	machines, err := store.ListMachines(ctx, summary)
-	if err != nil {
-		return err
-	}
-	if len(machines) == 0 {
-		return nil
-	}
-	server, err := r.server()
-	if err != nil {
-		return err
-	}
-	projectServer := server.UseProject(summary.IncusName)
-	for _, managed := range machines {
-		if err := r.revokeMachine(ctx, projectServer, summary, managed, userKey); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (r MachineSSHKeyReconciler) reconcileMachine(ctx context.Context, server MachineSSHKeyResourceServer, instanceName string, managed meta.Machine, userKey string, publicKey string) error {
@@ -244,52 +202,6 @@ func execReturnCode(op incus.Operation) int {
 	return 0
 }
 
-func (r MachineSSHKeyReconciler) revokeMachine(ctx context.Context, server MachineSSHKeyResourceServer, summary tenant.Summary, managed meta.Machine, userKey string) error {
-	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{
-		Tenant:  summary.Tenant,
-		Project: managed.Project,
-		Machine: managed.Name,
-	})
-	if err != nil {
-		return err
-	}
-	linuxUser := managed.LinuxUser
-	if strings.TrimSpace(linuxUser) == "" {
-		linuxUser = userKey
-	}
-	script := strings.Join([]string{
-		"set -eu",
-		`user="${SANDCASTLE_USER:?}"`,
-		`home="$(getent passwd "$user" | cut -d: -f6)"`,
-		`if [ -z "$home" ]; then home="/home/$user"; fi`,
-		`auth="$home/.ssh/authorized_keys"`,
-		`[ -e "$auth" ] || exit 0`,
-		`tmp="$auth.tmp"`,
-		`awk '/^# sandcastle user ssh key begin$/ {skip=1; next} /^# sandcastle user ssh key end$/ {skip=0; next} !skip {print}' "$auth" > "$tmp"`,
-		`install -m 0600 -o "$user" -g "$user" "$tmp" "$auth"`,
-		`rm -f "$tmp"`,
-	}, "\n")
-	dataDone := make(chan bool)
-	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
-		Command: []string{"/bin/sh", "-c", script},
-		Environment: map[string]string{
-			"SANDCASTLE_USER": linuxUser,
-		},
-		WaitForWS: true,
-	}, &incus.InstanceExecArgs{
-		Stdin:    strings.NewReader(""),
-		DataDone: dataDone,
-	})
-	if err != nil {
-		return fmt.Errorf("revoke User SSH Public Key on machine %s: %w", instanceName, err)
-	}
-	if err := op.Wait(); err != nil {
-		return fmt.Errorf("wait for User SSH Public Key revocation on machine %s: %w", instanceName, err)
-	}
-	<-dataDone
-	return nil
-}
-
 func (r MachineSSHKeyReconciler) server() (MachineSSHKeyServer, error) {
 	if r.Server != nil {
 		return r.Server, nil
@@ -323,4 +235,90 @@ type sdkMachineSSHKeyResourceServer struct {
 
 func (s sdkMachineSSHKeyResourceServer) ExecInstance(instanceName string, exec api.InstanceExecPost, args *incus.InstanceExecArgs) (incus.Operation, error) {
 	return s.inner.ExecInstance(instanceName, exec, args)
+}
+
+// RevokeUserSSHKey removes the marker-delimited Sandcastle key block from every
+// machine in the tenant. Called when a user is de-allowlisted or loses tenant
+// access. Like the reconcile path it writes once per project (a v2 project's
+// machines share one /home volume) and skips machines that are not running.
+func (r MachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summary tenant.Summary, userKey string) error {
+	store := r.Store
+	if store == nil {
+		return fmt.Errorf("machine store is not configured")
+	}
+	machines, err := store.ListMachines(ctx, summary)
+	if err != nil {
+		return err
+	}
+	if len(machines) == 0 {
+		return nil
+	}
+	server, err := r.server()
+	if err != nil {
+		return err
+	}
+	byProject := map[string][]meta.Machine{}
+	order := []string{}
+	for _, managed := range machines {
+		project := strings.TrimSpace(managed.Project)
+		if project == "" {
+			project = naming.DefaultProjectName
+		}
+		if _, seen := byProject[project]; !seen {
+			order = append(order, project)
+		}
+		byProject[project] = append(byProject[project], managed)
+	}
+	for _, project := range order {
+		projectServer := server.UseProject(summary.V2IncusProjectName(project))
+		var lastErr error
+		revoked := false
+		for _, managed := range byProject[project] {
+			if !managed.Running {
+				continue
+			}
+			if err := r.revokeMachine(ctx, projectServer, managed.Name, v2LoginUser(summary, managed, userKey)); err != nil {
+				lastErr = err
+				continue
+			}
+			revoked = true
+			break
+		}
+		if !revoked && lastErr != nil {
+			return lastErr
+		}
+	}
+	return nil
+}
+
+func (r MachineSSHKeyReconciler) revokeMachine(ctx context.Context, server MachineSSHKeyResourceServer, instanceName string, linuxUser string) error {
+	script := strings.Join([]string{
+		"set -eu",
+		`user="${SANDCASTLE_USER:?}"`,
+		`home="$(getent passwd "$user" | cut -d: -f6)"`,
+		`if [ -z "$home" ]; then home="/home/$user"; fi`,
+		`auth="$home/.ssh/authorized_keys"`,
+		`[ -e "$auth" ] || exit 0`,
+		`tmp="$auth.tmp"`,
+		`awk '/^# sandcastle user ssh key begin$/ {skip=1; next} /^# sandcastle user ssh key end$/ {skip=0; next} !skip {print}' "$auth" > "$tmp"`,
+		`install -m 0600 -o "$user" -g "$user" "$tmp" "$auth"`,
+		`rm -f "$tmp"`,
+	}, "\n")
+	dataDone := make(chan bool)
+	op, err := server.ExecInstance(instanceName, api.InstanceExecPost{
+		Command:     []string{"/bin/sh", "-c", script},
+		Environment: map[string]string{"SANDCASTLE_USER": linuxUser},
+		WaitForWS:   true,
+	}, &incus.InstanceExecArgs{Stdin: strings.NewReader(""), DataDone: dataDone})
+	if err != nil {
+		return fmt.Errorf("revoke User SSH Public Key on machine %s: %w", instanceName, err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for User SSH Public Key revocation on machine %s: %w", instanceName, err)
+	}
+	<-dataDone
+	if code := execReturnCode(op); code != 0 {
+		return fmt.Errorf("revoke User SSH Public Key on machine %s: script exited %d", instanceName, code)
+	}
+	return nil
 }

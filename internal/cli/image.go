@@ -34,9 +34,9 @@ func newImageSaveCommand(config commandConfig, opts *rootOptions) *cobra.Command
 			"  sc create <new-machine> --image <name>",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, isV2 := v2TenantSummary(cmd.Context(), config)
-			if !isV2 {
-				return fmt.Errorf("sc image is only supported for v2 tenants")
+			summary, err := requireV2Tenant(cmd.Context(), config)
+			if err != nil {
+				return err
 			}
 			project, machine, err := resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
 			if err != nil {
@@ -64,9 +64,9 @@ func newImageListCommand(config commandConfig, opts *rootOptions) *cobra.Command
 		Short:   "List saved base images",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, isV2 := v2TenantSummary(cmd.Context(), config)
-			if !isV2 {
-				return fmt.Errorf("sc image is only supported for v2 tenants")
+			summary, err := requireV2Tenant(cmd.Context(), config)
+			if err != nil {
+				return err
 			}
 			incusProject, err := resolveV2ProjectFlag(summary, config, project)
 			if err != nil {
@@ -91,9 +91,9 @@ func newImageRemoveCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 		Short:   "Remove a saved base image",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, isV2 := v2TenantSummary(cmd.Context(), config)
-			if !isV2 {
-				return fmt.Errorf("sc image is only supported for v2 tenants")
+			summary, err := requireV2Tenant(cmd.Context(), config)
+			if err != nil {
+				return err
 			}
 			incusProject, err := resolveV2ProjectFlag(summary, config, project)
 			if err != nil {

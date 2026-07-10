@@ -9,7 +9,6 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
-	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 // machinesWeb renders a minimal, mobile-first page listing the signed-in user's
@@ -101,23 +100,8 @@ func (h handler) accessibleTenantSummaries(r *http.Request, user User) ([]tenant
 	normalized := NormalizeGitHubUsername(user.UserKey)
 	accessible := make([]tenant.Summary, 0, len(summaries))
 	for _, summary := range summaries {
-		// v2 tenants have no v1 tenant-user metadata for ListTenantUsers to
-		// read; a v2 personal tenant belongs to the user whose key names it.
-		if summary.Version == 2 {
-			if summary.Tenant == normalized {
-				accessible = append(accessible, summary)
-			}
-			continue
-		}
-		plan, err := usertrust.PlanTenantUsersForRequest(h.admin, usertrust.TenantAccessRequest{Tenant: summary.Tenant, Personal: summary.Personal})
-		if err != nil {
-			return nil, err
-		}
-		users, err := h.tenantAccess.ListTenantUsers(r.Context(), plan)
-		if err != nil {
-			return nil, fmt.Errorf("list tenant users for %s: %w", summary.Tenant, err)
-		}
-		if containsNormalizedUser(users.Users, normalized) {
+		// A personal tenant belongs to the user whose key names it.
+		if summary.Tenant == normalized {
 			accessible = append(accessible, summary)
 		}
 	}
@@ -137,10 +121,7 @@ func machineSSHUser(summary tenant.Summary, m meta.Machine) string {
 	if u := strings.TrimSpace(summary.UnixUser); u != "" {
 		return u
 	}
-	if summary.Version == 2 {
-		return tenant.DefaultV2UnixUser
-	}
-	return strings.TrimSpace(summary.Tenant)
+	return tenant.DefaultV2UnixUser
 }
 
 func machineWebFQDN(summary tenant.Summary, m meta.Machine) string {

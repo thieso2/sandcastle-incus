@@ -37,7 +37,7 @@ func newIncusCommand(config commandConfig, _ *rootOptions) *cobra.Command {
 			}
 			// v2 tenants use per-project Incus projects (sc2-<tenant>-<project>),
 			// not the v1 sc-<tenant> project the name derivation above assumes.
-			if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
+			if summary, ok := v2TenantSummary(cmd.Context(), config); ok {
 				projectName = summary.V2IncusProjectName(config.adminConfig.Project)
 			}
 			env := append(os.Environ(), "INCUS_CONF="+incusDir)
@@ -96,7 +96,7 @@ func runIncusWithProject(cmd *cobra.Command, config commandConfig, args []string
 	}
 	envOverrides := []string{"INCUS_CONF=" + incusDir}
 	env := append(os.Environ(), "INCUS_CONF="+incusDir)
-	if summary, isV2 := v2TenantSummary(cmd.Context(), config); isV2 {
+	if summary, ok := v2TenantSummary(cmd.Context(), config); ok {
 		projectName := v2ProjectFn(summary)
 		env = append(env, "INCUS_PROJECT="+projectName)
 		envOverrides = append(envOverrides, "INCUS_PROJECT="+projectName)

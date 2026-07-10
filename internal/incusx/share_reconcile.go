@@ -74,22 +74,12 @@ func (r ShareReconciler) ReconcileTenantShares(ctx context.Context, summary tena
 // shareReconcileIncusProject resolves the Incus project a machine's instance
 // lives in.
 func shareReconcileIncusProject(summary tenant.Summary, managed meta.Machine) string {
-	if summary.Version == 2 {
-		return summary.V2IncusProjectName(managed.Project)
-	}
-	return summary.IncusName
+	return summary.V2IncusProjectName(managed.Project)
 }
 
 // shareReconcileInstanceName resolves the Incus instance name for a machine.
 func shareReconcileInstanceName(summary tenant.Summary, managed meta.Machine) (string, error) {
-	if summary.Version == 2 {
-		return managed.Name, nil
-	}
-	return naming.MachineIncusInstanceName(naming.MachineRef{
-		Tenant:  summary.Tenant,
-		Project: managed.Project,
-		Machine: managed.Name,
-	})
+	return managed.Name, nil
 }
 
 func (r ShareReconciler) reconcileMachine(ctx context.Context, server ShareReconcileResourceServer, summary tenant.Summary, managed meta.Machine, dryRun bool) share.MachineReconcileResult {

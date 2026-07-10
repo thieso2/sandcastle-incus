@@ -385,11 +385,11 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 					return fmt.Errorf("delete canceled")
 				}
 			}
-			planV2, isV2, err := tenant.PlanDeleteV2(cmd.Context(), config.adminConfig, config.tenantStore, args[0], purge)
+			planV2, found, err := tenant.PlanDeleteV2(cmd.Context(), config.adminConfig, config.tenantStore, args[0], purge)
 			if err != nil {
 				return err
 			}
-			if !isV2 {
+			if !found {
 				return fmt.Errorf("Sandcastle tenant %s not found", args[0])
 			}
 			if config.tenantDeleter == nil {
