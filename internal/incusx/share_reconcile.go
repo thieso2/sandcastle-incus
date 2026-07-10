@@ -60,11 +60,36 @@ func (r ShareReconciler) ReconcileTenantShares(ctx context.Context, summary tena
 	if err != nil {
 		return share.ReconcileResult{}, err
 	}
-	projectServer := server.UseProject(summary.IncusName)
 	for _, managed := range machines {
+		// v1 packs the project into the instance name (<project>-<machine>) inside
+		// the tenant's single Incus project; v2 gives each project its own Incus
+		// project and keeps the bare machine name. Using the v1 rule on a v2
+		// tenant looked up "default-web" and reported every machine as failed.
+		projectServer := server.UseProject(shareReconcileIncusProject(summary, managed))
 		result.Machines = append(result.Machines, r.reconcileMachine(ctx, projectServer, summary, managed, dryRun))
 	}
 	return result, nil
+}
+
+// shareReconcileIncusProject resolves the Incus project a machine's instance
+// lives in.
+func shareReconcileIncusProject(summary tenant.Summary, managed meta.Machine) string {
+	if summary.Version == 2 {
+		return summary.V2IncusProjectName(managed.Project)
+	}
+	return summary.IncusName
+}
+
+// shareReconcileInstanceName resolves the Incus instance name for a machine.
+func shareReconcileInstanceName(summary tenant.Summary, managed meta.Machine) (string, error) {
+	if summary.Version == 2 {
+		return managed.Name, nil
+	}
+	return naming.MachineIncusInstanceName(naming.MachineRef{
+		Tenant:  summary.Tenant,
+		Project: managed.Project,
+		Machine: managed.Name,
+	})
 }
 
 func (r ShareReconciler) reconcileMachine(ctx context.Context, server ShareReconcileResourceServer, summary tenant.Summary, managed meta.Machine, dryRun bool) share.MachineReconcileResult {
@@ -77,11 +102,7 @@ func (r ShareReconciler) reconcileMachine(ctx context.Context, server ShareRecon
 		machineResult.Skipped = true
 		return machineResult
 	}
-	instanceName, err := naming.MachineIncusInstanceName(naming.MachineRef{
-		Tenant:  summary.Tenant,
-		Project: managed.Project,
-		Machine: managed.Name,
-	})
+	instanceName, err := shareReconcileInstanceName(summary, managed)
 	if err != nil {
 		machineResult.Status = "failed"
 		machineResult.Error = err.Error()
