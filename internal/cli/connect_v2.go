@@ -2,9 +2,13 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -54,17 +58,47 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 				if strings.TrimSpace(token) == "" {
 					return fmt.Errorf("tenant %q is not enrolled here; pass --token from `sc-adm tenant create`", tenant)
 				}
-				if err := runIncus(cmd.Context(), dir, "remote", "add", name, strings.TrimSpace(token)); err != nil {
+				err := runIncus(cmd.Context(), dir, "remote", "add", name, strings.TrimSpace(token))
+				if err != nil && strings.Contains(err.Error(), "already trusted") {
+					// Shared client identity: this daemon already trusts our keypair
+					// (another install on the same host enrolled it), so it refuses to
+					// redeem a second token. The token carries the daemon's addresses,
+					// so add the remote certificate-based instead. Without this, a
+					// second install could never be enrolled with `sc enroll`.
+					err = enrollTrustedClientRemote(cmd.Context(), dir, name, strings.TrimSpace(token), config.stderr)
+				}
+				if err != nil {
 					return fmt.Errorf("enroll tenant remote: %w", err)
 				}
 			}
 
 			// 2. Add one cert-pinned remote per project the cert can see.
+			// The endpoint defaults to whatever the base remote resolved to when it
+			// redeemed the token. Without this, `incus remote add <name> ""` fails
+			// with `Addresses cannot be empty`, every project remote is skipped with
+			// a Note, and enroll still reports success — "0 project remote(s)".
+			endpoint = strings.TrimSpace(endpoint)
+			if endpoint == "" {
+				addr, err := remoteAddress(filepath.Join(dir, "config.yml"), name)
+				if err == nil {
+					// A remote may carry a comma-separated fallback list; the first wins.
+					endpoint = strings.TrimSpace(strings.SplitN(addr, ",", 2)[0])
+				}
+			}
+			if endpoint == "" {
+				if addrs := incusTokenAddresses(token); len(addrs) > 0 {
+					endpoint = "https://" + addrs[0]
+				}
+			}
+			if endpoint == "" {
+				return fmt.Errorf("cannot determine the Incus endpoint for remote %q; pass --incus-endpoint https://<host>:8443", name)
+			}
 			projects, err := listRemoteProjects(cmd.Context(), dir, name)
 			if err != nil {
 				return fmt.Errorf("list projects: %w", err)
 			}
-			added := 0
+			added, wanted := 0, 0
+			var failures []string
 			for _, incusProject := range projects {
 				short := shortProjectName(incusProject, tenant)
 				if short == "" {
@@ -74,12 +108,21 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 				if remoteExists(dir, projectRemote) {
 					continue
 				}
-				if err := addProjectRemote(cmd.Context(), projectRemote, strings.TrimSpace(endpoint), incusProject, dir); err != nil {
+				wanted++
+				if err := addProjectRemote(cmd.Context(), projectRemote, endpoint, incusProject, dir); err != nil {
 					fmt.Fprintf(config.stderr, "Note: could not add remote %q: %v\n", projectRemote, err)
+					failures = append(failures, fmt.Sprintf("%s: %v", projectRemote, err))
 					continue
 				}
 				added++
 				fmt.Fprintf(config.stdout, "  %s: → %s\n", projectRemote, incusProject)
+			}
+			// Enrolling zero project remotes when the certificate can see projects
+			// is a failed enrollment, not a successful one with a Note. Reporting
+			// `connected tenant "x" (0 project remote(s))` and exiting 0 is how a
+			// broken enroll looked like a working one.
+			if wanted > 0 && added == 0 {
+				return fmt.Errorf("enrolled the tenant remote but no project remote could be added: %s", strings.Join(failures, "; "))
 			}
 			// Persist the tenant + remote as the local defaults so every other
 			// sc command (list, create, connect, incus, …) resolves this tenant
@@ -93,10 +136,53 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 		},
 	}
 	command.Flags().StringVar(&token, "token", "", "enrollment token from `sc-adm tenant create` (first enroll only)")
-	command.Flags().StringVar(&endpoint, "incus-endpoint", "https://big.thieso2.dev:8443", "Incus HTTPS endpoint for per-project remotes")
+	// No default: the endpoint is read off the base remote the token just created.
+	// It used to default to a hardcoded developer host, so on any other install
+	// every project remote was added against the wrong Incus daemon (or failed
+	// with `EOF`) while enroll still reported success.
+	command.Flags().StringVar(&endpoint, "incus-endpoint", "", "Incus HTTPS endpoint for per-project remotes (default: the address the enrollment token resolved to)")
 	command.Flags().StringVar(&configDir, "config-dir", "", "incus config dir to enroll into (default: the shared ~/.config/sandcastle/incus)")
 	command.Flags().StringVar(&remoteName, "remote-name", "", "remote name (default sc-<tenant>; prefix installs use sc-<prefix>-<tenant> — copy it from `sc-adm tenant create`)")
 	return command
+}
+
+// incusTokenAddresses decodes the addresses an Incus certificate add token
+// advertises. The token is base64-encoded JSON; a token we cannot parse simply
+// yields no addresses rather than an error, since every caller has a fallback.
+func incusTokenAddresses(token string) []string {
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(token))
+	if err != nil {
+		return nil
+	}
+	var decoded struct {
+		Addresses []string `json:"addresses"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	return decoded.Addresses
+}
+
+// enrollTrustedClientRemote adds the tenant remote certificate-based, for the
+// case where the daemon already trusts this client's keypair and therefore
+// refuses to redeem the token. It tries each address the token advertises,
+// because only some of them are reachable from any given client.
+func enrollTrustedClientRemote(ctx context.Context, dir string, name string, token string, stderr io.Writer) error {
+	addresses := incusTokenAddresses(token)
+	if len(addresses) == 0 {
+		return fmt.Errorf("client is already trusted, and the token advertises no address to connect to")
+	}
+	var lastErr error
+	for _, address := range addresses {
+		url := "https://" + address
+		if err := runIncus(ctx, dir, trustedClientRemoteAddArgs(name, url, "")...); err != nil {
+			lastErr = err
+			continue
+		}
+		fmt.Fprintf(stderr, "Note: this client is already trusted; added remote %q at %s using the existing certificate.\n", name, url)
+		return nil
+	}
+	return fmt.Errorf("client is already trusted, but no advertised address accepted the certificate (last error: %v)", lastErr)
 }
 
 func runIncus(ctx context.Context, incusConf string, args ...string) error {
@@ -128,11 +214,21 @@ func listRemoteProjects(ctx context.Context, incusConf string, remote string) ([
 	return projects, nil
 }
 
-// shortProjectName turns sc2-<tenant>-<project> into <project>.
+// shortProjectName turns <prefix>-<tenant>-<project> into <project>.
+//
+// The install prefix is whatever `sc-adm install --prefix` chose, so it cannot be
+// hardcoded: matching only the default `sc2-` meant that enrolling against an
+// install created with e.g. `--prefix id` filtered out every project, added no
+// project remotes, and still exited 0 ("0 project remote(s)"). Anchor on the
+// tenant segment instead, which is the one part we know.
+//
+// The tenant's infra project (`<prefix>-<tenant>`, no trailing project segment)
+// deliberately yields "" — it gets no project remote.
 func shortProjectName(incusProject string, tenant string) string {
-	prefix := naming.V2IncusProjectPrefix + "-" + tenant + "-"
-	if !strings.HasPrefix(incusProject, prefix) {
+	marker := "-" + tenant + "-"
+	index := strings.Index(incusProject, marker)
+	if index < 0 {
 		return ""
 	}
-	return strings.TrimPrefix(incusProject, prefix)
+	return incusProject[index+len(marker):]
 }
