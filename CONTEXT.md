@@ -105,7 +105,7 @@ _Avoid_: Tenant cloud config, project cloud setting
 
 **Auth App**:
 The infrastructure service that handles GitHub login, CLI device login, user registry, and workload identity issuing.
-_Avoid_: Route Broker, Incus metadata app
+_Avoid_: Incus metadata app
 
 **Infrastructure Seed File**:
 An operator-supplied, portable, secret-bearing bootstrap bundle for shared infrastructure configuration and reusable working public TLS material.
@@ -176,15 +176,15 @@ A named namespace inside a tenant for grouping Sandcastle runtime resources.
 _Avoid_: Incus project when discussing the product concept, project settings
 
 **Incus Project Mapping**:
-The rule that each Sandcastle tenant is represented by exactly one Incus project.
-_Avoid_: Project-level Incus project
+The rule that a Sandcastle tenant is represented by one infra Incus project `<prefix>-<tenant>` (`kind=infra`) plus one app Incus project per Sandcastle project, named `<prefix>-<tenant>-<project>` (`kind=project`).
+_Avoid_: One Incus project per tenant, `sc-<tenant>` single-project tenant
 
 **Incus Instance Name**:
-The Incus-level machine name inside a tenant's Incus project, derived from Sandcastle project and machine names.
-_Avoid_: Bare machine name in Incus
+The Incus-level machine name inside a tenant's app Incus project; it is the bare Sandcastle machine name.
+_Avoid_: `<project>-<machine>` compound instance name
 
 **Tenant Metadata**:
-The authoritative Sandcastle state stored on the tenant's Incus project.
+The authoritative Sandcastle state stored on the tenant's infra Incus project.
 _Avoid_: Local project registry
 
 **Local DNS Installation**:
@@ -272,14 +272,6 @@ _Avoid_: Build machine, sc container, builder Machine
 **VM**:
 A future Machine type backed by an Incus virtual machine.
 _Avoid_: Separate product resource
-
-**Public Route**:
-A public HTTP or HTTPS hostname that forwards traffic to a machine.
-_Avoid_: Machine flag
-
-**Route Broker**:
-The narrow service that authorizes user route requests and mutates global route infrastructure.
-_Avoid_: User infrastructure access
 
 **Default Project**:
 The normal Project named `default` that exists in every tenant from tenant creation.
@@ -395,38 +387,20 @@ _Avoid_: Projectless mode
 - Machine connection uses **Machine SSH Access** over the Machine's **Tailscale Machine IP** as the user-facing shell path.
 - Each **Machine** has a **Private Machine Proxy** that serves the machine's private hostname and forwards to its **App Port**.
 - A **Machine** private hostname resolves to the Machine's **Tailscale Machine IP**.
-- An **Incus Instance Name** is `{project}-{machine}` so two projects in the same tenant can each have a machine with the same name.
+- An **Incus Instance Name** is the bare Sandcastle machine name; because each **Project** is its own app Incus project, two projects in the same tenant can each have a machine with the same name.
 - A **Container** is the default **Machine** type.
 - A **VM** is a future **Machine** type.
-- The user CLI manages **Machines** with `list`, `create`, `connect`, `start`, `stop`, `restart`, `status`, and `delete`.
+- The user CLI manages **Machines** with `list`, `create`, `connect`, `start`, `stop`, `restart`, and `delete`.
 - **Machine** is the implicit top-level resource in both user and admin CLIs.
-- The user CLI manages **Public Routes** separately with `route list`, `route create`, `route status`, and `route delete`.
 - The user CLI manages **Projects** with `project list`, `project create`, `project status`, and `project delete`.
-- User **Public Route** mutations go through the **Route Broker**.
-- All user **Public Route** operations go through the **Route Broker**.
-- Users cannot claim the **Auth Hostname** as a **Public Route**.
-- The **Route Broker** authenticates users with their Sandcastle Incus client certificate.
-- **Public Routes** are globally registered in infrastructure metadata with tenant, project, and machine target identity.
-- A **Public Route** hostname is any unclaimed public DNS name that proves it points at Sandcastle ingress.
-- A **Public Route** hostname is not derived from a private machine hostname.
-- A **Public Route** stores its target port explicitly when created.
-- Changing a **Machine** app port does not silently change existing **Public Routes**.
-- Any **User** with **Tenant Access** can delete **Public Routes** targeting that **Tenant**.
-- The admin CLI manages **Machines** for any tenant with the same verbs as the user CLI.
+- The admin CLI lists **Machines** for any tenant with `list`; it has no per-machine create, connect, or delete verbs.
 - `sandcastle-admin` is the canonical admin CLI.
-- Admin `status` takes a machine reference and reports machine status in the explicit **Tenant**.
-- An admin machine reference is `tenant/machine` or `tenant/project/machine`; omitted project means the **Default Project**.
-- Admin machine lookup references use the same unique-search behavior as user lookup references, scoped to the explicit **Tenant**.
 - Admin `list` takes `tenant` for all projects or `tenant/project` for one project.
 - Admin `list` uses `-u` or `--include-unmanaged` for unmanaged Incus instances; all-project scope is expressed by passing a tenant reference.
 - `list` without a project lists **Machines** in the configured **Current Project** when set, otherwise across every **Project** in the current **Tenant**.
 - `list project` lists only **Machines** in that **Project**.
 - `list --all-projects` or `-a` overrides configured **Current Project** narrowing.
 - Machine list output always includes each **Machine**'s **Project**.
-- `route list` follows the same project scoping rules as machine `list`.
-- Public route list output always includes each route target's **Project** and **Machine**.
-- Machine `status` may show **Public Route** details.
-- Machine `list` shows only a compact **Public Route** indicator.
 - Every **Tenant** starts with exactly one **Default Project**.
 - The **Default Project** follows the same project rules as any other **Project**.
 - A **Machine** hostname is `machine.project.tenant`, where `tenant` is the **Tenant DNS Suffix**.
@@ -499,15 +473,15 @@ _Avoid_: Projectless mode
 - The **Auth App** stores only a verifier for a **Machine Runtime Secret**, not the raw secret.
 - A **User** may define one or more **Cloud Identity Configs**.
 - The `sc cloud-identity gcp setup` command configures external GCP trust for a **Tenant** and prints the values stored in a **Cloud Identity Config**.
-- The `sc workload enable` command rotates a **Machine Runtime Secret** through the **Auth App** and injects workload identity files into a **Machine** through the tenant-scoped user remote.
+- Enabling workload identity for a **Machine** rotates a **Machine Runtime Secret** through the **Auth App** and injects workload identity files into a **Machine** through the tenant-scoped user remote.
 - **Cloud Identity Configs** are selected per **Machine** when workload identity is enabled.
 - Sandcastle v1 does not apply **Cloud Identity Configs** automatically at the **Tenant** or **Project** level.
 - The **Auth App** is implemented as part of the Go Sandcastle codebase.
-- The **Auth App** runs as its own infrastructure service, separate from the **Route Broker**.
+- The **Auth App** runs as its own infrastructure service.
 - The **Auth App** uses minimal server-rendered HTML for its user and admin workflows.
 - The **Auth App** is served publicly at the configured **Auth Hostname**.
 - The **Auth Hostname** is the issuer host for the **Sandcastle OIDC Provider**.
-- The **Auth Hostname** is reserved infrastructure routing, not a user-created **Public Route**.
+- The **Auth Hostname** is reserved infrastructure routing, not a user-facing resource.
 - The **Auth App** stores login and device authorization state in the **Auth Database**.
 - The **Auth Database** lives on persistent infrastructure storage and is scoped to a single Auth App instance in v1.
 - **Tenant Metadata** remains the authoritative Sandcastle state for tenant runtime resources, not the Auth App's session or login store.
@@ -534,7 +508,7 @@ _Avoid_: Projectless mode
 - A **User** with no **Tenant Access** cannot manage Sandcastle resources until a **Sandcastle Admin** grants access.
 - A **User** receives **Tenant Access** to their **Personal Tenant** when it is created.
 - **Tenant Access** grants access to every **Project** and **Machine** in that **Tenant**.
-- **Tenant Access** grants management rights over **Projects**, **Machines**, and **Public Routes** in that **Tenant**.
+- **Tenant Access** grants management rights over **Projects** and **Machines** in that **Tenant**.
 - Revoking **Tenant Access** revokes **Machine SSH Access** by removing that User's **User SSH Public Key** from Machines in that **Tenant**.
 - User CLI commands operate in exactly one **Current Tenant**.
 - Switching the **Current Tenant** should validate **Tenant Access** when online validation is available.

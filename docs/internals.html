@@ -188,7 +188,7 @@
         <td>Global <code>~/.config/incus</code> admin certs / local unix socket — <code>INCUS_CONF</code>
             deliberately left alone</td>
         <td>Also hosts the long-running services as subcommands
-            (<code>auth-app serve</code>, <code>project broker-serve</code>, route broker)</td>
+            (<code>auth-app serve</code>, <code>project broker-serve</code>)</td>
       </tr>
       <tr>
         <td><code>sc admin …</code></td>
@@ -531,8 +531,8 @@
 
   <h3>Workload Identity (ADR-0005)</h3>
   <p>Each tenant gets its own OIDC issuer <code>https://&lt;auth-host&gt;/t/&lt;tenant&gt;</code> with a lazily
-  generated RSA key (KID = SHA-256 of the public key). <code>workload enable</code> mints a 32-byte
-  <strong>Machine Runtime Secret</strong>, drops it into the machine at
+  generated RSA key (KID = SHA-256 of the public key). The <code>/api/workload/enable</code> endpoint
+  mints a 32-byte <strong>Machine Runtime Secret</strong>, drops it into the machine at
   <code>/var/lib/sandcastle/workload/</code>, and stores only its verifier. The machine exchanges the
   secret at <code>/internal/workload/token</code> for a 15-minute JWT
   (<code>sub=machine:&lt;tenant&gt;/&lt;project&gt;/&lt;machine&gt;</code>, plus <code>tenant/project/machine/github_username</code>
@@ -926,8 +926,7 @@ castle:53 {
   (<code>Execute</code> forces <code>INCUS_CONF</code> to the Sandcastle-managed config dir), reaching Incus
   through the sidecar's Incus Reach. Machine references are
   <code>[tenant/][project:]machine</code>; the project defaults to the Current Project, then
-  <code>default</code>. Commands branch v1/v2 on the tenant's generation; the v2 behaviour is documented
-  here (v1 is legacy). State chips: what the command <em>creates</em>, <em>mutates</em>, <em>deletes</em>,
+  <code>default</code>. State chips: what the command <em>creates</em>, <em>mutates</em>, <em>deletes</em>,
   touches <em>locally</em>, or <em>calls</em> remotely.</p>
 
   <h3>Session</h3>
@@ -962,11 +961,11 @@ castle:53 {
   </div>
 
   <div class="cmdcard">
-    <h4><code>sc config show|set|unset</code> · <code>sc tenant list|switch</code> · <code>sc cache clear</code> <span class="badge badge-ro">local</span></h4>
+    <h4><code>sc config show|set|unset</code> · <code>sc tenant list|switch</code> <span class="badge badge-ro">local</span></h4>
     <div class="ledger">
-      <div class="ledger-row"><span class="chip local">client</span><div><code>config</code> rewrites <code>~/.config/sandcastle/config.yml</code> (<code>set remote</code> also switches the shared incus current remote); <code>tenant switch</code> sets the Current Tenant (validated via <code>GET /api/tenants</code> unless <code>--local-only</code>); <code>cache clear</code> drops connect-plan cache entries</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div><code>config</code> rewrites <code>~/.config/sandcastle/config.yml</code> (<code>set remote</code> also switches the shared incus current remote); <code>tenant switch</code> sets the Current Tenant (validated via <code>GET /api/tenants</code> unless <code>--local-only</code>)</div></div>
     </div>
-    <p class="impl"><code>internal/cli/config_cmd.go</code> · <code>internal/cli/tenant.go</code> · <code>internal/incusx/connect_cache.go</code></p>
+    <p class="impl"><code>internal/cli/config_cmd.go</code> · <code>internal/cli/tenant.go</code></p>
   </div>
 
   <h3>Machines</h3>
@@ -994,7 +993,7 @@ castle:53 {
       <div class="ledger-row"><span class="chip mutate">incus</span><div>may <code>CreateInstance</code> and/or <code>UpdateInstanceState start</code>; otherwise session-only</div></div>
       <div class="ledger-row"><span class="chip local">client</span><div>shells <code>ssh</code>/<code>mosh</code>; known-hosts + cache maintenance</div></div>
     </div>
-    <p class="impl"><code>internal/cli/connect.go</code>, <code>connect_v2.go</code> · <code>internal/incusx/machine_connect.go</code></p>
+    <p class="impl"><code>internal/cli/connect.go</code>, <code>create_v2.go</code> · <code>internal/incusx/machine_create_v2.go</code></p>
   </div>
 
   <div class="cmdcard">
@@ -1004,11 +1003,11 @@ castle:53 {
       <div class="ledger-row"><span class="chip delete">incus</span><div><code>delete --yes</code>: force-stop + <code>DeleteInstance</code>; the DNS record disappears on the reconciler's next pass</div></div>
       <div class="ledger-row"><span class="chip local">client</span><div>delete invalidates the machine's connect-cache + keyscan entries</div></div>
     </div>
-    <p class="impl"><code>internal/cli/machine_lifecycle.go</code> · <code>internal/incusx/machine_lifecycle.go</code></p>
+    <p class="impl"><code>internal/cli/machine_lifecycle.go</code> · <code>internal/incusx/machine_create_v2.go</code></p>
   </div>
 
   <div class="cmdcard">
-    <h4><code>sc list [project]</code> (alias <code>ls</code>) · <code>sc status [machine|tenant]</code> <span class="badge badge-ro">read-only</span></h4>
+    <h4><code>sc list [project]</code> (alias <code>ls</code>) · <code>sc status [tenant]</code> <span class="badge badge-ro">read-only</span></h4>
     <p>Both resolve the tenant <strong>scoped to the current remote's install</strong> — a same-named tenant
     of another install on the same daemon never shadows this one. <code>list</code> shows canonical FQDNs +
     live IPs across the tenant's projects (<code class="flag">-a</code> for all projects); <code>status</code>
@@ -1017,7 +1016,7 @@ castle:53 {
   </div>
 
   <div class="cmdcard">
-    <h4><code>sc incus|incus-native|incus-infra [args…]</code> <span class="badge badge-user">passthrough</span></h4>
+    <h4><code>sc incus|incus-infra [args…]</code> <span class="badge badge-user">passthrough</span></h4>
     <p>Runs the real <code>incus</code> binary with <code>INCUS_CONF</code> + <code>INCUS_PROJECT</code>
     pre-scoped: <code>incus</code> → the app project of the current remote's install;
     <code>incus-infra</code> → the infra project (sidecar). State changes are whatever the passed
@@ -1025,7 +1024,7 @@ castle:53 {
     <p class="impl"><code>internal/cli/incus_cmd.go</code></p>
   </div>
 
-  <h3>Projects &amp; keys</h3>
+  <h3>Projects</h3>
 
   <div class="cmdcard">
     <h4><code>sc project create|list|status|delete|set-cloud-identity|set-docker-autostart</code> <span class="badge badge-user">user</span></h4>
@@ -1040,39 +1039,29 @@ castle:53 {
     <p class="impl"><code>internal/cli/project_v2.go</code> · <code>internal/incusx/project_create_v2.go</code>, <code>tenant_update.go</code></p>
   </div>
 
-  <div class="cmdcard">
-    <h4><code>sc ssh-key set</code> · <code>sc password set</code> · <code>sc port set &lt;machine&gt; &lt;port&gt;</code> <span class="badge badge-user">user</span></h4>
-    <div class="ledger">
-      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>ssh-key set</code> stores the tenant SSH key in tenant metadata (machines pick it up at next login's profile re-bake); <code>password set</code> execs <code>chpasswd</code>+<code>smbpasswd</code> in every tenant machine; <code>port set</code> rewrites the machine's App Port metadata + in-guest Caddyfile and restarts caddy</div></div>
-    </div>
-    <p class="impl"><code>internal/incusx/tenant_update.go</code>, <code>machine_password.go</code>, <code>machine_port.go</code></p>
-  </div>
-
-  <h3>DNS, trust &amp; host</h3>
+  <h3>DNS &amp; trust</h3>
 
   <div class="cmdcard">
-    <h4><code>sc dns setup|apply|status|install|refresh|uninstall|teardown</code> <span class="badge badge-user">user</span></h4>
-    <p>Tenant lookups are install-scoped. <code>apply</code>/<code>setup</code> re-render the sidecar zone
-    explicitly (normally the reconciler's job); <code>install/refresh/uninstall/teardown</code> manage only
-    the <em>local</em> resolver. Escalates via a hidden <code>dns apply-elevated</code> sudo worker when
+    <h4><code>sc dns teardown|uninstall</code> <span class="badge badge-user">user</span></h4>
+    <p>The tenant zone is reconciled entirely server-side (the auth-app V2 DNS reconciler, <a href="#authapp">§4</a>);
+    the user CLI only touches the <em>local</em> resolver. Both verbs remove a tenant's local resolver
+    config/state (install-scoped). Escalates via a hidden <code>dns apply-elevated</code> sudo worker when
     resolver paths need root.</p>
     <div class="ledger">
-      <div class="ledger-row"><span class="chip mutate">sidecar</span><div><code>apply</code>/<code>setup</code>: writes <code>/etc/coredns/**</code> into the sidecar and restarts CoreDNS</div></div>
-      <div class="ledger-row"><span class="chip local">client</span><div>resolver state file + per-suffix unit <code>/etc/systemd/system/sandcastle-dns-&lt;suffix&gt;.service</code> (Linux) or <code>/etc/resolver/&lt;suffix&gt;</code> (macOS); enable/restart or disable/remove</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div>removes the resolver state file + per-suffix unit <code>/etc/systemd/system/sandcastle-dns-&lt;suffix&gt;.service</code> (Linux) or <code>/etc/resolver/&lt;suffix&gt;</code> (macOS)</div></div>
     </div>
-    <p class="impl"><code>internal/cli/dns.go</code> · <code>internal/localdns</code> · <code>internal/incusx/dns.go</code></p>
+    <p class="impl"><code>internal/cli/dns.go</code> · <code>internal/localdns</code></p>
   </div>
 
   <div class="cmdcard">
-    <h4><code>sc trust install|uninstall</code> · <code>sc host override create|list|delete</code> <span class="badge badge-user">user</span></h4>
+    <h4><code>sc trust install|uninstall</code> <span class="badge badge-user">user</span></h4>
     <div class="ledger">
-      <div class="ledger-row"><span class="chip local">client</span><div><code>trust</code>: installs/removes the Tenant CA in the OS trust store (Linux <code>/usr/local/share/ca-certificates</code> + <code>update-ca-certificates</code>; macOS login keychain), caches CA under <code>~/.config/sandcastle/tenant-ca/…</code>; <code>host override</code> edits the local hosts file</div></div>
-      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>host override</code> also records the extra SAN in machine metadata and re-issues the machine TLS cert in-guest</div></div>
+      <div class="ledger-row"><span class="chip local">client</span><div>installs/removes the Tenant CA in the OS trust store (Linux <code>/usr/local/share/ca-certificates</code> + <code>update-ca-certificates</code>; macOS login keychain), caches CA under <code>~/.config/sandcastle/tenant-ca/…</code></div></div>
     </div>
-    <p class="impl"><code>internal/localtrust</code> · <code>internal/incusx/localtrust.go</code>, <code>hostoverride.go</code></p>
+    <p class="impl"><code>internal/localtrust</code> · <code>internal/incusx/localtrust.go</code></p>
   </div>
 
-  <h3>Sharing, routes &amp; identity</h3>
+  <h3>Sharing &amp; identity</h3>
 
   <div class="cmdcard">
     <h4><code>sc share create|list|status|offers|accept|decline|revoke|delete|reconcile</code> <span class="badge badge-user">user</span></h4>
@@ -1087,24 +1076,12 @@ castle:53 {
   </div>
 
   <div class="cmdcard">
-    <h4><code>sc route create|list|status|delete</code> <span class="badge badge-user">user</span></h4>
-    <p>Public HTTPS routes on the shared edge (ADR-0013): DNS proof-of-ownership first, then the shared
-    infrastructure Caddy fronts <code>&lt;hostname&gt;</code> → the machine's App Port. Brokered through the
-    Route Broker (mTLS, tenant cert) when configured.</p>
+    <h4><code>sc cloud-identity gcp setup</code> · <code>sc tailscale up|status|down</code> <span class="badge badge-user">user</span></h4>
     <div class="ledger">
-      <div class="ledger-row"><span class="chip create">incus</span><div>route profile in the infrastructure project; ingress NIC attached to the target machine; tenant project backlink; infra Caddyfile rewrite + reload (all reversed on <code>delete</code>)</div></div>
-    </div>
-    <p class="impl"><code>internal/cli/route.go</code> · <code>internal/incusx/route.go</code> · <code>internal/routebroker</code></p>
-  </div>
-
-  <div class="cmdcard">
-    <h4><code>sc workload enable &lt;machine&gt;</code> · <code>sc cloud-identity gcp setup</code> · <code>sc tailscale up|status|down</code> <span class="badge badge-user">user</span></h4>
-    <div class="ledger">
-      <div class="ledger-row"><span class="chip call">auth-app</span><div><code>workload enable</code>: <code>POST /api/workload/enable</code> rotates the Machine Runtime Secret; the files land in the machine at <code>/var/lib/sandcastle/workload/…</code></div></div>
       <div class="ledger-row"><span class="chip call">external</span><div><code>cloud-identity gcp setup</code> drives <code>gcloud</code>: workload-identity pool + OIDC provider trusting <code>…/t/&lt;tenant&gt;</code>, service account, IAM bindings; records the config via <code>POST /api/cloud-identities</code></div></div>
       <div class="ledger-row"><span class="chip mutate">sidecar</span><div><code>tailscale up|down</code> exec <code>tailscale</code> in the sidecar and persist the resulting state into tenant project metadata</div></div>
     </div>
-    <p class="impl"><code>internal/cli/workload.go</code>, <code>cloud_identity.go</code>, <code>tailscale.go</code> · <code>internal/incusx/tailscale.go</code></p>
+    <p class="impl"><code>internal/cli/cloud_identity.go</code>, <code>tailscale.go</code> · <code>internal/incusx/tailscale.go</code></p>
   </div>
 
   </div>
@@ -1203,12 +1180,11 @@ castle:53 {
 
   <div class="cmdcard">
     <h4><code>sc-adm tenant delete &lt;tenant&gt; --yes [--purge]</code> <span class="badge badge-admin">destructive</span></h4>
-    <p>Detects v2 vs v1 (install-prefix-scoped — a same-named tenant of another install is never touched).
-    <strong>v2 is all-or-nothing</strong>: the shared volumes live inside the app projects, so without
-    <code>--purge</code> the command refuses. v1 keeps durable volumes unless purged.</p>
+    <p>Install-prefix-scoped — a same-named tenant of another install is never touched.
+    <strong>All-or-nothing</strong>: the shared volumes live inside the app projects, so without
+    <code>--purge</code> the command refuses.</p>
     <div class="ledger">
-      <div class="ledger-row"><span class="chip delete">incus (v2)</span><div>every instance in every app project → shared volume devices detached from the default profile → volumes <code>home</code>/<code>workspace</code> → app projects → infra project (sidecar + profiles) → tenant bridge</div></div>
-      <div class="ledger-row"><span class="chip delete">incus (v1)</span><div>instances, profiles, private network; with <code>--purge</code> also durable volumes + project; then share-cleanup re-reconciles affected recipients</div></div>
+      <div class="ledger-row"><span class="chip delete">incus</span><div>every instance in every app project → shared volume devices detached from the default profile → volumes <code>home</code>/<code>workspace</code> → app projects → infra project (sidecar + profiles) → tenant bridge; then share-cleanup re-reconciles affected recipients</div></div>
       <div class="ledger-row"><span class="chip local">client</span><div>invalidates the connect cache and the cached tenant CA for the remote</div></div>
       <div class="ledger-row"><span class="chip read">not touched</span><div>the sidecar's tailnet device (BYO tailnet, no server-side API key by design) — remove it in the Tailscale console or use ephemeral keys</div></div>
     </div>
@@ -1236,31 +1212,13 @@ castle:53 {
   </div>
 
   <div class="cmdcard">
-    <h4><code>sc-adm list|create|connect|status|delete &lt;tenant&gt;[/&lt;project&gt;]/&lt;machine&gt;</code> <span class="badge badge-admin">admin</span></h4>
-    <p>Cross-tenant machine operations by fully-qualified reference. <code>create</code> supports
-    <code class="flag">--template ai|base</code>, <code class="flag">--app-port</code>,
-    <code class="flag">--detach</code>; <code>connect</code> starts a stopped machine first.</p>
-    <div class="ledger">
-      <div class="ledger-row"><span class="chip create">incus</span><div><code>create</code>: launches the instance in the tenant's app project (bridge NIC + shared volumes via the default profile, cloud-init), then refreshes the sidecar CoreDNS zone + local known-hosts</div></div>
-      <div class="ledger-row"><span class="chip mutate">incus</span><div><code>connect</code>: starts a stopped instance, then opens the session</div></div>
-      <div class="ledger-row"><span class="chip delete">incus</span><div><code>delete</code>: force-stops + deletes the instance, re-renders the CoreDNS zone</div></div>
-      <div class="ledger-row"><span class="chip read">read</span><div><code>list</code> / <code>status</code> are read-only</div></div>
-    </div>
-    <p class="impl"><code>internal/cli/admin_machine.go</code> · <code>internal/machine</code> · <code>internal/incusx/machine_*.go</code></p>
+    <h4><code>sc-adm list &lt;tenant&gt;[/&lt;project&gt;]</code> <span class="badge badge-ro">read-only</span></h4>
+    <p>Lists a tenant's machines by fully-qualified reference (all app projects, or a single
+    <code>&lt;tenant&gt;/&lt;project&gt;</code>) from live Incus state — canonical FQDNs + live IPs.</p>
+    <p class="impl"><code>internal/cli/admin_machine.go</code> · <code>internal/incusx/machine_store.go</code></p>
   </div>
 
-  <div class="cmdcard">
-    <h4><code>sc-adm workload enable [project:]&lt;machine&gt; --database &lt;auth.db&gt;</code> <span class="badge badge-admin">admin</span></h4>
-    <p>Arms a machine with Workload Identity (<a href="adr/0005-sandcastle-oidc-provider-for-machine-workload-identity.md">ADR-0005</a>):
-    registers it in the auth database and drops the Machine Runtime Secret into the instance.</p>
-    <div class="ledger">
-      <div class="ledger-row"><span class="chip mutate">auth db</span><div>inserts/updates the machine's workload-identity registration + runtime secret in the SQLite DB</div></div>
-      <div class="ledger-row"><span class="chip local">machine</span><div>pushes <code>/var/lib/sandcastle/workload/{runtime-secret,token-endpoint,tenant,project,machine}</code> — the machine exchanges the secret for short-lived OIDC tokens at the Auth Hostname</div></div>
-    </div>
-    <p class="impl"><code>internal/authapp/workload.go</code> · <code>internal/machine</code></p>
-  </div>
-
-  <h3>Projects &amp; the brokers</h3>
+  <h3>Projects &amp; the broker</h3>
 
   <div class="cmdcard">
     <h4><code>sc-adm project create &lt;tenant&gt; &lt;project&gt;</code> <span class="badge badge-admin">admin</span></h4>
@@ -1281,16 +1239,6 @@ castle:53 {
     <code>POST /v2/tenants</code> runs full tenant provisioning. Runs from the broker appliance over the
     mounted host socket.</p>
     <p class="impl"><code>internal/projectbroker/serve.go</code></p>
-  </div>
-
-  <div class="cmdcard">
-    <h4><code>sc-adm route-broker serve --cert … --key …</code> <span class="badge badge-svc">service</span></h4>
-    <p>The public-route broker: mTLS on <code>:9443</code>; <code>GET /routes</code>,
-    <code>POST /routes</code>, <code>DELETE /routes/{hostname}</code>. Maps the client certificate to its
-    tenant, authorizes the hostname (DNS proof-of-ownership), then mutates the shared edge
-    (<a href="adr/0013-public-routes-stay-shared-infrastructure.md">ADR-0013</a>): reverse-proxy vhosts in
-    the infrastructure project via <code>RouteManager</code>.</p>
-    <p class="impl"><code>internal/routebroker</code> · <code>internal/incusx/route*.go</code> · <code>internal/route</code></p>
   </div>
 
   <h3>The Auth App service</h3>
