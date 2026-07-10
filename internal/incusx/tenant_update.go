@@ -84,22 +84,27 @@ func (m TenantSSHKeyManager) SetTenantShares(_ context.Context, incusProjectName
 	return m.writeTenantMetadataFile(incusProjectName, tenantStorageSharesFile, string(data), "write tenant storage shares metadata")
 }
 
-func (m TenantSSHKeyManager) SourceDirectoryExists(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error) {
-	status, err := m.SourceDirectoryStatus(ctx, incusProjectName, project, workspaceRelativeDir)
+func (m TenantSSHKeyManager) SourceDirectoryExists(ctx context.Context, incusProjectName string, workspaceRelativeDir string) (bool, error) {
+	status, err := m.SourceDirectoryStatus(ctx, incusProjectName, workspaceRelativeDir)
 	if err != nil {
 		return false, err
 	}
 	return status.Exists && status.Safe, nil
 }
 
-func (m TenantSSHKeyManager) SourceDirectoryStatus(_ context.Context, incusProjectName string, project string, workspaceRelativeDir string) (share.SourceStatus, error) {
+// SourceDirectoryStatus inspects a directory inside the source project's own
+// workspace volume. incusProjectName is the source app Incus project; the path
+// is relative to that project's /workspace volume root (each v2 project has its
+// own volume), so it carries no project segment — the v1 layout packed every
+// project into one volume under a per-project subdirectory.
+func (m TenantSSHKeyManager) SourceDirectoryStatus(_ context.Context, incusProjectName string, workspaceRelativeDir string) (share.SourceStatus, error) {
 	server, err := m.server()
 	if err != nil {
 		return share.SourceStatus{}, err
 	}
 	resource := server.UseProject(incusProjectName)
-	sourcePath := path.Clean(project + "/" + workspaceRelativeDir)
-	status, err := validateStorageTree(resource, m.pool(), tenant.WorkspaceVolumeName, sourcePath, sourcePath)
+	sourcePath := path.Clean(workspaceRelativeDir)
+	status, err := validateStorageTree(resource, m.pool(), tenant.V2WorkspaceVolumeName, sourcePath, sourcePath)
 	if isMissingTenantMetadata(err) {
 		return share.SourceStatus{Exists: false, Safe: false, Reason: "source directory is missing"}, nil
 	}
@@ -178,13 +183,13 @@ func (m TenantSSHKeyManager) writeTenantMetadataFile(incusProjectName string, fi
 		return err
 	}
 	tenantServer := server.UseProject(incusProjectName)
-	if err := tenantServer.CreateStorageVolumeFile(m.pool(), "custom", tenant.WorkspaceVolumeName, tenantMetadataDir, incus.InstanceFileArgs{
+	if err := tenantServer.CreateStorageVolumeFile(m.pool(), "custom", tenant.V2WorkspaceVolumeName, tenantMetadataDir, incus.InstanceFileArgs{
 		Type: "directory",
 		Mode: 0o755,
 	}); err != nil && !api.StatusErrorCheck(err, 409) {
 		return fmt.Errorf("create tenant metadata directory: %w", err)
 	}
-	if err := tenantServer.CreateStorageVolumeFile(m.pool(), "custom", tenant.WorkspaceVolumeName, filePath, incus.InstanceFileArgs{
+	if err := tenantServer.CreateStorageVolumeFile(m.pool(), "custom", tenant.V2WorkspaceVolumeName, filePath, incus.InstanceFileArgs{
 		Content:   strings.NewReader(content),
 		Type:      "file",
 		Mode:      0o644,

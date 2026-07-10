@@ -14,13 +14,13 @@ import (
 
 func TestSourceDirectoryStatusAcceptsSafeTreeWithDotfiles(t *testing.T) {
 	manager := TenantSSHKeyManager{Server: &fakeTenantMetadataUpdateServer{resource: &fakeTenantMetadataUpdateResource{files: map[string]fakeVolumeFile{
-		"default/docs":                  {typ: "directory", entries: []string{".env", "nested"}},
-		"default/docs/.env":             {typ: "file"},
-		"default/docs/nested":           {typ: "directory", entries: []string{"readme.md", "link"}},
-		"default/docs/nested/readme.md": {typ: "file"},
-		"default/docs/nested/link":      {typ: "symlink", content: "../.env"},
+		"docs":                  {typ: "directory", entries: []string{".env", "nested"}},
+		"docs/.env":             {typ: "file"},
+		"docs/nested":           {typ: "directory", entries: []string{"readme.md", "link"}},
+		"docs/nested/readme.md": {typ: "file"},
+		"docs/nested/link":      {typ: "symlink", content: "../.env"},
 	}}}}
-	status, err := manager.SourceDirectoryStatus(context.Background(), "sc-acme", "default", "docs")
+	status, err := manager.SourceDirectoryStatus(context.Background(), "sc2-acme-default", "docs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,10 +31,10 @@ func TestSourceDirectoryStatusAcceptsSafeTreeWithDotfiles(t *testing.T) {
 
 func TestSourceDirectoryStatusRejectsEscapingSymlink(t *testing.T) {
 	manager := TenantSSHKeyManager{Server: &fakeTenantMetadataUpdateServer{resource: &fakeTenantMetadataUpdateResource{files: map[string]fakeVolumeFile{
-		"default/docs":        {typ: "directory", entries: []string{"escape"}},
-		"default/docs/escape": {typ: "symlink", content: "../../other"},
+		"docs":        {typ: "directory", entries: []string{"escape"}},
+		"docs/escape": {typ: "symlink", content: "../../other"},
 	}}}}
-	status, err := manager.SourceDirectoryStatus(context.Background(), "sc-acme", "default", "docs")
+	status, err := manager.SourceDirectoryStatus(context.Background(), "sc2-acme-default", "docs")
 	if err != nil {
 		t.Fatal(err)
 	}

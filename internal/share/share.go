@@ -26,7 +26,12 @@ const (
 type Store interface {
 	GetTenantShares(ctx context.Context, incusProjectName string) ([]meta.TenantStorageShare, error)
 	SetTenantShares(ctx context.Context, incusProjectName string, shares []meta.TenantStorageShare) error
-	SourceDirectoryExists(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error)
+	// SourceDirectoryExists checks a directory inside the source project's OWN
+	// workspace volume. incusProjectName is the source app Incus project
+	// (<prefix>-<tenant>-<project>) — each v2 project has its own workspace
+	// volume mounted at /workspace, so workspaceRelativeDir is relative to that
+	// volume's root, with no project segment.
+	SourceDirectoryExists(ctx context.Context, incusProjectName string, workspaceRelativeDir string) (bool, error)
 }
 
 type SourceStatus struct {
@@ -36,7 +41,7 @@ type SourceStatus struct {
 }
 
 type SourceStatusStore interface {
-	SourceDirectoryStatus(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (SourceStatus, error)
+	SourceDirectoryStatus(ctx context.Context, incusProjectName string, workspaceRelativeDir string) (SourceStatus, error)
 }
 
 type CreateRequest struct {
@@ -178,7 +183,10 @@ func PlanCreate(ctx context.Context, tenants tenantpkg.IncusTenantStore, store S
 	if err != nil {
 		return Result{}, err
 	}
-	status, err := sourceDirectoryStatus(ctx, store, source.IncusName, project, dir)
+	// The source directory lives in the SOURCE project's own workspace volume,
+	// not the tenant's default project: each v2 project has its own volume
+	// mounted at /workspace.
+	status, err := sourceDirectoryStatus(ctx, store, source.V2IncusProjectName(project), dir)
 	if err != nil {
 		return Result{}, err
 	}
@@ -610,25 +618,29 @@ func MountPath(storageShare meta.TenantStorageShare) string {
 	return "/shared/" + storageShare.SourceTenant + "/" + storageShare.SourceProject + "/" + storageShare.Name
 }
 
-func SourcePath(storageShare meta.TenantStorageShare, workspaceVolumeName string) string {
-	return workspaceVolumeName + "/" + storageShare.SourceProject + "/" + storageShare.SourceDir
-}
-
-func HostSourcePath(storageShare meta.TenantStorageShare, sourceIncusProject string, workspaceVolumeName string) string {
+// HostSourcePath is the on-disk directory of a share's source, bind-mounted
+// read-only into recipient machines. Incus stores a project's custom volume at
+// <pool source>/custom/<incusProject>_<volume>, and each v2 project has its own
+// workspace volume, so the source directory sits directly at SourceDir inside it
+// — there is no per-project subdirectory (that was the v1 single-volume layout).
+//
+// storagePool is a real Incus storage pool name (e.g. "default"), NOT the Incus
+// project: passing the project here pointed the bind mount at a path that does
+// not exist, so accepted shares never appeared on recipient machines.
+func HostSourcePath(storageShare meta.TenantStorageShare, sourceIncusProject string, storagePool string, workspaceVolumeName string) string {
 	return path.Join(
 		"/var/lib/incus/storage-pools",
-		sourceIncusProject,
+		storagePool,
 		"custom",
 		sourceIncusProject+"_"+workspaceVolumeName,
-		storageShare.SourceProject,
 		storageShare.SourceDir,
 	)
 }
 
-func DesiredDevice(storageShare meta.TenantStorageShare, sourceIncusProject string, workspaceVolumeName string) map[string]string {
+func DesiredDevice(storageShare meta.TenantStorageShare, sourceIncusProject string, storagePool string, workspaceVolumeName string) map[string]string {
 	return map[string]string{
 		"type":     "disk",
-		"source":   HostSourcePath(storageShare, sourceIncusProject, workspaceVolumeName),
+		"source":   HostSourcePath(storageShare, sourceIncusProject, storagePool, workspaceVolumeName),
 		"path":     MountPath(storageShare),
 		"readonly": "true",
 	}
@@ -655,9 +667,9 @@ func MarkAvailability(storageShare meta.TenantStorageShare, status SourceStatus)
 	return storageShare
 }
 
-func sourceDirectoryStatus(ctx context.Context, store Store, incusProjectName string, project string, workspaceRelativeDir string) (SourceStatus, error) {
+func sourceDirectoryStatus(ctx context.Context, store Store, incusProjectName string, workspaceRelativeDir string) (SourceStatus, error) {
 	if typed, ok := store.(SourceStatusStore); ok {
-		status, err := typed.SourceDirectoryStatus(ctx, incusProjectName, project, workspaceRelativeDir)
+		status, err := typed.SourceDirectoryStatus(ctx, incusProjectName, workspaceRelativeDir)
 		if err != nil {
 			return SourceStatus{}, err
 		}
@@ -666,7 +678,7 @@ func sourceDirectoryStatus(ctx context.Context, store Store, incusProjectName st
 		}
 		return status, nil
 	}
-	exists, err := store.SourceDirectoryExists(ctx, incusProjectName, project, workspaceRelativeDir)
+	exists, err := store.SourceDirectoryExists(ctx, incusProjectName, workspaceRelativeDir)
 	if err != nil {
 		return SourceStatus{}, err
 	}
@@ -679,7 +691,7 @@ func withAvailability(ctx context.Context, store Store, source tenantpkg.Summary
 		if output[i].SourceTenant != source.Tenant {
 			continue
 		}
-		status, err := sourceDirectoryStatus(ctx, store, source.IncusName, output[i].SourceProject, output[i].SourceDir)
+		status, err := sourceDirectoryStatus(ctx, store, source.V2IncusProjectName(output[i].SourceProject), output[i].SourceDir)
 		if err != nil {
 			return nil, err
 		}

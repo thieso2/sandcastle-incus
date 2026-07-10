@@ -31,6 +31,42 @@ func TestPlanCreateCreatesPendingOutboundOffer(t *testing.T) {
 	}
 }
 
+// The source directory of a share lives in the SOURCE project's own workspace
+// volume (<prefix>-<tenant>-<project>), and the in-volume path is the directory
+// alone. The v1 code checked the tenant's default project at <project>/<dir>,
+// which under v2 does not exist — so `sc share create` failed on a directory
+// that was really there.
+func TestPlanCreateChecksTheSourceProjectsOwnVolume(t *testing.T) {
+	for _, tc := range []struct {
+		source      string
+		wantProject string
+		wantDir     string
+	}{
+		{"default:/workspace/docs", "sc2-acme-default", "docs"},
+		{"backend:/workspace/data/sets", "sc2-acme-backend", "data/sets"},
+	} {
+		store := &fakeStatusStore{
+			fakeStore: &fakeStore{exists: true},
+			status:    SourceStatus{Exists: true, Safe: true},
+		}
+		if _, err := PlanCreate(context.Background(), tenantStoreWithProjects(), store, CreateRequest{
+			SourceTenant: "acme",
+			Source:       tc.source,
+			Recipients:   []string{"skorfman"},
+			Now:          "2026-05-27T12:00:00Z",
+		}); err != nil {
+			t.Fatalf("%s: %v", tc.source, err)
+		}
+		if len(store.sourceLookups) != 1 {
+			t.Fatalf("%s: lookups = %#v", tc.source, store.sourceLookups)
+		}
+		got := store.sourceLookups[0]
+		if got.incusProject != tc.wantProject || got.dir != tc.wantDir {
+			t.Fatalf("%s: looked up %s:%q, want %s:%q", tc.source, got.incusProject, got.dir, tc.wantProject, tc.wantDir)
+		}
+	}
+}
+
 func TestPlanCreateRejectsSelfShare(t *testing.T) {
 	_, err := PlanCreate(context.Background(), tenantStore(), &fakeStore{exists: true}, CreateRequest{
 		SourceTenant: "acme",
@@ -74,7 +110,7 @@ func TestPlanCreateDryRunDoesNotSave(t *testing.T) {
 
 func TestPlanCreateRejectsUnsafeSource(t *testing.T) {
 	_, err := PlanCreate(context.Background(), tenantStore(), &fakeStatusStore{
-		fakeStore: fakeStore{exists: true},
+		fakeStore: &fakeStore{exists: true},
 		status:    SourceStatus{Exists: true, Safe: false, Reason: "symlink escapes source directory"},
 	}, CreateRequest{
 		SourceTenant: "acme",
@@ -132,7 +168,7 @@ func TestListInboundExcludesPendingOffersWithoutOffersFilter(t *testing.T) {
 
 func TestListOutboundMarksMissingSourceUnavailable(t *testing.T) {
 	store := &fakeStatusStore{
-		fakeStore: fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		fakeStore: &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
 			"sc2-acme-default": {{
 				SourceTenant:  "acme",
 				SourceProject: "default",
@@ -158,7 +194,7 @@ func TestListOutboundMarksMissingSourceUnavailable(t *testing.T) {
 
 func TestListOutboundRestoresAvailableSource(t *testing.T) {
 	store := &fakeStatusStore{
-		fakeStore: fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
+		fakeStore: &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
 			"sc2-acme-default": {{
 				SourceTenant:  "acme",
 				SourceProject: "default",
@@ -408,14 +444,24 @@ type fakeStore struct {
 	sharesByProject map[string][]meta.TenantStorageShare
 	saved           []meta.TenantStorageShare
 	exists          bool
+	// sourceLookups records every (incusProject, dir) the source-directory check
+	// was asked about, so tests can assert the source is resolved to the source
+	// project's OWN Incus project rather than the tenant default or infra project.
+	sourceLookups []sourceLookup
+}
+
+type sourceLookup struct {
+	incusProject string
+	dir          string
 }
 
 type fakeStatusStore struct {
-	fakeStore
+	*fakeStore
 	status SourceStatus
 }
 
-func (s fakeStatusStore) SourceDirectoryStatus(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (SourceStatus, error) {
+func (s fakeStatusStore) SourceDirectoryStatus(ctx context.Context, incusProjectName string, workspaceRelativeDir string) (SourceStatus, error) {
+	s.sourceLookups = append(s.sourceLookups, sourceLookup{incusProjectName, workspaceRelativeDir})
 	return s.status, nil
 }
 
@@ -434,7 +480,8 @@ func (s *fakeStore) SetTenantShares(ctx context.Context, incusProjectName string
 	return nil
 }
 
-func (s *fakeStore) SourceDirectoryExists(ctx context.Context, incusProjectName string, project string, workspaceRelativeDir string) (bool, error) {
+func (s *fakeStore) SourceDirectoryExists(ctx context.Context, incusProjectName string, workspaceRelativeDir string) (bool, error) {
+	s.sourceLookups = append(s.sourceLookups, sourceLookup{incusProjectName, workspaceRelativeDir})
 	return s.exists, nil
 }
 
@@ -457,4 +504,17 @@ func tenantStore() tenantpkg.MemoryStore {
 		)
 	}
 	return tenantpkg.MemoryStore{Projects: projects}
+}
+
+// tenantStoreWithProjects is tenantStore() plus a non-default `backend` project
+// for acme, so tests can share from a project other than default.
+func tenantStoreWithProjects() tenantpkg.MemoryStore {
+	store := tenantStore()
+	store.Projects = append(store.Projects, tenantpkg.IncusProject{
+		Name: "sc2-acme-backend",
+		Config: map[string]string{
+			meta.KeyKind: meta.KindV2Project, meta.KeyTenant: "acme", meta.KeyVersion: "2",
+		},
+	})
+	return store
 }
