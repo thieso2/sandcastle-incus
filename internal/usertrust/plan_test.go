@@ -44,7 +44,7 @@ func TestPlanGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
+	if !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-default"}) {
 		t.Fatalf("Projects = %#v", plan.Projects)
 	}
 }
@@ -58,7 +58,7 @@ func TestPlanGrantPersonalTenantAllowsGitHubUsernameNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.CertificateName != "sandcastle-1octocat" || !slices.Equal(plan.Projects, []string{"sc-1octocat", "sc-1octocat-infra", "sc-1octocat-native"}) {
+	if plan.CertificateName != "sandcastle-1octocat" || !slices.Equal(plan.Projects, []string{"sc-1octocat", "sc-1octocat-default"}) {
 		t.Fatalf("plan = %#v", plan)
 	}
 }
@@ -71,7 +71,7 @@ func TestPlanGrantDeduplicatesProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
+	if !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-default"}) {
 		t.Fatalf("Projects = %#v", plan.Projects)
 	}
 }
@@ -98,7 +98,7 @@ func TestPlanTenantGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.User != "alice" || !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-infra", "sc-acme-native"}) {
+	if plan.User != "alice" || !slices.Equal(plan.Projects, []string{"sc-acme", "sc-acme-default"}) {
 		t.Fatalf("plan = %#v", plan)
 	}
 }
