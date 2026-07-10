@@ -28,22 +28,6 @@ func cleanupRunToken(config Config) (string, error) {
 	return runToken, nil
 }
 
-func managedProjectMatchesRun(incusProject tenant.IncusProject, runToken string) bool {
-	if strings.Contains(incusProject.Name, runToken) {
-		return true
-	}
-	managed, err := meta.ParseTenantConfig(incusProject.Config)
-	if err != nil {
-		return false
-	}
-	for _, value := range []string{managed.Tenant, managed.PrivateCIDR} {
-		if strings.Contains(value, runToken) {
-			return true
-		}
-	}
-	return false
-}
-
 func managedInfrastructureMatchesRun(incusProject tenant.IncusProject, runToken string) bool {
 	if strings.Contains(incusProject.Name, runToken) {
 		return true
@@ -168,23 +152,6 @@ func TestCleanupRunTokenRequiresExplicitLongRunID(t *testing.T) {
 	}
 	if token != "e2e-20260520-120000" {
 		t.Fatalf("token = %q", token)
-	}
-}
-
-func TestCleanupProjectSelectionMatchesOnlyRunID(t *testing.T) {
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "tenant-e2e-20260520-120000",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !managedProjectMatchesRun(tenant.IncusProject{Name: "sc-tenant-e2e-20260520-120000", Config: config}, "e2e-20260520-120000") {
-		t.Fatal("expected project cleanup match")
-	}
-	if managedProjectMatchesRun(tenant.IncusProject{Name: "sc-tenant-other", Config: config}, "e2e-19990101-000000") {
-		t.Fatal("unexpected project cleanup match")
 	}
 }
 

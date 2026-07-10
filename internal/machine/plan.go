@@ -88,17 +88,6 @@ func ShortMachineHostname(machineName string, projectName string) string {
 	return machineName + "." + projectName
 }
 
-func MachineCaddyHostnames(machineName string, projectName string, suffix string) []string {
-	fullHostname := MachineHostname(machineName, projectName, suffix)
-	shortHostname := ShortMachineHostname(machineName, projectName)
-	return []string{
-		fullHostname,
-		"*." + fullHostname,
-		shortHostname,
-		"*." + shortHostname,
-	}
-}
-
 type tenantFilterableStore interface {
 	WithTenantFilter(...string) tenant.IncusTenantStore
 }

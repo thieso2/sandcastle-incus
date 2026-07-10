@@ -11,7 +11,6 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
-	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 )
 
@@ -117,12 +116,9 @@ func runTailscaleStatus(ctx context.Context, server TailscaleServer, plan tailsc
 	if err != nil {
 		return tailscale.StatusResult{}, err
 	}
-	if err := updateTenantTailscale(server, plan.Tenant.IncusName, result.Tailscale); err != nil {
-		if isRestrictedCertificateError(err) {
-			return result, nil
-		}
-		return tailscale.StatusResult{}, err
-	}
+	// v1 stamped the tailnet state onto the tenant project metadata.
+	// Summary.Tailscale is a v1-only field and a v2 (kind=infra) project has no
+	// such metadata, so nothing is persisted; the status is returned as read.
 	return result, nil
 }
 
@@ -166,10 +162,7 @@ func (m TailscaleManager) RunDown(ctx context.Context, plan tailscale.DownPlan, 
 		return fmt.Errorf("wait for tailscale down in %s: %w", plan.InstanceName, err)
 	}
 	<-dataDone
-	return updateTenantTailscale(server, plan.Tenant.IncusName, meta.Tailscale{
-		State:         "stopped",
-		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
-	})
+	return nil
 }
 
 func (m TailscaleManager) server() (TailscaleServer, error) {
@@ -189,33 +182,6 @@ func (m TailscaleManager) server() (TailscaleServer, error) {
 		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 	}
 	return sdkTailscaleServer{inner: instanceServer}, nil
-}
-
-func updateTenantTailscale(server TailscaleServer, name string, state meta.Tailscale) error {
-	projectState, etag, err := server.GetProject(name)
-	if err != nil {
-		return fmt.Errorf("get tenant %s: %w", name, err)
-	}
-	managed, err := meta.ParseTenantConfig(map[string]string(projectState.Config))
-	if err != nil {
-		return fmt.Errorf("parse tenant metadata for %s: %w", name, err)
-	}
-	managed.Tailscale = state
-	config, err := meta.TenantConfig(managed)
-	if err != nil {
-		return err
-	}
-	put := projectState.Writable()
-	if put.Config == nil {
-		put.Config = api.ConfigMap{}
-	}
-	for key, value := range config {
-		put.Config[key] = value
-	}
-	if err := server.UpdateProject(name, put, etag); err != nil {
-		return fmt.Errorf("update tenant %s tailscale metadata: %w", name, err)
-	}
-	return nil
 }
 
 func writerOrDiscard(writer io.Writer) io.Writer {
