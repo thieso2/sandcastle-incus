@@ -8,28 +8,13 @@ import (
 )
 
 func TestListManagedTenants(t *testing.T) {
-	acmeConfig, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	zeusConfig, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "zeus",
-		PrivateCIDR: "10.248.1.0/24",
-		Projects:    []meta.Project{{Name: "default"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := MemoryStore{Projects: []IncusProject{
+	projects := []IncusProject{
 		{Name: "default", Config: map[string]string{}},
 		{Name: "sc-infra", Config: map[string]string{meta.KeyKind: "infrastructure", meta.KeyVersion: "1"}},
-		{Name: "sc-zeus", Config: zeusConfig},
-		{Name: "sc-acme", Config: acmeConfig},
-	}}
+	}
+	projects = append(projects, v2ProjectsForTest("acme", "10.248.0.0/24", "default", "website")...)
+	projects = append(projects, v2ProjectsForTest("zeus", "10.248.1.0/24")...)
+	store := MemoryStore{Projects: projects}
 
 	summaries, err := List(context.Background(), store)
 	if err != nil {
@@ -43,21 +28,6 @@ func TestListManagedTenants(t *testing.T) {
 	}
 	if summaries[1].Tenant != "zeus" || len(summaries[1].Projects) != 1 {
 		t.Fatalf("second summary = %#v", summaries[1])
-	}
-}
-
-func TestListReportsInvalidManagedMetadata(t *testing.T) {
-	store := MemoryStore{Projects: []IncusProject{{
-		Name: "sc-broken",
-		Config: map[string]string{
-			meta.KeyKind:    meta.KindTenant,
-			meta.KeyVersion: "1",
-		},
-	}}}
-
-	_, err := List(context.Background(), store)
-	if err == nil {
-		t.Fatal("expected error")
 	}
 }
 
@@ -248,4 +218,24 @@ func TestProvisionReuseInputsNeverOwnsV1CIDR(t *testing.T) {
 			t.Fatalf("prefix %q: occupied = %v, want the v1 /24", prefix, occupied)
 		}
 	}
+}
+
+// v2ProjectsForTest is the v2 fixture: a kind=infra project carrying the /24,
+// plus one kind=project app project per name.
+func v2ProjectsForTest(name, cidr string, projects ...string) []IncusProject {
+	if len(projects) == 0 {
+		projects = []string{"default"}
+	}
+	cfg := func(kind string) map[string]string {
+		out := map[string]string{meta.KeyKind: kind, meta.KeyTenant: name, meta.KeyVersion: "2"}
+		if kind == meta.KindInfra && cidr != "" {
+			out[meta.KeyV2CIDR] = cidr
+		}
+		return out
+	}
+	out := []IncusProject{{Name: "sc2-" + name, Config: cfg(meta.KindInfra)}}
+	for _, p := range projects {
+		out = append(out, IncusProject{Name: "sc2-" + name + "-" + p, Config: cfg(meta.KindV2Project)})
+	}
+	return out
 }

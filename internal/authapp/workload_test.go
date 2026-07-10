@@ -65,11 +65,8 @@ func TestWorkloadTokenEndpointMintsClaimsAndRejectsBadSecret(t *testing.T) {
 	}
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname: "auth.example.com",
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-acme",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.0.0/24"}),
-		}}},
-		Machines: fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex"}}},
+		Tenants:      tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(authTestTenant{Tenant: "acme", CIDR: "10.248.0.0/24"})},
+		Machines:     fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "acme", Project: "default", Name: "codex"}}},
 	})
 	requestBody := `{"tenant":"acme","project":"default","machine":"codex","runtime_secret":"` + enabled.RuntimeSecret + `","audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/sandcastle-acme/providers/sandcastle"}`
 	response := httptest.NewRecorder()
@@ -174,11 +171,8 @@ func TestWorkloadEnableAPIUsesApprovedDeviceAndCloudConfig(t *testing.T) {
 	}
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname: "auth.example.com",
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-octocat",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "octocat", Personal: true, PrivateCIDR: "10.248.0.0/24", Projects: []meta.Project{{Name: "default"}}}),
-		}}},
-		Machines: fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "octocat", Project: "default", Name: "codex"}}},
+		Tenants:      tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(authTestTenant{Tenant: "octocat", CIDR: "10.248.0.0/24"})},
+		Machines:     fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "octocat", Project: "default", Name: "codex"}}},
 	})
 	body := `{"device_code":"` + login.DeviceCode + `","tenant":"octocat","project":"default","machine":"codex","cloud_identity_config":"gcp"}`
 	response := httptest.NewRecorder()
@@ -216,11 +210,8 @@ func TestWorkloadEnableAPIAcceptsCLIToken(t *testing.T) {
 	}
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname: "auth.example.com",
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-octocat",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "octocat", Personal: true, PrivateCIDR: "10.248.0.0/24", Projects: []meta.Project{{Name: "default"}}}),
-		}}},
-		Machines: fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "octocat", Project: "default", Name: "codex"}}},
+		Tenants:      tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(authTestTenant{Tenant: "octocat", CIDR: "10.248.0.0/24"})},
+		Machines:     fakeWorkloadMachineStore{machines: []meta.Machine{{Tenant: "octocat", Project: "default", Name: "codex"}}},
 	})
 	body := `{"tenant":"octocat","project":"default","machine":"codex"}`
 	request := httptest.NewRequest(http.MethodPost, "/api/workload/enable", strings.NewReader(body))

@@ -88,7 +88,7 @@ func TestPlanCreateRejectsUnsafeSource(t *testing.T) {
 
 func TestListInboundShowsPendingOffers(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-acme": {{
+		"sc2-acme-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -110,7 +110,7 @@ func TestListInboundShowsPendingOffers(t *testing.T) {
 
 func TestListInboundExcludesPendingOffersWithoutOffersFilter(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-acme": {{
+		"sc2-acme-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -133,7 +133,7 @@ func TestListInboundExcludesPendingOffersWithoutOffersFilter(t *testing.T) {
 func TestListOutboundMarksMissingSourceUnavailable(t *testing.T) {
 	store := &fakeStatusStore{
 		fakeStore: fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-			"sc-acme": {{
+			"sc2-acme-default": {{
 				SourceTenant:  "acme",
 				SourceProject: "default",
 				SourceDir:     "docs",
@@ -159,7 +159,7 @@ func TestListOutboundMarksMissingSourceUnavailable(t *testing.T) {
 func TestListOutboundRestoresAvailableSource(t *testing.T) {
 	store := &fakeStatusStore{
 		fakeStore: fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-			"sc-acme": {{
+			"sc2-acme-default": {{
 				SourceTenant:  "acme",
 				SourceProject: "default",
 				SourceDir:     "docs",
@@ -184,7 +184,7 @@ func TestListOutboundRestoresAvailableSource(t *testing.T) {
 
 func TestSetRecipientStateAcceptsOffer(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-acme": {{
+		"sc2-acme-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -210,7 +210,7 @@ func TestSetRecipientStateAcceptsOffer(t *testing.T) {
 	if result.Share.Recipients[0].State != RecipientStateAccepted {
 		t.Fatalf("share = %#v", result.Share)
 	}
-	saved := store.sharesByProject["sc-skorfman"]
+	saved := store.sharesByProject["sc2-skorfman-default"]
 	if len(saved) != 1 || saved[0].Recipients[0].AcceptedBy != "skorfman" {
 		t.Fatalf("saved = %#v", saved)
 	}
@@ -218,7 +218,7 @@ func TestSetRecipientStateAcceptsOffer(t *testing.T) {
 
 func TestRevokeRecipientRemovesSourceAndRecipientState(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-acme": {{
+		"sc2-acme-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -228,7 +228,7 @@ func TestRevokeRecipientRemovesSourceAndRecipientState(t *testing.T) {
 				{Tenant: "other", State: RecipientStatePending},
 			},
 		}},
-		"sc-skorfman": {{
+		"sc2-skorfman-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -251,14 +251,14 @@ func TestRevokeRecipientRemovesSourceAndRecipientState(t *testing.T) {
 	if len(result.Share.Recipients) != 1 || result.Share.Recipients[0].Tenant != "other" {
 		t.Fatalf("share = %#v", result.Share)
 	}
-	if len(store.sharesByProject["sc-skorfman"]) != 0 {
-		t.Fatalf("recipient shares = %#v", store.sharesByProject["sc-skorfman"])
+	if len(store.sharesByProject["sc2-skorfman-default"]) != 0 {
+		t.Fatalf("recipient shares = %#v", store.sharesByProject["sc2-skorfman-default"])
 	}
 }
 
 func TestRevokeRecipientRejectsLastRecipient(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-acme": {{
+		"sc2-acme-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -282,7 +282,7 @@ func TestRevokeRecipientRejectsLastRecipient(t *testing.T) {
 
 func TestDeleteOutboundRemovesSourceAndRecipientCopies(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-acme": {{
+		"sc2-acme-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -292,7 +292,7 @@ func TestDeleteOutboundRemovesSourceAndRecipientCopies(t *testing.T) {
 				State:  RecipientStateAccepted,
 			}},
 		}},
-		"sc-skorfman": {{
+		"sc2-skorfman-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -314,14 +314,14 @@ func TestDeleteOutboundRemovesSourceAndRecipientCopies(t *testing.T) {
 	if len(result.AffectedRecipients) != 1 || result.AffectedRecipients[0] != "skorfman" {
 		t.Fatalf("affected = %#v", result.AffectedRecipients)
 	}
-	if len(store.sharesByProject["sc-acme"]) != 0 || len(store.sharesByProject["sc-skorfman"]) != 0 {
+	if len(store.sharesByProject["sc2-acme-default"]) != 0 || len(store.sharesByProject["sc2-skorfman-default"]) != 0 {
 		t.Fatalf("shares = %#v", store.sharesByProject)
 	}
 }
 
 func TestDeleteOutboundRejectsInboundCopy(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-skorfman": {{
+		"sc2-skorfman-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -344,7 +344,7 @@ func TestDeleteOutboundRejectsInboundCopy(t *testing.T) {
 
 func TestCleanupTenantDeletionAsSourceRemovesRecipientCopies(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-acme": {{
+		"sc2-acme-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -354,7 +354,7 @@ func TestCleanupTenantDeletionAsSourceRemovesRecipientCopies(t *testing.T) {
 				State:  RecipientStateAccepted,
 			}},
 		}},
-		"sc-skorfman": {{
+		"sc2-skorfman-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -372,14 +372,14 @@ func TestCleanupTenantDeletionAsSourceRemovesRecipientCopies(t *testing.T) {
 	if len(result.AffectedRecipients) != 1 || result.AffectedRecipients[0] != "skorfman" {
 		t.Fatalf("affected = %#v", result.AffectedRecipients)
 	}
-	if len(store.sharesByProject["sc-skorfman"]) != 0 {
-		t.Fatalf("recipient shares = %#v", store.sharesByProject["sc-skorfman"])
+	if len(store.sharesByProject["sc2-skorfman-default"]) != 0 {
+		t.Fatalf("recipient shares = %#v", store.sharesByProject["sc2-skorfman-default"])
 	}
 }
 
 func TestCleanupTenantDeletionAsRecipientRemovesSourceRecipientOnly(t *testing.T) {
 	store := &fakeStore{sharesByProject: map[string][]meta.TenantStorageShare{
-		"sc-acme": {{
+		"sc2-acme-default": {{
 			SourceTenant:  "acme",
 			SourceProject: "default",
 			SourceDir:     "docs",
@@ -397,7 +397,7 @@ func TestCleanupTenantDeletionAsRecipientRemovesSourceRecipientOnly(t *testing.T
 	if len(result.AffectedSources) != 1 || result.AffectedSources[0] != "acme" {
 		t.Fatalf("affected = %#v", result.AffectedSources)
 	}
-	sourceShares := store.sharesByProject["sc-acme"]
+	sourceShares := store.sharesByProject["sc2-acme-default"]
 	if len(sourceShares) != 1 || len(sourceShares[0].Recipients) != 1 || sourceShares[0].Recipients[0].Tenant != "other" {
 		t.Fatalf("source shares = %#v", sourceShares)
 	}
@@ -439,24 +439,22 @@ func (s *fakeStore) SourceDirectoryExists(ctx context.Context, incusProjectName 
 }
 
 func tenantStore() tenantpkg.MemoryStore {
-	acmeConfig, _ := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.0.0/24",
-	})
-	skorfmanConfig, _ := meta.TenantConfig(meta.Tenant{
-		Tenant:      "skorfman",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.1.0/24",
-	})
-	otherConfig, _ := meta.TenantConfig(meta.Tenant{
-		Tenant:      "other",
-		Projects:    []meta.Project{{Name: "default"}},
-		PrivateCIDR: "10.248.2.0/24",
-	})
-	return tenantpkg.MemoryStore{Projects: []tenantpkg.IncusProject{
-		{Name: "sc-acme", Config: acmeConfig},
-		{Name: "sc-skorfman", Config: skorfmanConfig},
-		{Name: "sc-other", Config: otherConfig},
-	}}
+	// v2 fixture: each tenant is a kind=infra project (carrying its /24) plus a
+	// kind=project app project. v1 (kind=tenant) projects are no longer listed.
+	projects := []tenantpkg.IncusProject{}
+	for _, t := range []struct{ name, cidr string }{
+		{"acme", "10.248.0.0/24"},
+		{"skorfman", "10.248.1.0/24"},
+		{"other", "10.248.2.0/24"},
+	} {
+		projects = append(projects,
+			tenantpkg.IncusProject{Name: "sc2-" + t.name, Config: map[string]string{
+				meta.KeyKind: meta.KindInfra, meta.KeyTenant: t.name, meta.KeyVersion: "2", meta.KeyV2CIDR: t.cidr,
+			}},
+			tenantpkg.IncusProject{Name: "sc2-" + t.name + "-default", Config: map[string]string{
+				meta.KeyKind: meta.KindV2Project, meta.KeyTenant: t.name, meta.KeyVersion: "2",
+			}},
+		)
+	}
+	return tenantpkg.MemoryStore{Projects: projects}
 }

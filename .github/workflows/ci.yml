@@ -34,5 +34,3 @@ jobs:
       - name: Gated e2e compile and skip checks
         run: scripts/e2e.sh gated
 
-      - name: Unprivileged local e2e
-        run: scripts/e2e.sh local

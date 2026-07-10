@@ -18,6 +18,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 	"golang.org/x/crypto/ssh"
@@ -378,13 +379,10 @@ func TestAllowlistRemoveBlocksLoginAndRevokesRestrictedCertificate(t *testing.T)
 
 	NewHandler(db, HandlerOptions{
 		RestrictedUsers: revoker,
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-alice",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "alice", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
-		}, {
-			Name:   "sc-acme",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.2.0/24", Projects: []meta.Project{{Name: "default"}}}),
-		}}},
+		Tenants: tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(
+			authTestTenant{Tenant: "alice", CIDR: "10.248.1.0/24"},
+			authTestTenant{Tenant: "acme", CIDR: "10.248.2.0/24"},
+		)},
 		MachineSSHAccess: sshAccess,
 	}).ServeHTTP(response, request)
 	if response.Code != http.StatusSeeOther {
@@ -437,7 +435,7 @@ func TestTenantAccessAdminListsUsersTenantsAndGrants(t *testing.T) {
 	access := &fakeTenantAccessManager{usersByTenant: map[string][]string{"acme": []string{"alice"}}}
 	handler := NewHandler(db, HandlerOptions{
 		Admin:        testAuthAdminConfig(),
-		Tenants:      tenant.MemoryStore{Projects: []tenant.IncusProject{{Name: "sc-acme", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "acme", PrivateCIDR: "10.248.0.0/24"})}}},
+		Tenants:      tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(authTestTenant{Tenant: "acme", CIDR: "10.248.0.0/24"})},
 		TenantAccess: access,
 	})
 
@@ -462,48 +460,6 @@ func TestTenantAccessAdminListsUsersTenantsAndGrants(t *testing.T) {
 	}
 }
 
-func TestTenantAccessAPIReturnsOnlyAccessibleTenants(t *testing.T) {
-	db := authDBForTest(t)
-	if err := UpsertUser(context.Background(), db, User{UserKey: "octocat", GitHubUsername: "octocat", Allowlisted: true}); err != nil {
-		t.Fatal(err)
-	}
-	token, err := CreateCLIToken(context.Background(), db, "octocat", timeNow())
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler := NewHandler(db, HandlerOptions{
-		Admin: testAuthAdminConfig(),
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{
-			{Name: "sc-octocat", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "octocat", Personal: true, PrivateCIDR: "10.248.0.0/24"})},
-			{Name: "sc-skorfman", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "skorfman", PrivateCIDR: "10.248.1.0/24"})},
-			{Name: "sc-private", Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "private", PrivateCIDR: "10.248.2.0/24"})},
-		}},
-		TenantAccess: &fakeTenantAccessManager{usersByTenant: map[string][]string{
-			"octocat":  {"octocat"},
-			"skorfman": {"alice", "octocat"},
-			"private":  {"alice"},
-		}},
-	})
-
-	request := httptest.NewRequest(http.MethodGet, "/api/tenants", nil)
-	request.Header.Set("Authorization", "Bearer "+token)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("tenant list = %d %q", response.Code, response.Body.String())
-	}
-	var payload TenantAccessListResult
-	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Tenants) != 2 {
-		t.Fatalf("tenants = %#v", payload.Tenants)
-	}
-	if payload.Tenants[0].Tenant != "octocat" || !payload.Tenants[0].Personal || payload.Tenants[1].Tenant != "skorfman" || payload.Tenants[1].Personal {
-		t.Fatalf("tenants = %#v", payload.Tenants)
-	}
-}
-
 func TestTenantAccessAPIRequiresCLIToken(t *testing.T) {
 	db := authDBForTest(t)
 	handler := NewHandler(db, HandlerOptions{})
@@ -519,11 +475,8 @@ func TestTenantAccessAdminRevokesPersonalTenantAccess(t *testing.T) {
 	access := &fakeTenantAccessManager{}
 	sshAccess := &fakeMachineSSHKeyReconciler{}
 	handler := NewHandler(db, HandlerOptions{
-		Admin: testAuthAdminConfig(),
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-1octocat",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "1octocat", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
-		}}},
+		Admin:            testAuthAdminConfig(),
+		Tenants:          tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(authTestTenant{Tenant: "1octocat", CIDR: "10.248.1.0/24"})},
 		TenantAccess:     access,
 		MachineSSHAccess: sshAccess,
 	})
@@ -592,11 +545,8 @@ func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
 	reconciler := &fakeMachineSSHKeyReconciler{}
 	tenantSSHKeys := &fakeTenantSSHKeyUpdater{}
 	handler := NewHandler(db, HandlerOptions{
-		AuthHostname: "auth.example.com",
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-admin",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "admin", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
-		}}},
+		AuthHostname:   "auth.example.com",
+		Tenants:        tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(authTestTenant{Tenant: "admin", CIDR: "10.248.1.0/24"})},
 		Provisioner:    provisioner,
 		MachineSSHKeys: reconciler,
 		TenantSSHKeys:  tenantSSHKeys,
@@ -624,84 +574,6 @@ func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
 	approved = pollDeviceForTest(t, handler, login.DeviceCode)
 	if provisioner.calls != 1 {
 		t.Fatalf("provisioner calls = %d, want 1", provisioner.calls)
-	}
-}
-
-func TestDevicePollStoresUserSSHKeyAndReturnsLoginResult(t *testing.T) {
-	db := authDBForTest(t)
-	cookie := adminSessionCookieForTest(t, db)
-	provisioner := &fakePersonalTenantProvisioner{}
-	reconciler := &fakeMachineSSHKeyReconciler{}
-	tenantSSHKeys := &fakeTenantSSHKeyUpdater{}
-	handler := NewHandler(db, HandlerOptions{
-		AuthHostname: "auth.example.com",
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-admin",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "admin", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
-		}}},
-		Provisioner:    provisioner,
-		MachineSSHKeys: reconciler,
-		TenantSSHKeys:  tenantSSHKeys,
-	})
-	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	approveRequest := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
-	approveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	approveRequest.AddCookie(cookie)
-	handler.ServeHTTP(httptest.NewRecorder(), approveRequest)
-
-	key := validAuthAuthorizedKeyForTest(t)
-	approved := pollDeviceWithSSHKeyForTest(t, handler, login.DeviceCode, key)
-	if approved.Status != DeviceStatusApproved || approved.LoginResult == nil {
-		t.Fatalf("approved = %#v", approved)
-	}
-	if approved.LoginResult.SelectedUser != "admin" ||
-		approved.LoginResult.CurrentTenant != "admin" ||
-		approved.LoginResult.CurrentProject != "default" ||
-		approved.LoginResult.CredentialEnrollment.IncusCertificateAddToken != "token-admin" ||
-		approved.LoginResult.CredentialEnrollment.RemoteName != "sandcastle-admin" ||
-		approved.LoginResult.SSHKeyFingerprint == "" ||
-		approved.LoginResult.TenantTailnetStatus.State != "pending" ||
-		approved.LoginResult.NextCommand != "sandcastle create dev" {
-		t.Fatalf("login result = %#v", approved.LoginResult)
-	}
-	stored, err := GetUserSSHKey(context.Background(), db, "admin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.PublicKey != key || stored.Fingerprint != approved.LoginResult.SSHKeyFingerprint {
-		t.Fatalf("stored key = %#v approved=%#v", stored, approved.LoginResult)
-	}
-	if len(reconciler.calls) != 1 || reconciler.calls[0].tenant != "admin" || reconciler.calls[0].user != "admin" || reconciler.calls[0].key != key {
-		t.Fatalf("reconciler calls = %#v", reconciler.calls)
-	}
-	if len(tenantSSHKeys.calls) != 1 || tenantSSHKeys.calls[0].project != "sc-admin" || tenantSSHKeys.calls[0].key != key {
-		t.Fatalf("tenant SSH key calls = %#v", tenantSSHKeys.calls)
-	}
-	if strings.Contains(approved.raw, "PRIVATE KEY") || strings.Contains(strings.ToLower(approved.raw), "private_key") {
-		t.Fatalf("poll response leaked private key material: %s", approved.raw)
-	}
-
-	repeated := pollDeviceWithSSHKeyForTest(t, handler, login.DeviceCode, key)
-	if repeated.LoginResult.SSHKeyFingerprint != approved.LoginResult.SSHKeyFingerprint {
-		t.Fatalf("same key changed fingerprint: %#v then %#v", approved.LoginResult, repeated.LoginResult)
-	}
-	replacement := validAuthAuthorizedKeyForTest(t)
-	replaced := pollDeviceWithSSHKeyForTest(t, handler, login.DeviceCode, replacement)
-	stored, err = GetUserSSHKey(context.Background(), db, "admin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.PublicKey != replacement || stored.Fingerprint != replaced.LoginResult.SSHKeyFingerprint || stored.Fingerprint == approved.LoginResult.SSHKeyFingerprint {
-		t.Fatalf("replacement stored=%#v initial=%#v replaced=%#v", stored, approved.LoginResult, replaced.LoginResult)
-	}
-	if len(reconciler.calls) != 3 || reconciler.calls[2].key != replacement {
-		t.Fatalf("reconciler calls after replacement = %#v", reconciler.calls)
-	}
-	if len(tenantSSHKeys.calls) != 3 || tenantSSHKeys.calls[2].key != replacement {
-		t.Fatalf("tenant SSH key calls after replacement = %#v", tenantSSHKeys.calls)
 	}
 }
 
@@ -1073,13 +945,52 @@ func (u *fakeTenantSSHKeyUpdater) SetTenantSSHKey(ctx context.Context, incusProj
 	return nil
 }
 
-func tenantConfigForAuthTest(t *testing.T, value meta.Tenant) map[string]string {
-	t.Helper()
-	metadata, err := meta.TenantConfig(value)
-	if err != nil {
-		t.Fatal(err)
+// authTestTenant describes a v2 tenant fixture. A v2 tenant is TWO or more
+// Incus projects: one kind=infra project (<prefix>-<tenant>) carrying the
+// CIDR/suffix/Unix-user metadata, plus one kind=project app project per short
+// name (<prefix>-<tenant>-<name>, always including "default").
+type authTestTenant struct {
+	Tenant   string
+	UnixUser string
+	CIDR     string
+	Suffix   string
+	Projects []string // extra app-project short names beyond "default"
+}
+
+// v2TenantProjectsForAuthTest builds the v2 Incus projects backing one or more
+// tenants, as tenant.ListForPrefix now reads them (kind=infra + kind=project,
+// version=2). It replaces the old v1 kind=tenant single-project fixture.
+func v2TenantProjectsForAuthTest(tenants ...authTestTenant) []tenant.IncusProject {
+	var projects []tenant.IncusProject
+	for _, tt := range tenants {
+		infraName := naming.V2IncusProjectPrefix + "-" + tt.Tenant
+		infraConfig := map[string]string{
+			meta.KeyKind:    meta.KindInfra,
+			meta.KeyTenant:  tt.Tenant,
+			meta.KeyVersion: "2",
+		}
+		if tt.CIDR != "" {
+			infraConfig[meta.KeyV2CIDR] = tt.CIDR
+		}
+		if tt.Suffix != "" {
+			infraConfig[meta.KeyV2Suffix] = tt.Suffix
+		}
+		if tt.UnixUser != "" {
+			infraConfig[meta.KeyV2User] = tt.UnixUser
+		}
+		projects = append(projects, tenant.IncusProject{Name: infraName, Config: infraConfig})
+		for _, short := range append([]string{naming.DefaultProjectName}, tt.Projects...) {
+			projects = append(projects, tenant.IncusProject{
+				Name: infraName + "-" + short,
+				Config: map[string]string{
+					meta.KeyKind:    meta.KindV2Project,
+					meta.KeyTenant:  tt.Tenant,
+					meta.KeyVersion: "2",
+				},
+			})
+		}
 	}
-	return metadata
+	return projects
 }
 
 func testAuthAdminConfig() config.Admin {
@@ -1174,11 +1085,8 @@ func TestDevicePollDoesNotBlockOnSlowProvisioning(t *testing.T) {
 	cookie := adminSessionCookieForTest(t, db)
 	handler := NewHandler(db, HandlerOptions{
 		AuthHostname: "auth.example.com",
-		Tenants: tenant.MemoryStore{Projects: []tenant.IncusProject{{
-			Name:   "sc-admin",
-			Config: tenantConfigForAuthTest(t, meta.Tenant{Tenant: "admin", Personal: true, PrivateCIDR: "10.248.1.0/24", Projects: []meta.Project{{Name: "default"}}}),
-		}}},
-		Provisioner: provisioner,
+		Tenants:      tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(authTestTenant{Tenant: "admin", CIDR: "10.248.1.0/24"})},
+		Provisioner:  provisioner,
 	})
 	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
-	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 	"gopkg.in/yaml.v2"
 )
@@ -84,7 +83,10 @@ func matchesTenantRun(summary tenant.Summary, runID string) bool {
 func tenantTopologyDiagnostics(ctx context.Context, topologyStore tenant.TopologyStore, summary tenant.Summary) string {
 	topology, err := topologyStore.GetTopology(ctx, tenant.TopologyRequest{
 		IncusProject: summary.IncusName,
-		InfraProject: naming.TenantInfraIncusProjectName(summary.IncusName),
+		// summary.InfraProject, not naming.TenantInfraIncusProjectName(IncusName):
+		// under v2 IncusName is the -default APP project, so the v1 rule built
+		// "<prefix>-<tenant>-default-infra", which does not exist (cf. #55).
+		InfraProject: summary.InfraProject,
 		DNSSuffix:    summary.DNSSuffix,
 	})
 	if err != nil {

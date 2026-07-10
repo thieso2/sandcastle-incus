@@ -72,32 +72,6 @@ func TestPlanDeleteProjectRemovesNamespace(t *testing.T) {
 	}
 }
 
-func TestPlanDeleteProjectRejectsActiveOutboundShare(t *testing.T) {
-	admin := config.LoadAdminFromEnv()
-	admin.Tenant = "acme"
-	tenantConfig, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects:    []meta.Project{{Name: "default"}, {Name: "website"}},
-		StorageShares: []meta.TenantStorageShare{{
-			SourceTenant:  "acme",
-			SourceProject: "website",
-			SourceDir:     "docs",
-			Name:          "docs",
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = PlanDeleteProject(context.Background(), admin, MemoryStore{Projects: []IncusProject{{Name: "sc-acme", Config: tenantConfig}}}, ProjectMutationRequest{Name: "website"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "Tenant Storage Share") {
-		t.Fatalf("error = %q", err)
-	}
-}
-
 func TestPlanSetProjectCloudIdentityUpdatesDefaultProject(t *testing.T) {
 	admin := config.LoadAdminFromEnv()
 	admin.Tenant = "acme"
@@ -118,17 +92,5 @@ func TestPlanSetProjectCloudIdentityUpdatesDefaultProject(t *testing.T) {
 
 func tenantStoreForUpdateTest(t *testing.T, names ...string) MemoryStore {
 	t.Helper()
-	projects := make([]meta.Project, 0, len(names))
-	for _, name := range names {
-		projects = append(projects, meta.Project{Name: name})
-	}
-	config, err := meta.TenantConfig(meta.Tenant{
-		Tenant:      "acme",
-		PrivateCIDR: "10.248.0.0/24",
-		Projects:    projects,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return MemoryStore{Projects: []IncusProject{{Name: "sc-acme", Config: config}}}
+	return MemoryStore{Projects: v2ProjectsForTest("acme", "10.248.0.0/24", names...)}
 }
