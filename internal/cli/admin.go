@@ -409,6 +409,7 @@ func newAdminTenantDeleteCommand(config commandConfig, opts *rootOptions) *cobra
 			return writeOutput(config.stdout, opts.output, formatDeletePlanV2(planV2), planV2)
 		},
 	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm tenant deletion")
 	command.Flags().BoolVar(&purge, "purge", false, "delete durable tenant volumes and the Incus project")
 	return command
 }
