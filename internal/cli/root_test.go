@@ -5915,3 +5915,70 @@ func TestConfigSetRemoteClearsAnUnknownInstallsBroker(t *testing.T) {
 		t.Fatalf("Broker = %q, want cleared rather than pointing at install B", cfg.Broker)
 	}
 }
+
+// A CLI auth token is minted by ONE install's Auth App. Leaving the previous
+// install's token in place after a remote switch presents a credential across a
+// trust boundary, and the target rejects it: `sc status` showed
+// "shares:reconcile: error (auth app share reconcile: user not found)" while
+// the token still authenticated fine against the OTHER install.
+func TestConfigSetRemoteSwapsTheAuthTokenForThatInstall(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configPath := scconfig.DefaultConfigPath()
+	seed := scconfig.SandcastleConfig{
+		Remote:       "sc-b",
+		AuthHostname: "https://b.example.dev",
+		AuthToken:    "token-for-b",
+		Installs:     map[string]string{"sc-a": "https://a.example.dev", "sc-b": "https://b.example.dev"},
+		AuthTokens: map[string]string{
+			"https://a.example.dev": "token-for-a",
+			"https://b.example.dev": "token-for-b",
+		},
+	}
+	if err := scconfig.SaveSandcastleConfig(configPath, seed); err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTest(t, "sandcastle", "config", "set", "remote", "sc-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Auth token switched") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthToken != "token-for-a" {
+		t.Fatalf("AuthToken = %q, want install A's token", cfg.AuthToken)
+	}
+}
+
+// With no token recorded for the target install, clear it: a call that fails
+// loudly ("sign in") beats one that quietly ships another install's credential.
+func TestConfigSetRemoteClearsAnUnknownInstallsAuthToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configPath := scconfig.DefaultConfigPath()
+	seed := scconfig.SandcastleConfig{
+		Remote:       "sc-b",
+		AuthHostname: "https://b.example.dev",
+		AuthToken:    "token-for-b",
+		Installs:     map[string]string{"sc-a": "https://a.example.dev", "sc-b": "https://b.example.dev"},
+	}
+	if err := scconfig.SaveSandcastleConfig(configPath, seed); err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := executeForTest(t, "sandcastle", "config", "set", "remote", "sc-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Auth token cleared") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthToken != "" {
+		t.Fatalf("AuthToken = %q, want cleared rather than install B's token", cfg.AuthToken)
+	}
+}

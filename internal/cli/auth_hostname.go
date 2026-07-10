@@ -44,6 +44,16 @@ func saveAuthDefaults(rawHostname string, rawToken string) error {
 		cfg.AuthToken = token
 		changed = true
 	}
+	// Record the token against THIS install so switching remotes can swap it.
+	// Presenting one install's token to another leaks a credential across a
+	// trust boundary (and is simply rejected: 403 "user not found").
+	if host != "" && token != "" && cfg.AuthTokenForAuthHostname(host) != token {
+		if cfg.AuthTokens == nil {
+			cfg.AuthTokens = map[string]string{}
+		}
+		cfg.AuthTokens[host] = token
+		changed = true
+	}
 	if !changed {
 		return nil
 	}
