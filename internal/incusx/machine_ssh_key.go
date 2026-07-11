@@ -214,7 +214,7 @@ func (r MachineSSHKeyReconciler) server() (MachineSSHKeyServer, error) {
 	if remote == "" {
 		remote = loaded.DefaultRemote
 	}
-	server, err := loaded.GetInstanceServer(remote)
+	server, err := connectInstanceServer(loaded, remote)
 	if err != nil {
 		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 	}

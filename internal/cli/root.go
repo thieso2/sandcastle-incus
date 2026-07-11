@@ -157,6 +157,7 @@ func Execute(name string, args []string) int {
 			incusConf = "~/.config/incus (default)"
 		}
 		fmt.Fprintf(os.Stderr, "[verbose] incus config: %s\n[verbose] incus remote: %s\n", incusConf, adminConfig.Remote)
+		incusx.SetAPITrace(os.Stderr)
 	}
 	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
 	cmd := NewRootCommand(commandConfig{

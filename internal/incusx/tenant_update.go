@@ -211,7 +211,7 @@ func (m TenantSSHKeyManager) server() (TenantMetadataUpdateServer, error) {
 	if remote == "" {
 		remote = loaded.DefaultRemote
 	}
-	loadedServer, err := loaded.GetInstanceServer(remote)
+	loadedServer, err := connectInstanceServer(loaded, remote)
 	if err != nil {
 		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 	}

@@ -73,7 +73,7 @@ func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, e
 			remote = loaded.DefaultRemote
 		}
 		loadedServer, err := logIncusAPICall(s.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
-			return loaded.GetInstanceServer(remote)
+			return connectInstanceServer(loaded, remote)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)

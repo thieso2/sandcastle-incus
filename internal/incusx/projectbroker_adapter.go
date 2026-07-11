@@ -143,7 +143,7 @@ func (a AdminAuthorizer) IsAdmin(ctx context.Context, fingerprint string) (bool,
 		if remote == "" {
 			remote = loaded.DefaultRemote
 		}
-		instanceServer, err := loaded.GetInstanceServer(remote)
+		instanceServer, err := connectInstanceServer(loaded, remote)
 		if err != nil {
 			return false, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
 		}
