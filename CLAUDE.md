@@ -102,6 +102,16 @@ Do not leave docs trailing behind code changes.
 
 Keep a running `implementation-notes.md` at the repo root. As you work, append an entry whenever you make a decision that **wasn't in the spec**: a design choice you had to invent, something you had to change from what was asked, a tradeoff you made, a workaround for an environment/tooling limitation, or anything else the user should know to understand *why* the code looks the way it does. Each entry: a dated heading, what the decision was, the alternatives considered, and why you chose it. This is the "why", complementary to ADRs (which record larger, harder-to-reverse architectural decisions) — `implementation-notes.md` is the lighter-weight running log. Keep it current in the same commit as the change it describes.
 
+## v1 is deprecated — everything is v2
+
+**Tenant version 1 (the v1 topology) is deprecated and gone.** Its code — 45 version gates across `incusx`/`cli`/`machine`/`tenant` — was removed in issue #52 (merged 2026-07-10). Every Sandcastle tenant is v2; `requireV2Tenant` is not a check against a live alternative, it is an assertion.
+
+- **Never add a v1 code path, version gate, or v1 fallback.** There is nothing on the other side of the branch. If you find yourself writing `if version == 1`, stop.
+- Surviving `v1` mentions in Go are **historical comments only** (e.g. "the v1 connect path did …"), explaining why code looks the way it does. Don't treat them as live behaviour to preserve.
+- ADR-0014/0015 (v2 migration, v2-beside-v1 coexistence) are **superseded** — coexistence is now served generally by the `--prefix` install flag. ADR-0016 defines the current architecture.
+- **Beware the word's two senses.** `CONTEXT.md` uses "in v1" as a *product-scope* qualifier ("GitHub is the only login provider in v1") — that is release scope, unrelated to the retired topology. Don't reason across the two.
+- Avoid "v1" as an ordinal in new work (specs, tickets, plans) — in this repo it reads as the dead topology. Say "first", "initial", or name the milestone.
+
 ## Conventions
 
 - Issues and PRDs live in **GitHub Issues** (`thieso2/sandcastle-incus`, this repo's own remote) — use `gh` CLI. See `docs/agents/`.
