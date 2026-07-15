@@ -63,9 +63,7 @@ Auth Database is SQLite (not the old JSON user DB). Stored at the configured `--
 - `seed.go` — `Seed` struct; reads/writes the Infrastructure Seed File (`~/.config/sandcastle/<deployment>.seed.yml`), which is the operator bootstrap bundle carrying Auth Hostname, Incus remote, CIDR pool, TLS material, and image references
 - `caddy_data.go` — exports cached Caddy ACME data for infra recreation
 
-**Routes and Route Broker:**
-- `route` — `Manager` interface, `plan.go` (create/delete plans), `dnsproof.go` (DNS proof-of-ownership for public route hostnames)
-- `routebroker` — narrow service that authorizes user route requests and mutates global route infrastructure (`authorize.go`, `serve.go`); authenticates callers via Incus client certificate
+**Routes and Route Broker:** *removed.* The `route` and `routebroker` packages (public routes + DNS proof-of-ownership, `dnsproof.go`) were deleted with the v1 packages (commit `842d3e5`). Public ingress now runs through the auth-app appliance's integrated caddy/cloudflared (`sc-adm install --ingress`), not a standalone route broker.
 
 **Local host setup:**
 - `localdns` — manages per-tenant DNS resolver configuration (`/etc/resolver/` on Darwin, `systemd-resolved` on Linux)

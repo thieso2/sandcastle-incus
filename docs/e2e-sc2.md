@@ -212,6 +212,33 @@ different suffixes (`ProvisionReuseInputs` tests). Run all three:
    name *within* a zone the server does own (e.g. `api.castle`, a short alias
    outside the default project).
 
+**Suffix-as-remote-name + cross-install addressing (ADR-0020).** The Tenant DNS
+Suffix is now also the **stem of the incus remote name** and a per-install
+**uniqueness key**:
+
+4. **Suffix uniqueness is enforced per install.** After a tenant claims a suffix
+   on install A, a *second* tenant logging into the same install with the same
+   `--dns-suffix` must be **rejected before provisioning** with
+   `DNS suffix "<x>" is already claimed on this install` (the claim is reserved in
+   the auth DB's `dns_suffix_claims` table before `V2Create`). **PASS:** the second
+   tenant is not provisioned; the first tenant's claim row is intact. *(Validated
+   live on `majestix` 2026-07-15: `sctest` claimed `sctest`; `sctest2` rejected in
+   15 ms.)*
+5. **Remote is named `<suffix>-<project>`.** After `sc login … --dns-suffix=tcA`,
+   the enrolled remote is `tcA-default` (not `sc-<authhost>`); a per-project remote
+   for project `web` is `tcA-web`. **PASS:** `incus remote list` shows the
+   suffix-stemmed names.
+6. **Cross-install connect.** `sc connect tcB:default:dev` from a client whose
+   current install is A switches to install B's `tcB-default` remote and connects;
+   naming an install/project with no local remote errors with enroll guidance
+   (connect never auto-provisions). *(Built; validate against a two-install client
+   — `majestix` has installs A+B.)*
+7. **Lazy migration.** An existing tenant's next `sc login` renames its legacy
+   remotes (`<tenant>-<project>`, `sc-<authhost>`) to `<suffix>-<project>`, scoped
+   to that install's endpoint. **PASS:** old names are gone, new names present, and
+   a same-named tenant on another install is untouched. *(Built; validate against a
+   client holding legacy remotes.)*
+
 Keep CIDR pools distinct across installs sharing a tailnet. Robustness fixes the
 from-scratch run surfaced (all in `internal/incusx` + the auth-app): tolerate
 the spurious "already running" on a cached-image create; wait for RUNNING
