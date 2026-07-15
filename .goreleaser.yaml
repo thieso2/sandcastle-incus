@@ -102,7 +102,26 @@ homebrew_casks:
           end
 
 changelog:
+  # Build the notes from GitHub's compare view and group by Conventional-Commit
+  # type, so releases read as "Features / Bug fixes / Other" instead of a flat
+  # SHA dump. Docs/chore/ci/test/build/merge commits are filtered out as noise.
+  use: github
   sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.*'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.*'
+      order: 1
+    - title: Other changes
+      order: 999
   filters:
     exclude:
-      - "^Merge"
+      - '^docs(\(.+\))?!?:'
+      - '^test(\(.+\))?!?:'
+      - '^chore(\(.+\))?!?:'
+      - '^ci(\(.+\))?!?:'
+      - '^build(\(.+\))?!?:'
+      - '^style(\(.+\))?!?:'
+      - '^Merge '
