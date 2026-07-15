@@ -356,7 +356,8 @@ CREATE TABLE IF NOT EXISTS device_logins (
     provisioned_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
-    approved_at TEXT NOT NULL DEFAULT ''
+    approved_at TEXT NOT NULL DEFAULT '',
+    dns_suffix TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS oidc_signing_keys (
     kid TEXT PRIMARY KEY,
@@ -425,6 +426,11 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 		return fmt.Errorf("migrate auth database: %w", err)
 	}
 	if err := ensureColumn(ctx, db, "device_logins", "provisioned_at", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// Browser-chosen Tenant DNS Suffix (ADR-0020 interactive suffix form). Stored
+	// at approval; the CLI --dns-suffix flag overrides it at poll time when present.
+	if err := ensureColumn(ctx, db, "device_logins", "dns_suffix", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := ensureColumn(ctx, db, "users", "ssh_public_key", "TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -626,6 +632,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	}
 	mux.HandleFunc("/", app.status)
 	mux.HandleFunc("/healthz", app.health)
+	mux.HandleFunc("/style.css", app.styleCSS)
 	mux.HandleFunc("/machines", app.machinesWeb)
 	mux.HandleFunc("/login/github", app.githubLogin)
 	mux.HandleFunc("/oauth/github/callback", app.githubCallback)
@@ -807,6 +814,7 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <title>Sandcastle Auth</title>
 </head>
 <body>
@@ -824,6 +832,7 @@ var onboardingTemplate = template.Must(template.New("onboarding").Parse(`<!docty
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <title>Sandcastle Onboarding</title>
 </head>
 <body>

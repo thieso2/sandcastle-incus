@@ -5,6 +5,38 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-15 — interactive browser DNS-suffix form (the deferred ADR-0020 piece)
+
+Built the one item PR #92 left unchecked: the browser device-approval page now
+has a **DNS suffix (TLD) field**, so a user can choose their Tenant DNS Suffix in
+the browser instead of only via `sc login --dns-suffix`.
+
+Decisions not spelled out in the spec:
+
+- **Where the value lives.** Persisted in a new `device_logins.dns_suffix` column
+  (idempotent `ensureColumn` migration, matching `provisioned_at`), written by
+  `ApproveDeviceLogin` at approval time. Alternative — threading it through the
+  in-memory provision-result cache — was rejected: the CLI poll that triggers
+  provisioning runs in a *different* request than the browser approval, so the
+  value has to survive in the DB, and `scanDeviceLogin` already loads the row.
+- **Precedence: CLI flag wins.** `effectiveDNSSuffix(cli, browser)` returns the
+  CLI `--dns-suffix` when non-empty, else the browser value, else "" (server
+  defaults to the tenant name). Chosen so the scripted/e2e path stays
+  authoritative and reproducible; the browser field is the human convenience.
+- **New `DeviceLogin.RequestedDNSSuffix` field**, kept distinct from the existing
+  `DNSSuffix` (which already meant the *resolved* suffix returned post-provision).
+  Overloading one field would have made the poll response ambiguous.
+- **`ApproveDeviceLogin` signature gained a `dnsSuffix` param** rather than a
+  separate setter, so status+suffix are written in one atomic UPDATE. The three
+  non-browser callers (debug-approve, simulate-approve, a workload test) pass ""
+  — except simulate also reads a `dns_suffix` form value, so e2e can exercise the
+  browser path headlessly.
+- **Form UX:** the field is always shown with help text noting it's first-login
+  only and immutable; leaving it blank keeps the tenant-name default (and, on
+  re-login, the stored suffix). No live "is this your first login" lookup — a
+  mismatched suffix on re-login is already rejected downstream by `PlanCreateV2`,
+  same as the CLI flag.
+
 ## 2026-07-10 — what a clean e2e re-run found: a 524, a v1 name, and a token that crossed installs
 
 Re-ran the whole `docs/e2e-sc2.md` protocol from a bare host on the merged fixes.

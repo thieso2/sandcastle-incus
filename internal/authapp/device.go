@@ -37,6 +37,11 @@ type DeviceLogin struct {
 	ProvisionedAt      string
 	Token              string
 	RemoteName         string
+	// RequestedDNSSuffix is the Tenant DNS Suffix the user typed into the browser
+	// approval form (ADR-0020). It is persisted at approval and used for
+	// first-login provisioning unless the CLI --dns-suffix flag overrides it.
+	RequestedDNSSuffix string
+	// DNSSuffix is the resolved suffix returned after provisioning.
 	DNSSuffix          string
 	IncusRemoteAddress string
 	IncusProject       string
@@ -167,7 +172,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 				outcome := deviceProvisionOutcome{login: pending}
 				outcome.err = svclog.Span(provisionCtx, "provision.personal_tenant", func() error {
 					var provErr error
-					outcome.login, provErr = h.provisionPersonalTenant(provisionCtx, pending, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)
+					outcome.login, provErr = h.provisionPersonalTenant(provisionCtx, pending, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, effectiveDNSSuffix(request.DNSSuffix, pending.RequestedDNSSuffix), request.ClientCertificate)
 					return provErr
 				})
 				if outcome.err == nil {
@@ -267,6 +272,16 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		LoginResult:        loginResult,
 		ExpiresIn:          expiresIn,
 	})
+}
+
+// effectiveDNSSuffix resolves the Tenant DNS Suffix for provisioning: the CLI
+// --dns-suffix flag (cli) wins when present, otherwise the browser approval
+// form's value (browser). Empty means "let the server default it" (tenant name).
+func effectiveDNSSuffix(cli, browser string) string {
+	if s := strings.TrimSpace(cli); s != "" {
+		return s
+	}
+	return strings.TrimSpace(browser)
 }
 
 func (h handler) tailscaleAuthKeyForDeviceLogin(login DeviceLogin) string {
@@ -456,8 +471,12 @@ func (h handler) deviceApproveForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("user_code")))
+	suffix := strings.TrimSpace(r.URL.Query().Get("dns_suffix"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = deviceTemplate.Execute(w, struct{ UserCode string }{UserCode: code})
+	_ = deviceTemplate.Execute(w, struct {
+		UserCode  string
+		DNSSuffix string
+	}{UserCode: code, DNSSuffix: suffix})
 }
 
 func (h handler) deviceApprovePost(w http.ResponseWriter, r *http.Request) {
@@ -467,10 +486,11 @@ func (h handler) deviceApprovePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := strings.ToUpper(strings.TrimSpace(r.FormValue("user_code")))
+	dnsSuffix := strings.TrimSpace(r.FormValue("dns_suffix"))
 	action := strings.TrimSpace(r.FormValue("action"))
 	switch action {
 	case "approve":
-		err = ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, timeNow())
+		err = ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, dnsSuffix, timeNow())
 	case "deny":
 		err = DenyDeviceLogin(r.Context(), h.db, code, timeNow())
 	default:
@@ -507,7 +527,7 @@ func (h handler) debugDeviceApprove(w http.ResponseWriter, r *http.Request) {
 	if code == "" {
 		code = strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("user_code")))
 	}
-	if err := ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, timeNow()); err != nil {
+	if err := ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, "", timeNow()); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -572,7 +592,10 @@ func PollDeviceLogin(ctx context.Context, db *sql.DB, deviceCode string, now tim
 	return login, nil
 }
 
-func ApproveDeviceLogin(ctx context.Context, db *sql.DB, userCode string, userKey string, now time.Time) error {
+// ApproveDeviceLogin marks a pending device login approved for userKey. dnsSuffix
+// is the optional browser-chosen Tenant DNS Suffix (ADR-0020); it is persisted so
+// first-login provisioning can use it when the CLI --dns-suffix flag is absent.
+func ApproveDeviceLogin(ctx context.Context, db *sql.DB, userCode string, userKey string, dnsSuffix string, now time.Time) error {
 	login, err := findDeviceLoginByUserCode(ctx, db, userCode)
 	if err != nil {
 		return err
@@ -586,9 +609,9 @@ func ApproveDeviceLogin(ctx context.Context, db *sql.DB, userCode string, userKe
 	}
 	_, err = db.ExecContext(ctx, `
 UPDATE device_logins
-SET status = ?, user_key = ?, message = ?, approved_at = ?
+SET status = ?, user_key = ?, message = ?, approved_at = ?, dns_suffix = ?
 WHERE user_code = ?
-`, DeviceStatusApproved, userKey, "Approved. Provisioning will continue in the CLI.", now.UTC().Format(time.RFC3339), login.UserCode)
+`, DeviceStatusApproved, userKey, "Approved. Provisioning will continue in the CLI.", now.UTC().Format(time.RFC3339), strings.TrimSpace(dnsSuffix), login.UserCode)
 	return err
 }
 
@@ -606,7 +629,7 @@ func DenyDeviceLogin(ctx context.Context, db *sql.DB, userCode string, now time.
 
 func findDeviceLoginByDeviceCode(ctx context.Context, db *sql.DB, deviceCode string) (DeviceLogin, error) {
 	row := db.QueryRowContext(ctx, `
-SELECT device_code, user_code, status, user_key, message, provisioned_at, expires_at
+SELECT device_code, user_code, status, user_key, message, provisioned_at, dns_suffix, expires_at
 FROM device_logins
 WHERE device_code = ?
 `, strings.TrimSpace(deviceCode))
@@ -615,7 +638,7 @@ WHERE device_code = ?
 
 func findDeviceLoginByUserCode(ctx context.Context, db *sql.DB, userCode string) (DeviceLogin, error) {
 	row := db.QueryRowContext(ctx, `
-SELECT device_code, user_code, status, user_key, message, provisioned_at, expires_at
+SELECT device_code, user_code, status, user_key, message, provisioned_at, dns_suffix, expires_at
 FROM device_logins
 WHERE user_code = ?
 `, strings.ToUpper(strings.TrimSpace(userCode)))
@@ -625,7 +648,7 @@ WHERE user_code = ?
 func scanDeviceLogin(row *sql.Row) (DeviceLogin, error) {
 	var login DeviceLogin
 	var expiresAt string
-	if err := row.Scan(&login.DeviceCode, &login.UserCode, &login.Status, &login.UserKey, &login.Message, &login.ProvisionedAt, &expiresAt); err != nil {
+	if err := row.Scan(&login.DeviceCode, &login.UserCode, &login.Status, &login.UserKey, &login.Message, &login.ProvisionedAt, &login.RequestedDNSSuffix, &expiresAt); err != nil {
 		if err == sql.ErrNoRows {
 			return DeviceLogin{}, fmt.Errorf("device login not found")
 		}
@@ -672,13 +695,22 @@ var deviceTemplate = template.Must(template.New("device").Parse(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <title>Sandcastle Device Login</title>
 </head>
 <body>
   <main>
     <h1>Device Login</h1>
     <form method="post" action="/device">
-      <label>User Code <input name="user_code" value="{{.UserCode}}"></label>
+      <p><label>User Code <input name="user_code" value="{{.UserCode}}"></label></p>
+      <p>
+        <label>DNS suffix (TLD)
+          <input name="dns_suffix" value="{{.DNSSuffix}}" placeholder="your tenant name" autocapitalize="off" autocorrect="off" spellcheck="false">
+        </label><br>
+        <small>Only used on your first login. It becomes the final part of your machine
+        hostnames (<code>machine.project.&lt;suffix&gt;</code>) and is immutable once set.
+        Leave blank to use your tenant name, or to keep your existing suffix on re-login.</small>
+      </p>
       <button name="action" value="approve" type="submit">Approve</button>
       <button name="action" value="deny" type="submit">Deny</button>
     </form>

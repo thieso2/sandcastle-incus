@@ -174,6 +174,7 @@ var tenantAccessTemplate = template.Must(template.New("tenant-access").Parse(`<!
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <title>Sandcastle Tenant Access</title>
 </head>
 <body>

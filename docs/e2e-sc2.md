@@ -184,7 +184,16 @@ and silently operated on the *other* install's project.
 chosen at first login, is **immutable** per tenant per install
 (`TestPlanCreateV2DNSSuffix`), and the existing-suffix lookup is
 prefix-scoped so the same user on two installs can (and should) use two
-different suffixes (`ProvisionReuseInputs` tests). Run all three:
+different suffixes (`ProvisionReuseInputs` tests). It can be supplied two ways
+(ADR-0020): the **DNS suffix field on the browser device-approval page**, or the
+`--dns-suffix` CLI flag; when both are present the **CLI flag wins**
+(`effectiveDNSSuffix`, `TestEffectiveDNSSuffixPrecedence`). Run all three:
+
+0. **Browser-chosen suffix.** On a fresh tenant, run `sc login https://<host-a>`
+   with NO `--dns-suffix`, type a suffix (e.g. `tcweb`) into the DNS-suffix field
+   on the device-approval page, approve, then `sc create dev`. **PASS:** the
+   tenant is provisioned with suffix `tcweb` (remote `tcweb-default`,
+   `/etc/resolver/tcweb`), exactly as if `--dns-suffix=tcweb` had been passed.
 
 1. **Fresh suffix.** `sc login https://<host-a> --dns-suffix=tcA` on a fresh
    tenant, then `sc create dev`. **PASS:** the login installs

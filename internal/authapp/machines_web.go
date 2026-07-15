@@ -176,6 +176,7 @@ var machinesTemplate = template.Must(template.New("machines").Parse(`<!doctype h
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Your Sandcastle machines</title>
   <style>

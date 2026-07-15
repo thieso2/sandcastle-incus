@@ -280,7 +280,7 @@ func cloudIdentityAPIResponse(config CloudIdentityConfig) map[string]any {
 
 var cloudIdentityTemplate = template.Must(template.New("cloud-identities").Parse(`<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Cloud Identity Configs</title></head>
+<head><meta charset="utf-8"><link rel="stylesheet" href="/style.css"><title>Cloud Identity Configs</title></head>
 <body>
   <main>
     <h1>Cloud Identity Configs</h1>
