@@ -64,7 +64,7 @@ func TestRenderInitialRequiresTenantDNSSuffix(t *testing.T) {
 }
 
 func TestRenderTenantRequiresDNSAddress(t *testing.T) {
-	_, err := RenderTenant("acme", "", nil)
+	_, err := RenderTenant("acme", "", "", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -73,7 +73,7 @@ func TestRenderTenantRequiresDNSAddress(t *testing.T) {
 // ADR-0018: default-project machines get the canonical Machine Private
 // Hostname AND the Default Project Short Hostname, each with a wildcard.
 func TestRenderTenantDefaultProjectMachine(t *testing.T) {
-	files, err := RenderTenant("acme", "10.248.0.3", []meta.Machine{
+	files, err := RenderTenant("acme", "10.248.0.3", "default", []meta.Machine{
 		{Project: "default", Name: "codex", PrivateIP: "10.248.0.20"},
 	})
 	if err != nil {
@@ -98,7 +98,7 @@ func TestRenderTenantDefaultProjectMachine(t *testing.T) {
 // ADR-0018: machines outside the default project get ONLY the canonical name —
 // never a short form, regardless of uniqueness.
 func TestRenderTenantNonDefaultProjectHasNoShortName(t *testing.T) {
-	files, err := RenderTenant("acme", "10.248.0.3", []meta.Machine{
+	files, err := RenderTenant("acme", "10.248.0.3", "default", []meta.Machine{
 		{Project: "test2", Name: "dev", PrivateIP: "10.248.0.30"},
 	})
 	if err != nil {
@@ -116,10 +116,39 @@ func TestRenderTenantNonDefaultProjectHasNoShortName(t *testing.T) {
 	}
 }
 
+// Issue #93: when the tenant's default project is renamed, the short alias
+// follows THAT project — not a project literally called "default".
+func TestRenderTenantShortNameFollowsRenamedDefaultProject(t *testing.T) {
+	files, err := RenderTenant("acme", "10.248.0.3", "web", []meta.Machine{
+		{Project: "web", Name: "codex", PrivateIP: "10.248.0.20"},
+		{Project: "default", Name: "other", PrivateIP: "10.248.0.30"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zone := files[1].Content
+	// the machine in the renamed default project ("web") gets the short alias
+	for _, record := range []string{
+		"codex.web.acme. IN A 10.248.0.20",
+		"codex.acme. IN A 10.248.0.20",
+	} {
+		if !strings.Contains(zone, record) {
+			t.Fatalf("zone missing %q: %q", record, zone)
+		}
+	}
+	// a project literally named "default" is now just an ordinary project — no short alias
+	if strings.Contains(zone, "other.acme. IN A") {
+		t.Fatalf("literal 'default' project must not get the short alias: %q", zone)
+	}
+	if !strings.Contains(zone, "other.default.acme. IN A 10.248.0.30") {
+		t.Fatalf("zone missing canonical record for the literal default project: %q", zone)
+	}
+}
+
 // ADR-0018: the short name always belongs to the DEFAULT project's machine,
 // deterministically — even when another project reuses the name.
 func TestRenderTenantShortNameIsDefaultProjects(t *testing.T) {
-	files, err := RenderTenant("acme", "10.248.0.3", []meta.Machine{
+	files, err := RenderTenant("acme", "10.248.0.3", "default", []meta.Machine{
 		{Project: "aaa", Name: "dev", PrivateIP: "10.248.0.99"}, // sorts before "default"
 		{Project: "default", Name: "dev", PrivateIP: "10.248.0.20"},
 	})

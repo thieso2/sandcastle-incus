@@ -33,19 +33,23 @@ type ProvisionOptions struct {
 	// provisioning (ADR-0018); empty means the tenant name. Immutable — a
 	// re-login with a different value fails provisioning.
 	DNSSuffix string
+	// InitialProject is the short name the user chose for their tenant's one
+	// project at first login (issue #93); empty means "default" (or the stored
+	// name on re-login). Not immutable.
+	InitialProject string
 }
 
 type PersonalTenantResult struct {
-	UserKey             string
-	Tenant              string
-	IncusProject        string
-	AccessibleTenants   []string
-	Token               string
-	RemoteName          string
+	UserKey           string
+	Tenant            string
+	IncusProject      string
+	AccessibleTenants []string
+	Token             string
+	RemoteName        string
 	// DNSSuffix is the tenant's resolved, immutable Tenant DNS Suffix — the stem
 	// of the incus remote name (ADR-0020). Returned so the client can name the
 	// remote and so re-login echoes the stored value.
-	DNSSuffix string
+	DNSSuffix           string
 	IncusRemoteAddress  string
 	TenantPrivateCIDR   string
 	Projects            []string
@@ -92,7 +96,7 @@ type Provisioner struct {
 // ensurePersonalTenantV2 provisions (or re-ensures) the caller's v2 tenant via
 // V2Create and mints a restricted enrollment token scoped to its default
 // project. The SSH key is applied separately by the device flow after approval.
-func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string, tailscaleAuthKey string, dnsSuffix string, clientCertificatePEM string) (PersonalTenantResult, error) {
+func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string, sshPublicKey string, unixUser string, tailscaleAuthKey string, dnsSuffix string, initialProject string, clientCertificatePEM string) (PersonalTenantResult, error) {
 	if p.Trust == nil {
 		return PersonalTenantResult{}, fmt.Errorf("trust manager is not configured")
 	}
@@ -100,21 +104,25 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	// re-login); otherwise allocate one that avoids other tenants' CIDRs. Uses
 	// CIDRAllocationInputs — List+OccupiedCIDRs only surfaces v1 kind=tenant
 	// projects, so it would miss every v2 tenant and let the allocator collide.
-	var ownCIDR, ownSuffix string
+	// The stored default-project short name is reused too, so a re-login pins the
+	// same project instead of re-creating a duplicate "-default" (issue #93).
+	var ownCIDR, ownSuffix, ownDefaultProject string
 	var occupied []string
 	if p.Tenants != nil {
-		if own, suffix, others, err := tenant.ProvisionReuseInputs(ctx, p.Tenants, p.Admin.IncusProjectPrefix, userKey); err == nil {
-			ownCIDR, ownSuffix, occupied = own, suffix, others
+		if own, suffix, defaultProject, others, err := tenant.ProvisionReuseInputs(ctx, p.Tenants, p.Admin.IncusProjectPrefix, userKey); err == nil {
+			ownCIDR, ownSuffix, ownDefaultProject, occupied = own, suffix, defaultProject, others
 		}
 	}
 	plan, err := tenant.PlanCreateV2(p.Admin, tenant.CreateRequest{
-		Reference:         userKey,
-		SSHPublicKey:      strings.TrimSpace(sshPublicKey),
-		UnixUser:          unixUser,
-		OccupiedCIDRs:     occupied,
-		PreferredCIDR:     ownCIDR,
-		DNSSuffix:         strings.TrimSpace(dnsSuffix),
-		ExistingDNSSuffix: ownSuffix,
+		Reference:              userKey,
+		SSHPublicKey:           strings.TrimSpace(sshPublicKey),
+		UnixUser:               unixUser,
+		OccupiedCIDRs:          occupied,
+		PreferredCIDR:          ownCIDR,
+		DNSSuffix:              strings.TrimSpace(dnsSuffix),
+		ExistingDNSSuffix:      ownSuffix,
+		InitialProject:         strings.TrimSpace(initialProject),
+		ExistingDefaultProject: ownDefaultProject,
 	})
 	if err != nil {
 		return PersonalTenantResult{}, err
@@ -142,7 +150,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	// username (identical everywhere). Fall back to the legacy install-label, then
 	// the tenant-based name, for older/suffix-less installs. The certificate name
 	// stays prefix-keyed (server-side trust identity).
-	remoteName := usertrust.RemoteNameForSuffixProject(plan.DNSSuffix, naming.DefaultProjectName)
+	remoteName := usertrust.RemoteNameForSuffixProject(plan.DNSSuffix, plan.DefaultProjectShort)
 	if remoteName == "" {
 		remoteName = usertrust.RemoteNameForAuthHostname(p.Admin.AuthHostname)
 	}
@@ -188,7 +196,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		IncusRemoteAddress:  created.SidecarTailnetIP,
 		TenantPrivateCIDR:   plan.PrivateCIDR,
 		Projects:            append([]string{}, tok.Projects...),
-		CurrentProject:      naming.DefaultProjectName,
+		CurrentProject:      plan.DefaultProjectShort,
 		DefaultProjectReady: true,
 		TenantTailnetReady:  created.SidecarTailnetIP != "",
 		TailscaleLoginURL:   created.TailscaleLoginURL,
@@ -207,7 +215,7 @@ func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User, option
 	if p.V2Create == nil {
 		return PersonalTenantResult{}, fmt.Errorf("v2 provisioning is not configured")
 	}
-	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user), options.TailscaleAuthKey, options.DNSSuffix, options.ClientCertificatePEM)
+	return p.ensurePersonalTenantV2(ctx, userKey, user.SSHPublicKey, p.profileUnixUser(user), options.TailscaleAuthKey, options.DNSSuffix, options.InitialProject, options.ClientCertificatePEM)
 }
 
 // profileUnixUser picks the login user baked into the tenant's default profile:

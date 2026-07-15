@@ -248,6 +248,31 @@ Suffix is now also the **stem of the incus remote name** and a per-install
    a same-named tenant on another install is untouched. *(Built; validate against a
    client holding legacy remotes.)*
 
+**First-login initial project name (`sc login --default-project=…`, issue #93).**
+At first login the user may name their one project instead of the hardcoded
+`default`; the chosen name **replaces** `default` — it is the tenant's project,
+not an extra one. It is supplied two ways: the **Initial project field on the
+browser device-approval page** or the `--default-project` (alias
+`--initial-project`) CLI flag; CLI wins (`effectiveInitialProject`,
+`TestEffectiveInitialProjectPrecedence`). Unlike the suffix it is **not
+immutable** — blank ⇒ `default`, re-login reuses the stored name. Needs **live
+e2e on `home`** (DNS short-alias + tenant networking can't be fully unit-tested):
+
+8. **Named initial project.** On a fresh tenant, `sc login https://<host-a>
+   --dns-suffix=tcA --default-project=web`, then `sc create dev`. **PASS:** the
+   enrolled remote is `tcA-web` (not `tcA-default`); the Incus project is
+   `sc2-<tenant>-web`; `sc list` shows the project as `web`; the canonical name
+   `dev.web.tcA` resolves to the machine's tenant IP AND the short alias
+   `dev.tcA` resolves to the same IP (the short alias follows the renamed
+   project, `TestRenderTenantShortNameFollowsRenamedDefaultProject`); `sc connect
+   dev` works.
+9. **Persistence, no duplicate.** Re-run `sc login https://<host-a>` with NO
+   `--default-project`. **PASS:** the project stays `web` (summary + remote
+   unchanged); crucially NO second `sc2-<tenant>-default` project is created and
+   the remote is not re-pointed (`ProvisionReuseInputs` returns the stored `web`,
+   `TestProvisionReuseInputsReturnsStoredDefaultProject`). A blank browser field
+   on the same tenant likewise keeps `web`.
+
 Keep CIDR pools distinct across installs sharing a tailnet. Robustness fixes the
 from-scratch run surfaced (all in `internal/incusx` + the auth-app): tolerate
 the spurious "already running" on a cached-image create; wait for RUNNING

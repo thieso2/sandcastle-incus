@@ -220,11 +220,12 @@ func formatDNSTeardown(result dnsTeardownResult) string {
 
 func dnsProject(summary tenant.Summary) dns.Tenant {
 	return dns.Tenant{
-		IncusName:    summary.IncusName,
-		InfraProject: summary.InfraProject,
-		Tenant:       summary.Tenant,
-		DNSSuffix:    summary.DNSSuffix,
-		PrivateCIDR:  summary.PrivateCIDR,
+		IncusName:      summary.IncusName,
+		InfraProject:   summary.InfraProject,
+		Tenant:         summary.Tenant,
+		DNSSuffix:      summary.DNSSuffix,
+		DefaultProject: summary.DefaultProject,
+		PrivateCIDR:    summary.PrivateCIDR,
 	}
 }
 

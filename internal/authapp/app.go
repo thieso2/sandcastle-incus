@@ -357,7 +357,8 @@ CREATE TABLE IF NOT EXISTS device_logins (
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     approved_at TEXT NOT NULL DEFAULT '',
-    dns_suffix TEXT NOT NULL DEFAULT ''
+    dns_suffix TEXT NOT NULL DEFAULT '',
+    initial_project TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS oidc_signing_keys (
     kid TEXT PRIMARY KEY,
@@ -431,6 +432,11 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 	// Browser-chosen Tenant DNS Suffix (ADR-0020 interactive suffix form). Stored
 	// at approval; the CLI --dns-suffix flag overrides it at poll time when present.
 	if err := ensureColumn(ctx, db, "device_logins", "dns_suffix", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// Browser-chosen initial-project short name (issue #93). Stored at approval;
+	// the CLI --default-project flag overrides it at poll time when present.
+	if err := ensureColumn(ctx, db, "device_logins", "initial_project", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := ensureColumn(ctx, db, "users", "ssh_public_key", "TEXT NOT NULL DEFAULT ''"); err != nil {

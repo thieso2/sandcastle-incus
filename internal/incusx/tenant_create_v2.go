@@ -79,7 +79,7 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		return err
 	}
 	c.log("ensure app default profile " + plan.DefaultProject)
-	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted, naming.DefaultProjectName); err != nil {
+	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted, plan.DefaultProjectShort); err != nil {
 		return err
 	}
 	c.log("ensure sidecar profile")
@@ -240,24 +240,26 @@ func (c TenantCreator) EnsureApplianceBridge(ctx context.Context, name string, i
 // tenant's shared settings so a later project-create (broker) can rebuild an app
 // project + profile without the operator re-supplying them.
 const (
-	keyV2Bridge = "user.sandcastle.v2.bridge"
-	keyV2Pool   = "user.sandcastle.v2.pool"
-	keyV2Suffix = meta.KeyV2Suffix
-	keyV2CIDR   = "user.sandcastle.v2.cidr"
-	keyV2User   = meta.KeyV2User
-	keyV2SSHKey = "user.sandcastle.v2.sshkey"
-	keyV2Prefix = meta.KeyV2Prefix
+	keyV2Bridge         = "user.sandcastle.v2.bridge"
+	keyV2Pool           = "user.sandcastle.v2.pool"
+	keyV2Suffix         = meta.KeyV2Suffix
+	keyV2CIDR           = "user.sandcastle.v2.cidr"
+	keyV2User           = meta.KeyV2User
+	keyV2SSHKey         = "user.sandcastle.v2.sshkey"
+	keyV2Prefix         = meta.KeyV2Prefix
+	keyV2DefaultProject = meta.KeyV2DefaultProject
 )
 
 func v2InfraMetadata(plan tenant.CreatePlanV2) map[string]string {
 	return map[string]string{
-		keyV2Bridge: plan.Bridge,
-		keyV2Pool:   plan.StoragePool,
-		keyV2Suffix: plan.DNSSuffix,
-		keyV2CIDR:   plan.PrivateCIDR,
-		keyV2User:   plan.DefaultProfileUser,
-		keyV2SSHKey: plan.SSHPublicKey,
-		keyV2Prefix: plan.Prefix,
+		keyV2Bridge:         plan.Bridge,
+		keyV2Pool:           plan.StoragePool,
+		keyV2Suffix:         plan.DNSSuffix,
+		keyV2CIDR:           plan.PrivateCIDR,
+		keyV2User:           plan.DefaultProfileUser,
+		keyV2SSHKey:         plan.SSHPublicKey,
+		keyV2Prefix:         plan.Prefix,
+		keyV2DefaultProject: plan.DefaultProjectShort,
 	}
 }
 

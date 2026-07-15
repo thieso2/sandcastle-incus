@@ -77,6 +77,9 @@ type DevicePollRequest struct {
 	// DNSSuffix is the tenant-chosen Tenant DNS Suffix for first-login
 	// provisioning (ADR-0018); empty means the tenant name.
 	DNSSuffix string
+	// InitialProject is the tenant-chosen initial-project short name for
+	// first-login provisioning (issue #93); empty means "default".
+	InitialProject string
 	// ClientCertificatePEM is the client's existing shared-identity Incus
 	// certificate, when one exists — the server unions this install's projects
 	// into its trust entry (multi-install shared identity).
@@ -119,6 +122,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		"tailscale_auth_key": poll.TailscaleAuthKey,
 		"awaiting_tailnet":   poll.AwaitingTailnet,
 		"dns_suffix":         poll.DNSSuffix,
+		"initial_project":    poll.InitialProject,
 		"client_certificate": poll.ClientCertificatePEM,
 	})
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/device/poll"), bytes.NewReader(body))

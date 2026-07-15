@@ -5,6 +5,41 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-15 — first-login initial-project name (issue #93)
+
+Let the user **name their initial project** at first login instead of the
+hardcoded `default`. Mirrors the DNS-suffix form directly (form field →
+`device_logins` column → `ApproveDeviceLogin` persists → poll resolves with
+`effectiveInitialProject(cli, browser)`); the chosen name **replaces** `default`
+— it is the tenant's one project (the enrolled remote pins `<suffix>-<name>`, the
+CLI current project, and the DNS short-alias holder), not an extra project.
+
+Decisions not spelled out in the spec:
+
+- **Stored in infra-project metadata** (`meta.KeyV2DefaultProject`, same shelf as
+  `KeyV2Suffix`), not just derived. `ProvisionReuseInputs` reuses infra metadata
+  on re-login and does not enumerate the default project, so without remembering
+  the name a second login would re-derive `"default"` and create a duplicate
+  `-default` project + re-pin the remote. `ProvisionReuseInputs` now returns the
+  stored short name too; `Summary` gained a `DefaultProject` field so the DNS
+  reconcile can point the short alias at the renamed project.
+- **NOT immutable** (unlike the DNS suffix). It is only the initial project name;
+  the tenant can create more projects later, and re-login without a flag just
+  reuses the stored value. So precedence is request ⇒ stored ⇒ `"default"` with
+  no immutability check — a differing explicit `--default-project` simply wins.
+  An invalid name (`naming.ValidateProjectName`) is a *terminal* provision error
+  (no retry can fix bad input), matching how a bad suffix is handled.
+- **`RenderTenant` gained a `defaultProject` param** (fallback `"default"`) so the
+  Default Project Short Hostname (`<machine>.<suffix>`) follows the renamed
+  project rather than a project literally called `default`. `dns.Tenant` carries
+  the short name through `PlanApply`; the v2 reconcile reads it from infra
+  metadata.
+- **CLI flag: `--default-project` (alias `--initial-project`)** on `sc login`, and
+  `--initial-project` on admin `tenant create`, for parity with `--dns-suffix`.
+- **`CurrentProject` threaded onto the `DeviceLogin`** so the poll reports the
+  resolved short name; `currentProjectForDeviceLogin` still falls back to
+  `"default"` for an approved-but-not-yet-provisioned login.
+
 ## 2026-07-15 — interactive browser DNS-suffix form (the deferred ADR-0020 piece)
 
 Built the one item PR #92 left unchecked: the browser device-approval page now

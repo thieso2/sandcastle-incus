@@ -166,7 +166,7 @@ func TestWorkloadEnableAPIUsesApprovedDeviceAndCloudConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApproveDeviceLogin(context.Background(), db, login.UserCode, "octocat", "", timeNow()); err != nil {
+	if err := ApproveDeviceLogin(context.Background(), db, login.UserCode, "octocat", "", "", timeNow()); err != nil {
 		t.Fatal(err)
 	}
 	handler := NewHandler(db, HandlerOptions{

@@ -534,6 +534,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var skipSetup bool
 	var tailscaleAuthKey string
 	var dnsSuffix string
+	var initialProject string
 	var debugApprove bool
 	var simulateToken string
 	var simulateAs string
@@ -660,6 +661,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					TailscaleAuthKey:     strings.TrimSpace(tailscaleAuthKey),
 					AwaitingTailnet:      awaitingTailnet,
 					DNSSuffix:            strings.TrimSpace(dnsSuffix),
+					InitialProject:       strings.TrimSpace(initialProject),
 					ClientCertificatePEM: sharedClientCertificatePEM(),
 				})
 				stopHeartbeat()
@@ -881,6 +883,8 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().BoolVar(&skipSetup, "skip-setup", false, "skip automatic DNS and Tailscale setup after enrollment")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key for unattended post-login attachment")
 	command.Flags().StringVar(&dnsSuffix, "dns-suffix", "", "Tenant DNS Suffix for first-login provisioning — the single-label final part of machine hostnames <machine>.<project>.<suffix> (default: your tenant name; immutable once created)")
+	command.Flags().StringVar(&initialProject, "default-project", "", "name for your tenant's initial project on first login — the middle part of machine hostnames <machine>.<project>.<suffix> and the enrolled Incus remote (default: default)")
+	command.Flags().StringVar(&initialProject, "initial-project", "", "alias for --default-project")
 	command.Flags().BoolVar(&debugApprove, "debug-approve", false, "auto-approve via /debug/device/approve (requires server --debug-device-user)")
 	command.Flags().StringVar(&simulateToken, "simulate-token", "", "DEV ONLY: auto-approve via /oauth/github/simulate using this shared secret (requires server --simulate-github-token); no browser/GitHub")
 	command.Flags().StringVar(&simulateAs, "as", "", "GitHub username to log in as when using --simulate-token")
