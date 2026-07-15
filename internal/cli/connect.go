@@ -29,7 +29,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					return terr
 				}
 				if switchTo != "" {
-					switched := switchConfigToRemote(config, switchTo)
+					switched := switchConfigToRemote(config, switchTo, project)
 					targetSummary, err := requireV2Tenant(cmd.Context(), switched)
 					if err != nil {
 						return err

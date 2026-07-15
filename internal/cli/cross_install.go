@@ -55,11 +55,17 @@ func localInstallKnown(suffix string) bool {
 }
 
 // switchConfigToRemote returns a copy of cfg rebound to targetRemote: it points
-// INCUS_CONF at that remote's config dir (its restricted cert) and rebuilds the
-// two remote-scoped stores connect uses — the tenant summary source and the
-// machine-ensure client. All other (local) capabilities carry over unchanged.
-func switchConfigToRemote(cfg commandConfig, targetRemote string) commandConfig {
-	if dir := scconfig.ResolveConfigPath(targetRemote); dir != "" {
+// INCUS_CONF at that remote's config dir (its restricted cert), rebuilds the two
+// remote-scoped stores connect uses (the tenant summary source and the
+// machine-ensure client), and — crucially — re-points adminConfig.Tenant to the
+// TARGET install's tenant. The summary lookup keys off the tenant name, so
+// without this it would still resolve the *current* tenant on the new remote.
+// project is the reference's project, used to strip the pinned incus project
+// (`<prefix>-<tenant>-<project>`) back to its tenant. All other (local)
+// capabilities carry over unchanged.
+func switchConfigToRemote(cfg commandConfig, targetRemote, project string) commandConfig {
+	dir := scconfig.ResolveConfigPath(targetRemote)
+	if dir != "" {
 		os.Setenv("INCUS_CONF", dir)
 	}
 	switched := cfg
@@ -67,5 +73,31 @@ func switchConfigToRemote(cfg commandConfig, targetRemote string) commandConfig 
 	switched.adminConfig.Project = "" // the reference carries the project
 	switched.tenantStore = incusx.NewTenantStoreForSharedRemote(incusx.NewSharedRemote(targetRemote))
 	switched.tenantCreator = incusx.NewTenantCreator(targetRemote)
+	if remotes, err := readLocalRemotes(dir); err == nil {
+		for _, r := range remotes {
+			if r.Name == targetRemote {
+				if tenant := tenantFromPinnedProject(r.Project, project); tenant != "" {
+					switched.adminConfig.Tenant = tenant
+				}
+				break
+			}
+		}
+	}
 	return switched
+}
+
+// tenantFromPinnedProject recovers the tenant from a remote's pinned incus
+// project `<prefix>-<tenant>-<project>` given the known project. The trailing
+// `-<project>` is stripped (handles dashed projects), then the single-token
+// prefix (e.g. "sc2") before the first dash — leaving the tenant (which may
+// itself contain dashes). Returns "" if the shape doesn't match.
+func tenantFromPinnedProject(pinnedProject, project string) string {
+	rest := strings.TrimSuffix(strings.TrimSpace(pinnedProject), "-"+strings.TrimSpace(project))
+	if rest == pinnedProject || rest == "" {
+		return "" // project suffix didn't match
+	}
+	if i := strings.Index(rest, "-"); i >= 0 {
+		return rest[i+1:]
+	}
+	return ""
 }

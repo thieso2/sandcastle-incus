@@ -1777,3 +1777,27 @@ Deployed the fixed client to `e2eclient` + new binary to install A's auth-app.
   legacy `sc-majestix-...` remote is **removed**. Clean.
 
 Stage 5 (cross-install) validation pending install-B auth-app deploy (separate authorization).
+
+## 2026-07-15 — ADR-0020 stage 5 live validation on majestix (part 2)
+
+Validated the cross-install switch on install A using two different-suffix tenants
+(octocat current → thieso2 target; same daemon, different suffix/remote/sidecar —
+identical switch code path). **Found + fixed a real bug:**
+
+- **Error paths validated:** `sc c newbox:default:dev` → "unknown install … sc login".
+- **Switch bug found:** `sc c thieso2:web:x` first errored "project web not found in
+  tenant **octocat**" — `switchConfigToRemote` rebound the stores + remote but left
+  `adminConfig.Tenant` unchanged, and `v2TenantSummary` keys off the tenant NAME, so it
+  kept resolving the current tenant on the new remote.
+- **Fix:** `switchConfigToRemote` now re-points `adminConfig.Tenant` to the target
+  tenant, recovered from the target remote's pinned incus project
+  (`<prefix>-<tenant>-<project>`) via `tenantFromPinnedProject` (pure, unit-tested;
+  handles dashed tenants/projects + non-default install prefix).
+- **Re-validated:** the same command now errors "project web not found in tenant
+  **thieso2** (projects: default)" — the switch correctly lands on thieso2's summary.
+  The machine-connect after the switch is unchanged runConnectV2 logic (not run to
+  completion: no cross-install-reachable project here had a machine).
+
+e2edns@B login was blocked by a PRE-EXISTING, unrelated failure ("reconcile User SSH
+Public Key on machine api: script exited 1"), so the switch was validated via the A/A
+different-suffix path instead of A→B.

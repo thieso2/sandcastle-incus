@@ -54,6 +54,23 @@ func TestResolveConnectTarget(t *testing.T) {
 		}
 	})
 
+	t.Run("tenantFromPinnedProject recovers the tenant", func(t *testing.T) {
+		cases := []struct{ pinned, project, want string }{
+			{"sc2-thieso2-web", "web", "thieso2"},
+			{"sc2-e2edns-default", "default", "e2edns"},
+			{"id-e2edns-default", "default", "e2edns"},   // non-default install prefix
+			{"sc2-foo-bar-web", "web", "foo-bar"},         // dashed tenant
+			{"sc2-t-web-app", "web-app", "t"},             // dashed project
+			{"sc2-thieso2-web", "other", ""},              // project mismatch -> ""
+			{"", "web", ""},
+		}
+		for _, c := range cases {
+			if got := tenantFromPinnedProject(c.pinned, c.project); got != c.want {
+				t.Errorf("tenantFromPinnedProject(%q,%q) = %q, want %q", c.pinned, c.project, got, c.want)
+			}
+		}
+	})
+
 	t.Run("install never touched -> login guidance", func(t *testing.T) {
 		_, err := resolveConnectTarget("newbox", "sc", "castle", exists, known)
 		if err == nil {
