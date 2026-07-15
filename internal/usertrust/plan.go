@@ -226,6 +226,27 @@ func RemoteNameForAuthHostname(authHostname string) string {
 	return "sc-" + label
 }
 
+// RemoteNameForSuffix is the client-side incus remote name under ADR-0021: the
+// install's DNS suffix alone (e.g. suffix "jules" -> "jules"), one remote per
+// install. The project is no longer part of the name — it is an orthogonal pin
+// that follows `sc project switch`. Returns "" for a blank suffix so callers can
+// fall back to the legacy install-label / tenant naming.
+func RemoteNameForSuffix(suffix string) string {
+	return strings.ToLower(strings.TrimSpace(suffix))
+}
+
+// RemoteNameForSuffixProject is the SUPERSEDED (ADR-0020) client-side incus
+// remote name "<dns-suffix>-<project>". Retained for migration/tests that reason
+// about the old scheme; new enrollment uses RemoteNameForSuffix (ADR-0021).
+func RemoteNameForSuffixProject(suffix string, project string) string {
+	suffix = strings.ToLower(strings.TrimSpace(suffix))
+	project = strings.ToLower(strings.TrimSpace(project))
+	if suffix == "" || project == "" {
+		return ""
+	}
+	return suffix + "-" + project
+}
+
 func validateUser(user string) error {
 	if err := naming.ValidateGitHubUsernameTenantName(user); err != nil {
 		return fmt.Errorf("invalid user %q", user)

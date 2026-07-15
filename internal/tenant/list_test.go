@@ -165,7 +165,7 @@ func TestProvisionReuseInputsScopedToInstallPrefix(t *testing.T) {
 		}},
 	}}
 	// the "id" install sees ITS tenant as own, the sc2 one as occupied
-	own, suffix, occupied, err := ProvisionReuseInputs(context.Background(), store, "id", "acme")
+	own, suffix, _, occupied, err := ProvisionReuseInputs(context.Background(), store, "id", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestProvisionReuseInputsScopedToInstallPrefix(t *testing.T) {
 		t.Fatalf("occupied = %v", occupied)
 	}
 	// and vice versa (default prefix normalizes sc→sc2)
-	own, suffix, occupied, err = ProvisionReuseInputs(context.Background(), store, "sc", "acme")
+	own, suffix, _, occupied, err = ProvisionReuseInputs(context.Background(), store, "sc", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +185,28 @@ func TestProvisionReuseInputsScopedToInstallPrefix(t *testing.T) {
 	}
 	if len(occupied) != 1 || occupied[0] != "10.251.0.0/24" {
 		t.Fatalf("occupied = %v", occupied)
+	}
+}
+
+// The stored initial-project short name comes back on re-login so provisioning
+// reuses it instead of re-deriving "default" (issue #93).
+func TestProvisionReuseInputsReturnsStoredDefaultProject(t *testing.T) {
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "sc2-acme", Config: map[string]string{
+			meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "acme",
+			meta.KeyV2CIDR: "10.253.0.0/24", meta.KeyV2Suffix: "acme", meta.KeyV2Prefix: "sc2",
+			meta.KeyV2DefaultProject: "web",
+		}},
+	}}
+	own, suffix, defaultProject, _, err := ProvisionReuseInputs(context.Background(), store, "sc2", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own != "10.253.0.0/24" || suffix != "acme" {
+		t.Fatalf("own = %q/%q", own, suffix)
+	}
+	if defaultProject != "web" {
+		t.Fatalf("ownDefaultProject = %q, want web", defaultProject)
 	}
 }
 
@@ -198,7 +220,7 @@ func TestProvisionReuseInputsNeverOwnsV1CIDR(t *testing.T) {
 		{Name: "sc-thieso2", Config: v1Config},
 	}}
 	for _, prefix := range []string{"tc2", "sc", ""} {
-		own, suffix, occupied, err := ProvisionReuseInputs(context.Background(), store, prefix, "thieso2")
+		own, suffix, _, occupied, err := ProvisionReuseInputs(context.Background(), store, prefix, "thieso2")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,6 +230,32 @@ func TestProvisionReuseInputsNeverOwnsV1CIDR(t *testing.T) {
 		if len(occupied) != 1 || occupied[0] != "10.248.1.0/24" {
 			t.Fatalf("prefix %q: occupied = %v, want the v1 /24", prefix, occupied)
 		}
+	}
+}
+
+// A v2 summary surfaces the tenant's initial-project short name from the
+// kind=infra metadata (issue #93), so DNS reconcile can point the short alias
+// at the renamed project.
+func TestV2SummaryReportsDefaultProject(t *testing.T) {
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "sc2-acme", Config: map[string]string{
+			meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "acme",
+			meta.KeyV2CIDR: "10.253.0.0/24", meta.KeyV2Suffix: "acme", meta.KeyV2Prefix: "sc2",
+			meta.KeyV2DefaultProject: "web",
+		}},
+		{Name: "sc2-acme-web", Config: map[string]string{
+			meta.KeyKind: meta.KindV2Project, meta.KeyVersion: "2", meta.KeyTenant: "acme",
+		}},
+	}}
+	summaries, err := ListForPrefix(context.Background(), store, "sc2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("summaries = %d, want 1", len(summaries))
+	}
+	if summaries[0].DefaultProject != "web" {
+		t.Fatalf("DefaultProject = %q, want web", summaries[0].DefaultProject)
 	}
 }
 

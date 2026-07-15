@@ -184,7 +184,16 @@ and silently operated on the *other* install's project.
 chosen at first login, is **immutable** per tenant per install
 (`TestPlanCreateV2DNSSuffix`), and the existing-suffix lookup is
 prefix-scoped so the same user on two installs can (and should) use two
-different suffixes (`ProvisionReuseInputs` tests). Run all three:
+different suffixes (`ProvisionReuseInputs` tests). It can be supplied two ways
+(ADR-0020): the **DNS suffix field on the browser device-approval page**, or the
+`--dns-suffix` CLI flag; when both are present the **CLI flag wins**
+(`effectiveDNSSuffix`, `TestEffectiveDNSSuffixPrecedence`). Run all three:
+
+0. **Browser-chosen suffix.** On a fresh tenant, run `sc login https://<host-a>`
+   with NO `--dns-suffix`, type a suffix (e.g. `tcweb`) into the DNS-suffix field
+   on the device-approval page, approve, then `sc create dev`. **PASS:** the
+   tenant is provisioned with suffix `tcweb` (remote `tcweb-default`,
+   `/etc/resolver/tcweb`), exactly as if `--dns-suffix=tcweb` had been passed.
 
 1. **Fresh suffix.** `sc login https://<host-a> --dns-suffix=tcA` on a fresh
    tenant, then `sc create dev`. **PASS:** the login installs
@@ -211,6 +220,138 @@ different suffixes (`ProvisionReuseInputs` tests). Run all three:
    verified on `majestix` 2026-07-09. NXDOMAIN is what you get for an absent
    name *within* a zone the server does own (e.g. `api.castle`, a short alias
    outside the default project).
+
+**Suffix-as-remote-name + cross-install addressing (ADR-0020).** The Tenant DNS
+Suffix is now also the **stem of the incus remote name** and a per-install
+**uniqueness key**:
+
+4. **Suffix uniqueness is enforced per install.** After a tenant claims a suffix
+   on install A, a *second* tenant logging into the same install with the same
+   `--dns-suffix` must be **rejected before provisioning** with
+   `DNS suffix "<x>" is already claimed on this install` (the claim is reserved in
+   the auth DB's `dns_suffix_claims` table before `V2Create`). **PASS:** the second
+   tenant is not provisioned; the first tenant's claim row is intact. *(Validated
+   live on `majestix` 2026-07-15: `sctest` claimed `sctest`; `sctest2` rejected in
+   15 ms.)*
+5. **Remote is named `<suffix>-<project>`.** After `sc login … --dns-suffix=tcA`,
+   the enrolled remote is `tcA-default` (not `sc-<authhost>`); a per-project remote
+   for project `web` is `tcA-web`. **PASS:** `incus remote list` shows the
+   suffix-stemmed names.
+6. **Cross-install connect.** `sc connect tcB:default:dev` from a client whose
+   current install is A switches to install B's `tcB-default` remote and connects;
+   naming an install/project with no local remote errors with enroll guidance
+   (connect never auto-provisions). *(Built; validate against a two-install client
+   — `majestix` has installs A+B.)*
+7. **Lazy migration.** An existing tenant's next `sc login` renames its legacy
+   remotes (`<tenant>-<project>`, `sc-<authhost>`) to `<suffix>-<project>`, scoped
+   to that install's endpoint. **PASS:** old names are gone, new names present, and
+   a same-named tenant on another install is untouched. *(Built; validate against a
+   client holding legacy remotes.)*
+
+**First-login initial project name (`sc login --default-project=…`, issue #93).**
+At first login the user may name their one project instead of the hardcoded
+`default`; the chosen name **replaces** `default` — it is the tenant's project,
+not an extra one. It is supplied two ways: the **Initial project field on the
+browser device-approval page** or the `--default-project` (alias
+`--initial-project`) CLI flag; CLI wins (`effectiveInitialProject`,
+`TestEffectiveInitialProjectPrecedence`). Unlike the suffix it is **not
+immutable** — blank ⇒ `default`, re-login reuses the stored name. Needs **live
+e2e on `home`** (DNS short-alias + tenant networking can't be fully unit-tested):
+
+8. **Named initial project.** On a fresh tenant, `sc login https://<host-a>
+   --dns-suffix=tcA --default-project=web`, then `sc create dev`. **PASS:** the
+   enrolled remote is `tcA-web` (not `tcA-default`); the Incus project is
+   `sc2-<tenant>-web`; `sc list` shows the project as `web`; the canonical name
+   `dev.web.tcA` resolves to the machine's tenant IP AND the short alias
+   `dev.tcA` resolves to the same IP (the short alias follows the renamed
+   project, `TestRenderTenantShortNameFollowsRenamedDefaultProject`); `sc connect
+   dev` works.
+9. **Persistence, no duplicate.** Re-run `sc login https://<host-a>` with NO
+   `--default-project`. **PASS:** the project stays `web` (summary + remote
+   unchanged); crucially NO second `sc2-<tenant>-default` project is created and
+   the remote is not re-pointed (`ProvisionReuseInputs` returns the stored `web`,
+   `TestProvisionReuseInputsReturnsStoredDefaultProject`). A blank browser field
+   on the same tenant likewise keeps `web`.
+
+**Device-approval page adapts to the tenant.** The browser device-approval page
+(`GET /device`) shows the DNS-suffix and initial-project **inputs only on first
+login**; once the tenant exists it renders the immutable suffix and existing
+projects **read-only** (`deviceApproveForm` looks the tenant up via
+`findPersonalTenant`; `TestDeviceFormShowsInputsForFirstLogin`,
+`TestDeviceFormHidesInputsForExistingTenant`). Live check on `home`:
+
+13. **Fresh tenant shows inputs; re-login shows state.** On a fresh tenant, open
+    the device-approval URL — **PASS:** the page has editable *DNS suffix* and
+    *Initial project* fields. Approve, provision, then start a second
+    `sc login` and open the approval page again — **PASS:** the fields are gone;
+    the page instead shows the tenant's suffix (e.g. `castle`) and its projects
+    (e.g. `default`, `web`) as read-only text, and approving still works with a
+    single click (blank submit reuses the stored suffix/project, no duplicate).
+
+**Current project stored on login + `sc info`.** Login writes the tenant's
+project into `~/.config/sandcastle/config.yml` (`project:`) so bare machine
+references resolve without `--project` — the fix for `project "default" not
+found in tenant … (projects: <name>)` on a tenant whose one project isn't named
+`default` (`applyLoginProjectDefault`, `saveProjectDefault`;
+`TestLoginStoresSingleProject`, `TestLoginMultipleProjectsNonInteractiveDefaults`,
+`TestLoginMultipleProjectsInteractivePrompt`, `TestLoginKeepsExistingValidProject`).
+Unit-tested, but the connect resolution deserves a live pass on `home`:
+
+10. **Bare connect resolves after login.** On the `--default-project=web` tenant
+    from scenario 8, immediately after login run `sc config show`. **PASS:**
+    `file.project: "web"` (login stored it; no manual `sc config set project`).
+    Then `sc create dev` and `sc c dev` (no `project:` prefix, no `--project`)
+    **PASS:** connects — no `project "default" not found` error.
+11. **`sc info` shows context + projects.** Run `sc info`. **PASS:** prints
+    `Tenant`, `Project` (`web`), `Remote`, and `Auth`, then `Projects in <tenant>:`
+    listing the tenant's projects with the current one marked `*`. With the
+    tenant unreachable it still prints the local config plus a
+    `showing local config only` note and exits 0. `sc info --json` emits the same
+    fields as JSON.
+12. **Multi-project selection.** Add a second project (`sc project create api`),
+    then re-login. **PASS:** because the configured `project:` (`web`) is still
+    valid, login keeps it and prints `Current project: "web".` (no prompt). Clear
+    it (`sc config unset project`) and re-login on a TTY: login **prompts** for
+    the default; a non-interactive login instead defaults to the tenant's current
+    project and prints a `Change with: sc project switch <name>` note.
+13. **`sc project switch`.** With ≥2 projects, `sc project switch api` **PASS:**
+    prints `Switched to project "api"`, `sc config show` shows `file.project:
+    "api"`, and `sc project list` marks `* api`. `sc project switch ghost`
+    **PASS:** errors `project ghost not found in tenant … (projects: …)` unless
+    `--local-only` is passed (`newProjectSwitchCommand`;
+    `TestProjectSwitchSetsCurrentProject`, `TestProjectSwitchRejectsUnknownProject`,
+    `TestProjectListMarksCurrent`).
+
+**Idempotent login skips the browser — cross-install.** Before opening the web,
+`sc login <host>` reuses a still-valid saved login: token accepted + enrolled
+remote responds + tailnet routing healthy. It resolves the token/remote for the
+*requested* host from the `installs`/`auth_tokens` maps (not just the active
+install), so it works even when another install is active — and switches to it
+(`tryExistingLogin`, `enrolledRemoteForAuthHostname`, `adoptExistingInstall`;
+`TestLoginSwitchesToExistingInstallWithoutBrowser`). Live check on this Mac (has
+both `big` and `home` enrolled):
+
+14. **Skip web + switch.** With `big` active, `sc login https://home.thieso2.dev`
+    **PASS:** no browser opens; prints `Already logged in at https://home.thieso2.dev`
+    (+ `Switched active install to …` when the prior install differed), the
+    routing check passes, and `sc config show` now shows the home auth hostname,
+    remote, and broker (self-healed). `--force` still runs a full device flow.
+
+**One incus remote per install (ADR-0021).** The enrolled remote is named
+`<suffix>` (not `<suffix>-<project>`); the project is an orthogonal pin.
+`sc project switch` re-pins the active remote, and login lazily collapses a
+tenant's per-project/legacy remotes for this install to the single `<suffix>`
+(endpoint-scoped; never removes the current remote). Live check on `home`:
+
+15. **Remote is `<suffix>`, switch re-pins.** After `sc login https://<host>` (or
+    the lazy migration on re-login), `sc incus remote ls` shows one row named
+    `<suffix>` (e.g. `jules`), not `jules-first`, and any old `<suffix>-<project>`
+    remotes for this install are gone. `sc project switch h2` **PASS:** prints
+    `Re-pinned remote "<suffix>"`, and `sc incus ls` and raw `incus <suffix>: ls`
+    (via `INCUS_CONF`) both list `h2`'s machines — no divergence
+    (`repinCurrentRemoteProject`, `planRemoteMigration`;
+    `TestProjectSwitchRepinsRemote`, `TestPlanRemoteMigration`). `sc project
+    create x` no longer adds a per-project remote (default `--write-remote` off).
 
 Keep CIDR pools distinct across installs sharing a tailnet. Robustness fixes the
 from-scratch run surfaced (all in `internal/incusx` + the auth-app): tolerate
@@ -286,10 +427,16 @@ sc login "https://$E2E_HOSTNAME" --simulate-token "$SIMULATE_TOKEN" --as e2edns 
 sc create web --detach                       # default project
 sc project create backend                    # NO flags: broker URL + cert from the login
 sc create backend:api --detach
+sc create backend:web --detach               # SAME machine name as default:web
 sc list                                      # FQDN column shows canonical names
 # PASS: EVERY machine created above appears in `sc list` immediately (list is
 #       scoped to the current remote's install — a same-named tenant of another
 #       install on the same daemon must never shadow this one)
+# PASS: `backend:web` starts cleanly even though `default:web` already exists —
+#       both projects share the tenant bridge, and the bridge carries
+#       dns.mode=none so Incus does NOT reject the second `web` with
+#       "Instance DNS name \"web\" already used on network". Their FQDNs stay
+#       distinct: web.default.castle vs web.backend.castle.
 
 # 2b. shared $HOME + /workspace across the project (CT ↔ VM)
 sc create vm1 --vm --detach                  # a VM next to the CTs in default

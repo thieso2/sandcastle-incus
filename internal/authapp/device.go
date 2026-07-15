@@ -29,14 +29,27 @@ const (
 )
 
 type DeviceLogin struct {
-	DeviceCode         string
-	UserCode           string
-	Status             string
-	UserKey            string
-	Message            string
-	ProvisionedAt      string
-	Token              string
-	RemoteName         string
+	DeviceCode    string
+	UserCode      string
+	Status        string
+	UserKey       string
+	Message       string
+	ProvisionedAt string
+	Token         string
+	RemoteName    string
+	// RequestedDNSSuffix is the Tenant DNS Suffix the user typed into the browser
+	// approval form (ADR-0020). It is persisted at approval and used for
+	// first-login provisioning unless the CLI --dns-suffix flag overrides it.
+	RequestedDNSSuffix string
+	// RequestedInitialProject is the initial-project short name the user typed
+	// into the browser approval form (issue #93). Persisted at approval; used for
+	// first-login provisioning unless the CLI --default-project flag overrides it.
+	RequestedInitialProject string
+	// DNSSuffix is the resolved suffix returned after provisioning.
+	DNSSuffix string
+	// CurrentProject is the resolved short name of the tenant's project after
+	// provisioning (issue #93) — what the CLI pins as its current project.
+	CurrentProject     string
 	IncusRemoteAddress string
 	IncusProject       string
 	TailscaleLoginURL  string
@@ -65,6 +78,7 @@ type devicePollResponse struct {
 	CLIAuthToken       string          `json:"cli_auth_token,omitempty"`
 	Token              string          `json:"incus_certificate_add_token,omitempty"`
 	RemoteName         string          `json:"remote_name,omitempty"`
+	DNSSuffix          string          `json:"dns_suffix,omitempty"`
 	IncusRemoteAddress string          `json:"incus_remote_address,omitempty"`
 	IncusProject       string          `json:"incus_project,omitempty"`
 	TailscaleLoginURL  string          `json:"tailscale_login_url,omitempty"`
@@ -120,6 +134,9 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		// DNSSuffix is the tenant-chosen Tenant DNS Suffix for first-login
 		// provisioning (ADR-0018).
 		DNSSuffix string `json:"dns_suffix"`
+		// InitialProject is the tenant-chosen initial-project short name for
+		// first-login provisioning (issue #93).
+		InitialProject string `json:"initial_project"`
 		// ClientCertificate is the client's existing shared-identity Incus
 		// certificate PEM (multi-install trust union).
 		ClientCertificate string `json:"client_certificate"`
@@ -165,7 +182,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 				outcome := deviceProvisionOutcome{login: pending}
 				outcome.err = svclog.Span(provisionCtx, "provision.personal_tenant", func() error {
 					var provErr error
-					outcome.login, provErr = h.provisionPersonalTenant(provisionCtx, pending, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, request.DNSSuffix, request.ClientCertificate)
+					outcome.login, provErr = h.provisionPersonalTenant(provisionCtx, pending, request.LocalUnixUser, request.SSHPublicKey, request.TailscaleAuthKey, effectiveDNSSuffix(request.DNSSuffix, pending.RequestedDNSSuffix), effectiveInitialProject(request.InitialProject, pending.RequestedInitialProject), request.ClientCertificate)
 					return provErr
 				})
 				if outcome.err == nil {
@@ -249,6 +266,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		CLIAuthToken:       cliAuthToken,
 		Token:              login.Token,
 		RemoteName:         login.RemoteName,
+		DNSSuffix:          login.DNSSuffix,
 		IncusRemoteAddress: login.IncusRemoteAddress,
 		IncusProject:       login.IncusProject,
 		TailscaleLoginURL:  login.TailscaleLoginURL,
@@ -264,6 +282,30 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		LoginResult:        loginResult,
 		ExpiresIn:          expiresIn,
 	})
+}
+
+// cliFlagOrBrowserForm resolves a first-login provisioning input supplied by two
+// paths: the CLI flag (cli) wins when non-blank, otherwise the browser
+// approval-form value (browser). Both are trimmed; "" means "let provisioning
+// default it".
+func cliFlagOrBrowserForm(cli, browser string) string {
+	if s := strings.TrimSpace(cli); s != "" {
+		return s
+	}
+	return strings.TrimSpace(browser)
+}
+
+// effectiveDNSSuffix resolves the Tenant DNS Suffix for provisioning: the CLI
+// --dns-suffix flag wins over the browser approval form's value. Empty means
+// "let the server default it" (tenant name).
+func effectiveDNSSuffix(cli, browser string) string { return cliFlagOrBrowserForm(cli, browser) }
+
+// effectiveInitialProject resolves the initial-project short name for first-login
+// provisioning (issue #93): the CLI --default-project flag wins over the browser
+// approval form's value. Empty means "let provisioning default it" (the stored
+// name on re-login, else "default").
+func effectiveInitialProject(cli, browser string) string {
+	return cliFlagOrBrowserForm(cli, browser)
 }
 
 func (h handler) tailscaleAuthKeyForDeviceLogin(login DeviceLogin) string {
@@ -373,6 +415,12 @@ func currentTenantForDeviceLogin(login DeviceLogin) string {
 
 func currentProjectForDeviceLogin(login DeviceLogin) string {
 	if login.Status == DeviceStatusApproved && currentTenantForDeviceLogin(login) != "" {
+		// The tenant's one project — the user-chosen short name once provisioning
+		// has resolved it (issue #93), else the "default" fallback (e.g. an
+		// approved login whose provisioning result hasn't landed yet).
+		if project := strings.TrimSpace(login.CurrentProject); project != "" {
+			return project
+		}
 		return "default"
 	}
 	return ""
@@ -396,7 +444,7 @@ func nextCommandForDeviceLogin(login DeviceLogin) string {
 	return ""
 }
 
-func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string, sshPublicKey string, tailscaleAuthKey string, dnsSuffix string, clientCertificatePEM string) (DeviceLogin, error) {
+func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin, localUnixUser string, sshPublicKey string, tailscaleAuthKey string, dnsSuffix string, initialProject string, clientCertificatePEM string) (DeviceLogin, error) {
 	user, err := FindUser(ctx, h.db, login.UserKey)
 	if err != nil {
 		return DeviceLogin{}, err
@@ -406,7 +454,7 @@ func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin,
 	if _, err := h.db.ExecContext(ctx, "UPDATE device_logins SET message = ? WHERE device_code = ? AND provisioned_at = ''", "Provisioning Personal Tenant for "+user.UserKey+".", login.DeviceCode); err != nil {
 		return DeviceLogin{}, err
 	}
-	result, err := h.provisioner.EnsurePersonalTenant(ctx, user, ProvisionOptions{TailscaleAuthKey: tailscaleAuthKey, DNSSuffix: dnsSuffix, ClientCertificatePEM: clientCertificatePEM})
+	result, err := h.provisioner.EnsurePersonalTenant(ctx, user, ProvisionOptions{TailscaleAuthKey: tailscaleAuthKey, DNSSuffix: dnsSuffix, InitialProject: initialProject, ClientCertificatePEM: clientCertificatePEM})
 	if err != nil {
 		message := "Personal Tenant provisioning failed: " + err.Error()
 		_, _ = h.db.ExecContext(ctx, "UPDATE device_logins SET message = ? WHERE device_code = ? AND provisioned_at = ''", message, login.DeviceCode)
@@ -424,6 +472,8 @@ func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin,
 	}
 	login.Token = result.Token
 	login.RemoteName = result.RemoteName
+	login.DNSSuffix = result.DNSSuffix
+	login.CurrentProject = result.CurrentProject
 	login.IncusRemoteAddress = result.IncusRemoteAddress
 	login.IncusProject = result.IncusProject
 	login.TailscaleLoginURL = result.TailscaleLoginURL
@@ -444,16 +494,57 @@ func (h handler) deviceApprove(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deviceFormData drives the device-approval template. The DNS-suffix and
+// initial-project inputs are first-login-only: once the tenant exists both are
+// fixed (the suffix is immutable, the project already created), so we hide the
+// inputs and instead show what is already there.
+type deviceFormData struct {
+	UserCode         string
+	ShowSuffixInput  bool
+	DNSSuffix        string // prefill for the input (first login only)
+	ExistingSuffix   string // shown read-only once the tenant exists
+	ShowProjectInput bool
+	InitialProject   string // prefill for the input (first login only)
+	ExistingProjects []string
+}
+
 func (h handler) deviceApproveForm(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.requireAllowlistedSession(r); err != nil {
+	user, err := h.requireAllowlistedSession(r)
+	if err != nil {
 		// Come back HERE (with the user_code) after the GitHub login —
 		// otherwise the user lands on the start page and the code is lost.
 		http.Redirect(w, r, "/login/github?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 		return
 	}
-	code := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("user_code")))
+	data := deviceFormData{
+		UserCode:         strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("user_code"))),
+		DNSSuffix:        strings.TrimSpace(r.URL.Query().Get("dns_suffix")),
+		InitialProject:   strings.TrimSpace(r.URL.Query().Get("initial_project")),
+		ShowSuffixInput:  true,
+		ShowProjectInput: true,
+	}
+	// If the user already has a Personal Tenant, its DNS suffix is immutable and
+	// its projects exist — don't ask to (re)name them. Show them instead. Best
+	// effort: if the lookup fails (Incus unreachable / no store), fall back to
+	// the inputs; leaving them blank on re-login reuses the stored values anyway.
+	if h.tenants != nil {
+		if summary, err := h.findPersonalTenant(r.Context(), user.UserKey); err == nil {
+			if suffix := strings.TrimSpace(summary.DNSSuffix); suffix != "" {
+				data.ExistingSuffix = suffix
+				data.ShowSuffixInput = false
+			}
+			for _, p := range summary.Projects {
+				if name := strings.TrimSpace(p.Name); name != "" {
+					data.ExistingProjects = append(data.ExistingProjects, name)
+				}
+			}
+			if len(data.ExistingProjects) > 0 {
+				data.ShowProjectInput = false
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = deviceTemplate.Execute(w, struct{ UserCode string }{UserCode: code})
+	_ = deviceTemplate.Execute(w, data)
 }
 
 func (h handler) deviceApprovePost(w http.ResponseWriter, r *http.Request) {
@@ -463,10 +554,12 @@ func (h handler) deviceApprovePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := strings.ToUpper(strings.TrimSpace(r.FormValue("user_code")))
+	dnsSuffix := strings.TrimSpace(r.FormValue("dns_suffix"))
+	initialProject := strings.TrimSpace(r.FormValue("initial_project"))
 	action := strings.TrimSpace(r.FormValue("action"))
 	switch action {
 	case "approve":
-		err = ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, timeNow())
+		err = ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, dnsSuffix, initialProject, timeNow())
 	case "deny":
 		err = DenyDeviceLogin(r.Context(), h.db, code, timeNow())
 	default:
@@ -503,7 +596,7 @@ func (h handler) debugDeviceApprove(w http.ResponseWriter, r *http.Request) {
 	if code == "" {
 		code = strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("user_code")))
 	}
-	if err := ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, timeNow()); err != nil {
+	if err := ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, "", "", timeNow()); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -568,7 +661,12 @@ func PollDeviceLogin(ctx context.Context, db *sql.DB, deviceCode string, now tim
 	return login, nil
 }
 
-func ApproveDeviceLogin(ctx context.Context, db *sql.DB, userCode string, userKey string, now time.Time) error {
+// ApproveDeviceLogin marks a pending device login approved for userKey. dnsSuffix
+// is the optional browser-chosen Tenant DNS Suffix (ADR-0020) and initialProject
+// the optional browser-chosen initial-project short name (issue #93); both are
+// persisted so first-login provisioning can use them when the corresponding CLI
+// flag is absent.
+func ApproveDeviceLogin(ctx context.Context, db *sql.DB, userCode string, userKey string, dnsSuffix string, initialProject string, now time.Time) error {
 	login, err := findDeviceLoginByUserCode(ctx, db, userCode)
 	if err != nil {
 		return err
@@ -582,9 +680,9 @@ func ApproveDeviceLogin(ctx context.Context, db *sql.DB, userCode string, userKe
 	}
 	_, err = db.ExecContext(ctx, `
 UPDATE device_logins
-SET status = ?, user_key = ?, message = ?, approved_at = ?
+SET status = ?, user_key = ?, message = ?, approved_at = ?, dns_suffix = ?, initial_project = ?
 WHERE user_code = ?
-`, DeviceStatusApproved, userKey, "Approved. Provisioning will continue in the CLI.", now.UTC().Format(time.RFC3339), login.UserCode)
+`, DeviceStatusApproved, userKey, "Approved. Provisioning will continue in the CLI.", now.UTC().Format(time.RFC3339), strings.TrimSpace(dnsSuffix), strings.TrimSpace(initialProject), login.UserCode)
 	return err
 }
 
@@ -602,7 +700,7 @@ func DenyDeviceLogin(ctx context.Context, db *sql.DB, userCode string, now time.
 
 func findDeviceLoginByDeviceCode(ctx context.Context, db *sql.DB, deviceCode string) (DeviceLogin, error) {
 	row := db.QueryRowContext(ctx, `
-SELECT device_code, user_code, status, user_key, message, provisioned_at, expires_at
+SELECT device_code, user_code, status, user_key, message, provisioned_at, dns_suffix, initial_project, expires_at
 FROM device_logins
 WHERE device_code = ?
 `, strings.TrimSpace(deviceCode))
@@ -611,7 +709,7 @@ WHERE device_code = ?
 
 func findDeviceLoginByUserCode(ctx context.Context, db *sql.DB, userCode string) (DeviceLogin, error) {
 	row := db.QueryRowContext(ctx, `
-SELECT device_code, user_code, status, user_key, message, provisioned_at, expires_at
+SELECT device_code, user_code, status, user_key, message, provisioned_at, dns_suffix, initial_project, expires_at
 FROM device_logins
 WHERE user_code = ?
 `, strings.ToUpper(strings.TrimSpace(userCode)))
@@ -621,7 +719,7 @@ WHERE user_code = ?
 func scanDeviceLogin(row *sql.Row) (DeviceLogin, error) {
 	var login DeviceLogin
 	var expiresAt string
-	if err := row.Scan(&login.DeviceCode, &login.UserCode, &login.Status, &login.UserKey, &login.Message, &login.ProvisionedAt, &expiresAt); err != nil {
+	if err := row.Scan(&login.DeviceCode, &login.UserCode, &login.Status, &login.UserKey, &login.Message, &login.ProvisionedAt, &login.RequestedDNSSuffix, &login.RequestedInitialProject, &expiresAt); err != nil {
 		if err == sql.ErrNoRows {
 			return DeviceLogin{}, fmt.Errorf("device login not found")
 		}
@@ -668,13 +766,44 @@ var deviceTemplate = template.Must(template.New("device").Parse(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <title>Sandcastle Device Login</title>
 </head>
 <body>
   <main>
     <h1>Device Login</h1>
     <form method="post" action="/device">
-      <label>User Code <input name="user_code" value="{{.UserCode}}"></label>
+      <p><label>User Code <input name="user_code" value="{{.UserCode}}"></label></p>
+      {{if .ShowSuffixInput}}
+      <p>
+        <label>DNS suffix (TLD)
+          <input name="dns_suffix" value="{{.DNSSuffix}}" placeholder="your tenant name" autocapitalize="off" autocorrect="off" spellcheck="false">
+        </label><br>
+        <small>Only used on your first login. It becomes the final part of your machine
+        hostnames (<code>machine.project.&lt;suffix&gt;</code>) and is immutable once set.
+        Leave blank to use your tenant name, or to keep your existing suffix on re-login.</small>
+      </p>
+      {{else}}
+      <p>DNS suffix: <code>{{.ExistingSuffix}}</code><br>
+        <small>Already set for your tenant, and immutable — your machine hostnames end in
+        <code>.{{.ExistingSuffix}}</code>.</small>
+      </p>
+      {{end}}
+      {{if .ShowProjectInput}}
+      <p>
+        <label>Initial project
+          <input name="initial_project" value="{{.InitialProject}}" placeholder="default" autocapitalize="off" autocorrect="off" spellcheck="false">
+        </label><br>
+        <small>Only used on your first login. Names your tenant's first project — the
+        middle part of your machine hostnames (<code>machine.&lt;project&gt;.suffix</code>)
+        and your enrolled Incus remote. Leave blank for <code>default</code>.</small>
+      </p>
+      {{else}}
+      <p>Projects: {{range .ExistingProjects}}<code>{{.}}</code> {{end}}<br>
+        <small>Your tenant's existing projects — create more later with
+        <code>sc project create &lt;name&gt;</code>.</small>
+      </p>
+      {{end}}
       <button name="action" value="approve" type="submit">Approve</button>
       <button name="action" value="deny" type="submit">Deny</button>
     </form>

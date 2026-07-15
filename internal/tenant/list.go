@@ -21,13 +21,16 @@ type IncusTenantStore interface {
 }
 
 type Summary struct {
-	IncusName       string                    `json:"incusName"`
-	InfraProject    string                    `json:"infraProject"`
-	Tenant          string                    `json:"tenant"`
-	Version         int                       `json:"version,omitempty"`
-	Personal        bool                      `json:"personal,omitempty"`
-	UnixUser        string                    `json:"unixUser,omitempty"`
-	DNSSuffix       string                    `json:"dnsSuffix,omitempty"`
+	IncusName    string `json:"incusName"`
+	InfraProject string `json:"infraProject"`
+	Tenant       string `json:"tenant"`
+	Version      int    `json:"version,omitempty"`
+	Personal     bool   `json:"personal,omitempty"`
+	UnixUser     string `json:"unixUser,omitempty"`
+	DNSSuffix    string `json:"dnsSuffix,omitempty"`
+	// DefaultProject is the short name of the tenant's initial project (issue
+	// #93), read from the kind=infra project metadata. Empty ⇒ "default".
+	DefaultProject  string                    `json:"defaultProject,omitempty"`
 	PrivateCIDR     string                    `json:"privateCIDR,omitempty"`
 	DNSAddress      string                    `json:"dnsAddress,omitempty"`
 	DefaultTemplate string                    `json:"defaultTemplate,omitempty"`
@@ -82,11 +85,13 @@ func v2Summaries(projects []IncusProject, installPrefix string) []Summary {
 	cidrByInfra := map[string]string{}
 	suffixByInfra := map[string]string{}
 	userByInfra := map[string]string{}
+	defaultProjectByInfra := map[string]string{}
 	for _, incusProject := range projects {
 		if meta.IsManaged(incusProject.Config) && incusProject.Config[meta.KeyKind] == meta.KindInfra {
 			cidrByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
 			suffixByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
 			userByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2User])
+			defaultProjectByInfra[incusProject.Name] = strings.TrimSpace(incusProject.Config[meta.KeyV2DefaultProject])
 		}
 	}
 	byInfra := map[string]*Summary{}
@@ -127,14 +132,15 @@ func v2Summaries(projects []IncusProject, installPrefix string) []Summary {
 		summary, seen := byInfra[infraName]
 		if !seen {
 			summary = &Summary{
-				Tenant:       tenantName,
-				Version:      2,
-				InfraProject: infraName,
-				UnixUser:     userByInfra[infraName],
-				DNSSuffix:    firstNonEmptyString(suffixByInfra[infraName], tenantName),
-				PrivateCIDR:  cidrByInfra[infraName],
-				DNSAddress:   dnsAddressFromCIDR(cidrByInfra[infraName]),
-				Status:       "managed",
+				Tenant:         tenantName,
+				Version:        2,
+				InfraProject:   infraName,
+				UnixUser:       userByInfra[infraName],
+				DNSSuffix:      firstNonEmptyString(suffixByInfra[infraName], tenantName),
+				DefaultProject: defaultProjectByInfra[infraName],
+				PrivateCIDR:    cidrByInfra[infraName],
+				DNSAddress:     dnsAddressFromCIDR(cidrByInfra[infraName]),
+				Status:         "managed",
 			}
 			byInfra[infraName] = summary
 			order = append(order, infraName)
@@ -190,10 +196,10 @@ func AllocatedCIDRs(ctx context.Context, store IncusTenantStore) ([]string, erro
 // the INSTALLATION prefix: several sandcastles share one Incus host (--prefix),
 // and another install's same-named tenant is a foreign tenant, not this one —
 // its CIDR is occupied, its suffix is irrelevant.
-func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPrefix string, tenantName string) (ownCIDR string, ownSuffix string, occupied []string, err error) {
+func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPrefix string, tenantName string) (ownCIDR string, ownSuffix string, ownDefaultProject string, occupied []string, err error) {
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", "", nil, err
 	}
 	tenantName = strings.TrimSpace(tenantName)
 	installPrefix = strings.TrimSpace(installPrefix)
@@ -204,7 +210,7 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 		if !meta.IsManaged(incusProject.Config) {
 			continue
 		}
-		var cidr, suffix, owner string
+		var cidr, suffix, defaultProject, owner string
 		own := false
 		switch incusProject.Config[meta.KeyKind] {
 		case legacyTenantKind:
@@ -218,6 +224,7 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 		case meta.KindInfra:
 			cidr = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
 			suffix = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
+			defaultProject = strings.TrimSpace(incusProject.Config[meta.KeyV2DefaultProject])
 			owner = strings.TrimSpace(incusProject.Config[meta.KeyTenant])
 			projectPrefix := strings.TrimSpace(incusProject.Config[meta.KeyV2Prefix])
 			if projectPrefix == "" {
@@ -233,11 +240,12 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 		if own {
 			ownCIDR = cidr
 			ownSuffix = suffix
+			ownDefaultProject = defaultProject
 		} else {
 			occupied = append(occupied, cidr)
 		}
 	}
-	return ownCIDR, ownSuffix, occupied, nil
+	return ownCIDR, ownSuffix, ownDefaultProject, occupied, nil
 }
 
 func CIDRAllocationInputs(ctx context.Context, store IncusTenantStore, tenantName string) (own string, others []string, err error) {

@@ -18,7 +18,10 @@ type Tenant struct {
 	InfraProject string `json:"infraProject"`
 	Tenant       string `json:"tenant"`
 	DNSSuffix    string `json:"dnsSuffix"`
-	PrivateCIDR  string `json:"privateCIDR"`
+	// DefaultProject is the short name of the tenant's default project (issue
+	// #93); the short-alias record follows it. Empty ⇒ "default".
+	DefaultProject string `json:"defaultProject,omitempty"`
+	PrivateCIDR    string `json:"privateCIDR"`
 }
 
 type ApplyResult struct {
@@ -34,7 +37,7 @@ func PlanApply(summary Tenant, machines []meta.Machine) (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	files, err := RenderTenant(summary.DNSSuffix, dnsAddress, machines)
+	files, err := RenderTenant(summary.DNSSuffix, dnsAddress, summary.DefaultProject, machines)
 	if err != nil {
 		return ApplyResult{}, err
 	}

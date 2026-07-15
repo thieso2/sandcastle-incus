@@ -79,7 +79,7 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		return err
 	}
 	c.log("ensure app default profile " + plan.DefaultProject)
-	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted, naming.DefaultProjectName); err != nil {
+	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted, plan.DefaultProjectShort); err != nil {
 		return err
 	}
 	c.log("ensure sidecar profile")
@@ -159,12 +159,20 @@ func (c TenantCreator) resolveV2Server() (TenantCreateServer, error) {
 func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 	def := server.UseProject(naming.DefaultProjectName)
 	if bridge, etag, err := def.GetNetwork(plan.Bridge); err == nil {
-		want := "dhcp-option=6," + plan.DNSAddress
-		if bridge.Config["raw.dnsmasq"] == want {
+		wantDNSmasq := "dhcp-option=6," + plan.DNSAddress
+		if bridge.Config["raw.dnsmasq"] == wantDNSmasq && bridge.Config["dns.mode"] == "none" {
 			return nil
 		}
 		put := bridge.Writable()
-		put.Config["raw.dnsmasq"] = want
+		put.Config["raw.dnsmasq"] = wantDNSmasq
+		// Disable the bridge's built-in managed DNS. It is already bypassed for
+		// resolution (guests get the sidecar CoreDNS via dhcp-option=6), but while
+		// left at its "managed" default it enforces per-network uniqueness of the
+		// instance DNS name — and every project of a tenant shares this one bridge,
+		// so two machines with the same name in different projects (e.g. h1:t1 and
+		// h2:t1, distinct as t1.h1.<suffix> vs t1.h2.<suffix>) would collide with
+		// "Instance DNS name already used on network". CoreDNS is the sole authority.
+		put.Config["dns.mode"] = "none"
 		if err := def.UpdateNetwork(plan.Bridge, put, etag); err != nil {
 			return fmt.Errorf("update bridge %s DHCP resolver: %w", plan.Bridge, err)
 		}
@@ -186,7 +194,13 @@ func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 				// (ADR-0018): hand it to guests as their DHCP resolver instead of
 				// the bridge dnsmasq, whose lease names are guest-asserted and
 				// cannot express the project label.
-				"raw.dnsmasq":       "dhcp-option=6," + plan.DNSAddress,
+				"raw.dnsmasq": "dhcp-option=6," + plan.DNSAddress,
+				// Disable the bridge's managed DNS entirely. All of a tenant's
+				// projects share this one bridge, and managed DNS enforces
+				// per-network uniqueness of the instance name — so h1:t1 and h2:t1
+				// (distinct FQDNs t1.h1.<suffix> / t1.h2.<suffix>) would otherwise
+				// collide on start with "Instance DNS name already used on network".
+				"dns.mode":          "none",
 				meta.KeyKind:        "network",
 				meta.KeyTenant:      plan.Tenant,
 				meta.KeyPrivateCIDR: plan.PrivateCIDR,
@@ -240,24 +254,26 @@ func (c TenantCreator) EnsureApplianceBridge(ctx context.Context, name string, i
 // tenant's shared settings so a later project-create (broker) can rebuild an app
 // project + profile without the operator re-supplying them.
 const (
-	keyV2Bridge = "user.sandcastle.v2.bridge"
-	keyV2Pool   = "user.sandcastle.v2.pool"
-	keyV2Suffix = meta.KeyV2Suffix
-	keyV2CIDR   = "user.sandcastle.v2.cidr"
-	keyV2User   = meta.KeyV2User
-	keyV2SSHKey = "user.sandcastle.v2.sshkey"
-	keyV2Prefix = meta.KeyV2Prefix
+	keyV2Bridge         = "user.sandcastle.v2.bridge"
+	keyV2Pool           = "user.sandcastle.v2.pool"
+	keyV2Suffix         = meta.KeyV2Suffix
+	keyV2CIDR           = "user.sandcastle.v2.cidr"
+	keyV2User           = meta.KeyV2User
+	keyV2SSHKey         = "user.sandcastle.v2.sshkey"
+	keyV2Prefix         = meta.KeyV2Prefix
+	keyV2DefaultProject = meta.KeyV2DefaultProject
 )
 
 func v2InfraMetadata(plan tenant.CreatePlanV2) map[string]string {
 	return map[string]string{
-		keyV2Bridge: plan.Bridge,
-		keyV2Pool:   plan.StoragePool,
-		keyV2Suffix: plan.DNSSuffix,
-		keyV2CIDR:   plan.PrivateCIDR,
-		keyV2User:   plan.DefaultProfileUser,
-		keyV2SSHKey: plan.SSHPublicKey,
-		keyV2Prefix: plan.Prefix,
+		keyV2Bridge:         plan.Bridge,
+		keyV2Pool:           plan.StoragePool,
+		keyV2Suffix:         plan.DNSSuffix,
+		keyV2CIDR:           plan.PrivateCIDR,
+		keyV2User:           plan.DefaultProfileUser,
+		keyV2SSHKey:         plan.SSHPublicKey,
+		keyV2Prefix:         plan.Prefix,
+		keyV2DefaultProject: plan.DefaultProjectShort,
 	}
 }
 

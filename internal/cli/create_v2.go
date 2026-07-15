@@ -120,48 +120,71 @@ func installPrefixFromRemoteName(remote string, tenantName string) string {
 	return ""
 }
 
-// parseV2MachineReference splits "[tenant/][project:]machine" for a v2 create.
-// The tenant part must match the current tenant (cross-tenant creates go
-// through admin tooling); the project defaults to the configured Current
-// Project, then to "default".
-func parseV2MachineReference(reference string, currentTenant string, currentProject string) (project string, machine string, err error) {
+// parseV2MachineReference splits "[[dns-suffix:]project:]machine" (ADR-0020)
+// into its parts. Colon count selects scope: 0 colons = machine only,
+// 1 = project:machine, 2 = dns-suffix:project:machine (the leftmost part names
+// the install by its DNS suffix). The project defaults to the configured
+// Current Project, then to "default". A returned dnsSuffix of "" means "the
+// current install". currentTenant is unused now that the legacy "tenant/"
+// prefix is dropped (ADR-0020); it is retained in the signature for callers.
+func parseV2MachineReference(reference string, currentTenant string, currentProject string) (dnsSuffix string, project string, machine string, err error) {
+	_ = currentTenant
 	reference = strings.TrimSpace(reference)
-	if tenantPart, rest, ok := strings.Cut(reference, "/"); ok {
-		if strings.TrimSpace(tenantPart) != currentTenant {
-			return "", "", fmt.Errorf("tenant %q does not match the current tenant %q", tenantPart, currentTenant)
-		}
-		reference = rest
-	}
 	project = strings.TrimSpace(currentProject)
-	if projectPart, rest, ok := strings.Cut(reference, ":"); ok {
-		project = strings.TrimSpace(projectPart)
-		reference = rest
+	// Split the colon-separated tail into [dns-suffix :] [project :] machine.
+	parts := strings.Split(reference, ":")
+	switch len(parts) {
+	case 1:
+		machine = parts[0]
+	case 2:
+		project = strings.TrimSpace(parts[0])
+		machine = parts[1]
+	case 3:
+		dnsSuffix = strings.TrimSpace(parts[0])
+		project = strings.TrimSpace(parts[1])
+		machine = parts[2]
+	default:
+		return "", "", "", fmt.Errorf("invalid machine reference %q: expected [[dns-suffix:]project:]machine", reference)
 	}
 	if project == "" {
 		project = naming.DefaultProjectName
 	}
-	machine = strings.TrimSpace(reference)
+	machine = strings.TrimSpace(machine)
 	if machine == "" {
-		return "", "", fmt.Errorf("machine name is required")
+		return "", "", "", fmt.Errorf("machine name is required")
+	}
+	if dnsSuffix != "" {
+		if err := naming.ValidateInstallSuffix(dnsSuffix); err != nil {
+			return "", "", "", err
+		}
 	}
 	if err := naming.ValidateProjectName(project); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if err := naming.ValidateMachineName(machine); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return project, machine, nil
+	return dnsSuffix, project, machine, nil
 }
 
-// resolveV2MachineReference parses "[tenant/][project:]machine" and verifies
-// the project actually exists in the tenant — otherwise a mistyped project
-// surfaces as a raw Incus "User does not have permission for project …" from
-// the nonexistent project's name. A machine part that matches an existing
+// resolveV2MachineReference parses "[[dns-suffix:]project:]machine" (ADR-0020)
+// and verifies the project actually exists in the tenant — otherwise a mistyped
+// project surfaces as a raw Incus "User does not have permission for project …"
+// from the nonexistent project's name. A machine part that matches an existing
 // project usually means the reference was written backwards; suggest the swap.
 func resolveV2MachineReference(summary tenant.Summary, reference string, currentProject string) (project string, machine string, err error) {
-	project, machine, err = parseV2MachineReference(reference, summary.Tenant, currentProject)
+	dnsSuffix, project, machine, err := parseV2MachineReference(reference, summary.Tenant, currentProject)
 	if err != nil {
 		return "", "", err
+	}
+	// An explicit install suffix that matches the current install is a no-op;
+	// one that names a different install requires switching to that install's
+	// remote, which is not wired inline yet (ADR-0020; see implementation-notes).
+	currentInstall := strings.TrimSpace(summary.DNSSuffix)
+	if dnsSuffix != "" && dnsSuffix != currentInstall {
+		return "", "", fmt.Errorf("reference %q addresses install %q, but the current remote is install %q; "+
+			"inline cross-install addressing is not available yet — select that install's remote first",
+			reference, dnsSuffix, currentInstall)
 	}
 	if _, ok := findProject(summary, project); !ok {
 		names := make([]string, 0, len(summary.Projects))
@@ -170,7 +193,12 @@ func resolveV2MachineReference(summary tenant.Summary, reference string, current
 		}
 		hint := ""
 		if _, swapped := findProject(summary, machine); swapped {
-			hint = fmt.Sprintf("\nThe reference is [project:]machine — did you mean %q?", machine+":"+project)
+			hint = fmt.Sprintf("\nThe reference is [[dns-suffix:]project:]machine — did you mean %q?", machine+":"+project)
+		}
+		if hint == "" && localRemoteExists(project) {
+			// e.g. `sc c obelix-sc:dev` — `obelix-sc` is a remote name, not a
+			// project. Address another install as dns-suffix:project:machine.
+			hint = fmt.Sprintf("\n%q is an incus remote, not a project — reach another install with dns-suffix:project:machine.", project)
 		}
 		return "", "", fmt.Errorf("project %q not found in tenant %s (projects: %s).%s\nCreate it with: sc project create %s",
 			project, summary.Tenant, strings.Join(names, ", "), hint, project)

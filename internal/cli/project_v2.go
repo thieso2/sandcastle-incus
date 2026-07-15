@@ -111,7 +111,7 @@ func newProjectCreateV2Command(config commandConfig, opts *rootOptions) *cobra.C
 	command.Flags().StringVar(&broker, "broker", "", "Sandcastle Broker URL (default: recorded by sc login, or SANDCASTLE_BROKER)")
 	command.Flags().StringVar(&certFile, "cert", "", "tenant client certificate file (default: the enrolled remote's client.crt)")
 	command.Flags().StringVar(&keyFile, "key", "", "tenant client key file (default: the enrolled remote's client.key)")
-	command.Flags().BoolVar(&writeRemote, "write-remote", true, "add a per-project incus remote after creating the project")
+	command.Flags().BoolVar(&writeRemote, "write-remote", false, "also add a separate per-project incus remote (ADR-0021: off by default — the install's single remote plus `sc project switch` covers projects; use this only for an extra directly-addressable remote)")
 	command.Flags().StringVar(&incusEndpoint, "incus-endpoint", "", "Incus HTTPS endpoint for the remote (default: broker host on :8443)")
 	command.Flags().StringVar(&incusConf, "incus-conf", "", "INCUS_CONF dir to write the remote into (default: $INCUS_CONF or the incus default)")
 	command.Flags().StringVar(&remoteName, "remote-name", "", "name for the per-project remote (default: <tenant>-<project>)")

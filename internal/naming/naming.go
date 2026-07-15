@@ -53,67 +53,6 @@ func ParseProjectRef(value string) (ProjectRef, error) {
 	return ref, nil
 }
 
-func ParseUserMachineRef(value string, currentProject string) (ProjectRef, string, error) {
-	value = strings.TrimSpace(value)
-	if scope, rest, ok := strings.Cut(value, "/"); ok && strings.Contains(rest, ":") {
-		if strings.Contains(scope, ":") || strings.Contains(rest, "/") {
-			return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, project:machine, tenant/machine, or tenant/project:machine")
-		}
-		project, machine, ok := strings.Cut(rest, ":")
-		if !ok || strings.Contains(machine, ":") {
-			return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, project:machine, tenant/machine, or tenant/project:machine")
-		}
-		ref := ProjectRef{Tenant: scope, Project: project}
-		if err := ref.Validate(); err != nil {
-			return ProjectRef{}, "", err
-		}
-		if err := ValidateMachineName(machine); err != nil {
-			return ProjectRef{}, "", err
-		}
-		return ref, machine, nil
-	}
-	if project, machine, ok := strings.Cut(value, ":"); ok {
-		if strings.Contains(project, "/") || strings.Contains(machine, "/") || strings.Contains(machine, ":") {
-			return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, project:machine, tenant/machine, or tenant/project:machine")
-		}
-		ref := ProjectRef{Project: project}
-		if err := ValidateProjectName(ref.Project); err != nil {
-			return ProjectRef{}, "", err
-		}
-		if err := ValidateMachineName(machine); err != nil {
-			return ProjectRef{}, "", err
-		}
-		return ref, machine, nil
-	}
-	parts := strings.Split(value, "/")
-	switch len(parts) {
-	case 1:
-		project := strings.TrimSpace(currentProject)
-		if project == "" {
-			project = DefaultProjectName
-		}
-		ref := ProjectRef{Project: project}
-		if err := ValidateProjectName(ref.Project); err != nil {
-			return ProjectRef{}, "", err
-		}
-		if err := ValidateMachineName(parts[0]); err != nil {
-			return ProjectRef{}, "", err
-		}
-		return ref, parts[0], nil
-	case 2:
-		ref := ProjectRef{Project: parts[0]}
-		if err := ValidateProjectName(ref.Project); err != nil {
-			return ProjectRef{}, "", err
-		}
-		if err := ValidateMachineName(parts[1]); err != nil {
-			return ProjectRef{}, "", err
-		}
-		return ref, parts[1], nil
-	default:
-		return ProjectRef{}, "", fmt.Errorf("machine reference must be machine, project/machine, project:machine, tenant/machine, or tenant/project:machine")
-	}
-}
-
 func (r TenantRef) Validate() error {
 	return ValidateTenantName(r.Tenant)
 }
@@ -221,6 +160,17 @@ func ValidateMachineName(name string) error {
 	}
 	if IsReservedInfrastructureName(name) {
 		return fmt.Errorf("machine name %q is reserved", name)
+	}
+	return nil
+}
+
+// ValidateInstallSuffix validates a Tenant DNS Suffix used as the install
+// component of a machine reference and the stem of an incus remote name
+// (ADR-0020). Same single-label shape as a machine name; dashes are allowed
+// (a suffix like "obelix-eu" is legal and round-trips as an opaque label).
+func ValidateInstallSuffix(name string) error {
+	if !safeNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid install suffix %q", name)
 	}
 	return nil
 }

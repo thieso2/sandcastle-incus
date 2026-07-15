@@ -121,6 +121,7 @@ var allowlistTemplate = template.Must(template.New("allowlist").Parse(`<!doctype
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <title>Sandcastle Login Allowlist</title>
 </head>
 <body>

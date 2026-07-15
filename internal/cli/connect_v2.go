@@ -72,66 +72,44 @@ func newConnectV2Command(config commandConfig, opts *rootOptions) *cobra.Command
 				}
 			}
 
-			// 2. Add one cert-pinned remote per project the cert can see.
-			// The endpoint defaults to whatever the base remote resolved to when it
-			// redeemed the token. Without this, `incus remote add <name> ""` fails
-			// with `Addresses cannot be empty`, every project remote is skipped with
-			// a Note, and enroll still reports success — "0 project remote(s)".
-			endpoint = strings.TrimSpace(endpoint)
-			if endpoint == "" {
-				addr, err := remoteAddress(filepath.Join(dir, "config.yml"), name)
-				if err == nil {
-					// A remote may carry a comma-separated fallback list; the first wins.
-					endpoint = strings.TrimSpace(strings.SplitN(addr, ",", 2)[0])
-				}
-			}
-			if endpoint == "" {
-				if addrs := incusTokenAddresses(token); len(addrs) > 0 {
-					endpoint = "https://" + addrs[0]
-				}
-			}
-			if endpoint == "" {
-				return fmt.Errorf("cannot determine the Incus endpoint for remote %q; pass --incus-endpoint https://<host>:8443", name)
-			}
+			// 2. Pin the single install remote to a project (ADR-0021: one remote
+			// per install; the project is an orthogonal pin that `sc project switch`
+			// moves — no per-project remotes). Prefer the default project, else the
+			// first project the cert can see.
 			projects, err := listRemoteProjects(cmd.Context(), dir, name)
 			if err != nil {
 				return fmt.Errorf("list projects: %w", err)
 			}
-			added, wanted := 0, 0
-			var failures []string
+			pin := ""
 			for _, incusProject := range projects {
-				short := shortProjectName(incusProject, tenant)
-				if short == "" {
-					continue
+				if shortProjectName(incusProject, tenant) == naming.DefaultProjectName {
+					pin = incusProject
+					break
 				}
-				projectRemote := name + "-" + short
-				if remoteExists(dir, projectRemote) {
-					continue
-				}
-				wanted++
-				if err := addProjectRemote(cmd.Context(), projectRemote, endpoint, incusProject, dir); err != nil {
-					fmt.Fprintf(config.stderr, "Note: could not add remote %q: %v\n", projectRemote, err)
-					failures = append(failures, fmt.Sprintf("%s: %v", projectRemote, err))
-					continue
-				}
-				added++
-				fmt.Fprintf(config.stdout, "  %s: → %s\n", projectRemote, incusProject)
 			}
-			// Enrolling zero project remotes when the certificate can see projects
-			// is a failed enrollment, not a successful one with a Note. Reporting
-			// `connected tenant "x" (0 project remote(s))` and exiting 0 is how a
-			// broken enroll looked like a working one.
-			if wanted > 0 && added == 0 {
-				return fmt.Errorf("enrolled the tenant remote but no project remote could be added: %s", strings.Join(failures, "; "))
+			if pin == "" {
+				for _, incusProject := range projects {
+					if shortProjectName(incusProject, tenant) != "" {
+						pin = incusProject
+						break
+					}
+				}
 			}
+			if pin == "" {
+				return fmt.Errorf("enrolled the tenant remote but its certificate can see no project to pin it to")
+			}
+			if err := setRemoteProject(filepath.Join(dir, "config.yml"), name, pin); err != nil {
+				return fmt.Errorf("pin remote %q to %q: %w", name, pin, err)
+			}
+			fmt.Fprintf(config.stdout, "  %s → %s\n", name, pin)
 			// Persist the tenant + remote as the local defaults so every other
 			// sc command (list, create, connect, incus, …) resolves this tenant
 			// without SANDCASTLE_TENANT — the login path does the same.
 			if _, _, err := saveRemoteDefaults(scconfig.DefaultConfigPath(), name, tenant); err != nil {
 				fmt.Fprintf(config.stderr, "Note: could not save local defaults: %v\n", err)
 			}
-			fmt.Fprintf(config.stdout, "connected tenant %q — config at %s (%d project remote(s))\n", tenant, dir, added)
-			fmt.Fprintf(config.stdout, "use it with:  INCUS_CONF=%s incus list %s:\n", dir, name)
+			fmt.Fprintf(config.stdout, "connected tenant %q — config at %s (remote %q → %s)\n", tenant, dir, name, pin)
+			fmt.Fprintf(config.stdout, "use it with:  `sc project switch <name>` moves it; raw:  INCUS_CONF=%s incus list %s:\n", dir, name)
 			return nil
 		},
 	}

@@ -5,6 +5,276 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-15 — Homebrew release ships a Cask, not a Formula (`.goreleaser.yaml`, #97)
+
+Authored `.goreleaser.yaml` (GoReleaser v2) for the tag-triggered release. Two
+decisions weren't in ticket #97, which was written assuming the reference's
+`brews` (Formula) block:
+
+**Cask instead of Formula.** GoReleaser deprecated `brews` (soft since v2.10,
+enforced-in-`goreleaser check` by v2.16) in favour of `homebrew_casks` —
+`goreleaser check` now *fails* on `brews`. Casks are Homebrew's supported path
+for prebuilt binaries. User confirmed the switch. Consequence: **`brew` support
+becomes macOS-only** (Homebrew on Linux cannot install casks); Linux users take
+the release tarballs directly, which are still built and attached. The tool
+still targets linux+darwin × amd64+arm64 — only the *brew* channel narrows.
+
+**`sc` alias + quarantine.** A Cask has no `test do`/`install`/`license` blocks
+(those are Formula-only), so the ticket's `test:`/`install:` requirements were
+re-expressed in Cask idiom: GoReleaser auto-emits `binary "sandcastle"`, and the
+`sc` alias is added via `custom_block: binary "sandcastle", target: "sc"`. A
+`postflight` hook clears the `com.apple.quarantine` xattr so an *unsigned* build
+(before #100's signing secrets exist) still runs on macOS; harmless once signed.
+Notarization is a conditional `notarize.macos` block gated on
+`isEnvSet "MACOS_SIGN_P12"` — it self-skips until #100 provisions the secrets.
+
+**Cross-ticket coupling for #101/#98.** The old rails tool published
+`Formula/sandcastle.rb` in the *same* tap; a formula and a cask of one name
+collide, so #101 must delete the old formula and add a `tap_migrations.json`
+(`{"sandcastle": "thieso2/tap"}`) — GoReleaser can't emit that. The `brews`
+token env var is `HOMEBREW_TAP_GITHUB_TOKEN` (matching the reference), but the
+GitHub Actions *secret* is `HOMEBREW_TAP_TOKEN` (#99); #98's workflow maps one to
+the other. Verified end-to-end with `goreleaser check` + a `--snapshot` build:
+all four archives, `checksums.txt`, and a well-formed `Casks/sandcastle.rb`
+(both `binary` stanzas, ldflag-stamped `version`) render.
+
+## 2026-07-15 — ingress binaries downloaded for the appliance arch, not the admin host
+
+Installing obelix (`--ingress cloudflare`) from a darwin/arm64 Mac onto the
+amd64 `big` host failed: `caddy.service` and `cloudflared.service` died with
+`Exec format error`. Root cause: `fetchIngressBinaries` (`authapp_ingress.go`)
+resolved the download arch as `runtime.GOARCH` — the **admin host** running
+`sc-adm`, not the target appliance — so it pushed arm64 caddy/cloudflared into
+an amd64 container. (The `--binary` fat-binary was fine because it's passed
+explicitly.)
+
+**Change:** `fetchIngressBinaries(mode)` → `fetchIngressBinaries(mode, arch)`;
+`BootstrapAuthApp` now reads the running appliance's architecture via
+`applianceIngressArch` (new helper: `GetInstance(...).Architecture`, mapped
+`x86_64→amd64` / `aarch64→arm64`) and passes it in. Alternatives considered:
+(a) infer from the base image ref — brittle, the ref is an alias; (b) require
+the admin to pass `--ingress-arch` — pushes an install detail onto the operator.
+Reading the live instance is authoritative and invisible to the user.
+
+Also worth recording (env, not code): on macOS the `incus` CLI reads
+`~/Library/Application Support/incus/`, but sandcastle's embedded Incus client
+defaults to `~/.config/incus/`. Admin installs from a Mac must run with
+`INCUS_CONF="$HOME/Library/Application Support/incus"` or the remote (`big`) is
+"not found".
+
+## 2026-07-15 — version made ldflag-stampable (`const` → `var`) for Homebrew releases
+
+Ticket #96 (map #94, Homebrew release CI) asked for two things: (1) make the CLI
+version stampable at release time, and (2) add a user-facing `sandcastle version`
+command. Only (1) was actually outstanding — the user-facing `version` command
+already exists (`internal/cli/version.go`, wired at `internal/cli/root.go:244`,
+covered by `TestVersion*` in `root_test.go`). The ticket was written against an
+earlier assumption; I did not re-add a duplicate command.
+
+**Change:** `internal/cli/root.go` `const version` → `var version` (a `const`
+cannot be overwritten by `-X`). GoReleaser (#97) will stamp it via
+`-ldflags "-X github.com/thieso2/sandcastle-incus/internal/cli.version={{.Version}}"`.
+Both the user tree (`version.go`) and the admin tree (`admin.go`) already read this
+one symbol, so a single ldflag stamps both. Proven end-to-end: a build with
+`-X …cli.version=v9.9.9-stamptest` prints that value from `sandcastle version`
+(text and JSON); an un-stamped `go build`/`go test` keeps the `0.0.0-dev` sentinel.
+
+## 2026-07-15 — one incus remote per install (ADR-0021), project is a pin
+
+Reversed ADR-0020's one-remote-per-(install,project) naming. The remote is now
+`<suffix>` (one per install); the project is an orthogonal pin that
+`sc project switch` moves. Motivation: `sc` already navigates by `config.Project`
+(passed per-call via `INCUS_PROJECT` / the API), so per-project remotes only
+proliferated and, worse, diverged — after `sc project switch h2` raw
+`incus jules-first:` still showed `first`. See [ADR-0021](docs/adr/0021-one-incus-remote-per-install.md).
+
+Decisions / choices beyond the ADR:
+
+- **`sc project switch` re-pins the active remote** (`repinCurrentRemoteProject`)
+  to `sc2-<tenant>-<new>`, best-effort: no remote / not enrolled / unresolvable
+  project / write error → the switch still succeeds (sc never depends on the
+  pin). `--local-only` derives the new pin by swapping the tail of the current
+  pin (`infraFromPinnedProject`) so it works offline without a summary.
+- **Migration collapses, endpoint-scoped, non-destructive of the current.**
+  `planRemoteMigration` now returns renames + removes: one primary (already-named
+  `<suffix>` > default-project-pinned > first) becomes `<suffix>`, same-install
+  extras are removed. `migrateLegacyRemotes` never removes the incus
+  current-remote (would orphan the pointer) — leaves it with a note. Cross-install
+  name clashes are never clobbered (endpoint guard).
+- **`sc enroll` pins the single remote** to the default (else first) project
+  instead of looping per-project remotes; **`sc project create --write-remote`
+  defaults off** (opt-in for an extra directly-addressable remote).
+- **Kept `RemoteNameForSuffixProject`** for migration/tests reasoning about the
+  old scheme; new enrollment uses `RemoteNameForSuffix`. Cross-install connect
+  (`resolveConnectTarget`) simplified — one remote per install means the only
+  failure is "not logged into that install" (dropped the per-project enroll
+  guidance and `localInstallKnown`).
+- **Tradeoff accepted:** raw `incus <suffix>:` shows only the current project;
+  other projects need `--project` or a prior `sc project switch`. `sc` users
+  unaffected.
+
+## 2026-07-15 — `sc project switch` + cross-install idempotent login
+
+Two follow-ups to the project/login work.
+
+**`sc project switch <name>`** — a verb mirroring `incus remote switch|list`,
+the preferred way to change the active project (over `sc config set project`).
+It validates the project exists in the current tenant (`findProject` on the live
+summary) and persists `project:`; `--local-only` skips the lookup, mirroring
+`sc tenant switch`. `sc project list` (now also aliased `ls`) marks the current
+project with `*` for parity with `incus remote list`. Kept `sc config set
+project` working — `project switch` is the ergonomic front end, not a
+replacement. The non-interactive login note now points at `sc project switch`.
+
+**Cross-install idempotent login.** `tryExistingLogin` used to key the "already
+logged in, skip the browser" shortcut off the *active* `auth_hostname` field, so
+`sc login <other-host>` always opened the web even when valid credentials for
+that host were already stored. It now resolves the token + enrolled remote for
+the *requested* host from the per-install `auth_tokens` / `installs` maps, and on
+success **switches** the active install to it (`adoptExistingInstall`:
+auth hostname, token, broker, tenant, remote, and the shared incus current
+remote). Decisions:
+
+- **Prefer the active fields when the requested host IS the active install** (so
+  a plain single-install setup with no maps still short-circuits — preserves the
+  original behavior and its test), else fall back to the maps.
+- **"Switched" is reported from what actually changed on disk** (prior
+  `auth_hostname`/`remote` vs new), not from the in-memory active hostname —
+  which can be resolved/overridden and gave a false negative in a live run.
+- **Enrolled-only**: `enrolledRemoteForAuthHostname` only offers a remote that is
+  both recorded for the host AND locally enrolled (`ResolveConfigPath`), so the
+  probe has something real to hit; deterministic (sorted) when several qualify.
+- **Self-heal is the norm**: a stale active `auth_hostname` (observed live:
+  `auth.example.com` while the active remote pointed at home) is corrected as a
+  side effect, since the switch rewrites all the per-install pointers.
+
+## 2026-07-15 — device-approval form hides first-login inputs once the tenant exists
+
+The browser device-approval page asked every login to (re)name a DNS suffix and
+initial project, even though both are fixed after first login (suffix immutable,
+project already created) — confusing on re-login. `deviceApproveForm` now looks
+up the caller's Personal Tenant (`findPersonalTenant`) and, when it exists, hides
+the two inputs and shows the existing suffix + project list read-only.
+
+Decisions not spelled out in the request:
+
+- **Existence signal = `findPersonalTenant` succeeds**, not the `dns_suffix_claims`
+  row. The claim is authoritative for the suffix but says nothing about projects;
+  the tenant summary carries both (`Summary.DNSSuffix`, `Summary.Projects`) in one
+  admin-socket read, so it drives both fields. `Summary.DNSSuffix` defaults to the
+  tenant name, so it is always non-empty once the tenant exists — exactly the
+  "suffix already set" signal the user asked for.
+- **Fail open to the inputs.** Any lookup error (Incus unreachable) or a nil
+  tenants store leaves both inputs shown. That is safe: on re-login a blank
+  suffix/project reuses the stored values (`ProvisionReuseInputs`), so worst case
+  the user sees fields they can ignore — never a wrong immutable write. The nil
+  guard is also what keeps handler unit tests that construct a bare handler
+  (no `Tenants`) from panicking in `ListForPrefix`.
+- **CLI flags unchanged.** Hiding the browser field doesn't disable
+  `--dns-suffix` / `--default-project`; those ride the poll request and still win
+  via `effectiveDNSSuffix` / `effectiveInitialProject`. Hiding only removes the
+  browser input, so a blank form submit carries no suffix/project override.
+
+## 2026-07-15 — store current project on login + `sc info`
+
+`sc c <machine>` on a tenant whose one project isn't named `default` failed with
+`project "default" not found in tenant … (projects: first)`: the CLI never
+persisted a current project, so bare references defaulted to the hardcoded
+`naming.DefaultProjectName` (`"default"`), which the tenant didn't have. The
+server already returns the tenant's projects and resolved current project in the
+device-poll result — login just logged them. Now `applyLoginProjectDefault`
+writes the resolved project into `config.yml` (`saveProjectDefault`), and a new
+`sc info` surfaces the active context plus the tenant's live project list.
+
+Decisions not spelled out in the request:
+
+- **Selection policy** (confirmed with the user): a single-project tenant stores
+  its project silently; with several, an already-valid configured `project:` is
+  **kept without prompting** (don't nag returning users), otherwise an
+  interactive terminal is prompted and a non-interactive login defaults to the
+  server's current project with a `sc config set project` note. An explicit
+  `--default-project`/`--initial-project` that matches a project wins outright.
+  Only runs when a single tenant is in context (a project is meaningless across
+  multiple accessible tenants).
+- **Global `project:`, not per-tenant.** The config has one `project:` field
+  (like `tenant`/`remote`, whose active values are already driven by the shared
+  incus remote). Storing it globally matches the existing single-active-context
+  model rather than introducing per-remote project maps.
+- **`sc info` fetches live but never fails.** It calls `v2TenantSummary` to list
+  projects (the piece the failed `sc c` didn't surface — valid project names),
+  but on any error (offline / unresolved tenant) it degrades to the local config
+  with a note and exits 0. A read-only status command that errored on
+  connectivity would be worse than useless. Kept distinct from `sc config show`
+  (raw file + resolved values, no network): `sc info` is the human "where am I,
+  what can I target" view.
+
+## 2026-07-15 — first-login initial-project name (issue #93)
+
+Let the user **name their initial project** at first login instead of the
+hardcoded `default`. Mirrors the DNS-suffix form directly (form field →
+`device_logins` column → `ApproveDeviceLogin` persists → poll resolves with
+`effectiveInitialProject(cli, browser)`); the chosen name **replaces** `default`
+— it is the tenant's one project (the enrolled remote pins `<suffix>-<name>`, the
+CLI current project, and the DNS short-alias holder), not an extra project.
+
+Decisions not spelled out in the spec:
+
+- **Stored in infra-project metadata** (`meta.KeyV2DefaultProject`, same shelf as
+  `KeyV2Suffix`), not just derived. `ProvisionReuseInputs` reuses infra metadata
+  on re-login and does not enumerate the default project, so without remembering
+  the name a second login would re-derive `"default"` and create a duplicate
+  `-default` project + re-pin the remote. `ProvisionReuseInputs` now returns the
+  stored short name too; `Summary` gained a `DefaultProject` field so the DNS
+  reconcile can point the short alias at the renamed project.
+- **NOT immutable** (unlike the DNS suffix). It is only the initial project name;
+  the tenant can create more projects later, and re-login without a flag just
+  reuses the stored value. So precedence is request ⇒ stored ⇒ `"default"` with
+  no immutability check — a differing explicit `--default-project` simply wins.
+  An invalid name (`naming.ValidateProjectName`) is a *terminal* provision error
+  (no retry can fix bad input), matching how a bad suffix is handled.
+- **`RenderTenant` gained a `defaultProject` param** (fallback `"default"`) so the
+  Default Project Short Hostname (`<machine>.<suffix>`) follows the renamed
+  project rather than a project literally called `default`. `dns.Tenant` carries
+  the short name through `PlanApply`; the v2 reconcile reads it from infra
+  metadata.
+- **CLI flag: `--default-project` (alias `--initial-project`)** on `sc login`, and
+  `--initial-project` on admin `tenant create`, for parity with `--dns-suffix`.
+- **`CurrentProject` threaded onto the `DeviceLogin`** so the poll reports the
+  resolved short name; `currentProjectForDeviceLogin` still falls back to
+  `"default"` for an approved-but-not-yet-provisioned login.
+
+## 2026-07-15 — interactive browser DNS-suffix form (the deferred ADR-0020 piece)
+
+Built the one item PR #92 left unchecked: the browser device-approval page now
+has a **DNS suffix (TLD) field**, so a user can choose their Tenant DNS Suffix in
+the browser instead of only via `sc login --dns-suffix`.
+
+Decisions not spelled out in the spec:
+
+- **Where the value lives.** Persisted in a new `device_logins.dns_suffix` column
+  (idempotent `ensureColumn` migration, matching `provisioned_at`), written by
+  `ApproveDeviceLogin` at approval time. Alternative — threading it through the
+  in-memory provision-result cache — was rejected: the CLI poll that triggers
+  provisioning runs in a *different* request than the browser approval, so the
+  value has to survive in the DB, and `scanDeviceLogin` already loads the row.
+- **Precedence: CLI flag wins.** `effectiveDNSSuffix(cli, browser)` returns the
+  CLI `--dns-suffix` when non-empty, else the browser value, else "" (server
+  defaults to the tenant name). Chosen so the scripted/e2e path stays
+  authoritative and reproducible; the browser field is the human convenience.
+- **New `DeviceLogin.RequestedDNSSuffix` field**, kept distinct from the existing
+  `DNSSuffix` (which already meant the *resolved* suffix returned post-provision).
+  Overloading one field would have made the poll response ambiguous.
+- **`ApproveDeviceLogin` signature gained a `dnsSuffix` param** rather than a
+  separate setter, so status+suffix are written in one atomic UPDATE. The three
+  non-browser callers (debug-approve, simulate-approve, a workload test) pass ""
+  — except simulate also reads a `dns_suffix` form value, so e2e can exercise the
+  browser path headlessly.
+- **Form UX:** the field is always shown with help text noting it's first-login
+  only and immutable; leaving it blank keeps the tenant-name default (and, on
+  re-login, the stored suffix). No live "is this your first login" lookup — a
+  mismatched suffix on re-login is already rejected downstream by `PlanCreateV2`,
+  same as the CLI flag.
+
 ## 2026-07-10 — what a clean e2e re-run found: a 524, a v1 name, and a token that crossed installs
 
 Re-ran the whole `docs/e2e-sc2.md` protocol from a bare host on the merged fixes.
@@ -1566,6 +1836,306 @@ flipping the two gates back once the registry moves (#70). The CLI/endpoint
 behaviour tests were replaced with two gate tests (`TestShareCommandsAreGatedOnV2`,
 `TestShareEndpointsAreGatedOnV2`); the dormant plumbing keeps its own unit
 coverage in `internal/share` and `internal/incusx`.
+## 2026-07-15 — ADR-0020 stage 1: reference grammar parser (client only, additive)
+
+Implementing the ADR-0020 machine-addressing model (spec:
+`docs/design/machine-addressing-and-remote-naming.md`, wayfinder map #82). The
+full spec is a coordinated change across client parser, remote-naming, the
+first-login suffix-selection browser flow, an auth-DB claim table + provision, a
+client-side lazy migration, and cross-install remote switching. Those pieces are
+**interdependent** and cannot ship as safe isolated increments — e.g. making the
+parser's bare-machine case error when no current project is set (per the spec)
+would regress `sc create dev` *before* the reserved `default` project is removed
+server-side. So this commit lands only the self-contained, unit-testable
+foundation and defers the rest.
+
+**What this commit does:**
+- `parseV2MachineReference` now returns `(dnsSuffix, project, machine, err)` and
+  parses the ADR-0020 grammar `[[dns-suffix:]project:]machine` (colon count 0/1/2
+  selects scope). `naming.ValidateInstallSuffix` validates the install component.
+- `resolveV2MachineReference` treats an install suffix equal to the current
+  install's `summary.DNSSuffix` as a no-op, and returns a clear error for a
+  *different* install (inline cross-install switching is not wired yet).
+- Command help (`Use:`) for connect/create/machine-lifecycle/image-save updated to
+  the new grammar.
+
+**Deliberate deviations from the spec, deferred to later stages:**
+1. **`tenant/` prefix kept.** ADR-0020 drops it, but removal is coupled to the
+   coordinated change and would break existing callers/tests in isolation. Kept
+   working (and dropped from `--help`); remove when the coordinated change lands.
+2. **Bare-machine still defaults to `default` project.** ADR-0020 wants
+   error-with-hint when no current project is set, but that depends on removing the
+   reserved `default` project server-side (#85). Left as-is to avoid regressing
+   `sc create dev`.
+3. **Cross-install execution errors instead of switching remotes.** Remote
+   switching (per-remote `INCUS_CONF`, fetching the target install's summary) is a
+   separate infra change. Same-install suffixes resolve; cross-install is a clear
+   error, matching the ADR-0020 "no magic, guide the user" ethos.
+4. **`naming.ParseUserMachineRef` not yet retired** — done alongside the coordinated
+   change so nothing else regresses.
+
+**Not in this commit (remaining stages):** remote-naming scheme
+(`dns-suffix-projectname`), first-login suffix+project browser form, auth-DB claim
+table + provision changes, client-side lazy migration, cross-install remote
+switching, and the `docs/e2e-sc2.md` / `docs/usage.html` updates. Each is a
+follow-on. e2e (`SANDCASTLE_INCUS_E2E`) needs the live deployment and was not run.
+
+**Code-review follow-ups (same stage, noted so they aren't lost):**
+- The spec §6 *diagnostic* error ("`obelix-sc` is a remote, not a project — did you
+  mean `obelix:sc:dev`?") is **not** implemented — it needs the not-yet-deployed
+  remote-naming scheme to know remote names / known suffixes. Deferred with the
+  remote-naming stage; the existing backwards-reference swap hint still fires.
+- Same-install suffix resolution currently works **only while `summary.DNSSuffix`
+  equals the value the user types**. Today `DNSSuffix` defaults to the *tenant name*
+  (`tenant/list.go`), so `sc c <tenant>:proj:machine` resolves but `sc c obelix:…`
+  does not until the first-login suffix-selection + claim-table stage sets an
+  install-distinguishing suffix. The cross-install branch is otherwise correct.
+
+## 2026-07-15 — ADR-0020 stage 3: remote naming from the DNS suffix (server core)
+
+- `usertrust.RemoteNameForSuffixProject(suffix, project)` -> `<suffix>-<project>`
+  (no omission, no `sc-` prefix). Added alongside the legacy
+  `RemoteNameForAuthHostname`/`RemoteInstallName`, which stay as fallbacks so
+  suffix-less/older installs still get a name and existing unit tests hold.
+- `ensurePersonalTenantV2` now names the login remote `<suffix>-default`
+  (prefers the suffix; falls back to the auth-hostname label, then the tenant
+  name). `PersonalTenantResult.DNSSuffix` (stage 2) supplies the value; the client
+  already prefers `result.RemoteName`.
+
+**Deferred to the client-side stages (5-6):** the *per-project* client remotes
+from `sc project create` (`<tenant>-<project>`) and `sc enroll`
+(`<baseRemote>-<shortProject>`). Renaming these to `<suffix>-<project>` needs the
+suffix threaded to the client (a new field on the project-create result +
+client use), which is done holistically with cross-install switching (stage 5)
+and lazy migration (stage 6). Until then those remotes keep their legacy names
+and still work; only the login remote uses the new scheme.
+
+## 2026-07-15 — ADR-0020 stage 4: DESCOPED (remove reserved `default` project)
+
+**Decision: do not rip out the hardcoded `default` project.** Investigation showed
+`naming.DefaultProjectName` is not a parser convenience — it is the actual name of
+every tenant's first project, hardcoded across ~10 provisioning sites
+(`create_plan_v2.go` default-project plan, `tenant_create_v2.go` profile/DNS,
+`dns/render.go`, `machine_store.go`, token scoping, `usertrust/plan.go`). Making the
+initial project user-named would thread a chosen name through all of provisioning —
+a large, high-regression-risk change on the exact code path my notes warn "reports
+success while doing nothing".
+
+Its value to the addressing goal is nil: `sc c <suffix>:default:<machine>` resolves
+identically whether the first project is named `default` or something else, and
+ADR-0020 decision #85 already says existing `default` projects stay valid ordinary
+names (no forced rename). The parser already satisfies the practical intent — bare
+`machine` uses the config's **current project**, with `default` (a real, existing
+project) as the fallback when it is unset; that fallback is safe and desirable, not
+"magic" in the harmful sense.
+
+**Kept as-is; not implemented:** user-named initial project at login and the
+error-when-no-current-project behavior. If wanted later, it is its own focused
+refactor + provisioning change, tracked separately from this coordinated branch.
+
+## 2026-07-15 — ADR-0020 stages 1-3 validated LIVE on majestix (install A)
+
+Deployed the stage-1..3 binary into `sc2-auth-app` (install A only; B untouched),
+restarted, validated, then deleted the throwaway tenant and rolled the binary back.
+
+- **Stage 1 (migration):** the deployed binary's `Migrate` created `dns_suffix_claims`
+  in the live `auth.db` with the exact schema. (Caught the WAL trap — the main .db
+  file lagged; had to pull `-wal`/`-shm` too. Recorded to memory.)
+- **Stage 2 (claim):** logging in a fresh tenant `sctest --dns-suffix=sctest` inserted
+  the claim row `('sctest','sctest','sctest')` during provisioning.
+- **Stage 2 (uniqueness):** a second tenant `sctest2` claiming the same suffix was
+  **rejected server-side in 15ms, before provisioning**, with the exact
+  `SuffixClaimError` text: *"DNS suffix 'sctest' is already claimed on this install"*.
+  This is the registry's core value, confirmed live.
+- **Stage 3 (naming):** suffix flow confirmed live; the remote name is
+  `<suffix>-default` by the unit-tested `RemoteNameForSuffixProject`. Not rendered on
+  the client because the keyless throwaway sidecar never joined the tailnet, so
+  `incus remote add` (which prints the name) couldn't run. Logic deployed + unit-tested
+  + input verified; literal wire-string not captured (would need a tenant tailnet key).
+
+**Gap surfaced:** `sc-adm tenant delete` does NOT call `ReleaseDNSSuffixClaim`, so the
+deleted `sctest` left an orphan claim row (harmless post-rollback; `ReconcileDNSSuffixClaims`
+would prune it once the reconcile is wired to a loop). Release-on-delete + a periodic
+reconcile invocation are still to be wired (stage-1 built the functions; nothing calls
+them yet). Left the orphan row rather than hand-edit the live WAL db.
+
+## 2026-07-15 — ADR-0020: wired the DNS-suffix-claim reconcile (the gap found live)
+
+The release-on-delete gap from the live-validation run is now closed via the
+**reconcile path**, which is the architecturally-correct mechanism:
+
+- `sc-adm tenant delete` runs client-side against Incus and has **no access to the
+  auth database** (there is no auth-app tenant-delete endpoint — verified). So a
+  *synchronous* `ReleaseDNSSuffixClaim` on delete is not feasible without adding an
+  endpoint + an sc-adm round-trip. Out of scope; `ReleaseDNSSuffixClaim` stays for any
+  future auth-app-mediated delete.
+- Instead, `Serve` now starts `runSuffixClaimReconcileLoop` (every 5 min + one pass at
+  startup) which lists the install's live tenants (`tenant.ListForPrefix`) and prunes
+  claims whose tenant is gone. This matches the spec ("Incus is the source of truth for
+  tenant existence; a reconcile prunes orphans"). Cleanup latency is ≤ one interval.
+- **Safety:** `pruneOrphanSuffixClaims` never prunes on an **empty** live set, and
+  `reconcileSuffixClaimsOnce` aborts (no prune) on a listing **error** — so a transient
+  Incus hiccup can never wipe the registry. Both guards are unit-tested.
+
+The orphan `sctest` claim left on majestix during validation would be pruned by this
+loop on the next deploy of the new binary.
+
+## 2026-07-15 — ADR-0020 stage 5: cross-install connect switching
+
+`sc connect <suffix>:<project>:<machine>` now switches to the target install
+instead of erroring:
+
+- `resolveConnectTarget` (pure, unit-tested) decides: same-install (no switch) vs
+  cross-install → target remote `<suffix>-<project>`, or a guidance error (ADR-0020
+  §7: "connect never auto-provisions — log in/enroll first") when that remote isn't
+  enrolled locally.
+- `switchConfigToRemote` shallow-copies the commandConfig, points `INCUS_CONF` at the
+  target remote's cert dir (`ResolveConfigPath`), and rebuilds the only two
+  remote-scoped stores `runConnectV2` uses (`tenantStore` for the summary,
+  `tenantCreator` for machine-ensure). SSH is a direct shell-out to the machine's
+  private tailnet IP, so nothing else needs rebinding.
+- The connect command detects the suffix, switches, re-fetches the target summary,
+  and connects with the suffix stripped (`project:machine`).
+
+**Not unit-testable (infra-bound):** the actual switch+connect needs two real
+enrolled remotes with certs; only `resolveConnectTarget` is unit-tested. Needs live
+validation against a two-install stack.
+
+**Depends on new-scheme remote names.** Switching resolves the target as
+`<suffix>-<project>`, so it works for remotes named the new way (login's
+`<suffix>-default`, or post-migration). Legacy per-project remotes
+(`<tenant>-<project>` from `sc project create`; `<baseRemote>-<short>` from
+`sc enroll`) won't be found until they're renamed — that client-side rename + the
+deferred stage-3 per-project naming both land in stage 6 (migration). Cross-install
+switching for other reference-taking commands (create/lifecycle/image) is not wired
+here — connect is the primary; they still hit the resolveV2MachineReference
+cross-install error.
+
+## 2026-07-15 — ADR-0020 stage 6: lazy remote migration at login
+
+Renames a tenant's legacy incus remotes to `<suffix>-<project>` at next login (#88):
+
+- `planRemoteMigration` (pure, unit-tested): a remote is this tenant's iff pinned to
+  `sc2-<tenant>-<proj>`; new name `<suffix>-<proj>`; scoped by install endpoint so a
+  same-named tenant on another install is never touched; idempotent (skips
+  already-migrated + infra-pinned remotes).
+- `migrateLegacyRemotes` (infra glue): reads the incus config, runs `incus remote
+  rename` per plan; best-effort — a rename failure (e.g. target name already taken =
+  the cross-install collision guard) is logged, never fails login.
+- Threaded `DNSSuffix` through the device-poll wire (DeviceLogin → devicePollResponse
+  → DevicePollResult) so a **re-login** (no `--dns-suffix`) still gets the tenant's
+  stored suffix — which is exactly the migration case (existing tenants).
+- Hooked into `sc login` after remote enrollment; runs only when the server returns a
+  suffix. This also retro-fixes the stage-3 deferral: once a tenant's remotes are
+  migrated, they carry `<suffix>-<project>` names, which is what stage-5 cross-install
+  switching resolves against.
+
+**Not unit-testable (infra-bound):** the `incus remote rename` execution + login hook;
+only `planRemoteMigration` is unit-tested. Needs live validation against a client with
+legacy remotes.
+
+## 2026-07-15 — ADR-0020 stage 7: drop tenant/ prefix; retire ParseUserMachineRef
+
+- Removed the legacy `tenant/` handling from `parseV2MachineReference`: `/` is no
+  longer special (a slash now fails name validation). Grammar is purely
+  `[[dns-suffix:]project:]machine`. `currentTenant` stays in the signature (callers
+  pass it) but is unused. Parser tests updated (the two `tenant/` cases now expect
+  errors).
+- Deleted the unused `naming.ParseUserMachineRef` (no production caller — connect/
+  create/lifecycle/image all go through `parseV2MachineReference`) and its 5 tests.
+  `ProjectRef`/`ParseProjectRef` are kept — still used by `sc admin` machine commands.
+
+One canonical machine-reference parser remains, as ADR-0020 §6 specified.
+
+## 2026-07-15 — ADR-0020 code-review fixes (3 findings)
+
+- **Migration scoping is now fail-safe** (spec §8): `planRemoteMigration` requires a
+  non-empty `installEndpoint` and returns no plan without one — an unknown endpoint
+  migrates NOTHING rather than widening scope to another install's same-named remotes.
+  Endpoint match is mandatory, not `if != ""`.
+- **Dropped the dead current-remote plumbing**: `migrateLegacyRemotes` no longer
+  returns `updatedCurrent` and `remoteRename` loses `IsCurrent` (the login caller
+  discarded it; config is never re-pointed at this hook, since the current remote is
+  already the freshly-enrolled one). Simpler, honest.
+- **Split the missing-remote guidance** (spec §7): `resolveConnectTarget` now takes an
+  `installKnown` predicate — "install known, project not enrolled" → `sc enroll` /
+  `sc project create`; "install never touched" → `sc login <host>`.
+- **Added the §6 diagnostic**: `resolveV2MachineReference` now hints when the failed
+  project token is actually an incus remote ("`obelix-sc` is a remote, not a project —
+  reach another install with dns-suffix:project:machine"), without decoding the name.
+- Collapsed a duplicated remote-name comment in `provision.go` (merge artifact).
+
+## 2026-07-15 — ADR-0020 stages 5 & 6 live validation on majestix (part 1: stage 6)
+
+Deployed the fixed client to `e2eclient` + new binary to install A's auth-app.
+
+**Stage 6 (lazy migration) — VALIDATED live**, and it surfaced + fixed a real gap:
+- First run: re-login `octocat` enrolled `octocat-default` (stage-3 naming works on the
+  real client+server ✓), the migration hook ran best-effort (didn't fail login ✓), and
+  endpoint-scoping held (`thieso2-web` at another endpoint untouched ✓). BUT the legacy
+  base remote `sc-majestix-4502b206-thieso2-dev` **lingered**: `sc login` enrolls the
+  canonical `<suffix>-default` *first*, so migration's rename collided
+  (`Remote octocat-default already exists`) and left a redundant duplicate.
+- **Fix:** `migrateLegacyRemotes` now, when the target already exists AND the legacy
+  remote is a duplicate (same endpoint + pinned project), **removes** the legacy remote
+  instead of leaving both; a target that exists for a *different* install is left and
+  surfaced (never clobbered).
+- Second run (fixed client): re-login `octocat` → `octocat-default` current, and the
+  legacy `sc-majestix-...` remote is **removed**. Clean.
+
+Stage 5 (cross-install) validation pending install-B auth-app deploy (separate authorization).
+
+## 2026-07-15 — ADR-0020 stage 5 live validation on majestix (part 2)
+
+Validated the cross-install switch on install A using two different-suffix tenants
+(octocat current → thieso2 target; same daemon, different suffix/remote/sidecar —
+identical switch code path). **Found + fixed a real bug:**
+
+- **Error paths validated:** `sc c newbox:default:dev` → "unknown install … sc login".
+- **Switch bug found:** `sc c thieso2:web:x` first errored "project web not found in
+  tenant **octocat**" — `switchConfigToRemote` rebound the stores + remote but left
+  `adminConfig.Tenant` unchanged, and `v2TenantSummary` keys off the tenant NAME, so it
+  kept resolving the current tenant on the new remote.
+- **Fix:** `switchConfigToRemote` now re-points `adminConfig.Tenant` to the target
+  tenant, recovered from the target remote's pinned incus project
+  (`<prefix>-<tenant>-<project>`) via `tenantFromPinnedProject` (pure, unit-tested;
+  handles dashed tenants/projects + non-default install prefix).
+- **Re-validated:** the same command now errors "project web not found in tenant
+  **thieso2** (projects: default)" — the switch correctly lands on thieso2's summary.
+  The machine-connect after the switch is unchanged runConnectV2 logic (not run to
+  completion: no cross-install-reachable project here had a machine).
+
+e2edns@B login was blocked by a PRE-EXISTING, unrelated failure ("reconcile User SSH
+Public Key on machine api: script exited 1"), so the switch was validated via the A/A
+different-suffix path instead of A→B.
+
+## 2026-07-15 — shared tenant bridge must set `dns.mode=none` (same machine name across projects)
+
+**Bug (reported live):** `sc c h2:t1` failed to start with
+`Failed start validation for device "eth0": Instance DNS name "t1" already used on
+network` when a machine named `t1` already existed in a sibling project `h1` of the
+same tenant. All of a tenant's projects share one Incus bridge (`sc2-<tenant>`), and
+Incus's managed bridge DNS enforces **per-network** uniqueness of the instance name
+(`nic_bridged.go`, gated on `dns.mode != "none"`). Two `t1`s on one bridge collide even
+though their sandcastle FQDNs (`t1.h1.<suffix>` / `t1.h2.<suffix>`) are distinct.
+
+**Fix:** `ensureV2Bridge` now sets `dns.mode=none` on the tenant bridge, both at
+creation and by converging pre-existing bridges on the next idempotent re-provision
+(same pattern already used for the `raw.dnsmasq` CoreDNS resolver option). The bridge's
+built-in DNS was already dead weight — ADR-0018 makes the sidecar CoreDNS the sole
+authority and guests are pointed at it via `dhcp-option=6`, so disabling the bridge's
+managed DNS loses nothing and DHCP is unaffected.
+
+**Alternatives considered:** (a) set a project-qualified NIC `hostname`/DNS name per
+instance (e.g. `t1-h1`) — rejected: more moving parts, and the bridge DNS is never
+consulted anyway; (b) one bridge per project — rejected: a larger topology change that
+would break the shared-CIDR/sidecar model. `dns.mode=none` is the minimal, correct fix.
+
+**Live remediation for existing deployments:** the converge path only runs on tenant
+re-provision, so an already-created bridge can be fixed immediately with
+`incus network set sc2-<tenant> dns.mode=none` (admin remote), or by re-running tenant
+provisioning.
+
 ## 2026-07-09 — Authoritative SSH host keys (`internal/hostkeys`)
 
 Context: `ssh tubu.default.obelix` failed with `REMOTE HOST IDENTIFICATION HAS

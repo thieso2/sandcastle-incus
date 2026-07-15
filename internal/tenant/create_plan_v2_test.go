@@ -225,3 +225,54 @@ func TestPlanCreateV2DNSSuffix(t *testing.T) {
 		t.Fatal("expected public-TLD denial")
 	}
 }
+
+func TestPlanCreateV2InitialProject(t *testing.T) {
+	// the chosen name replaces "default" everywhere it is derived (issue #93).
+	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", InitialProject: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DefaultProjectShort != "web" {
+		t.Fatalf("DefaultProjectShort = %q, want web", plan.DefaultProjectShort)
+	}
+	if plan.DefaultProject != "sc2-acme-web" {
+		t.Fatalf("DefaultProject = %q, want sc2-acme-web", plan.DefaultProject)
+	}
+	if len(plan.RestrictedProjects) != 1 || plan.RestrictedProjects[0] != "sc2-acme-web" {
+		t.Fatalf("RestrictedProjects = %v, want [sc2-acme-web]", plan.RestrictedProjects)
+	}
+
+	// default: "default"
+	plan, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DefaultProjectShort != "default" || plan.DefaultProject != "sc2-acme-default" {
+		t.Fatalf("default plan short=%q full=%q", plan.DefaultProjectShort, plan.DefaultProject)
+	}
+
+	// re-provision reuses the stored name
+	plan, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", ExistingDefaultProject: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DefaultProjectShort != "web" {
+		t.Fatalf("DefaultProjectShort = %q, want the existing web", plan.DefaultProjectShort)
+	}
+
+	// NOT immutable: an explicit request wins over the stored value.
+	plan, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", InitialProject: "api", ExistingDefaultProject: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DefaultProjectShort != "api" {
+		t.Fatalf("DefaultProjectShort = %q, want api (request wins)", plan.DefaultProjectShort)
+	}
+
+	// invalid project name is rejected as terminal (no retry can fix bad input).
+	if _, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", InitialProject: "Bad Name"}); err == nil {
+		t.Fatal("expected invalid-project-name error")
+	} else if !IsTerminalProvisionError(err) {
+		t.Fatalf("err = %v, want a terminal provision error", err)
+	}
+}

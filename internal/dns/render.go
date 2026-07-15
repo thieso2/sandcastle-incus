@@ -24,7 +24,7 @@ const (
 )
 
 func RenderInitial(suffix string, dnsAddress string) ([]File, error) {
-	return RenderTenant(suffix, dnsAddress, nil)
+	return RenderTenant(suffix, dnsAddress, "", nil)
 }
 
 // RenderTenant builds the CoreDNS config for a tenant. The tenant zone is the
@@ -37,16 +37,24 @@ func RenderInitial(suffix string, dnsAddress string) ([]File, error) {
 //   - canonical Machine Private Hostname <machine>.<project>.<suffix> plus its
 //     wildcard, for every machine whose project is known;
 //   - the Default Project Short Hostname <machine>.<suffix> (plus wildcard)
-//     ONLY for machines in the default project — never first-wins across
+//     ONLY for machines in the tenant's default project — never first-wins across
 //     projects, never uniqueness-dependent;
 //   - a machine with no known project (legacy callers) gets the short form only.
-func RenderTenant(domain string, dnsAddress string, machines []meta.Machine) ([]File, error) {
+//
+// defaultProject is the short name of the tenant's default project (issue #93);
+// it defaults to "default" when empty, so the short alias follows a renamed
+// initial project instead of a project literally called "default".
+func RenderTenant(domain string, dnsAddress string, defaultProject string, machines []meta.Machine) ([]File, error) {
 	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
 	if domain == "" {
 		return nil, fmt.Errorf("tenant DNS suffix is required")
 	}
 	if dnsAddress == "" {
 		return nil, fmt.Errorf("DNS address is required")
+	}
+	defaultProject = strings.TrimSpace(defaultProject)
+	if defaultProject == "" {
+		defaultProject = naming.DefaultProjectName
 	}
 
 	zonePath := path.Join("/etc/coredns/zones", "db."+domain)
@@ -66,7 +74,7 @@ ns IN A %s
 		if machine.Name == "" || machine.PrivateIP == "" {
 			continue
 		}
-		if machine.Project == "" || machine.Project == naming.DefaultProjectName {
+		if machine.Project == "" || machine.Project == defaultProject {
 			short := machine.Name + "." + domain + "."
 			zone += fmt.Sprintf("%s IN A %s\n*.%s IN A %s\n", short, machine.PrivateIP, short, machine.PrivateIP)
 		}

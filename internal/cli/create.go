@@ -10,7 +10,7 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var image string
 	var vm bool
 	command := &cobra.Command{
-		Use:   "create [tenant/][project:]machine",
+		Use:   "create [[dns-suffix:]project:]machine",
 		Short: "Create a Sandcastle container machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

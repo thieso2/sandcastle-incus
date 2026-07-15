@@ -25,56 +25,6 @@ func TestParseProjectRef(t *testing.T) {
 	}
 }
 
-func TestParseUserMachineRefDefaultsProject(t *testing.T) {
-	projectRef, machine, err := ParseUserMachineRef("codex", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projectRef.Project != DefaultProjectName || machine != "codex" {
-		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
-	}
-}
-
-func TestParseUserMachineRefUsesCurrentProject(t *testing.T) {
-	projectRef, machine, err := ParseUserMachineRef("codex", "website")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projectRef.Project != "website" || machine != "codex" {
-		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
-	}
-}
-
-func TestParseUserMachineRefPreservesExplicitProject(t *testing.T) {
-	projectRef, machine, err := ParseUserMachineRef("default/codex", "website")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projectRef.Project != "default" || machine != "codex" {
-		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
-	}
-}
-
-func TestParseUserMachineRefAcceptsColonProject(t *testing.T) {
-	projectRef, machine, err := ParseUserMachineRef("default:codex", "website")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projectRef.Project != "default" || machine != "codex" {
-		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
-	}
-}
-
-func TestParseUserMachineRefAcceptsTenantSlashProjectColonMachine(t *testing.T) {
-	projectRef, machine, err := ParseUserMachineRef("some/default:codex", "website")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projectRef.Tenant != "some" || projectRef.Project != "default" || machine != "codex" {
-		t.Fatalf("projectRef = %#v, machine = %q", projectRef, machine)
-	}
-}
-
 func TestTenantIncusProjectName(t *testing.T) {
 	name, err := TenantIncusProjectName(TenantRef{Tenant: "acme"})
 	if err != nil {

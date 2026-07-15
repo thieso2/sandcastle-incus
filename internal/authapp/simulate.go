@@ -46,7 +46,7 @@ func (h handler) simulateLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if code := strings.ToUpper(strings.TrimSpace(r.FormValue("user_code"))); code != "" {
-		if err := ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, timeNow()); err != nil {
+		if err := ApproveDeviceLogin(r.Context(), h.db, code, user.UserKey, strings.TrimSpace(r.FormValue("dns_suffix")), strings.TrimSpace(r.FormValue("initial_project")), timeNow()); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

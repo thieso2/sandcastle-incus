@@ -171,3 +171,35 @@ func TestRemoteNameForAuthHostname(t *testing.T) {
 		t.Errorf("RemoteNameForAuthHostname(\"\") = %q, want empty", got)
 	}
 }
+
+func TestRemoteNameForSuffixProject(t *testing.T) {
+	cases := []struct {
+		suffix, project, want string
+	}{
+		{"obelix", "web", "obelix-web"},
+		{"obelix", "default", "obelix-default"}, // no omission (ADR-0020)
+		{"obelix-eu", "db", "obelix-eu-db"},      // dashes in the suffix survive
+		{"  Castle ", "SC", "castle-sc"},         // normalized
+		{"", "web", ""},                          // blank suffix -> caller falls back
+		{"obelix", "", ""},                       // blank project -> caller falls back
+	}
+	for _, c := range cases {
+		if got := RemoteNameForSuffixProject(c.suffix, c.project); got != c.want {
+			t.Errorf("RemoteNameForSuffixProject(%q,%q) = %q, want %q", c.suffix, c.project, got, c.want)
+		}
+	}
+}
+
+func TestRemoteNameForSuffix(t *testing.T) {
+	cases := []struct{ suffix, want string }{
+		{"jules", "jules"},        // ADR-0021: the install's suffix alone
+		{"obelix-eu", "obelix-eu"}, // dashes survive
+		{"  Castle ", "castle"},    // normalized
+		{"", ""},                   // blank -> caller falls back
+	}
+	for _, c := range cases {
+		if got := RemoteNameForSuffix(c.suffix); got != c.want {
+			t.Errorf("RemoteNameForSuffix(%q) = %q, want %q", c.suffix, got, c.want)
+		}
+	}
+}

@@ -155,11 +155,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	if err := BootstrapAdmins(ctx, db, plan.BootstrapAdminUsers); err != nil {
 		return err
 	}
-	provisioner := r.Provisioner
-	if typed, ok := provisioner.(Provisioner); ok && strings.TrimSpace(typed.DefaultUnixUser) == "" {
-		typed.DefaultUnixUser = plan.DefaultUnixUser
-		provisioner = typed
-	}
+	provisioner := injectServeDependencies(r.Provisioner, db, plan.DefaultUnixUser)
 	server := &http.Server{
 		Addr: plan.Address,
 		Handler: logger.HTTP(NewHandler(db, HandlerOptions{
@@ -186,6 +182,12 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	}
 	if r.DNSReconcile != nil {
 		go r.runDNSReconcileLoop(ctx, logger)
+	}
+	if r.Tenants != nil {
+		// Garbage-collect DNS-suffix claims orphaned by tenants deleted out-of-band
+		// (ADR-0020); `sc-adm tenant delete` runs against Incus and cannot reach the
+		// auth database, so a periodic reconcile is the cleanup path.
+		go r.runSuffixClaimReconcileLoop(ctx, db, logger)
 	}
 	errCh := make(chan error, 1)
 	go func() {
@@ -268,6 +270,22 @@ func (r HTTPRunner) runDNSReconcileLoop(ctx context.Context, logger *svclog.Logg
 	}
 }
 
+// injectServeDependencies patches the runtime dependencies only Serve can supply
+// into the concrete Provisioner: the auth database (which enables DNS-suffix
+// claiming, ADR-0020) and the default Unix user (when the caller left it blank).
+// A non-Provisioner value (e.g. a test fake) is returned unchanged.
+func injectServeDependencies(provisioner PersonalTenantProvisioner, db *sql.DB, defaultUnixUser string) PersonalTenantProvisioner {
+	typed, ok := provisioner.(Provisioner)
+	if !ok {
+		return provisioner
+	}
+	typed.DB = db
+	if strings.TrimSpace(typed.DefaultUnixUser) == "" {
+		typed.DefaultUnixUser = defaultUnixUser
+	}
+	return typed
+}
+
 func OpenDatabase(path string) (*sql.DB, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("auth database path is required")
@@ -338,7 +356,9 @@ CREATE TABLE IF NOT EXISTS device_logins (
     provisioned_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
-    approved_at TEXT NOT NULL DEFAULT ''
+    approved_at TEXT NOT NULL DEFAULT '',
+    dns_suffix TEXT NOT NULL DEFAULT '',
+    initial_project TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS oidc_signing_keys (
     kid TEXT PRIMARY KEY,
@@ -391,6 +411,13 @@ CREATE TABLE IF NOT EXISTS logs (
     duration_ms INTEGER NOT NULL DEFAULT 0,
     detail TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS dns_suffix_claims (
+    suffix TEXT PRIMARY KEY,
+    tenant TEXT NOT NULL UNIQUE,
+    user_key TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS logs_user_ts ON logs(user_key, ts);
 CREATE INDEX IF NOT EXISTS logs_ts ON logs(ts);
 INSERT INTO auth_app_meta (key, value, updated_at)
@@ -400,6 +427,16 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 		return fmt.Errorf("migrate auth database: %w", err)
 	}
 	if err := ensureColumn(ctx, db, "device_logins", "provisioned_at", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// Browser-chosen Tenant DNS Suffix (ADR-0020 interactive suffix form). Stored
+	// at approval; the CLI --dns-suffix flag overrides it at poll time when present.
+	if err := ensureColumn(ctx, db, "device_logins", "dns_suffix", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// Browser-chosen initial-project short name (issue #93). Stored at approval;
+	// the CLI --default-project flag overrides it at poll time when present.
+	if err := ensureColumn(ctx, db, "device_logins", "initial_project", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := ensureColumn(ctx, db, "users", "ssh_public_key", "TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -601,6 +638,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	}
 	mux.HandleFunc("/", app.status)
 	mux.HandleFunc("/healthz", app.health)
+	mux.HandleFunc("/style.css", app.styleCSS)
 	mux.HandleFunc("/machines", app.machinesWeb)
 	mux.HandleFunc("/login/github", app.githubLogin)
 	mux.HandleFunc("/oauth/github/callback", app.githubCallback)
@@ -782,6 +820,7 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <title>Sandcastle Auth</title>
 </head>
 <body>
@@ -799,6 +838,7 @@ var onboardingTemplate = template.Must(template.New("onboarding").Parse(`<!docty
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
   <title>Sandcastle Onboarding</title>
 </head>
 <body>

@@ -24,6 +24,12 @@ const (
 	// KeyV2Suffix is where v2 stores the Tenant DNS Suffix, on the kind=infra
 	// project (ADR-0018: tenant-chosen, defaults to the tenant name).
 	KeyV2Suffix = Prefix + "v2.suffix"
+	// KeyV2DefaultProject is where v2 stores the short name of the tenant's
+	// initial project, on the kind=infra project. The user names it at first
+	// login (issue #93); it replaces the hardcoded "default" as the tenant's one
+	// project. Remembered so an idempotent re-login re-derives the same name
+	// instead of re-creating a duplicate "-default" project. Empty ⇒ "default".
+	KeyV2DefaultProject = Prefix + "v2.default-project"
 	// KeyV2Prefix is where v2 stores the installation prefix, on the kind=infra
 	// project — several sandcastles can share one Incus host (--prefix).
 	KeyV2Prefix = Prefix + "v2.prefix"

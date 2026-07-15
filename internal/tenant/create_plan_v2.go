@@ -168,28 +168,32 @@ const DefaultV2UnixUser = "dev"
 // created later by the tenant with native incus into app projects on the shared
 // bridge; DNS is flat (<machine>.<suffix>).
 type CreatePlanV2 struct {
-	Tenant             string     `json:"tenant"`
-	Prefix             string     `json:"prefix"`
-	InfraProject       string     `json:"infraProject"`
-	DefaultProject     string     `json:"defaultProject"`
-	Bridge             string     `json:"bridge"`
-	DNSSuffix          string     `json:"dnsSuffix"`
-	PrivateCIDR        string     `json:"privateCIDR"`
-	GatewayAddress     string     `json:"gatewayAddress"`
-	TailscaleAddress   string     `json:"tailscaleAddress"`
-	DNSAddress         string     `json:"dnsAddress"`
-	StoragePool        string     `json:"storagePool"`
-	HomeVolume         string     `json:"homeVolume"`
-	WorkspaceVolume    string     `json:"workspaceVolume"`
-	CAVolume           string     `json:"caVolume"`
-	SidecarInstance    string     `json:"sidecarInstance"`
-	SidecarImage       string     `json:"sidecarImage"`
-	DefaultProfileUser string     `json:"defaultProfileUser"`
-	SSHPublicKey       string     `json:"sshPublicKey"`
-	ImageAliases       []string   `json:"imageAliases"`
-	DNSFiles           []dns.File `json:"dnsFiles"`
-	TenantCA           TenantCA   `json:"tenantCA"`
-	RestrictedProjects []string   `json:"restrictedProjects"`
+	Tenant         string `json:"tenant"`
+	Prefix         string `json:"prefix"`
+	InfraProject   string `json:"infraProject"`
+	DefaultProject string `json:"defaultProject"`
+	// DefaultProjectShort is the short name of the tenant's one project (issue
+	// #93). The user chooses it at first login; it defaults to "default". The
+	// full Incus project name is DefaultProject (<prefix>-<tenant>-<short>).
+	DefaultProjectShort string     `json:"defaultProjectShort"`
+	Bridge              string     `json:"bridge"`
+	DNSSuffix           string     `json:"dnsSuffix"`
+	PrivateCIDR         string     `json:"privateCIDR"`
+	GatewayAddress      string     `json:"gatewayAddress"`
+	TailscaleAddress    string     `json:"tailscaleAddress"`
+	DNSAddress          string     `json:"dnsAddress"`
+	StoragePool         string     `json:"storagePool"`
+	HomeVolume          string     `json:"homeVolume"`
+	WorkspaceVolume     string     `json:"workspaceVolume"`
+	CAVolume            string     `json:"caVolume"`
+	SidecarInstance     string     `json:"sidecarInstance"`
+	SidecarImage        string     `json:"sidecarImage"`
+	DefaultProfileUser  string     `json:"defaultProfileUser"`
+	SSHPublicKey        string     `json:"sshPublicKey"`
+	ImageAliases        []string   `json:"imageAliases"`
+	DNSFiles            []dns.File `json:"dnsFiles"`
+	TenantCA            TenantCA   `json:"tenantCA"`
+	RestrictedProjects  []string   `json:"restrictedProjects"`
 }
 
 // PlanCreateV2 builds a CreatePlanV2 from admin config and a create request.
@@ -211,7 +215,21 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 	if err != nil {
 		return CreatePlanV2{}, err
 	}
-	defaultProject, err := naming.V2ProjectName(prefix, ref.Tenant, naming.DefaultProjectName)
+	// The tenant's one project (issue #93): the user names it at first login;
+	// on re-login the stored short name is reused; blank on both ⇒ "default".
+	// Not immutable — unlike the DNS suffix — so a differing request just wins.
+	defaultProjectShort := strings.TrimSpace(request.InitialProject)
+	if defaultProjectShort == "" {
+		defaultProjectShort = strings.TrimSpace(request.ExistingDefaultProject)
+	}
+	if defaultProjectShort == "" {
+		defaultProjectShort = naming.DefaultProjectName
+	}
+	if err := naming.ValidateProjectName(defaultProjectShort); err != nil {
+		// Bad user input — no retry can fix a rejected project name.
+		return CreatePlanV2{}, TerminalProvisionError{Err: err}
+	}
+	defaultProject, err := naming.V2ProjectName(prefix, ref.Tenant, defaultProjectShort)
 	if err != nil {
 		return CreatePlanV2{}, err
 	}
@@ -288,26 +306,27 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 	}
 
 	return CreatePlanV2{
-		Tenant:             ref.Tenant,
-		Prefix:             prefix,
-		InfraProject:       infraProject,
-		DefaultProject:     defaultProject,
-		Bridge:             bridge,
-		DNSSuffix:          suffix,
-		PrivateCIDR:        tenantCIDR.String(),
-		GatewayAddress:     gatewayAddress.String(),
-		TailscaleAddress:   tailscaleAddress.String(),
-		DNSAddress:         dnsAddress.String(),
-		StoragePool:        admin.StoragePool,
-		HomeVolume:         HomeVolumeName,
-		WorkspaceVolume:    WorkspaceVolumeName,
-		CAVolume:           CAVolumeName,
-		SidecarInstance:    naming.V2SidecarInstanceName,
-		SidecarImage:       admin.Images.Base,
-		DefaultProfileUser: unixUser,
-		SSHPublicKey:       request.SSHPublicKey,
-		ImageAliases:       uniqueImageAliases(admin.Images.Base, admin.Images.AI),
-		DNSFiles:           dnsFiles,
+		Tenant:              ref.Tenant,
+		Prefix:              prefix,
+		InfraProject:        infraProject,
+		DefaultProject:      defaultProject,
+		DefaultProjectShort: defaultProjectShort,
+		Bridge:              bridge,
+		DNSSuffix:           suffix,
+		PrivateCIDR:         tenantCIDR.String(),
+		GatewayAddress:      gatewayAddress.String(),
+		TailscaleAddress:    tailscaleAddress.String(),
+		DNSAddress:          dnsAddress.String(),
+		StoragePool:         admin.StoragePool,
+		HomeVolume:          HomeVolumeName,
+		WorkspaceVolume:     WorkspaceVolumeName,
+		CAVolume:            CAVolumeName,
+		SidecarInstance:     naming.V2SidecarInstanceName,
+		SidecarImage:        admin.Images.Base,
+		DefaultProfileUser:  unixUser,
+		SSHPublicKey:        request.SSHPublicKey,
+		ImageAliases:        uniqueImageAliases(admin.Images.Base, admin.Images.AI),
+		DNSFiles:            dnsFiles,
 		TenantCA: TenantCA{
 			CertificatePath: TenantCACertPath,
 			PrivateKeyPath:  TenantCAKeyPath,

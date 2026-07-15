@@ -56,6 +56,14 @@ type CreateRequest struct {
 	// so a differing explicit DNSSuffix is rejected.
 	DNSSuffix         string
 	ExistingDNSSuffix string
+	// InitialProject is the short name the user chose for their tenant's one
+	// project at first login (issue #93; single label, defaults to "default").
+	// ExistingDefaultProject carries the live tenant's stored default-project
+	// short name on idempotent re-provisioning, so a re-login reuses it instead
+	// of re-creating a duplicate "-default" project. Unlike the DNS suffix the
+	// name is not immutable — the stored value is simply the reuse fallback.
+	InitialProject         string
+	ExistingDefaultProject string
 }
 
 type SidecarPlan struct {

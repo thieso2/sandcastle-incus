@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -96,8 +95,7 @@ WantedBy=multi-user.target
 // fetchIngressBinaries downloads caddy (and cloudflared for tunnel mode) ON THE
 // HOST — an in-container download over the NAT'd bridge can crawl or time out,
 // while the host fetch takes seconds (hard-won sc-edge lesson).
-func fetchIngressBinaries(mode string) (caddy []byte, cloudflared []byte, err error) {
-	arch := runtime.GOARCH
+func fetchIngressBinaries(mode, arch string) (caddy []byte, cloudflared []byte, err error) {
 	caddy, err = downloadURL("https://caddyserver.com/api/download?os=linux&arch="+arch, 3*time.Minute)
 	if err != nil {
 		return nil, nil, fmt.Errorf("download caddy: %w", err)
