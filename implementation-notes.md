@@ -1602,3 +1602,52 @@ suffix threaded to the client (a new field on the project-create result +
 client use), which is done holistically with cross-install switching (stage 5)
 and lazy migration (stage 6). Until then those remotes keep their legacy names
 and still work; only the login remote uses the new scheme.
+
+## 2026-07-15 — ADR-0020 stage 4: DESCOPED (remove reserved `default` project)
+
+**Decision: do not rip out the hardcoded `default` project.** Investigation showed
+`naming.DefaultProjectName` is not a parser convenience — it is the actual name of
+every tenant's first project, hardcoded across ~10 provisioning sites
+(`create_plan_v2.go` default-project plan, `tenant_create_v2.go` profile/DNS,
+`dns/render.go`, `machine_store.go`, token scoping, `usertrust/plan.go`). Making the
+initial project user-named would thread a chosen name through all of provisioning —
+a large, high-regression-risk change on the exact code path my notes warn "reports
+success while doing nothing".
+
+Its value to the addressing goal is nil: `sc c <suffix>:default:<machine>` resolves
+identically whether the first project is named `default` or something else, and
+ADR-0020 decision #85 already says existing `default` projects stay valid ordinary
+names (no forced rename). The parser already satisfies the practical intent — bare
+`machine` uses the config's **current project**, with `default` (a real, existing
+project) as the fallback when it is unset; that fallback is safe and desirable, not
+"magic" in the harmful sense.
+
+**Kept as-is; not implemented:** user-named initial project at login and the
+error-when-no-current-project behavior. If wanted later, it is its own focused
+refactor + provisioning change, tracked separately from this coordinated branch.
+
+## 2026-07-15 — ADR-0020 stages 1-3 validated LIVE on majestix (install A)
+
+Deployed the stage-1..3 binary into `sc2-auth-app` (install A only; B untouched),
+restarted, validated, then deleted the throwaway tenant and rolled the binary back.
+
+- **Stage 1 (migration):** the deployed binary's `Migrate` created `dns_suffix_claims`
+  in the live `auth.db` with the exact schema. (Caught the WAL trap — the main .db
+  file lagged; had to pull `-wal`/`-shm` too. Recorded to memory.)
+- **Stage 2 (claim):** logging in a fresh tenant `sctest --dns-suffix=sctest` inserted
+  the claim row `('sctest','sctest','sctest')` during provisioning.
+- **Stage 2 (uniqueness):** a second tenant `sctest2` claiming the same suffix was
+  **rejected server-side in 15ms, before provisioning**, with the exact
+  `SuffixClaimError` text: *"DNS suffix 'sctest' is already claimed on this install"*.
+  This is the registry's core value, confirmed live.
+- **Stage 3 (naming):** suffix flow confirmed live; the remote name is
+  `<suffix>-default` by the unit-tested `RemoteNameForSuffixProject`. Not rendered on
+  the client because the keyless throwaway sidecar never joined the tailnet, so
+  `incus remote add` (which prints the name) couldn't run. Logic deployed + unit-tested
+  + input verified; literal wire-string not captured (would need a tenant tailnet key).
+
+**Gap surfaced:** `sc-adm tenant delete` does NOT call `ReleaseDNSSuffixClaim`, so the
+deleted `sctest` left an orphan claim row (harmless post-rollback; `ReconcileDNSSuffixClaims`
+would prune it once the reconcile is wired to a loop). Release-on-delete + a periodic
+reconcile invocation are still to be wired (stage-1 built the functions; nothing calls
+them yet). Left the orphan row rather than hand-edit the live WAL db.
