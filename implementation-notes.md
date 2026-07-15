@@ -1739,3 +1739,21 @@ legacy remotes.
   `ProjectRef`/`ParseProjectRef` are kept — still used by `sc admin` machine commands.
 
 One canonical machine-reference parser remains, as ADR-0020 §6 specified.
+
+## 2026-07-15 — ADR-0020 code-review fixes (3 findings)
+
+- **Migration scoping is now fail-safe** (spec §8): `planRemoteMigration` requires a
+  non-empty `installEndpoint` and returns no plan without one — an unknown endpoint
+  migrates NOTHING rather than widening scope to another install's same-named remotes.
+  Endpoint match is mandatory, not `if != ""`.
+- **Dropped the dead current-remote plumbing**: `migrateLegacyRemotes` no longer
+  returns `updatedCurrent` and `remoteRename` loses `IsCurrent` (the login caller
+  discarded it; config is never re-pointed at this hook, since the current remote is
+  already the freshly-enrolled one). Simpler, honest.
+- **Split the missing-remote guidance** (spec §7): `resolveConnectTarget` now takes an
+  `installKnown` predicate — "install known, project not enrolled" → `sc enroll` /
+  `sc project create`; "install never touched" → `sc login <host>`.
+- **Added the §6 diagnostic**: `resolveV2MachineReference` now hints when the failed
+  project token is actually an incus remote ("`obelix-sc` is a remote, not a project —
+  reach another install with dns-suffix:project:machine"), without decoding the name.
+- Collapsed a duplicated remote-name comment in `provision.go` (merge artifact).

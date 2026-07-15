@@ -137,14 +137,11 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		return PersonalTenantResult{}, err
 	}
 	// The client-facing remote name is the tenant's DNS suffix + default project
-	// ("<suffix>-default", ADR-0020) — the suffix is unique per install (the
-	// claim registry) and tenant-chosen, so it disambiguates installs without the
-	// GitHub username (identical everywhere). Legacy install-label / tenant names
-	// remain as fallbacks below. The certificate name stays prefix-keyed
-	// (server-side trust identity).
-	// ADR-0020: name the remote after the tenant's DNS suffix and its default
-	// project ("<suffix>-default"). Fall back to the legacy install-label, then
-	// the tenant-based name, when no suffix is available (older installs).
+	// ("<suffix>-default", ADR-0020) — the suffix is unique per install (the claim
+	// registry) and tenant-chosen, so it disambiguates installs without the GitHub
+	// username (identical everywhere). Fall back to the legacy install-label, then
+	// the tenant-based name, for older/suffix-less installs. The certificate name
+	// stays prefix-keyed (server-side trust identity).
 	remoteName := usertrust.RemoteNameForSuffixProject(plan.DNSSuffix, naming.DefaultProjectName)
 	if remoteName == "" {
 		remoteName = usertrust.RemoteNameForAuthHostname(p.Admin.AuthHostname)

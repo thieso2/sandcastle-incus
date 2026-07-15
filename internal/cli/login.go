@@ -802,7 +802,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 										}
 									}
 								}
-								migrateLegacyRemotes(cmd.Context(), incusDir, tenant, suffix, installed.RemoteName, installEndpoint, config.stderr)
+								migrateLegacyRemotes(cmd.Context(), incusDir, tenant, suffix, installEndpoint, config.stderr)
 							}
 						}
 						switch len(result.AccessibleTenants) {

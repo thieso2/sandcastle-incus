@@ -23,27 +23,31 @@ type localRemote struct {
 
 // remoteRename is one legacy remote to rename to the ADR-0020 scheme.
 type remoteRename struct {
-	From      string
-	To        string
-	IsCurrent bool
+	From string
+	To   string
 }
 
 // planRemoteMigration computes the renames that bring a tenant's legacy incus
 // remotes onto the ADR-0020 `<suffix>-<project>` scheme (issue #88). A remote is
 // this tenant's iff its pinned incus project is `sc2-<tenant>-<proj>`; the new
-// name is `<suffix>-<proj>`. Renames are scoped by installEndpoint so that a
-// same-named tenant on a DIFFERENT install (its remotes point elsewhere) is left
-// alone. Already-migrated remotes (new name == current name) and infra-pinned
-// remotes (no short project) are skipped, making the plan idempotent.
-func planRemoteMigration(remotes []localRemote, tenant, suffix, currentRemote, installEndpoint string) []remoteRename {
+// name is `<suffix>-<proj>`. Already-migrated remotes (new name == current name)
+// and infra-pinned remotes (no short project) are skipped, making the plan
+// idempotent.
+//
+// The installEndpoint scope is MANDATORY, not best-effort: a same-named tenant on
+// a different install has the same pinned-project pattern, so without knowing this
+// install's endpoint we cannot tell them apart — and renaming the wrong install's
+// remotes is worse than not migrating. An empty endpoint therefore yields no plan.
+func planRemoteMigration(remotes []localRemote, tenant, suffix, installEndpoint string) []remoteRename {
 	suffix = strings.TrimSpace(suffix)
 	tenant = strings.TrimSpace(tenant)
-	if suffix == "" || tenant == "" {
-		return nil
+	installEndpoint = strings.TrimSpace(installEndpoint)
+	if suffix == "" || tenant == "" || installEndpoint == "" {
+		return nil // fail safe: never migrate unscoped
 	}
 	var plan []remoteRename
 	for _, r := range remotes {
-		if installEndpoint != "" && r.Endpoint != installEndpoint {
+		if strings.TrimSpace(r.Endpoint) != installEndpoint {
 			continue // a different install's remote — never rename across installs
 		}
 		proj := shortProjectName(r.Project, tenant)
@@ -54,7 +58,7 @@ func planRemoteMigration(remotes []localRemote, tenant, suffix, currentRemote, i
 		if newName == "" || newName == r.Name {
 			continue // idempotent: already on the new scheme
 		}
-		plan = append(plan, remoteRename{From: r.Name, To: newName, IsCurrent: r.Name == currentRemote})
+		plan = append(plan, remoteRename{From: r.Name, To: newName})
 	}
 	return plan
 }
@@ -84,31 +88,21 @@ func readLocalRemotes(incusDir string) ([]localRemote, error) {
 // migrateLegacyRemotes lazily renames a tenant's legacy remotes to the ADR-0020
 // scheme at login (#88). Best-effort: rename failures (e.g. a target name already
 // taken locally — the cross-install collision guard) are logged and skipped, and
-// the caller's login is never failed by a migration hiccup. Returns the possibly
-// updated current-remote name so the caller can re-point config.
-func migrateLegacyRemotes(ctx context.Context, incusDir, tenant, suffix, currentRemote, installEndpoint string, stderr io.Writer) string {
+// the caller's login is never failed by a migration hiccup. installEndpoint must
+// be this install's endpoint; an empty one migrates nothing (see planRemoteMigration).
+func migrateLegacyRemotes(ctx context.Context, incusDir, tenant, suffix, installEndpoint string, stderr io.Writer) {
 	remotes, err := readLocalRemotes(incusDir)
 	if err != nil {
-		return currentRemote
+		return
 	}
-	plan := planRemoteMigration(remotes, tenant, suffix, currentRemote, installEndpoint)
-	updatedCurrent := currentRemote
-	for _, rename := range plan {
-		args := []string{"remote", "rename", rename.From, rename.To}
-		cmd := exec.CommandContext(ctx, "incus", args...)
+	for _, rename := range planRemoteMigration(remotes, tenant, suffix, installEndpoint) {
+		cmd := exec.CommandContext(ctx, "incus", "remote", "rename", rename.From, rename.To)
 		cmd.Env = os.Environ()
 		if strings.TrimSpace(incusDir) != "" {
 			cmd.Env = append(cmd.Env, "INCUS_CONF="+incusDir)
 		}
-		if out, err := cmd.CombinedOutput(); err != nil {
-			if stderr != nil {
-				fmt.Fprintf(stderr, "Note: could not migrate remote %q → %q: %s\n", rename.From, rename.To, strings.TrimSpace(string(out)))
-			}
-			continue
-		}
-		if rename.IsCurrent {
-			updatedCurrent = rename.To
+		if out, err := cmd.CombinedOutput(); err != nil && stderr != nil {
+			fmt.Fprintf(stderr, "Note: could not migrate remote %q → %q: %s\n", rename.From, rename.To, strings.TrimSpace(string(out)))
 		}
 	}
-	return updatedCurrent
 }

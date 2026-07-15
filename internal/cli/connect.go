@@ -24,7 +24,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			// summary) before connecting. A same-install reference falls through
 			// unchanged.
 			if dnsSuffix, project, machine, perr := parseV2MachineReference(args[0], summary.Tenant, config.adminConfig.Project); perr == nil {
-				switchTo, terr := resolveConnectTarget(dnsSuffix, project, summary.DNSSuffix, localRemoteExists)
+				switchTo, terr := resolveConnectTarget(dnsSuffix, project, summary.DNSSuffix, localRemoteExists, localInstallKnown)
 				if terr != nil {
 					return terr
 				}

@@ -195,6 +195,11 @@ func resolveV2MachineReference(summary tenant.Summary, reference string, current
 		if _, swapped := findProject(summary, machine); swapped {
 			hint = fmt.Sprintf("\nThe reference is [[dns-suffix:]project:]machine — did you mean %q?", machine+":"+project)
 		}
+		if hint == "" && localRemoteExists(project) {
+			// e.g. `sc c obelix-sc:dev` — `obelix-sc` is a remote name, not a
+			// project. Address another install as dns-suffix:project:machine.
+			hint = fmt.Sprintf("\n%q is an incus remote, not a project — reach another install with dns-suffix:project:machine.", project)
+		}
 		return "", "", fmt.Errorf("project %q not found in tenant %s (projects: %s).%s\nCreate it with: sc project create %s",
 			project, summary.Tenant, strings.Join(names, ", "), hint, project)
 	}

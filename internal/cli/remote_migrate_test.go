@@ -11,7 +11,7 @@ func TestPlanRemoteMigration(t *testing.T) {
 		{Name: "sc-thieso2-infra", Endpoint: endpoint, Project: "sc2-thieso2"},      // infra project -> skip
 		{Name: "thieso2-io-elsewhere", Endpoint: "https://10.99.0.9:8443", Project: "sc2-thieso2-io"}, // different install -> skip
 	}
-	plan := planRemoteMigration(remotes, "thieso2", "castle", "thieso2-io", endpoint)
+	plan := planRemoteMigration(remotes, "thieso2", "castle", endpoint)
 
 	got := map[string]remoteRename{}
 	for _, r := range plan {
@@ -20,8 +20,8 @@ func TestPlanRemoteMigration(t *testing.T) {
 	if len(plan) != 2 {
 		t.Fatalf("plan has %d renames, want 2: %+v", len(plan), plan)
 	}
-	if r, ok := got["thieso2-io"]; !ok || r.To != "castle-io" || !r.IsCurrent {
-		t.Fatalf("thieso2-io rename wrong: %+v (current pointer must move)", r)
+	if r, ok := got["thieso2-io"]; !ok || r.To != "castle-io" {
+		t.Fatalf("thieso2-io rename wrong: %+v", r)
 	}
 	if r, ok := got["sc-majestix-thieso2"]; !ok || r.To != "castle-default" {
 		t.Fatalf("base remote should become castle-default: %+v", r)
@@ -37,12 +37,17 @@ func TestPlanRemoteMigration(t *testing.T) {
 	}
 }
 
-func TestPlanRemoteMigration_EmptySuffixOrTenantIsNoop(t *testing.T) {
+func TestPlanRemoteMigration_NoopWhenInputsMissing(t *testing.T) {
 	remotes := []localRemote{{Name: "thieso2-io", Endpoint: "e", Project: "sc2-thieso2-io"}}
-	if plan := planRemoteMigration(remotes, "thieso2", "", "thieso2-io", "e"); plan != nil {
+	if plan := planRemoteMigration(remotes, "thieso2", "", "e"); plan != nil {
 		t.Fatalf("empty suffix must produce no plan, got %+v", plan)
 	}
-	if plan := planRemoteMigration(remotes, "", "castle", "thieso2-io", "e"); plan != nil {
+	if plan := planRemoteMigration(remotes, "", "castle", "e"); plan != nil {
 		t.Fatalf("empty tenant must produce no plan, got %+v", plan)
+	}
+	// The safety property: an unknown install endpoint must migrate NOTHING —
+	// never widen scope to another install's same-named remotes.
+	if plan := planRemoteMigration(remotes, "thieso2", "castle", ""); plan != nil {
+		t.Fatalf("empty endpoint must produce no plan (fail safe), got %+v", plan)
 	}
 }
