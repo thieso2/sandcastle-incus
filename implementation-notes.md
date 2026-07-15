@@ -5,6 +5,23 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-15 — Homebrew distribution requires the repo to be public (#102)
+
+The first release (`v0.1.0`) published cleanly and the cask reached the (public)
+tap, but `brew install thieso2/tap/sandcastle` failed with **HTTP 404** on the
+`releases/download/...tar.gz` URL. Cause: `sandcastle-incus` was **private**, and
+GitHub release-asset download URLs require auth for private repos — an
+authenticated request returned 200, anonymous (brew/curl) returned 404. The cask
+was fine; the *asset host* was gated.
+
+**Resolution:** the repo was made **public**, after which the assets download
+anonymously and `brew install` succeeds (`sandcastle`/`sc` both resolve, `version`
+prints `0.1.0`). Recorded because it's a non-obvious coupling: a *public* tap
+pointing at a *private* release repo silently produces an install that only works
+for authenticated users. If the repo ever needs to go private again, Homebrew
+distribution would require hosting the binaries in a separate public repo (point
+GoReleaser's release there) rather than the source repo.
+
 ## 2026-07-15 — tag-triggered release workflow (`.github/workflows/release.yml`, #98)
 
 Added the GitHub Actions workflow that drives `.goreleaser.yaml` on a `v*` tag.
