@@ -391,6 +391,13 @@ CREATE TABLE IF NOT EXISTS logs (
     duration_ms INTEGER NOT NULL DEFAULT 0,
     detail TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS dns_suffix_claims (
+    suffix TEXT PRIMARY KEY,
+    tenant TEXT NOT NULL UNIQUE,
+    user_key TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS logs_user_ts ON logs(user_key, ts);
 CREATE INDEX IF NOT EXISTS logs_ts ON logs(ts);
 INSERT INTO auth_app_meta (key, value, updated_at)
