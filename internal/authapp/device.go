@@ -37,6 +37,7 @@ type DeviceLogin struct {
 	ProvisionedAt      string
 	Token              string
 	RemoteName         string
+	DNSSuffix          string
 	IncusRemoteAddress string
 	IncusProject       string
 	TailscaleLoginURL  string
@@ -65,6 +66,7 @@ type devicePollResponse struct {
 	CLIAuthToken       string          `json:"cli_auth_token,omitempty"`
 	Token              string          `json:"incus_certificate_add_token,omitempty"`
 	RemoteName         string          `json:"remote_name,omitempty"`
+	DNSSuffix          string          `json:"dns_suffix,omitempty"`
 	IncusRemoteAddress string          `json:"incus_remote_address,omitempty"`
 	IncusProject       string          `json:"incus_project,omitempty"`
 	TailscaleLoginURL  string          `json:"tailscale_login_url,omitempty"`
@@ -249,6 +251,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		CLIAuthToken:       cliAuthToken,
 		Token:              login.Token,
 		RemoteName:         login.RemoteName,
+		DNSSuffix:          login.DNSSuffix,
 		IncusRemoteAddress: login.IncusRemoteAddress,
 		IncusProject:       login.IncusProject,
 		TailscaleLoginURL:  login.TailscaleLoginURL,
@@ -424,6 +427,7 @@ func (h handler) provisionPersonalTenant(ctx context.Context, login DeviceLogin,
 	}
 	login.Token = result.Token
 	login.RemoteName = result.RemoteName
+	login.DNSSuffix = result.DNSSuffix
 	login.IncusRemoteAddress = result.IncusRemoteAddress
 	login.IncusProject = result.IncusProject
 	login.TailscaleLoginURL = result.TailscaleLoginURL

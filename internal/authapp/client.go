@@ -48,6 +48,7 @@ type DevicePollResult struct {
 	CLIAuthToken       string
 	Token              string
 	RemoteName         string
+	DNSSuffix          string
 	IncusRemoteAddress string
 	IncusProject       string
 	TailscaleLoginURL  string
@@ -148,6 +149,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		UserKey:            payload.UserKey,
 		CLIAuthToken:       payload.CLIAuthToken,
 		Token:              payload.Token,
+		DNSSuffix:          payload.DNSSuffix,
 		RemoteName:         payload.RemoteName,
 		IncusRemoteAddress: payload.IncusRemoteAddress,
 		IncusProject:       payload.IncusProject,

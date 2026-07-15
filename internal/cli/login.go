@@ -787,6 +787,24 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 						if err := recordInstall(installed.RemoteName, args[0]); err != nil {
 							fmt.Fprintf(config.stderr, "Note: could not record install mapping: %v\n", err)
 						}
+						// Lazy migration (ADR-0020 #88): rename this tenant's legacy
+						// remotes to the `<suffix>-<project>` scheme. Best-effort —
+						// scoped to this install's endpoint so a same-named tenant on
+						// another install is untouched; failures are logged, not fatal.
+						if suffix := strings.TrimSpace(result.DNSSuffix); suffix != "" {
+							if incusDir := scconfig.ResolveConfigPath(installed.RemoteName); incusDir != "" {
+								installEndpoint := ""
+								if remotes, err := readLocalRemotes(incusDir); err == nil {
+									for _, r := range remotes {
+										if r.Name == installed.RemoteName {
+											installEndpoint = r.Endpoint
+											break
+										}
+									}
+								}
+								migrateLegacyRemotes(cmd.Context(), incusDir, tenant, suffix, installed.RemoteName, installEndpoint, config.stderr)
+							}
+						}
 						switch len(result.AccessibleTenants) {
 						case 0:
 							fmt.Fprintln(config.stdout, "No default tenant set; no accessible tenants were returned.")

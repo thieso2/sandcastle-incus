@@ -1703,3 +1703,26 @@ deferred stage-3 per-project naming both land in stage 6 (migration). Cross-inst
 switching for other reference-taking commands (create/lifecycle/image) is not wired
 here — connect is the primary; they still hit the resolveV2MachineReference
 cross-install error.
+
+## 2026-07-15 — ADR-0020 stage 6: lazy remote migration at login
+
+Renames a tenant's legacy incus remotes to `<suffix>-<project>` at next login (#88):
+
+- `planRemoteMigration` (pure, unit-tested): a remote is this tenant's iff pinned to
+  `sc2-<tenant>-<proj>`; new name `<suffix>-<proj>`; scoped by install endpoint so a
+  same-named tenant on another install is never touched; idempotent (skips
+  already-migrated + infra-pinned remotes).
+- `migrateLegacyRemotes` (infra glue): reads the incus config, runs `incus remote
+  rename` per plan; best-effort — a rename failure (e.g. target name already taken =
+  the cross-install collision guard) is logged, never fails login.
+- Threaded `DNSSuffix` through the device-poll wire (DeviceLogin → devicePollResponse
+  → DevicePollResult) so a **re-login** (no `--dns-suffix`) still gets the tenant's
+  stored suffix — which is exactly the migration case (existing tenants).
+- Hooked into `sc login` after remote enrollment; runs only when the server returns a
+  suffix. This also retro-fixes the stage-3 deferral: once a tenant's remotes are
+  migrated, they carry `<suffix>-<project>` names, which is what stage-5 cross-install
+  switching resolves against.
+
+**Not unit-testable (infra-bound):** the `incus remote rename` execution + login hook;
+only `planRemoteMigration` is unit-tested. Needs live validation against a client with
+legacy remotes.
