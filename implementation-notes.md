@@ -5,6 +5,39 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-15 — Homebrew release ships a Cask, not a Formula (`.goreleaser.yaml`, #97)
+
+Authored `.goreleaser.yaml` (GoReleaser v2) for the tag-triggered release. Two
+decisions weren't in ticket #97, which was written assuming the reference's
+`brews` (Formula) block:
+
+**Cask instead of Formula.** GoReleaser deprecated `brews` (soft since v2.10,
+enforced-in-`goreleaser check` by v2.16) in favour of `homebrew_casks` —
+`goreleaser check` now *fails* on `brews`. Casks are Homebrew's supported path
+for prebuilt binaries. User confirmed the switch. Consequence: **`brew` support
+becomes macOS-only** (Homebrew on Linux cannot install casks); Linux users take
+the release tarballs directly, which are still built and attached. The tool
+still targets linux+darwin × amd64+arm64 — only the *brew* channel narrows.
+
+**`sc` alias + quarantine.** A Cask has no `test do`/`install`/`license` blocks
+(those are Formula-only), so the ticket's `test:`/`install:` requirements were
+re-expressed in Cask idiom: GoReleaser auto-emits `binary "sandcastle"`, and the
+`sc` alias is added via `custom_block: binary "sandcastle", target: "sc"`. A
+`postflight` hook clears the `com.apple.quarantine` xattr so an *unsigned* build
+(before #100's signing secrets exist) still runs on macOS; harmless once signed.
+Notarization is a conditional `notarize.macos` block gated on
+`isEnvSet "MACOS_SIGN_P12"` — it self-skips until #100 provisions the secrets.
+
+**Cross-ticket coupling for #101/#98.** The old rails tool published
+`Formula/sandcastle.rb` in the *same* tap; a formula and a cask of one name
+collide, so #101 must delete the old formula and add a `tap_migrations.json`
+(`{"sandcastle": "thieso2/tap"}`) — GoReleaser can't emit that. The `brews`
+token env var is `HOMEBREW_TAP_GITHUB_TOKEN` (matching the reference), but the
+GitHub Actions *secret* is `HOMEBREW_TAP_TOKEN` (#99); #98's workflow maps one to
+the other. Verified end-to-end with `goreleaser check` + a `--snapshot` build:
+all four archives, `checksums.txt`, and a well-formed `Casks/sandcastle.rb`
+(both `binary` stanzas, ldflag-stamped `version`) render.
+
 ## 2026-07-15 — ingress binaries downloaded for the appliance arch, not the admin host
 
 Installing obelix (`--ingress cloudflare`) from a darwin/arm64 Mac onto the

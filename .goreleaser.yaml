@@ -1,0 +1,108 @@
+# GoReleaser config for the Incus-based Sandcastle CLI.
+# Intended to be driven by a `v*`-tag-triggered GitHub Actions workflow
+# (.github/workflows/release.yml is added separately in #98); until then it can
+# be exercised locally with `goreleaser release --snapshot --clean`.
+#
+# Ships ONLY the user CLI: the fat binary is installed as `sandcastle` with an
+# `sc` symlink. The admin roles (`sc-adm` / `sandcastle-admin`) are selected by
+# argv[0] at runtime (cmd/sandcastle/main.go) and are deliberately NOT exposed
+# by the Homebrew formula.
+version: 2
+
+# The module is `sandcastle-incus`, but the Homebrew formula (and its class)
+# must be `sandcastle` so `brew install thieso2/tap/sandcastle` keeps working
+# and replaces the old rails tool of the same name.
+project_name: sandcastle
+
+release:
+  # A re-run of the same tag overwrites its artifacts instead of erroring.
+  replace_existing_artifacts: true
+
+builds:
+  - id: sandcastle
+    binary: sandcastle
+    main: ./cmd/sandcastle
+    # Pure-Go tree (modernc.org/sqlite, no cgo) — verified CGO-free across all
+    # four targets, so no per-platform C toolchains are needed. See #95.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # `version` is a package-level `var` in internal/cli (see #96) so `-X` can
+    # stamp the tag. `-s -w` strips debug info to shrink the binary.
+    ldflags:
+      - -s -w -X github.com/thieso2/sandcastle-incus/internal/cli.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: sandcastle-{{ .Os }}-{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# macOS signing + notarization. Enabled only when the signing secrets are
+# present (provisioned by #100); when they are absent — e.g. the Apple
+# Developer agreement is not current — the whole block is skipped and the
+# release ships unsigned macOS tarballs rather than failing.
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      ids:
+        - sandcastle
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+
+# Homebrew Cask (not a Formula): `brews` is deprecated, and Casks are
+# Homebrew's supported path for shipping prebuilt binaries. Note: Casks are
+# macOS-only — Linux users install from the release tarballs directly.
+# Publishes to thieso2/homebrew-tap as Casks/sandcastle.rb.
+#
+# NOTE (#101): the old rails tool published Formula/sandcastle.rb in this same
+# tap. A formula and a cask of the same name collide, so #101 must delete the
+# old formula and add a tap_migrations.json ({"sandcastle": "thieso2/tap"}) so
+# `brew upgrade` moves existing users onto this cask. GoReleaser cannot emit
+# that migration file itself.
+homebrew_casks:
+  - name: sandcastle
+    repository:
+      owner: thieso2
+      name: homebrew-tap
+      # A cross-repo token — the workflow's default GITHUB_TOKEN cannot push to
+      # thieso2/homebrew-tap. The GitHub Actions secret is HOMEBREW_TAP_TOKEN
+      # (#99); the release workflow (#98) maps it into this env var.
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/thieso2/sandcastle-incus"
+    description: "CLI for Sandcastle — multi-tenant developer sandboxes on Incus"
+    # Silences Homebrew's "unverified URL" audit — the download host/path is
+    # this repo's own releases.
+    url:
+      verified: "github.com/thieso2/sandcastle-incus/"
+    # GoReleaser auto-generates `binary "sandcastle"`. Add the short `sc` alias
+    # as a second cask binary stanza pointing at the same staged binary.
+    custom_block: |
+      binary "sandcastle", target: "sc"
+    hooks:
+      post:
+        # Clear the Gatekeeper quarantine bit so an unsigned build (before the
+        # macOS signing secrets of #100 exist) still runs. Harmless once the
+        # binary is signed + notarized.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/sandcastle"]
+          end
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge"
