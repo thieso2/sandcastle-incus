@@ -15,7 +15,30 @@ and can publish HTTP routes through shared infrastructure Caddy.
 - [Usage guide](docs/usage.html)
 - [Admin and developer quickstart](docs/admin-developer-quickstart.html)
 
-## Build And Install
+## Install
+
+### Homebrew (macOS)
+
+```bash
+brew install thieso2/tap/sandcastle
+```
+
+This installs the `sandcastle` CLI plus the short `sc` alias. Upgrade with
+`brew upgrade sandcastle`. (Homebrew Casks are macOS-only; on Linux, use the
+release tarballs below.)
+
+> The current macOS binaries are **not yet code-signed**, so Gatekeeper may warn
+> on first run. The cask clears the quarantine attribute on install; if you still
+> hit a block, run `xattr -dr com.apple.quarantine "$(brew --prefix)/bin/sandcastle"`.
+
+### Release tarballs (Linux / macOS)
+
+Prebuilt archives for `linux`/`darwin` × `amd64`/`arm64` are attached to each
+[GitHub release](https://github.com/thieso2/sandcastle-incus/releases). Download
+`sandcastle-<os>-<arch>.tar.gz`, verify against `checksums.txt`, extract, and put
+`sandcastle` on your `PATH` (optionally symlinking `sc` to it).
+
+## Build From Source
 
 Build the product CLI locally:
 

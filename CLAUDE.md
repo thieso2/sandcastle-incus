@@ -30,6 +30,22 @@ These graphs reflect the commit they were generated at (`meta.json` records it);
 - Build AI image locally: `mise run image:ai:build-upload` (resolves latest npm versions, requires `SANDCASTLE_REMOTE`)
 - Build + publish to GHCR via the Image Builder appliance: `mise run image:all:build-remote` (requires `SANDCASTLE_REMOTE` and `SANDCASTLE_GHCR_TOKEN`; see `docs/adr/0010-image-builder-appliance.md`)
 
+### Cutting a Homebrew release
+
+Releases are tag-driven — pushing a `v*` tag runs `.github/workflows/release.yml`, which drives GoReleaser (`.goreleaser.yaml`):
+
+```bash
+git tag -a vX.Y.Z -m "vX.Y.Z — <summary>"
+git push origin vX.Y.Z
+```
+
+That builds the CLI for `linux`/`darwin` × `amd64`/`arm64`, publishes a GitHub release with the archives + `checksums.txt`, and pushes the Homebrew **Cask** (`Casks/sandcastle.rb`, with the `sc` alias) to [`thieso2/homebrew-tap`](https://github.com/thieso2/homebrew-tap) so `brew install thieso2/tap/sandcastle` picks it up. Notes:
+
+- The version is stamped into `internal/cli.version` via ldflags (it is a `var`, not a `const`, for exactly this).
+- A manual `workflow_dispatch` (or any non-tag run) does a `--snapshot` build and uploads artifacts **without** publishing — use it to smoke-test the pipeline. Locally: `goreleaser release --snapshot --clean`.
+- macOS signing/notarization is **conditional** on the `MACOS_*` repo secrets; absent them, builds ship **unsigned** (the cask self-heals quarantine on install). The tap push needs the `HOMEBREW_TAP_TOKEN` secret (a cross-repo PAT).
+- Homebrew Casks are macOS-only; Linux users take the release tarballs.
+
 ## Architecture
 
 **One fat binary** built from `cmd/sandcastle`, busybox-style — the invocation name selects the role (`cmd/sandcastle/main.go` dispatches on `argv[0]`):
