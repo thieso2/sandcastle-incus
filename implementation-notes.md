@@ -5,6 +5,34 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-15 — tag-triggered release workflow (`.github/workflows/release.yml`, #98)
+
+Added the GitHub Actions workflow that drives `.goreleaser.yaml` on a `v*` tag.
+Decisions beyond the ticket text:
+
+- **Only the reference's `cli-build` job survives.** The old rails
+  `release.yml` is mostly a Docker image build/push pipeline (app + sandbox
+  multi-arch manifests) irrelevant to this repo; I kept just the GoReleaser CLI
+  job, at repo root (no `vendor/sandcastle-cli` workdir), and dropped the
+  `installer.sh` upload step (curl installer is out of scope per map #94).
+- **macOS signing runs on `ubuntu-latest`, not a macOS runner.** GoReleaser's
+  native notarize signs with an embedded (rcodesign-style) signer that works on
+  Linux, so no costly macOS runner is needed; the block self-skips until #100's
+  `MACOS_*` secrets exist (`isEnvSet` gate in the config).
+- **Secret→env indirection.** Workflow maps Actions secret `HOMEBREW_TAP_TOKEN`
+  (#99) → env `HOMEBREW_TAP_GITHUB_TOKEN` (what `.goreleaser.yaml` reads).
+- **`fetch-depth: 0`** on checkout — GoReleaser needs full history + tags for
+  the version and changelog; a shallow clone breaks both.
+- **Snapshot path for non-tag refs.** `workflow_dispatch` (or any non-tag ref)
+  runs `release --snapshot --clean` and uploads `dist/sandcastle-*.tar.gz` +
+  `checksums.txt` as artifacts, publishing nothing — lets the pipeline be
+  exercised safely before the first real tag (#102).
+
+Validated locally with `actionlint` (clean) and confirmed the snapshot artifact
+globs match real GoReleaser output. Docs (a Homebrew-install line in
+`docs/usage.html`, an install-proof phase in `docs/e2e-sc2.md`) stay deferred to
+#102, when the channel actually works — same reasoning as #97.
+
 ## 2026-07-15 — Homebrew release ships a Cask, not a Formula (`.goreleaser.yaml`, #97)
 
 Authored `.goreleaser.yaml` (GoReleaser v2) for the tag-triggered release. Two
