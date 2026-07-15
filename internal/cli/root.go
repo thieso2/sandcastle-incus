@@ -27,7 +27,13 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
-const version = "0.0.0-dev"
+// version is the CLI version string. It is a var (not a const) so release
+// builds can stamp it via ldflags:
+//
+//	-X github.com/thieso2/sandcastle-incus/internal/cli.version={{.Version}}
+//
+// Defaults to a dev sentinel for `go build`/`go test` and un-stamped installs.
+var version = "0.0.0-dev"
 
 type outputFormat string
 

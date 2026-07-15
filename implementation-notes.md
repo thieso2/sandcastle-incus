@@ -5,6 +5,23 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-15 — version made ldflag-stampable (`const` → `var`) for Homebrew releases
+
+Ticket #96 (map #94, Homebrew release CI) asked for two things: (1) make the CLI
+version stampable at release time, and (2) add a user-facing `sandcastle version`
+command. Only (1) was actually outstanding — the user-facing `version` command
+already exists (`internal/cli/version.go`, wired at `internal/cli/root.go:244`,
+covered by `TestVersion*` in `root_test.go`). The ticket was written against an
+earlier assumption; I did not re-add a duplicate command.
+
+**Change:** `internal/cli/root.go` `const version` → `var version` (a `const`
+cannot be overwritten by `-X`). GoReleaser (#97) will stamp it via
+`-ldflags "-X github.com/thieso2/sandcastle-incus/internal/cli.version={{.Version}}"`.
+Both the user tree (`version.go`) and the admin tree (`admin.go`) already read this
+one symbol, so a single ldflag stamps both. Proven end-to-end: a build with
+`-X …cli.version=v9.9.9-stamptest` prints that value from `sandcastle version`
+(text and JSON); an un-stamped `go build`/`go test` keeps the `0.0.0-dev` sentinel.
+
 ## 2026-07-15 — first-login initial-project name (issue #93)
 
 Let the user **name their initial project** at first login instead of the
