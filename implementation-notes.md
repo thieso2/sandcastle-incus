@@ -5,6 +5,30 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-15 — ingress binaries downloaded for the appliance arch, not the admin host
+
+Installing obelix (`--ingress cloudflare`) from a darwin/arm64 Mac onto the
+amd64 `big` host failed: `caddy.service` and `cloudflared.service` died with
+`Exec format error`. Root cause: `fetchIngressBinaries` (`authapp_ingress.go`)
+resolved the download arch as `runtime.GOARCH` — the **admin host** running
+`sc-adm`, not the target appliance — so it pushed arm64 caddy/cloudflared into
+an amd64 container. (The `--binary` fat-binary was fine because it's passed
+explicitly.)
+
+**Change:** `fetchIngressBinaries(mode)` → `fetchIngressBinaries(mode, arch)`;
+`BootstrapAuthApp` now reads the running appliance's architecture via
+`applianceIngressArch` (new helper: `GetInstance(...).Architecture`, mapped
+`x86_64→amd64` / `aarch64→arm64`) and passes it in. Alternatives considered:
+(a) infer from the base image ref — brittle, the ref is an alias; (b) require
+the admin to pass `--ingress-arch` — pushes an install detail onto the operator.
+Reading the live instance is authoritative and invisible to the user.
+
+Also worth recording (env, not code): on macOS the `incus` CLI reads
+`~/Library/Application Support/incus/`, but sandcastle's embedded Incus client
+defaults to `~/.config/incus/`. Admin installs from a Mac must run with
+`INCUS_CONF="$HOME/Library/Application Support/incus"` or the remote (`big`) is
+"not found".
+
 ## 2026-07-15 — version made ldflag-stampable (`const` → `var`) for Homebrew releases
 
 Ticket #96 (map #94, Homebrew release CI) asked for two things: (1) make the CLI

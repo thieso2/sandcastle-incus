@@ -107,8 +107,12 @@ func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAp
 	mode := strings.TrimSpace(req.IngressMode)
 	units := []string{"sandcastle-auth-app.service"}
 	if mode == IngressACME || mode == IngressCloudflare {
-		c.log("fetch ingress binaries on the host (caddy" + map[bool]string{true: " + cloudflared", false: ""}[mode == IngressCloudflare] + ")")
-		caddy, cloudflared, err := fetchIngressBinaries(mode)
+		ingressArch, err := applianceIngressArch(psrv, instance)
+		if err != nil {
+			return err
+		}
+		c.log("fetch ingress binaries on the host (caddy" + map[bool]string{true: " + cloudflared", false: ""}[mode == IngressCloudflare] + ", arch " + ingressArch + ")")
+		caddy, cloudflared, err := fetchIngressBinaries(mode, ingressArch)
 		if err != nil {
 			return err
 		}
@@ -203,6 +207,25 @@ func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequ
 		return fmt.Errorf("wait for auth-app appliance: %w", err)
 	}
 	return waitInstanceRunning(server, instance, 60*time.Second)
+}
+
+// applianceIngressArch resolves the caddy/cloudflared download-arch token
+// ("amd64"/"arm64") from the running appliance instead of the admin host's
+// runtime.GOARCH, so a darwin/arm64 admin installing onto an amd64 Incus host
+// pushes ingress binaries that actually match the container.
+func applianceIngressArch(server TenantResourceServer, instance string) (string, error) {
+	inst, _, err := server.GetInstance(instance)
+	if err != nil {
+		return "", fmt.Errorf("read appliance %q architecture: %w", instance, err)
+	}
+	switch inst.Architecture {
+	case "x86_64", "amd64":
+		return "amd64", nil
+	case "aarch64", "arm64":
+		return "arm64", nil
+	default:
+		return "", fmt.Errorf("appliance %q has unsupported architecture %q for ingress binaries", instance, inst.Architecture)
+	}
 }
 
 // authAppDevices builds the appliance's device map; ACME ingress additionally
