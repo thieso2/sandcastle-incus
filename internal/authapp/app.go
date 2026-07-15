@@ -155,11 +155,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	if err := BootstrapAdmins(ctx, db, plan.BootstrapAdminUsers); err != nil {
 		return err
 	}
-	provisioner := r.Provisioner
-	if typed, ok := provisioner.(Provisioner); ok && strings.TrimSpace(typed.DefaultUnixUser) == "" {
-		typed.DefaultUnixUser = plan.DefaultUnixUser
-		provisioner = typed
-	}
+	provisioner := injectServeDependencies(r.Provisioner, db, plan.DefaultUnixUser)
 	server := &http.Server{
 		Addr: plan.Address,
 		Handler: logger.HTTP(NewHandler(db, HandlerOptions{
@@ -266,6 +262,22 @@ func (r HTTPRunner) runDNSReconcileLoop(ctx context.Context, logger *svclog.Logg
 			reconcile()
 		}
 	}
+}
+
+// injectServeDependencies patches the runtime dependencies only Serve can supply
+// into the concrete Provisioner: the auth database (which enables DNS-suffix
+// claiming, ADR-0020) and the default Unix user (when the caller left it blank).
+// A non-Provisioner value (e.g. a test fake) is returned unchanged.
+func injectServeDependencies(provisioner PersonalTenantProvisioner, db *sql.DB, defaultUnixUser string) PersonalTenantProvisioner {
+	typed, ok := provisioner.(Provisioner)
+	if !ok {
+		return provisioner
+	}
+	typed.DB = db
+	if strings.TrimSpace(typed.DefaultUnixUser) == "" {
+		typed.DefaultUnixUser = defaultUnixUser
+	}
+	return typed
 }
 
 func OpenDatabase(path string) (*sql.DB, error) {

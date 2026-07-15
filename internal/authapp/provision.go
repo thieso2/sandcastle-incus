@@ -2,6 +2,8 @@ package authapp
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -40,6 +42,10 @@ type PersonalTenantResult struct {
 	AccessibleTenants   []string
 	Token               string
 	RemoteName          string
+	// DNSSuffix is the tenant's resolved, immutable Tenant DNS Suffix — the stem
+	// of the incus remote name (ADR-0020). Returned so the client can name the
+	// remote and so re-login echoes the stored value.
+	DNSSuffix string
 	IncusRemoteAddress  string
 	TenantPrivateCIDR   string
 	Projects            []string
@@ -70,6 +76,10 @@ type Provisioner struct {
 	Tenants         tenant.IncusTenantStore
 	Trust           TrustTokenCreator
 	DefaultUnixUser string
+	// DB is the per-install auth database, injected by Serve. When set, first-login
+	// provisioning reserves the tenant's DNS suffix in the dns_suffix_claims registry
+	// (ADR-0020); nil disables the claim (e.g. unit tests without a database).
+	DB *sql.DB
 
 	// V2Create, when set, routes login provisioning through the v2 flow
 	// (default project + sidecar) instead of the v1 Personal Tenant path.
@@ -108,6 +118,19 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	})
 	if err != nil {
 		return PersonalTenantResult{}, err
+	}
+	// Reserve the tenant's DNS suffix in the per-install uniqueness registry
+	// before provisioning commits (ADR-0020). The suffix is immutable per tenant,
+	// so a taken suffix is bad user input — surface it as terminal (no retry).
+	// Same-tenant re-login re-claims idempotently.
+	if p.DB != nil {
+		if _, err := ClaimDNSSuffix(ctx, p.DB, plan.DNSSuffix, plan.Tenant, userKey); err != nil {
+			var claimErr *SuffixClaimError
+			if errors.As(err, &claimErr) {
+				return PersonalTenantResult{}, tenant.TerminalProvisionError{Err: err}
+			}
+			return PersonalTenantResult{}, err
+		}
 	}
 	created, err := p.V2Create(ctx, plan, strings.TrimSpace(tailscaleAuthKey))
 	if err != nil {
@@ -157,6 +180,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		AccessibleTenants:   []string{plan.Tenant},
 		Token:               tok.Token,
 		RemoteName:          tok.RemoteName,
+		DNSSuffix:           plan.DNSSuffix,
 		IncusRemoteAddress:  created.SidecarTailnetIP,
 		TenantPrivateCIDR:   plan.PrivateCIDR,
 		Projects:            append([]string{}, tok.Projects...),
