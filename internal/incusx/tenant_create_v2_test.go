@@ -1,11 +1,112 @@
 package incusx
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/lxc/incus/v6/shared/api"
+
+	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
+
+// fakeBridgeServer is a TenantCreateServer whose only implemented method is
+// UseProject, returning a fakeBridgeResources that records the network calls
+// ensureV2Bridge makes; everything else is embedded-nil (never called).
+type fakeBridgeServer struct {
+	TenantCreateServer // embedded: only UseProject is implemented below
+	res                *fakeBridgeResources
+}
+
+func (s *fakeBridgeServer) UseProject(string) TenantResourceServer { return s.res }
+
+// fakeBridgeResources implements only the network methods of TenantResourceServer.
+type fakeBridgeResources struct {
+	TenantResourceServer // embedded: only the network methods are implemented below
+	network              *api.Network
+	created              *api.NetworksPost
+	updated              *api.NetworkPut
+}
+
+func (s *fakeBridgeResources) GetNetwork(string) (*api.Network, string, error) {
+	if s.network == nil {
+		return nil, "", api.StatusErrorf(http.StatusNotFound, "not found")
+	}
+	return s.network, "etag", nil
+}
+
+func (s *fakeBridgeResources) CreateNetwork(n api.NetworksPost) error {
+	s.created = &n
+	return nil
+}
+
+func (s *fakeBridgeResources) UpdateNetwork(_ string, n api.NetworkPut, _ string) error {
+	s.updated = &n
+	return nil
+}
+
+// A fresh tenant bridge must be created with dns.mode=none. Every project of a
+// tenant shares this one bridge, and Incus's managed bridge DNS enforces
+// per-network uniqueness of the instance name — so without dns.mode=none,
+// h1:t1 and h2:t1 (distinct FQDNs) collide on start with
+// "Instance DNS name already used on network".
+func TestEnsureV2BridgeCreatesWithDNSModeNone(t *testing.T) {
+	res := &fakeBridgeResources{}
+	s := &fakeBridgeServer{res: res}
+	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSSuffix: "jules", PrivateCIDR: "10.249.7.0/24", DNSAddress: "10.249.7.3"}
+	if err := ensureV2Bridge(s, plan); err != nil {
+		t.Fatalf("ensureV2Bridge: %v", err)
+	}
+	if res.created == nil {
+		t.Fatal("expected a network to be created")
+	}
+	if got := res.created.Config["dns.mode"]; got != "none" {
+		t.Fatalf("dns.mode = %q, want none", got)
+	}
+}
+
+// A pre-existing bridge left at the managed-DNS default must be converged to
+// dns.mode=none on the next idempotent re-provision, not left to collide.
+func TestEnsureV2BridgeConvergesExistingToDNSModeNone(t *testing.T) {
+	res := &fakeBridgeResources{network: &api.Network{
+		Name: "sc2-acme",
+		NetworkPut: api.NetworkPut{Config: map[string]string{
+			"raw.dnsmasq": "dhcp-option=6,10.249.7.3",
+			// dns.mode absent → Incus defaults to "managed" (the buggy state).
+		}},
+	}}
+	s := &fakeBridgeServer{res: res}
+	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSAddress: "10.249.7.3"}
+	if err := ensureV2Bridge(s, plan); err != nil {
+		t.Fatalf("ensureV2Bridge: %v", err)
+	}
+	if res.updated == nil {
+		t.Fatal("expected the existing bridge to be updated")
+	}
+	if got := res.updated.Config["dns.mode"]; got != "none" {
+		t.Fatalf("dns.mode = %q, want none", got)
+	}
+}
+
+// A bridge already carrying dns.mode=none and the CoreDNS resolver option is
+// fully converged — ensureV2Bridge must be a no-op (no update call).
+func TestEnsureV2BridgeNoopWhenConverged(t *testing.T) {
+	res := &fakeBridgeResources{network: &api.Network{
+		Name: "sc2-acme",
+		NetworkPut: api.NetworkPut{Config: map[string]string{
+			"raw.dnsmasq": "dhcp-option=6,10.249.7.3",
+			"dns.mode":    "none",
+		}},
+	}}
+	s := &fakeBridgeServer{res: res}
+	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSAddress: "10.249.7.3"}
+	if err := ensureV2Bridge(s, plan); err != nil {
+		t.Fatalf("ensureV2Bridge: %v", err)
+	}
+	if res.updated != nil {
+		t.Fatal("converged bridge must not be updated")
+	}
+}
 
 // exitCodeOperation stubs an exec operation whose command exited with a code.
 type exitCodeOperation struct {

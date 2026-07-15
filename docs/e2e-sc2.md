@@ -347,10 +347,16 @@ sc login "https://$E2E_HOSTNAME" --simulate-token "$SIMULATE_TOKEN" --as e2edns 
 sc create web --detach                       # default project
 sc project create backend                    # NO flags: broker URL + cert from the login
 sc create backend:api --detach
+sc create backend:web --detach               # SAME machine name as default:web
 sc list                                      # FQDN column shows canonical names
 # PASS: EVERY machine created above appears in `sc list` immediately (list is
 #       scoped to the current remote's install — a same-named tenant of another
 #       install on the same daemon must never shadow this one)
+# PASS: `backend:web` starts cleanly even though `default:web` already exists —
+#       both projects share the tenant bridge, and the bridge carries
+#       dns.mode=none so Incus does NOT reject the second `web` with
+#       "Instance DNS name \"web\" already used on network". Their FQDNs stay
+#       distinct: web.default.castle vs web.backend.castle.
 
 # 2b. shared $HOME + /workspace across the project (CT ↔ VM)
 sc create vm1 --vm --detach                  # a VM next to the CTs in default

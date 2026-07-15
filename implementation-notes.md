@@ -1868,3 +1868,30 @@ identical switch code path). **Found + fixed a real bug:**
 e2edns@B login was blocked by a PRE-EXISTING, unrelated failure ("reconcile User SSH
 Public Key on machine api: script exited 1"), so the switch was validated via the A/A
 different-suffix path instead of A→B.
+
+## 2026-07-15 — shared tenant bridge must set `dns.mode=none` (same machine name across projects)
+
+**Bug (reported live):** `sc c h2:t1` failed to start with
+`Failed start validation for device "eth0": Instance DNS name "t1" already used on
+network` when a machine named `t1` already existed in a sibling project `h1` of the
+same tenant. All of a tenant's projects share one Incus bridge (`sc2-<tenant>`), and
+Incus's managed bridge DNS enforces **per-network** uniqueness of the instance name
+(`nic_bridged.go`, gated on `dns.mode != "none"`). Two `t1`s on one bridge collide even
+though their sandcastle FQDNs (`t1.h1.<suffix>` / `t1.h2.<suffix>`) are distinct.
+
+**Fix:** `ensureV2Bridge` now sets `dns.mode=none` on the tenant bridge, both at
+creation and by converging pre-existing bridges on the next idempotent re-provision
+(same pattern already used for the `raw.dnsmasq` CoreDNS resolver option). The bridge's
+built-in DNS was already dead weight — ADR-0018 makes the sidecar CoreDNS the sole
+authority and guests are pointed at it via `dhcp-option=6`, so disabling the bridge's
+managed DNS loses nothing and DHCP is unaffected.
+
+**Alternatives considered:** (a) set a project-qualified NIC `hostname`/DNS name per
+instance (e.g. `t1-h1`) — rejected: more moving parts, and the bridge DNS is never
+consulted anyway; (b) one bridge per project — rejected: a larger topology change that
+would break the shared-CIDR/sidecar model. `dns.mode=none` is the minimal, correct fix.
+
+**Live remediation for existing deployments:** the converge path only runs on tenant
+re-provision, so an already-created bridge can be fixed immediately with
+`incus network set sc2-<tenant> dns.mode=none` (admin remote), or by re-running tenant
+provisioning.
