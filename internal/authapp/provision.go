@@ -136,12 +136,19 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	if err != nil {
 		return PersonalTenantResult{}, err
 	}
-	// The client-facing remote name identifies the *install* by its Auth
-	// Hostname (the global URL), not the tenant — the GitHub username is the
-	// same on every install, so URL-based names (sc-obelix-thieso2-dev) keep two
-	// installs on one host from collapsing to one confusing remote. The
-	// certificate name stays prefix-keyed (server-side trust identity).
-	remoteName := usertrust.RemoteNameForAuthHostname(p.Admin.AuthHostname)
+	// The client-facing remote name is the tenant's DNS suffix + default project
+	// ("<suffix>-default", ADR-0020) — the suffix is unique per install (the
+	// claim registry) and tenant-chosen, so it disambiguates installs without the
+	// GitHub username (identical everywhere). Legacy install-label / tenant names
+	// remain as fallbacks below. The certificate name stays prefix-keyed
+	// (server-side trust identity).
+	// ADR-0020: name the remote after the tenant's DNS suffix and its default
+	// project ("<suffix>-default"). Fall back to the legacy install-label, then
+	// the tenant-based name, when no suffix is available (older installs).
+	remoteName := usertrust.RemoteNameForSuffixProject(plan.DNSSuffix, naming.DefaultProjectName)
+	if remoteName == "" {
+		remoteName = usertrust.RemoteNameForAuthHostname(p.Admin.AuthHostname)
+	}
 	if remoteName == "" {
 		remoteName = usertrust.RemoteInstallName(plan.Prefix, plan.Tenant)
 	}

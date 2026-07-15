@@ -1583,3 +1583,22 @@ follow-on. e2e (`SANDCASTLE_INCUS_E2E`) needs the live deployment and was not ru
   (`tenant/list.go`), so `sc c <tenant>:proj:machine` resolves but `sc c obelix:…`
   does not until the first-login suffix-selection + claim-table stage sets an
   install-distinguishing suffix. The cross-install branch is otherwise correct.
+
+## 2026-07-15 — ADR-0020 stage 3: remote naming from the DNS suffix (server core)
+
+- `usertrust.RemoteNameForSuffixProject(suffix, project)` -> `<suffix>-<project>`
+  (no omission, no `sc-` prefix). Added alongside the legacy
+  `RemoteNameForAuthHostname`/`RemoteInstallName`, which stay as fallbacks so
+  suffix-less/older installs still get a name and existing unit tests hold.
+- `ensurePersonalTenantV2` now names the login remote `<suffix>-default`
+  (prefers the suffix; falls back to the auth-hostname label, then the tenant
+  name). `PersonalTenantResult.DNSSuffix` (stage 2) supplies the value; the client
+  already prefers `result.RemoteName`.
+
+**Deferred to the client-side stages (5-6):** the *per-project* client remotes
+from `sc project create` (`<tenant>-<project>`) and `sc enroll`
+(`<baseRemote>-<shortProject>`). Renaming these to `<suffix>-<project>` needs the
+suffix threaded to the client (a new field on the project-create result +
+client use), which is done holistically with cross-install switching (stage 5)
+and lazy migration (stage 6). Until then those remotes keep their legacy names
+and still work; only the login remote uses the new scheme.
