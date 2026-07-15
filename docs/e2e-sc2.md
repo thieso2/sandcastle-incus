@@ -273,6 +273,86 @@ e2e on `home`** (DNS short-alias + tenant networking can't be fully unit-tested)
    `TestProvisionReuseInputsReturnsStoredDefaultProject`). A blank browser field
    on the same tenant likewise keeps `web`.
 
+**Device-approval page adapts to the tenant.** The browser device-approval page
+(`GET /device`) shows the DNS-suffix and initial-project **inputs only on first
+login**; once the tenant exists it renders the immutable suffix and existing
+projects **read-only** (`deviceApproveForm` looks the tenant up via
+`findPersonalTenant`; `TestDeviceFormShowsInputsForFirstLogin`,
+`TestDeviceFormHidesInputsForExistingTenant`). Live check on `home`:
+
+13. **Fresh tenant shows inputs; re-login shows state.** On a fresh tenant, open
+    the device-approval URL — **PASS:** the page has editable *DNS suffix* and
+    *Initial project* fields. Approve, provision, then start a second
+    `sc login` and open the approval page again — **PASS:** the fields are gone;
+    the page instead shows the tenant's suffix (e.g. `castle`) and its projects
+    (e.g. `default`, `web`) as read-only text, and approving still works with a
+    single click (blank submit reuses the stored suffix/project, no duplicate).
+
+**Current project stored on login + `sc info`.** Login writes the tenant's
+project into `~/.config/sandcastle/config.yml` (`project:`) so bare machine
+references resolve without `--project` — the fix for `project "default" not
+found in tenant … (projects: <name>)` on a tenant whose one project isn't named
+`default` (`applyLoginProjectDefault`, `saveProjectDefault`;
+`TestLoginStoresSingleProject`, `TestLoginMultipleProjectsNonInteractiveDefaults`,
+`TestLoginMultipleProjectsInteractivePrompt`, `TestLoginKeepsExistingValidProject`).
+Unit-tested, but the connect resolution deserves a live pass on `home`:
+
+10. **Bare connect resolves after login.** On the `--default-project=web` tenant
+    from scenario 8, immediately after login run `sc config show`. **PASS:**
+    `file.project: "web"` (login stored it; no manual `sc config set project`).
+    Then `sc create dev` and `sc c dev` (no `project:` prefix, no `--project`)
+    **PASS:** connects — no `project "default" not found` error.
+11. **`sc info` shows context + projects.** Run `sc info`. **PASS:** prints
+    `Tenant`, `Project` (`web`), `Remote`, and `Auth`, then `Projects in <tenant>:`
+    listing the tenant's projects with the current one marked `*`. With the
+    tenant unreachable it still prints the local config plus a
+    `showing local config only` note and exits 0. `sc info --json` emits the same
+    fields as JSON.
+12. **Multi-project selection.** Add a second project (`sc project create api`),
+    then re-login. **PASS:** because the configured `project:` (`web`) is still
+    valid, login keeps it and prints `Current project: "web".` (no prompt). Clear
+    it (`sc config unset project`) and re-login on a TTY: login **prompts** for
+    the default; a non-interactive login instead defaults to the tenant's current
+    project and prints a `Change with: sc project switch <name>` note.
+13. **`sc project switch`.** With ≥2 projects, `sc project switch api` **PASS:**
+    prints `Switched to project "api"`, `sc config show` shows `file.project:
+    "api"`, and `sc project list` marks `* api`. `sc project switch ghost`
+    **PASS:** errors `project ghost not found in tenant … (projects: …)` unless
+    `--local-only` is passed (`newProjectSwitchCommand`;
+    `TestProjectSwitchSetsCurrentProject`, `TestProjectSwitchRejectsUnknownProject`,
+    `TestProjectListMarksCurrent`).
+
+**Idempotent login skips the browser — cross-install.** Before opening the web,
+`sc login <host>` reuses a still-valid saved login: token accepted + enrolled
+remote responds + tailnet routing healthy. It resolves the token/remote for the
+*requested* host from the `installs`/`auth_tokens` maps (not just the active
+install), so it works even when another install is active — and switches to it
+(`tryExistingLogin`, `enrolledRemoteForAuthHostname`, `adoptExistingInstall`;
+`TestLoginSwitchesToExistingInstallWithoutBrowser`). Live check on this Mac (has
+both `big` and `home` enrolled):
+
+14. **Skip web + switch.** With `big` active, `sc login https://home.thieso2.dev`
+    **PASS:** no browser opens; prints `Already logged in at https://home.thieso2.dev`
+    (+ `Switched active install to …` when the prior install differed), the
+    routing check passes, and `sc config show` now shows the home auth hostname,
+    remote, and broker (self-healed). `--force` still runs a full device flow.
+
+**One incus remote per install (ADR-0021).** The enrolled remote is named
+`<suffix>` (not `<suffix>-<project>`); the project is an orthogonal pin.
+`sc project switch` re-pins the active remote, and login lazily collapses a
+tenant's per-project/legacy remotes for this install to the single `<suffix>`
+(endpoint-scoped; never removes the current remote). Live check on `home`:
+
+15. **Remote is `<suffix>`, switch re-pins.** After `sc login https://<host>` (or
+    the lazy migration on re-login), `sc incus remote ls` shows one row named
+    `<suffix>` (e.g. `jules`), not `jules-first`, and any old `<suffix>-<project>`
+    remotes for this install are gone. `sc project switch h2` **PASS:** prints
+    `Re-pinned remote "<suffix>"`, and `sc incus ls` and raw `incus <suffix>: ls`
+    (via `INCUS_CONF`) both list `h2`'s machines — no divergence
+    (`repinCurrentRemoteProject`, `planRemoteMigration`;
+    `TestProjectSwitchRepinsRemote`, `TestPlanRemoteMigration`). `sc project
+    create x` no longer adds a per-project remote (default `--write-remote` off).
+
 Keep CIDR pools distinct across installs sharing a tailnet. Robustness fixes the
 from-scratch run surfaced (all in `internal/incusx` + the auth-app): tolerate
 the spurious "already running" on a cached-image create; wait for RUNNING

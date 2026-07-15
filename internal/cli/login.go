@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -14,6 +15,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -815,6 +818,12 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 						default:
 							fmt.Fprintln(config.stdout, "No default tenant set; multiple accessible tenants were returned.")
 						}
+						// Persist the tenant's current project so bare machine
+						// references (`sc c <machine>`) resolve without --project.
+						// Only meaningful once a single tenant is in context.
+						if result.CurrentProject != "" || len(result.AccessibleTenants) == 1 {
+							applyLoginProjectDefault(config, initialProject, result.Projects, result.CurrentProject)
+						}
 						if shouldRunLoginSetup(skipSetup, installed.Tenant, result.AccessibleTenants) {
 							runner := config.loginSetup
 							if runner != nil {
@@ -909,13 +918,40 @@ func sharedClientCertificatePEM() string {
 // device login (`--force` skips the shortcut entirely).
 func tryExistingLogin(ctx context.Context, config commandConfig, authHost string, verbosef func(string, ...any)) bool {
 	host := normalizeAuthHostname(authHost)
-	saved := normalizeAuthHostname(config.adminConfig.AuthHostname)
-	token := strings.TrimSpace(config.adminConfig.AuthToken)
-	remote := strings.TrimSpace(config.adminConfig.Remote)
-	if host == "" || saved != host || token == "" || remote == "" {
-		verbosef("no reusable login for %s (saved host=%q, credential present=%t, remote=%q)", host, saved, token != "", remote)
+	if host == "" {
 		return false
 	}
+	cfg, err := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath())
+	if err != nil {
+		verbosef("could not read config (%v); starting a fresh device login", err)
+		return false
+	}
+	activeHost := normalizeAuthHostname(config.adminConfig.AuthHostname)
+	activeRemote := strings.TrimSpace(config.adminConfig.Remote)
+
+	// Resolve the credentials for the REQUESTED host — not just the active
+	// install. `sc login <host>` should skip the browser whenever we already
+	// hold a working login for it, even when another install is currently
+	// active (the token lives in the auth_tokens map, the enrolled remote in
+	// the installs map). When the requested host IS the active one, prefer the
+	// active fields so a simple single-install setup needs no maps.
+	token := ""
+	remote := ""
+	if activeHost == host {
+		token = strings.TrimSpace(config.adminConfig.AuthToken)
+		remote = activeRemote
+	}
+	if token == "" {
+		token = strings.TrimSpace(cfg.AuthTokenForAuthHostname(host))
+	}
+	if remote == "" {
+		remote = enrolledRemoteForAuthHostname(cfg, host)
+	}
+	if token == "" || remote == "" {
+		verbosef("no reusable login for %s (credential present=%t, enrolled remote=%q)", host, token != "", remote)
+		return false
+	}
+
 	client := config.authTenants
 	if client == nil {
 		client = authapp.DeviceClient{BaseURL: host, AuthToken: token}
@@ -925,22 +961,25 @@ func tryExistingLogin(ctx context.Context, config commandConfig, authHost string
 		verbosef("saved CLI Auth Token was rejected (%v); starting a fresh device login", err)
 		return false
 	}
+
+	// Which tenant does this install serve? Prefer the configured tenant when it
+	// is still accessible; otherwise the sole accessible tenant. Its CIDR feeds
+	// the tailnet routing check below.
 	tenant := strings.TrimSpace(config.adminConfig.Tenant)
+	if tenant != "" && !tenantAccessListed(tenants, tenant) {
+		tenant = ""
+	}
+	if tenant == "" && len(tenants) == 1 {
+		tenant = strings.TrimSpace(tenants[0].Tenant)
+	}
 	tenantCIDR := ""
-	if tenant != "" {
-		found := false
-		for _, candidate := range tenants {
-			if candidate.Tenant == tenant {
-				found = true
-				tenantCIDR = strings.TrimSpace(candidate.PrivateCIDR)
-				break
-			}
-		}
-		if !found {
-			verbosef("current tenant %q is no longer accessible; starting a fresh device login", tenant)
-			return false
+	for _, candidate := range tenants {
+		if candidate.Tenant == tenant {
+			tenantCIDR = strings.TrimSpace(candidate.PrivateCIDR)
+			break
 		}
 	}
+
 	probe := config.loginRemoteProbe
 	if probe == nil {
 		probe = probeLoginRemote
@@ -969,16 +1008,55 @@ func tryExistingLogin(ctx context.Context, config commandConfig, authHost string
 			return true
 		}
 	}
-	// Backfill the broker URL for logins saved before it was recorded.
-	if broker := brokerURLForTenantCIDR(tenantCIDR); broker != "" {
-		_ = saveBrokerDefault(host, broker)
+
+	// Make this install the active one so subsequent commands target it. For an
+	// already-active install this only re-points a stale auth_hostname/token
+	// (self-heal); for a different install it is the switch the user asked for.
+	broker := brokerURLForTenantCIDR(tenantCIDR)
+	if broker == "" {
+		broker = strings.TrimSpace(cfg.BrokerForAuthHostname(host))
 	}
+	switched, err := adoptExistingInstall(host, remote, token, tenant, broker)
+	if err != nil {
+		verbosef("could not persist the existing login (%v); reporting it anyway", err)
+	}
+
 	fmt.Fprintf(config.stdout, "Already logged in at %s", host)
 	if tenant != "" {
 		fmt.Fprintf(config.stdout, " (tenant %q)", tenant)
 	}
-	fmt.Fprintf(config.stdout, "; remote %q responds.\nRe-run with --force to re-authenticate.\n", remote)
+	fmt.Fprintf(config.stdout, "; remote %q responds.\n", remote)
+	if switched {
+		fmt.Fprintf(config.stdout, "Switched active install to %s.\n", host)
+	}
+	fmt.Fprintln(config.stdout, "Re-run with --force to re-authenticate.")
 	return true
+}
+
+// enrolledRemoteForAuthHostname returns a locally-enrolled Sandcastle remote
+// belonging to the given install (Auth Hostname), from the installs map, or ""
+// when none is both recorded for that host and enrolled on this machine. When
+// several qualify it returns the lexicographically first for determinism.
+func enrolledRemoteForAuthHostname(cfg scconfig.SandcastleConfig, host string) string {
+	host = normalizeAuthHostname(host)
+	if host == "" {
+		return ""
+	}
+	var candidates []string
+	for remote, recorded := range cfg.Installs {
+		if normalizeAuthHostname(recorded) != host {
+			continue
+		}
+		if scconfig.ResolveConfigPath(strings.TrimSpace(remote)) == "" {
+			continue // recorded but not enrolled locally
+		}
+		candidates = append(candidates, strings.TrimSpace(remote))
+	}
+	slices.Sort(candidates)
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
 }
 
 func tenantAccessListed(tenants []authapp.TenantAccessSummary, name string) bool {
@@ -1131,6 +1209,98 @@ func defaultLoginTenant(tenants []string) string {
 		return tenants[0]
 	}
 	return ""
+}
+
+// applyLoginProjectDefault persists the tenant's current project after a
+// successful device login so bare machine references (`sc c <machine>`) resolve
+// without --project. The tenant's one project is stored silently; when it has
+// several, an already-valid configured choice is kept, otherwise the user is
+// prompted interactively (falling back to a noted default when non-interactive).
+func applyLoginProjectDefault(config commandConfig, initialProject string, projects []string, current string) {
+	current = strings.TrimSpace(current)
+	clean := make([]string, 0, len(projects))
+	for _, p := range projects {
+		if p = strings.TrimSpace(p); p != "" {
+			clean = append(clean, p)
+		}
+	}
+
+	chosen := ""
+	switch {
+	case strings.TrimSpace(initialProject) != "" && slices.Contains(clean, strings.TrimSpace(initialProject)):
+		// The explicit first-login choice wins over any prompt.
+		chosen = strings.TrimSpace(initialProject)
+	case len(clean) == 0:
+		// No project list returned — fall back to whatever the server resolved.
+		chosen = current
+	case len(clean) == 1:
+		chosen = clean[0]
+	default:
+		if cfg, err := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath()); err == nil {
+			if existing := strings.TrimSpace(cfg.Project); existing != "" && slices.Contains(clean, existing) {
+				// A returning user's valid choice — keep it, don't nag.
+				fmt.Fprintf(config.stdout, "Current project: %q.\n", existing)
+				return
+			}
+		}
+		if isTerminalInput(config) {
+			chosen = promptLoginProject(config, clean, current)
+		} else {
+			chosen = current
+			if chosen == "" {
+				chosen = clean[0]
+			}
+			fmt.Fprintf(config.stdout, "Multiple projects available (%s); defaulted to %q. Change with: sc project switch <name>\n", strings.Join(clean, ", "), chosen)
+		}
+	}
+
+	if strings.TrimSpace(chosen) == "" {
+		return
+	}
+	changed, err := saveProjectDefault(chosen)
+	if err != nil {
+		fmt.Fprintf(config.stderr, "Note: could not save default project: %v\n", err)
+		return
+	}
+	if changed {
+		fmt.Fprintf(config.stdout, "Default project set to %q.\n", chosen)
+	}
+}
+
+// promptLoginProject asks the user which project to make the default, accepting
+// either a list number or a name. Empty input (or a read error) picks def.
+func promptLoginProject(config commandConfig, projects []string, current string) string {
+	def := current
+	if def == "" || !slices.Contains(projects, def) {
+		def = projects[0]
+	}
+	fmt.Fprintln(config.stdout, "Select your default project:")
+	for i, p := range projects {
+		marker := "  "
+		if p == def {
+			marker = "* "
+		}
+		fmt.Fprintf(config.stdout, "  %s%d) %s\n", marker, i+1, p)
+	}
+	fmt.Fprintf(config.stderr, "Project [%s]: ", def)
+	line, err := bufio.NewReader(config.stdin).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return def
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return def
+	}
+	if n, convErr := strconv.Atoi(line); convErr == nil {
+		if n >= 1 && n <= len(projects) {
+			return projects[n-1]
+		}
+		return def
+	}
+	if slices.Contains(projects, line) {
+		return line
+	}
+	return def
 }
 
 func shouldRunLoginSetup(skipSetup bool, tenantName string, accessibleTenants []string) bool {

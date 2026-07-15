@@ -189,3 +189,17 @@ func TestRemoteNameForSuffixProject(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoteNameForSuffix(t *testing.T) {
+	cases := []struct{ suffix, want string }{
+		{"jules", "jules"},        // ADR-0021: the install's suffix alone
+		{"obelix-eu", "obelix-eu"}, // dashes survive
+		{"  Castle ", "castle"},    // normalized
+		{"", ""},                   // blank -> caller falls back
+	}
+	for _, c := range cases {
+		if got := RemoteNameForSuffix(c.suffix); got != c.want {
+			t.Errorf("RemoteNameForSuffix(%q) = %q, want %q", c.suffix, got, c.want)
+		}
+	}
+}

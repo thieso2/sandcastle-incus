@@ -73,11 +73,12 @@ func TestApproveDeviceLoginWithoutInitialProjectLeavesItEmpty(t *testing.T) {
 
 func TestDeviceTemplateRendersInitialProjectField(t *testing.T) {
 	var buf bytes.Buffer
-	if err := deviceTemplate.Execute(&buf, struct {
-		UserCode       string
-		DNSSuffix      string
-		InitialProject string
-	}{UserCode: "ABCD-1234", InitialProject: "web"}); err != nil {
+	if err := deviceTemplate.Execute(&buf, deviceFormData{
+		UserCode:         "ABCD-1234",
+		InitialProject:   "web",
+		ShowSuffixInput:  true,
+		ShowProjectInput: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	html := buf.String()

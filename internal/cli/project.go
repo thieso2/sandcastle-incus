@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
@@ -18,6 +20,7 @@ func newProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Manage lightweight projects in the current tenant",
 	}
 	command.AddCommand(newProjectListCommand(config, opts))
+	command.AddCommand(newProjectSwitchCommand(config, opts))
 	command.AddCommand(newProjectCreateV2Command(config, opts))
 	command.AddCommand(newProjectStatusCommand(config, opts))
 	command.AddCommand(newProjectSetCloudIdentityCommand(config, opts))
@@ -29,17 +32,146 @@ func newProjectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func newProjectListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List projects in the current tenant",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List projects in the current tenant",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tenantSummary, err := currentTenantSummary(cmd.Context(), config)
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatProjectNamespaceList(tenantSummary), tenantSummary)
+			return writeOutput(config.stdout, opts.output, formatProjectNamespaceList(tenantSummary, currentProjectName(config, tenantSummary)), tenantSummary)
 		},
 	}
+}
+
+type projectSwitchOutput struct {
+	Project        string `json:"project"`
+	LocalOnly      bool   `json:"local_only,omitempty"`
+	ConfigPath     string `json:"config_path"`
+	RemoteRepinned string `json:"remote_repinned,omitempty"`
+}
+
+// newProjectSwitchCommand selects the local current project, mirroring
+// `incus remote switch`. It validates the project exists in the current tenant
+// (skippable with --local-only), persists it to the user config, and re-pins the
+// active install's incus remote to the new project (ADR-0021: one remote per
+// install, the project is an orthogonal pin that follows the switch) so raw
+// `incus <remote>:` agrees with `sc`.
+func newProjectSwitchCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	var localOnly bool
+	command := &cobra.Command{
+		Use:   "switch name",
+		Short: "Select the local current project in the current tenant",
+		Long:  "Select the local current project (mirrors `incus remote switch`). By default this checks the project exists in the current tenant; use --local-only to update local config without the lookup. It also re-pins the active incus remote to the new project (ADR-0021).",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := strings.TrimSpace(args[0])
+			if name == "" {
+				return fmt.Errorf("project is required")
+			}
+			if err := naming.ValidateProjectName(name); err != nil {
+				return err
+			}
+			incusProject := ""
+			if !localOnly {
+				summary, err := currentTenantSummary(cmd.Context(), config)
+				if err != nil {
+					return err
+				}
+				if _, ok := findProject(summary, name); !ok {
+					names := make([]string, 0, len(summary.Projects))
+					for _, p := range summary.Projects {
+						names = append(names, p.Name)
+					}
+					return fmt.Errorf("project %s not found in tenant %s (projects: %s); use --local-only to set it anyway", name, summary.Tenant, strings.Join(names, ", "))
+				}
+				incusProject = summary.V2IncusProjectName(name)
+			}
+			cfgPath := scconfig.DefaultConfigPath()
+			cfg, err := scconfig.LoadSandcastleConfig(cfgPath)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			cfg.Project = name
+			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
+				return fmt.Errorf("save config: %w", err)
+			}
+			result := projectSwitchOutput{
+				Project:        name,
+				LocalOnly:      localOnly,
+				ConfigPath:     cfgPath,
+				RemoteRepinned: repinCurrentRemoteProject(config.adminConfig.Remote, config.adminConfig.Tenant, name, incusProject),
+			}
+			return writeOutput(config.stdout, opts.output, formatProjectSwitch(result), result)
+		},
+	}
+	command.Flags().BoolVar(&localOnly, "local-only", false, "update the local current project without checking it exists in the tenant or re-pinning the remote")
+	return command
+}
+
+func formatProjectSwitch(out projectSwitchOutput) string {
+	msg := fmt.Sprintf("Switched to project %q (saved in %s).", out.Project, out.ConfigPath)
+	if out.RemoteRepinned != "" {
+		msg += fmt.Sprintf("\nRe-pinned remote %q to the project.", out.RemoteRepinned)
+	}
+	return msg
+}
+
+// repinCurrentRemoteProject points the active install's incus remote at the new
+// project's Incus project (ADR-0021) so raw `incus <remote>:` follows a switch.
+// Best-effort: returns the remote name when it re-pinned, else "" (no remote, not
+// enrolled locally, an unresolvable project, or a write error — the switch still
+// succeeds; `sc` itself never depends on the pin). incusProject may be empty
+// (e.g. --local-only), in which case it is derived from the remote's current pin.
+func repinCurrentRemoteProject(remote, tenant, project, incusProject string) string {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return ""
+	}
+	dir := scconfig.ResolveConfigPath(remote)
+	if dir == "" {
+		return ""
+	}
+	if strings.TrimSpace(incusProject) == "" {
+		infra := infraFromPinnedProject(scconfig.SharedIncusRemoteProject(remote), tenant)
+		if infra == "" {
+			return ""
+		}
+		incusProject = infra + "-" + project
+	}
+	if err := setRemoteProject(filepath.Join(dir, "config.yml"), remote, incusProject); err != nil {
+		return ""
+	}
+	return remote
+}
+
+// infraFromPinnedProject recovers the `<prefix>-<tenant>` stem from a pinned
+// incus project `<prefix>-<tenant>[-<project>]`, or "" when it doesn't match.
+func infraFromPinnedProject(pin, tenant string) string {
+	pin = strings.TrimSpace(pin)
+	tenant = strings.TrimSpace(tenant)
+	if pin == "" || tenant == "" {
+		return ""
+	}
+	marker := "-" + tenant
+	if idx := strings.Index(pin, marker+"-"); idx >= 0 {
+		return pin[:idx+len(marker)]
+	}
+	if strings.HasSuffix(pin, marker) {
+		return pin
+	}
+	return ""
+}
+
+// currentProjectName resolves the project to mark as current in listings: the
+// configured project, else the tenant's default project.
+func currentProjectName(config commandConfig, summary tenant.Summary) string {
+	if current := strings.TrimSpace(config.adminConfig.Project); current != "" {
+		return current
+	}
+	return strings.TrimSpace(summary.DefaultProject)
 }
 
 type projectStatusPayload struct {
@@ -285,13 +417,18 @@ func currentTenantSummary(ctx context.Context, config commandConfig) (tenant.Sum
 	return tenant.Summary{}, fmt.Errorf("Sandcastle tenant %s not found", ref.Tenant)
 }
 
-func formatProjectNamespaceList(tenant tenant.Summary) string {
+func formatProjectNamespaceList(tenant tenant.Summary, current string) string {
 	if len(tenant.Projects) == 0 {
 		return "No Sandcastle projects found."
 	}
+	current = strings.TrimSpace(current)
 	var builder strings.Builder
 	for _, namespace := range tenant.Projects {
-		fmt.Fprintf(&builder, "%s\n", namespace.Name)
+		marker := "  "
+		if namespace.Name == current {
+			marker = "* "
+		}
+		fmt.Fprintf(&builder, "%s%s\n", marker, namespace.Name)
 	}
 	return strings.TrimRight(builder.String(), "\n")
 }

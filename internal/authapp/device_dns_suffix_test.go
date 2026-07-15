@@ -72,11 +72,12 @@ func TestApproveDeviceLoginWithoutSuffixLeavesItEmpty(t *testing.T) {
 
 func TestDeviceTemplateRendersDNSSuffixField(t *testing.T) {
 	var buf bytes.Buffer
-	if err := deviceTemplate.Execute(&buf, struct {
-		UserCode       string
-		DNSSuffix      string
-		InitialProject string
-	}{UserCode: "ABCD-1234", DNSSuffix: "julius"}); err != nil {
+	if err := deviceTemplate.Execute(&buf, deviceFormData{
+		UserCode:         "ABCD-1234",
+		DNSSuffix:        "julius",
+		ShowSuffixInput:  true,
+		ShowProjectInput: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	html := buf.String()

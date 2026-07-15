@@ -63,6 +63,85 @@ func saveAuthDefaults(rawHostname string, rawToken string) error {
 	return nil
 }
 
+// saveProjectDefault records the tenant's current project in the user config so
+// bare machine references (`sc c <machine>`) resolve without --project or a
+// manual `sc config set project`. Returns whether the stored value changed.
+func saveProjectDefault(project string) (bool, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return false, nil
+	}
+	path := scconfig.DefaultConfigPath()
+	cfg, err := scconfig.LoadSandcastleConfig(path)
+	if err != nil {
+		return false, fmt.Errorf("load config: %w", err)
+	}
+	if cfg.Project == project {
+		return false, nil
+	}
+	cfg.Project = project
+	if err := scconfig.SaveSandcastleConfig(path, cfg); err != nil {
+		return false, fmt.Errorf("save config: %w", err)
+	}
+	return true, nil
+}
+
+// adoptExistingInstall makes an already-enrolled install the active one when
+// `sc login` finds a still-valid saved login for it (the idempotent-login
+// shortcut). It re-points the active Auth Hostname, CLI token, broker, tenant,
+// and Sandcastle remote — and the shared incus current remote — at that
+// install, keeping the per-install maps consistent. For the already-active
+// install it is a no-op-ish re-write that heals a stale auth_hostname/token.
+// It returns whether the active install actually changed (a different Auth
+// Hostname or Sandcastle remote than before), so the caller can report a switch.
+func adoptExistingInstall(rawHost, rawRemote, rawToken, rawTenant, rawBroker string) (bool, error) {
+	host := normalizeAuthHostname(rawHost)
+	remote := strings.TrimSpace(rawRemote)
+	token := strings.TrimSpace(rawToken)
+	tenant := strings.TrimSpace(rawTenant)
+	broker := strings.TrimRight(strings.TrimSpace(rawBroker), "/")
+	if host == "" || remote == "" {
+		return false, nil
+	}
+	path := scconfig.DefaultConfigPath()
+	cfg, err := scconfig.LoadSandcastleConfig(path)
+	if err != nil {
+		return false, fmt.Errorf("load config: %w", err)
+	}
+	changed := normalizeAuthHostname(cfg.AuthHostname) != host || strings.TrimSpace(cfg.Remote) != remote
+	cfg.AuthHostname = host
+	cfg.Remote = remote
+	if token != "" {
+		cfg.AuthToken = token
+		if cfg.AuthTokens == nil {
+			cfg.AuthTokens = map[string]string{}
+		}
+		cfg.AuthTokens[host] = token
+	}
+	if broker != "" {
+		cfg.Broker = broker
+		if cfg.Brokers == nil {
+			cfg.Brokers = map[string]string{}
+		}
+		cfg.Brokers[host] = broker
+	}
+	if tenant != "" {
+		cfg.Tenant = tenant
+	}
+	if cfg.Installs == nil {
+		cfg.Installs = map[string]string{}
+	}
+	cfg.Installs[remote] = host
+	if err := scconfig.SaveSandcastleConfig(path, cfg); err != nil {
+		return false, fmt.Errorf("save config: %w", err)
+	}
+	// The shared incus dir's current remote is the source of truth for the
+	// active install; write through when the remote is enrolled there. Best
+	// effort — the config.yml remote is the fallback when it is not.
+	_ = scconfig.SetSharedIncusDefaultRemote(remote)
+	return changed, nil
+}
+
 // recordInstall maps an enrolled Incus remote name to the install's public Auth
 // Hostname (its global URL). It lets `sc config set remote <name>` re-point the
 // auth plane at the matching install without a re-login.

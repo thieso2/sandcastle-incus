@@ -250,6 +250,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newVersionCommand(config, opts))
 	root.AddCommand(newListCommand(config, opts))
 	root.AddCommand(newStatusCommand(config, opts))
+	root.AddCommand(newInfoCommand(config, opts))
 	root.AddCommand(newCreateCommand(config, opts))
 	root.AddCommand(newImageCommand(config, opts))
 	root.AddCommand(newConnectCommand(config, opts))

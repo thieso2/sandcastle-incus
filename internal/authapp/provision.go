@@ -145,12 +145,13 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		return PersonalTenantResult{}, err
 	}
 	// The client-facing remote name is the tenant's DNS suffix + default project
-	// ("<suffix>-default", ADR-0020) — the suffix is unique per install (the claim
-	// registry) and tenant-chosen, so it disambiguates installs without the GitHub
-	// username (identical everywhere). Fall back to the legacy install-label, then
-	// the tenant-based name, for older/suffix-less installs. The certificate name
-	// stays prefix-keyed (server-side trust identity).
-	remoteName := usertrust.RemoteNameForSuffixProject(plan.DNSSuffix, plan.DefaultProjectShort)
+	// ("<suffix>", ADR-0021: one remote per install) — the suffix is unique per
+	// install (the claim registry) and tenant-chosen, so it disambiguates installs
+	// without the GitHub username (identical everywhere); the project is an
+	// orthogonal pin, not part of the name. Fall back to the legacy install-label,
+	// then the tenant-based name, for older/suffix-less installs. The certificate
+	// name stays prefix-keyed (server-side trust identity).
+	remoteName := usertrust.RemoteNameForSuffix(plan.DNSSuffix)
 	if remoteName == "" {
 		remoteName = usertrust.RemoteNameForAuthHostname(p.Admin.AuthHostname)
 	}
@@ -195,13 +196,39 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		DNSSuffix:           plan.DNSSuffix,
 		IncusRemoteAddress:  created.SidecarTailnetIP,
 		TenantPrivateCIDR:   plan.PrivateCIDR,
-		Projects:            append([]string{}, tok.Projects...),
+		// The user-facing project list is SHORT names — the CLI pins one into
+		// config.Project and resolves it back to the full Incus name via
+		// Summary.V2IncusProjectName. tok.Projects are the full cert-grant names
+		// (<prefix>-<tenant>-<short>); returning those verbatim made the client
+		// pin "obelix-thieso2-work" instead of "work", which then failed to
+		// resolve against the tenant's short project list.
+		Projects:            shortProjectNames(tok.Projects, plan.DefaultProject, plan.DefaultProjectShort),
 		CurrentProject:      plan.DefaultProjectShort,
 		DefaultProjectReady: true,
 		TenantTailnetReady:  created.SidecarTailnetIP != "",
 		TailscaleLoginURL:   created.TailscaleLoginURL,
 		Message:             message,
 	}, nil
+}
+
+// shortProjectNames maps full Incus project names (<prefix>-<tenant>-<short>) to
+// the short names the CLI pins and displays. The install/tenant prefix is
+// derived from the default project's full/short pair so it also works for
+// multi-project tenants (every project shares that prefix). Names that don't
+// carry the prefix (or when the pair is unavailable) pass through unchanged.
+func shortProjectNames(fullNames []string, defaultFull, defaultShort string) []string {
+	prefix := ""
+	if defaultShort != "" && strings.HasSuffix(defaultFull, "-"+defaultShort) {
+		prefix = strings.TrimSuffix(defaultFull, defaultShort) // "<prefix>-<tenant>-"
+	}
+	out := make([]string, 0, len(fullNames))
+	for _, name := range fullNames {
+		if prefix != "" {
+			name = strings.TrimPrefix(name, prefix)
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 func (p Provisioner) EnsurePersonalTenant(ctx context.Context, user User, options ProvisionOptions) (PersonalTenantResult, error) {

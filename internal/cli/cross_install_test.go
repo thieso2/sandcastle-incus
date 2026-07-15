@@ -6,51 +6,43 @@ import (
 )
 
 func TestResolveConnectTarget(t *testing.T) {
-	// All the enrolled remotes the client "has" for these cases.
-	enrolled := map[string]bool{
-		"obelix-sc":      true,
-		"obelix-web":     true,
-		"obelix-default": true, // the install is "known" (logged in)
-	}
+	// ADR-0021: one remote per install, named by the DNS suffix.
+	enrolled := map[string]bool{"obelix": true}
 	exists := func(name string) bool { return enrolled[name] }
-	known := func(suffix string) bool { return enrolled[suffix+"-default"] }
 
 	t.Run("no suffix is same-install (no switch)", func(t *testing.T) {
-		got, err := resolveConnectTarget("", "sc", "castle", exists, known)
+		got, err := resolveConnectTarget("", "castle", exists)
 		if err != nil || got != "" {
 			t.Fatalf("got %q, %v; want no switch", got, err)
 		}
 	})
 
 	t.Run("suffix equal to current install is no switch", func(t *testing.T) {
-		got, err := resolveConnectTarget("castle", "sc", "castle", exists, known)
+		got, err := resolveConnectTarget("castle", "castle", exists)
 		if err != nil || got != "" {
 			t.Fatalf("got %q, %v; want no switch", got, err)
 		}
 	})
 
-	t.Run("cross-install with an enrolled remote returns the target", func(t *testing.T) {
-		got, err := resolveConnectTarget("obelix", "sc", "castle", exists, known)
+	t.Run("cross-install with an enrolled remote returns the install remote", func(t *testing.T) {
+		got, err := resolveConnectTarget("obelix", "castle", exists)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != "obelix-sc" {
-			t.Fatalf("switchTo = %q, want obelix-sc", got)
+		if got != "obelix" {
+			t.Fatalf("switchTo = %q, want obelix", got)
 		}
 	})
 
-	t.Run("install known but project not enrolled -> enroll guidance", func(t *testing.T) {
-		_, err := resolveConnectTarget("obelix", "db", "castle", exists, known)
+	t.Run("install never logged into -> login guidance", func(t *testing.T) {
+		_, err := resolveConnectTarget("newbox", "castle", exists)
 		if err == nil {
-			t.Fatal("expected an error for a non-enrolled project remote")
+			t.Fatal("expected an error for an unknown install")
 		}
-		for _, want := range []string{"obelix-db", "sc enroll", "sc project create db"} {
+		for _, want := range []string{"newbox", "sc login"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("error %q missing %q", err.Error(), want)
 			}
-		}
-		if strings.Contains(err.Error(), "sc login") {
-			t.Fatalf("known install must NOT suggest sc login: %q", err.Error())
 		}
 	})
 
@@ -68,21 +60,6 @@ func TestResolveConnectTarget(t *testing.T) {
 			if got := tenantFromPinnedProject(c.pinned, c.project); got != c.want {
 				t.Errorf("tenantFromPinnedProject(%q,%q) = %q, want %q", c.pinned, c.project, got, c.want)
 			}
-		}
-	})
-
-	t.Run("install never touched -> login guidance", func(t *testing.T) {
-		_, err := resolveConnectTarget("newbox", "sc", "castle", exists, known)
-		if err == nil {
-			t.Fatal("expected an error for an unknown install")
-		}
-		for _, want := range []string{"newbox", "sc login"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("error %q missing %q", err.Error(), want)
-			}
-		}
-		if strings.Contains(err.Error(), "sc enroll") {
-			t.Fatalf("unknown install must NOT suggest sc enroll: %q", err.Error())
 		}
 	})
 }

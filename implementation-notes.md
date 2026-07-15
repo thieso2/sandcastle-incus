@@ -79,6 +79,135 @@ one symbol, so a single ldflag stamps both. Proven end-to-end: a build with
 `-X …cli.version=v9.9.9-stamptest` prints that value from `sandcastle version`
 (text and JSON); an un-stamped `go build`/`go test` keeps the `0.0.0-dev` sentinel.
 
+## 2026-07-15 — one incus remote per install (ADR-0021), project is a pin
+
+Reversed ADR-0020's one-remote-per-(install,project) naming. The remote is now
+`<suffix>` (one per install); the project is an orthogonal pin that
+`sc project switch` moves. Motivation: `sc` already navigates by `config.Project`
+(passed per-call via `INCUS_PROJECT` / the API), so per-project remotes only
+proliferated and, worse, diverged — after `sc project switch h2` raw
+`incus jules-first:` still showed `first`. See [ADR-0021](docs/adr/0021-one-incus-remote-per-install.md).
+
+Decisions / choices beyond the ADR:
+
+- **`sc project switch` re-pins the active remote** (`repinCurrentRemoteProject`)
+  to `sc2-<tenant>-<new>`, best-effort: no remote / not enrolled / unresolvable
+  project / write error → the switch still succeeds (sc never depends on the
+  pin). `--local-only` derives the new pin by swapping the tail of the current
+  pin (`infraFromPinnedProject`) so it works offline without a summary.
+- **Migration collapses, endpoint-scoped, non-destructive of the current.**
+  `planRemoteMigration` now returns renames + removes: one primary (already-named
+  `<suffix>` > default-project-pinned > first) becomes `<suffix>`, same-install
+  extras are removed. `migrateLegacyRemotes` never removes the incus
+  current-remote (would orphan the pointer) — leaves it with a note. Cross-install
+  name clashes are never clobbered (endpoint guard).
+- **`sc enroll` pins the single remote** to the default (else first) project
+  instead of looping per-project remotes; **`sc project create --write-remote`
+  defaults off** (opt-in for an extra directly-addressable remote).
+- **Kept `RemoteNameForSuffixProject`** for migration/tests reasoning about the
+  old scheme; new enrollment uses `RemoteNameForSuffix`. Cross-install connect
+  (`resolveConnectTarget`) simplified — one remote per install means the only
+  failure is "not logged into that install" (dropped the per-project enroll
+  guidance and `localInstallKnown`).
+- **Tradeoff accepted:** raw `incus <suffix>:` shows only the current project;
+  other projects need `--project` or a prior `sc project switch`. `sc` users
+  unaffected.
+
+## 2026-07-15 — `sc project switch` + cross-install idempotent login
+
+Two follow-ups to the project/login work.
+
+**`sc project switch <name>`** — a verb mirroring `incus remote switch|list`,
+the preferred way to change the active project (over `sc config set project`).
+It validates the project exists in the current tenant (`findProject` on the live
+summary) and persists `project:`; `--local-only` skips the lookup, mirroring
+`sc tenant switch`. `sc project list` (now also aliased `ls`) marks the current
+project with `*` for parity with `incus remote list`. Kept `sc config set
+project` working — `project switch` is the ergonomic front end, not a
+replacement. The non-interactive login note now points at `sc project switch`.
+
+**Cross-install idempotent login.** `tryExistingLogin` used to key the "already
+logged in, skip the browser" shortcut off the *active* `auth_hostname` field, so
+`sc login <other-host>` always opened the web even when valid credentials for
+that host were already stored. It now resolves the token + enrolled remote for
+the *requested* host from the per-install `auth_tokens` / `installs` maps, and on
+success **switches** the active install to it (`adoptExistingInstall`:
+auth hostname, token, broker, tenant, remote, and the shared incus current
+remote). Decisions:
+
+- **Prefer the active fields when the requested host IS the active install** (so
+  a plain single-install setup with no maps still short-circuits — preserves the
+  original behavior and its test), else fall back to the maps.
+- **"Switched" is reported from what actually changed on disk** (prior
+  `auth_hostname`/`remote` vs new), not from the in-memory active hostname —
+  which can be resolved/overridden and gave a false negative in a live run.
+- **Enrolled-only**: `enrolledRemoteForAuthHostname` only offers a remote that is
+  both recorded for the host AND locally enrolled (`ResolveConfigPath`), so the
+  probe has something real to hit; deterministic (sorted) when several qualify.
+- **Self-heal is the norm**: a stale active `auth_hostname` (observed live:
+  `auth.example.com` while the active remote pointed at home) is corrected as a
+  side effect, since the switch rewrites all the per-install pointers.
+
+## 2026-07-15 — device-approval form hides first-login inputs once the tenant exists
+
+The browser device-approval page asked every login to (re)name a DNS suffix and
+initial project, even though both are fixed after first login (suffix immutable,
+project already created) — confusing on re-login. `deviceApproveForm` now looks
+up the caller's Personal Tenant (`findPersonalTenant`) and, when it exists, hides
+the two inputs and shows the existing suffix + project list read-only.
+
+Decisions not spelled out in the request:
+
+- **Existence signal = `findPersonalTenant` succeeds**, not the `dns_suffix_claims`
+  row. The claim is authoritative for the suffix but says nothing about projects;
+  the tenant summary carries both (`Summary.DNSSuffix`, `Summary.Projects`) in one
+  admin-socket read, so it drives both fields. `Summary.DNSSuffix` defaults to the
+  tenant name, so it is always non-empty once the tenant exists — exactly the
+  "suffix already set" signal the user asked for.
+- **Fail open to the inputs.** Any lookup error (Incus unreachable) or a nil
+  tenants store leaves both inputs shown. That is safe: on re-login a blank
+  suffix/project reuses the stored values (`ProvisionReuseInputs`), so worst case
+  the user sees fields they can ignore — never a wrong immutable write. The nil
+  guard is also what keeps handler unit tests that construct a bare handler
+  (no `Tenants`) from panicking in `ListForPrefix`.
+- **CLI flags unchanged.** Hiding the browser field doesn't disable
+  `--dns-suffix` / `--default-project`; those ride the poll request and still win
+  via `effectiveDNSSuffix` / `effectiveInitialProject`. Hiding only removes the
+  browser input, so a blank form submit carries no suffix/project override.
+
+## 2026-07-15 — store current project on login + `sc info`
+
+`sc c <machine>` on a tenant whose one project isn't named `default` failed with
+`project "default" not found in tenant … (projects: first)`: the CLI never
+persisted a current project, so bare references defaulted to the hardcoded
+`naming.DefaultProjectName` (`"default"`), which the tenant didn't have. The
+server already returns the tenant's projects and resolved current project in the
+device-poll result — login just logged them. Now `applyLoginProjectDefault`
+writes the resolved project into `config.yml` (`saveProjectDefault`), and a new
+`sc info` surfaces the active context plus the tenant's live project list.
+
+Decisions not spelled out in the request:
+
+- **Selection policy** (confirmed with the user): a single-project tenant stores
+  its project silently; with several, an already-valid configured `project:` is
+  **kept without prompting** (don't nag returning users), otherwise an
+  interactive terminal is prompted and a non-interactive login defaults to the
+  server's current project with a `sc config set project` note. An explicit
+  `--default-project`/`--initial-project` that matches a project wins outright.
+  Only runs when a single tenant is in context (a project is meaningless across
+  multiple accessible tenants).
+- **Global `project:`, not per-tenant.** The config has one `project:` field
+  (like `tenant`/`remote`, whose active values are already driven by the shared
+  incus remote). Storing it globally matches the existing single-active-context
+  model rather than introducing per-remote project maps.
+- **`sc info` fetches live but never fails.** It calls `v2TenantSummary` to list
+  projects (the piece the failed `sc c` didn't surface — valid project names),
+  but on any error (offline / unresolved tenant) it degrades to the local config
+  with a note and exits 0. A read-only status command that errored on
+  connectivity would be worse than useless. Kept distinct from `sc config show`
+  (raw file + resolved values, no network): `sc info` is the human "where am I,
+  what can I target" view.
+
 ## 2026-07-15 — first-login initial-project name (issue #93)
 
 Let the user **name their initial project** at first login instead of the

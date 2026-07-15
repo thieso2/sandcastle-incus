@@ -494,22 +494,57 @@ func (h handler) deviceApprove(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deviceFormData drives the device-approval template. The DNS-suffix and
+// initial-project inputs are first-login-only: once the tenant exists both are
+// fixed (the suffix is immutable, the project already created), so we hide the
+// inputs and instead show what is already there.
+type deviceFormData struct {
+	UserCode         string
+	ShowSuffixInput  bool
+	DNSSuffix        string // prefill for the input (first login only)
+	ExistingSuffix   string // shown read-only once the tenant exists
+	ShowProjectInput bool
+	InitialProject   string // prefill for the input (first login only)
+	ExistingProjects []string
+}
+
 func (h handler) deviceApproveForm(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.requireAllowlistedSession(r); err != nil {
+	user, err := h.requireAllowlistedSession(r)
+	if err != nil {
 		// Come back HERE (with the user_code) after the GitHub login —
 		// otherwise the user lands on the start page and the code is lost.
 		http.Redirect(w, r, "/login/github?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 		return
 	}
-	code := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("user_code")))
-	suffix := strings.TrimSpace(r.URL.Query().Get("dns_suffix"))
-	initialProject := strings.TrimSpace(r.URL.Query().Get("initial_project"))
+	data := deviceFormData{
+		UserCode:         strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("user_code"))),
+		DNSSuffix:        strings.TrimSpace(r.URL.Query().Get("dns_suffix")),
+		InitialProject:   strings.TrimSpace(r.URL.Query().Get("initial_project")),
+		ShowSuffixInput:  true,
+		ShowProjectInput: true,
+	}
+	// If the user already has a Personal Tenant, its DNS suffix is immutable and
+	// its projects exist — don't ask to (re)name them. Show them instead. Best
+	// effort: if the lookup fails (Incus unreachable / no store), fall back to
+	// the inputs; leaving them blank on re-login reuses the stored values anyway.
+	if h.tenants != nil {
+		if summary, err := h.findPersonalTenant(r.Context(), user.UserKey); err == nil {
+			if suffix := strings.TrimSpace(summary.DNSSuffix); suffix != "" {
+				data.ExistingSuffix = suffix
+				data.ShowSuffixInput = false
+			}
+			for _, p := range summary.Projects {
+				if name := strings.TrimSpace(p.Name); name != "" {
+					data.ExistingProjects = append(data.ExistingProjects, name)
+				}
+			}
+			if len(data.ExistingProjects) > 0 {
+				data.ShowProjectInput = false
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = deviceTemplate.Execute(w, struct {
-		UserCode       string
-		DNSSuffix      string
-		InitialProject string
-	}{UserCode: code, DNSSuffix: suffix, InitialProject: initialProject})
+	_ = deviceTemplate.Execute(w, data)
 }
 
 func (h handler) deviceApprovePost(w http.ResponseWriter, r *http.Request) {
@@ -739,6 +774,7 @@ var deviceTemplate = template.Must(template.New("device").Parse(`<!doctype html>
     <h1>Device Login</h1>
     <form method="post" action="/device">
       <p><label>User Code <input name="user_code" value="{{.UserCode}}"></label></p>
+      {{if .ShowSuffixInput}}
       <p>
         <label>DNS suffix (TLD)
           <input name="dns_suffix" value="{{.DNSSuffix}}" placeholder="your tenant name" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -747,6 +783,13 @@ var deviceTemplate = template.Must(template.New("device").Parse(`<!doctype html>
         hostnames (<code>machine.project.&lt;suffix&gt;</code>) and is immutable once set.
         Leave blank to use your tenant name, or to keep your existing suffix on re-login.</small>
       </p>
+      {{else}}
+      <p>DNS suffix: <code>{{.ExistingSuffix}}</code><br>
+        <small>Already set for your tenant, and immutable — your machine hostnames end in
+        <code>.{{.ExistingSuffix}}</code>.</small>
+      </p>
+      {{end}}
+      {{if .ShowProjectInput}}
       <p>
         <label>Initial project
           <input name="initial_project" value="{{.InitialProject}}" placeholder="default" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -755,6 +798,12 @@ var deviceTemplate = template.Must(template.New("device").Parse(`<!doctype html>
         middle part of your machine hostnames (<code>machine.&lt;project&gt;.suffix</code>)
         and your enrolled Incus remote. Leave blank for <code>default</code>.</small>
       </p>
+      {{else}}
+      <p>Projects: {{range .ExistingProjects}}<code>{{.}}</code> {{end}}<br>
+        <small>Your tenant's existing projects — create more later with
+        <code>sc project create &lt;name&gt;</code>.</small>
+      </p>
+      {{end}}
       <button name="action" value="approve" type="submit">Approve</button>
       <button name="action" value="deny" type="submit">Deny</button>
     </form>

@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 	"gopkg.in/yaml.v2"
 )
@@ -21,46 +23,87 @@ type localRemote struct {
 	Project  string
 }
 
-// remoteRename is one legacy remote to rename to the ADR-0020 scheme.
+// remoteRename is one legacy remote to rename to the ADR-0021 scheme.
 type remoteRename struct {
 	From string
 	To   string
 }
 
-// planRemoteMigration computes the renames that bring a tenant's legacy incus
-// remotes onto the ADR-0020 `<suffix>-<project>` scheme (issue #88). A remote is
-// this tenant's iff its pinned incus project is `sc2-<tenant>-<proj>`; the new
-// name is `<suffix>-<proj>`. Already-migrated remotes (new name == current name)
-// and infra-pinned remotes (no short project) are skipped, making the plan
-// idempotent.
+// remoteMigration is the set of changes that bring a tenant's incus remotes onto
+// the ADR-0021 single-remote-per-install scheme: rename one primary to `<suffix>`
+// and remove the same-install extras (the per-project remotes being collapsed).
+type remoteMigration struct {
+	Renames []remoteRename
+	Removes []string
+}
+
+// planRemoteMigration computes the changes that collapse a tenant's incus remotes
+// for one install onto the ADR-0021 `<suffix>` scheme (one remote per install). A
+// remote belongs to this install iff its endpoint matches AND its pinned incus
+// project is `sc2-<tenant>-<proj>` (never by parsing the name — ADR-0020 dec. 2).
+// One primary (an already-`<suffix>`-named remote, else the default-project one,
+// else the lexicographically first) becomes `<suffix>`; the rest are removed.
+// Fully-migrated inputs (only `<suffix>` present) yield an empty plan (idempotent).
 //
 // The installEndpoint scope is MANDATORY, not best-effort: a same-named tenant on
-// a different install has the same pinned-project pattern, so without knowing this
-// install's endpoint we cannot tell them apart — and renaming the wrong install's
+// a different install has the same pinned-project pattern, so without this
+// install's endpoint we cannot tell them apart — and touching the wrong install's
 // remotes is worse than not migrating. An empty endpoint therefore yields no plan.
-func planRemoteMigration(remotes []localRemote, tenant, suffix, installEndpoint string) []remoteRename {
+func planRemoteMigration(remotes []localRemote, tenant, suffix, installEndpoint string) remoteMigration {
 	suffix = strings.TrimSpace(suffix)
 	tenant = strings.TrimSpace(tenant)
 	installEndpoint = strings.TrimSpace(installEndpoint)
-	if suffix == "" || tenant == "" || installEndpoint == "" {
-		return nil // fail safe: never migrate unscoped
+	target := usertrust.RemoteNameForSuffix(suffix)
+	if target == "" || tenant == "" || installEndpoint == "" {
+		return remoteMigration{} // fail safe: never migrate unscoped
 	}
-	var plan []remoteRename
+	var candidates []localRemote
 	for _, r := range remotes {
 		if strings.TrimSpace(r.Endpoint) != installEndpoint {
-			continue // a different install's remote — never rename across installs
+			continue // a different install's remote — never touch across installs
 		}
-		proj := shortProjectName(r.Project, tenant)
-		if proj == "" {
-			continue // not a per-project remote of this tenant (or the infra project)
+		if shortProjectName(r.Project, tenant) == "" {
+			continue // infra project, or not this tenant's per-project remote
 		}
-		newName := usertrust.RemoteNameForSuffixProject(suffix, proj)
-		if newName == "" || newName == r.Name {
-			continue // idempotent: already on the new scheme
-		}
-		plan = append(plan, remoteRename{From: r.Name, To: newName})
+		candidates = append(candidates, r)
 	}
-	return plan
+	if len(candidates) == 0 {
+		return remoteMigration{}
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Name < candidates[j].Name })
+
+	// Pick the primary: an already-`<suffix>`-named remote, else the one pinned to
+	// the default project, else the first.
+	primary := -1
+	for i, r := range candidates {
+		if r.Name == target {
+			primary = i
+			break
+		}
+	}
+	if primary == -1 {
+		for i, r := range candidates {
+			if shortProjectName(r.Project, tenant) == naming.DefaultProjectName {
+				primary = i
+				break
+			}
+		}
+	}
+	if primary == -1 {
+		primary = 0
+	}
+
+	var m remoteMigration
+	for i, r := range candidates {
+		if i == primary {
+			if r.Name != target {
+				m.Renames = append(m.Renames, remoteRename{From: r.Name, To: target})
+			}
+			continue
+		}
+		m.Removes = append(m.Removes, r.Name)
+	}
+	return m
 }
 
 // readLocalRemotes reads the incus config.yml in incusDir into localRemotes.
@@ -85,11 +128,12 @@ func readLocalRemotes(incusDir string) ([]localRemote, error) {
 	return remotes, nil
 }
 
-// migrateLegacyRemotes lazily renames a tenant's legacy remotes to the ADR-0020
-// scheme at login (#88). Best-effort: rename failures (e.g. a target name already
-// taken locally — the cross-install collision guard) are logged and skipped, and
-// the caller's login is never failed by a migration hiccup. installEndpoint must
-// be this install's endpoint; an empty one migrates nothing (see planRemoteMigration).
+// migrateLegacyRemotes lazily collapses a tenant's incus remotes onto the
+// ADR-0021 single-`<suffix>` scheme at login. Best-effort: failures are logged
+// and skipped, and the caller's login is never failed by a migration hiccup.
+// installEndpoint must be this install's endpoint; an empty one migrates nothing
+// (see planRemoteMigration). It never removes the current default-remote (that
+// would break the incus current-remote pointer) — it leaves it with a note.
 func migrateLegacyRemotes(ctx context.Context, incusDir, tenant, suffix, installEndpoint string, stderr io.Writer) {
 	remotes, err := readLocalRemotes(incusDir)
 	if err != nil {
@@ -99,17 +143,17 @@ func migrateLegacyRemotes(ctx context.Context, incusDir, tenant, suffix, install
 	for _, r := range remotes {
 		byName[r.Name] = r
 	}
-	for _, rename := range planRemoteMigration(remotes, tenant, suffix, installEndpoint) {
-		// The canonical target may already exist — `sc login` enrolls
-		// `<suffix>-default` before this hook runs, so a legacy base remote for
-		// the same (endpoint, project) is now a redundant DUPLICATE. Remove it
-		// rather than leave two remotes for one place. A target that exists but
-		// points elsewhere is a genuine cross-install name clash: leave both and
-		// surface it (never clobber).
+	current := readLocalDefaultRemote(incusDir)
+	m := planRemoteMigration(remotes, tenant, suffix, installEndpoint)
+	for _, rename := range m.Renames {
+		// The target may already exist (e.g. this login just enrolled `<suffix>`).
+		// Same install (endpoint) → the source is now a redundant duplicate; drop
+		// it. A target pointing at a DIFFERENT install is a cross-install name
+		// clash: never clobber — leave both and surface it.
 		if target, exists := byName[rename.To]; exists {
 			from := byName[rename.From]
-			if target.Endpoint == from.Endpoint && target.Project == from.Project {
-				runIncusRemote(ctx, incusDir, stderr, rename.From, rename.To, "remove", rename.From)
+			if target.Endpoint == from.Endpoint {
+				removeUnlessCurrent(ctx, incusDir, current, rename.From, stderr)
 			} else if stderr != nil {
 				fmt.Fprintf(stderr, "Note: remote %q left as-is — %q already exists for a different install\n", rename.From, rename.To)
 			}
@@ -117,6 +161,36 @@ func migrateLegacyRemotes(ctx context.Context, incusDir, tenant, suffix, install
 		}
 		runIncusRemote(ctx, incusDir, stderr, rename.From, rename.To, "rename", rename.From, rename.To)
 	}
+	for _, name := range m.Removes {
+		removeUnlessCurrent(ctx, incusDir, current, name, stderr)
+	}
+}
+
+// removeUnlessCurrent removes an incus remote unless it is the current
+// default-remote (removing that would orphan the incus current-remote pointer).
+func removeUnlessCurrent(ctx context.Context, incusDir, current, name string, stderr io.Writer) {
+	if strings.TrimSpace(name) == strings.TrimSpace(current) {
+		if stderr != nil {
+			fmt.Fprintf(stderr, "Note: remote %q left as-is — it is your current remote; switch away then remove it to finish collapsing to one remote per install\n", name)
+		}
+		return
+	}
+	runIncusRemote(ctx, incusDir, stderr, name, "", "remove", name)
+}
+
+// readLocalDefaultRemote returns the incus config dir's current default-remote.
+func readLocalDefaultRemote(incusDir string) string {
+	data, err := os.ReadFile(filepath.Join(incusDir, "config.yml"))
+	if err != nil {
+		return ""
+	}
+	var parsed struct {
+		DefaultRemote string `yaml:"default-remote"`
+	}
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(parsed.DefaultRemote)
 }
 
 // runIncusRemote runs `incus remote <args...>` in incusDir, logging a best-effort
