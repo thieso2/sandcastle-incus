@@ -28,9 +28,10 @@ func TestParseV2MachineReference(t *testing.T) {
 		// the install's DNS suffix. `sc c obelix:sc:dev` -> install obelix.
 		{"install qualified", "obelix:web:dev", "backend", "obelix", "web", "dev", false},
 		{"install qualified with dashes", "obelix-eu:web:dev", "", "obelix-eu", "web", "dev", false},
-		// tenant/ retained for now (removed once the coordinated change lands).
-		{"tenant qualified", "acme/web:dev", "", "", "web", "dev", false},
-		{"wrong tenant", "other/dev", "", "", "", "", true},
+		// ADR-0020 stage 7: the legacy "tenant/" prefix is dropped — "/" is no
+		// longer special, so these now fail validation (slash in project/machine).
+		{"slash no longer a tenant separator", "acme/web:dev", "", "", "", "", true},
+		{"bare slash reference errors", "other/dev", "", "", "", "", true},
 		{"empty machine", "web:", "", "", "", "", true},
 		{"too many colons", "a:b:c:d", "", "", "", "", true},
 		{"invalid install suffix", "Bad:web:dev", "", "", "", "", true},

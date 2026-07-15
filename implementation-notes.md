@@ -1726,3 +1726,16 @@ Renames a tenant's legacy incus remotes to `<suffix>-<project>` at next login (#
 **Not unit-testable (infra-bound):** the `incus remote rename` execution + login hook;
 only `planRemoteMigration` is unit-tested. Needs live validation against a client with
 legacy remotes.
+
+## 2026-07-15 — ADR-0020 stage 7: drop tenant/ prefix; retire ParseUserMachineRef
+
+- Removed the legacy `tenant/` handling from `parseV2MachineReference`: `/` is no
+  longer special (a slash now fails name validation). Grammar is purely
+  `[[dns-suffix:]project:]machine`. `currentTenant` stays in the signature (callers
+  pass it) but is unused. Parser tests updated (the two `tenant/` cases now expect
+  errors).
+- Deleted the unused `naming.ParseUserMachineRef` (no production caller — connect/
+  create/lifecycle/image all go through `parseV2MachineReference`) and its 5 tests.
+  `ProjectRef`/`ParseProjectRef` are kept — still used by `sc admin` machine commands.
+
+One canonical machine-reference parser remains, as ADR-0020 §6 specified.

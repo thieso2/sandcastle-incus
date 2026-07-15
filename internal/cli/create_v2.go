@@ -125,20 +125,11 @@ func installPrefixFromRemoteName(remote string, tenantName string) string {
 // 1 = project:machine, 2 = dns-suffix:project:machine (the leftmost part names
 // the install by its DNS suffix). The project defaults to the configured
 // Current Project, then to "default". A returned dnsSuffix of "" means "the
-// current install".
-//
-// The legacy "tenant/" prefix (checked against the current tenant) is still
-// accepted for backward compatibility; ADR-0020 drops it, but that removal is
-// coupled to the coordinated server-side change and is deferred (see
-// implementation-notes.md).
+// current install". currentTenant is unused now that the legacy "tenant/"
+// prefix is dropped (ADR-0020); it is retained in the signature for callers.
 func parseV2MachineReference(reference string, currentTenant string, currentProject string) (dnsSuffix string, project string, machine string, err error) {
+	_ = currentTenant
 	reference = strings.TrimSpace(reference)
-	if tenantPart, rest, ok := strings.Cut(reference, "/"); ok {
-		if strings.TrimSpace(tenantPart) != currentTenant {
-			return "", "", "", fmt.Errorf("tenant %q does not match the current tenant %q", tenantPart, currentTenant)
-		}
-		reference = rest
-	}
 	project = strings.TrimSpace(currentProject)
 	// Split the colon-separated tail into [dns-suffix :] [project :] machine.
 	parts := strings.Split(reference, ":")
