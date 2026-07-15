@@ -1672,3 +1672,34 @@ The release-on-delete gap from the live-validation run is now closed via the
 
 The orphan `sctest` claim left on majestix during validation would be pruned by this
 loop on the next deploy of the new binary.
+
+## 2026-07-15 — ADR-0020 stage 5: cross-install connect switching
+
+`sc connect <suffix>:<project>:<machine>` now switches to the target install
+instead of erroring:
+
+- `resolveConnectTarget` (pure, unit-tested) decides: same-install (no switch) vs
+  cross-install → target remote `<suffix>-<project>`, or a guidance error (ADR-0020
+  §7: "connect never auto-provisions — log in/enroll first") when that remote isn't
+  enrolled locally.
+- `switchConfigToRemote` shallow-copies the commandConfig, points `INCUS_CONF` at the
+  target remote's cert dir (`ResolveConfigPath`), and rebuilds the only two
+  remote-scoped stores `runConnectV2` uses (`tenantStore` for the summary,
+  `tenantCreator` for machine-ensure). SSH is a direct shell-out to the machine's
+  private tailnet IP, so nothing else needs rebinding.
+- The connect command detects the suffix, switches, re-fetches the target summary,
+  and connects with the suffix stripped (`project:machine`).
+
+**Not unit-testable (infra-bound):** the actual switch+connect needs two real
+enrolled remotes with certs; only `resolveConnectTarget` is unit-tested. Needs live
+validation against a two-install stack.
+
+**Depends on new-scheme remote names.** Switching resolves the target as
+`<suffix>-<project>`, so it works for remotes named the new way (login's
+`<suffix>-default`, or post-migration). Legacy per-project remotes
+(`<tenant>-<project>` from `sc project create`; `<baseRemote>-<short>` from
+`sc enroll`) won't be found until they're renamed — that client-side rename + the
+deferred stage-3 per-project naming both land in stage 6 (migration). Cross-install
+switching for other reference-taking commands (create/lifecycle/image) is not wired
+here — connect is the primary; they still hit the resolveV2MachineReference
+cross-install error.
