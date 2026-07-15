@@ -183,6 +183,12 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	if r.DNSReconcile != nil {
 		go r.runDNSReconcileLoop(ctx, logger)
 	}
+	if r.Tenants != nil {
+		// Garbage-collect DNS-suffix claims orphaned by tenants deleted out-of-band
+		// (ADR-0020); `sc-adm tenant delete` runs against Incus and cannot reach the
+		// auth database, so a periodic reconcile is the cleanup path.
+		go r.runSuffixClaimReconcileLoop(ctx, db, logger)
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

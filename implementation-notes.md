@@ -1651,3 +1651,24 @@ deleted `sctest` left an orphan claim row (harmless post-rollback; `ReconcileDNS
 would prune it once the reconcile is wired to a loop). Release-on-delete + a periodic
 reconcile invocation are still to be wired (stage-1 built the functions; nothing calls
 them yet). Left the orphan row rather than hand-edit the live WAL db.
+
+## 2026-07-15 — ADR-0020: wired the DNS-suffix-claim reconcile (the gap found live)
+
+The release-on-delete gap from the live-validation run is now closed via the
+**reconcile path**, which is the architecturally-correct mechanism:
+
+- `sc-adm tenant delete` runs client-side against Incus and has **no access to the
+  auth database** (there is no auth-app tenant-delete endpoint — verified). So a
+  *synchronous* `ReleaseDNSSuffixClaim` on delete is not feasible without adding an
+  endpoint + an sc-adm round-trip. Out of scope; `ReleaseDNSSuffixClaim` stays for any
+  future auth-app-mediated delete.
+- Instead, `Serve` now starts `runSuffixClaimReconcileLoop` (every 5 min + one pass at
+  startup) which lists the install's live tenants (`tenant.ListForPrefix`) and prunes
+  claims whose tenant is gone. This matches the spec ("Incus is the source of truth for
+  tenant existence; a reconcile prunes orphans"). Cleanup latency is ≤ one interval.
+- **Safety:** `pruneOrphanSuffixClaims` never prunes on an **empty** live set, and
+  `reconcileSuffixClaimsOnce` aborts (no prune) on a listing **error** — so a transient
+  Incus hiccup can never wipe the registry. Both guards are unit-tested.
+
+The orphan `sctest` claim left on majestix during validation would be pruned by this
+loop on the next deploy of the new binary.
