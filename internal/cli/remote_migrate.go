@@ -95,14 +95,39 @@ func migrateLegacyRemotes(ctx context.Context, incusDir, tenant, suffix, install
 	if err != nil {
 		return
 	}
+	byName := make(map[string]localRemote, len(remotes))
+	for _, r := range remotes {
+		byName[r.Name] = r
+	}
 	for _, rename := range planRemoteMigration(remotes, tenant, suffix, installEndpoint) {
-		cmd := exec.CommandContext(ctx, "incus", "remote", "rename", rename.From, rename.To)
-		cmd.Env = os.Environ()
-		if strings.TrimSpace(incusDir) != "" {
-			cmd.Env = append(cmd.Env, "INCUS_CONF="+incusDir)
+		// The canonical target may already exist — `sc login` enrolls
+		// `<suffix>-default` before this hook runs, so a legacy base remote for
+		// the same (endpoint, project) is now a redundant DUPLICATE. Remove it
+		// rather than leave two remotes for one place. A target that exists but
+		// points elsewhere is a genuine cross-install name clash: leave both and
+		// surface it (never clobber).
+		if target, exists := byName[rename.To]; exists {
+			from := byName[rename.From]
+			if target.Endpoint == from.Endpoint && target.Project == from.Project {
+				runIncusRemote(ctx, incusDir, stderr, rename.From, rename.To, "remove", rename.From)
+			} else if stderr != nil {
+				fmt.Fprintf(stderr, "Note: remote %q left as-is — %q already exists for a different install\n", rename.From, rename.To)
+			}
+			continue
 		}
-		if out, err := cmd.CombinedOutput(); err != nil && stderr != nil {
-			fmt.Fprintf(stderr, "Note: could not migrate remote %q → %q: %s\n", rename.From, rename.To, strings.TrimSpace(string(out)))
-		}
+		runIncusRemote(ctx, incusDir, stderr, rename.From, rename.To, "rename", rename.From, rename.To)
+	}
+}
+
+// runIncusRemote runs `incus remote <args...>` in incusDir, logging a best-effort
+// migration note (naming from→to) on failure without failing the caller.
+func runIncusRemote(ctx context.Context, incusDir string, stderr io.Writer, from, to string, args ...string) {
+	cmd := exec.CommandContext(ctx, "incus", append([]string{"remote"}, args...)...)
+	cmd.Env = os.Environ()
+	if strings.TrimSpace(incusDir) != "" {
+		cmd.Env = append(cmd.Env, "INCUS_CONF="+incusDir)
+	}
+	if out, err := cmd.CombinedOutput(); err != nil && stderr != nil {
+		fmt.Fprintf(stderr, "Note: could not migrate remote %q → %q: %s\n", from, to, strings.TrimSpace(string(out)))
 	}
 }

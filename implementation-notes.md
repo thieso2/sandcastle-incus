@@ -1757,3 +1757,23 @@ One canonical machine-reference parser remains, as ADR-0020 §6 specified.
   project token is actually an incus remote ("`obelix-sc` is a remote, not a project —
   reach another install with dns-suffix:project:machine"), without decoding the name.
 - Collapsed a duplicated remote-name comment in `provision.go` (merge artifact).
+
+## 2026-07-15 — ADR-0020 stages 5 & 6 live validation on majestix (part 1: stage 6)
+
+Deployed the fixed client to `e2eclient` + new binary to install A's auth-app.
+
+**Stage 6 (lazy migration) — VALIDATED live**, and it surfaced + fixed a real gap:
+- First run: re-login `octocat` enrolled `octocat-default` (stage-3 naming works on the
+  real client+server ✓), the migration hook ran best-effort (didn't fail login ✓), and
+  endpoint-scoping held (`thieso2-web` at another endpoint untouched ✓). BUT the legacy
+  base remote `sc-majestix-4502b206-thieso2-dev` **lingered**: `sc login` enrolls the
+  canonical `<suffix>-default` *first*, so migration's rename collided
+  (`Remote octocat-default already exists`) and left a redundant duplicate.
+- **Fix:** `migrateLegacyRemotes` now, when the target already exists AND the legacy
+  remote is a duplicate (same endpoint + pinned project), **removes** the legacy remote
+  instead of leaving both; a target that exists for a *different* install is left and
+  surfaced (never clobbered).
+- Second run (fixed client): re-login `octocat` → `octocat-default` current, and the
+  legacy `sc-majestix-...` remote is **removed**. Clean.
+
+Stage 5 (cross-install) validation pending install-B auth-app deploy (separate authorization).
