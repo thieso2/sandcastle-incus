@@ -225,6 +225,17 @@ func ValidateMachineName(name string) error {
 	return nil
 }
 
+// ValidateInstallSuffix validates a Tenant DNS Suffix used as the install
+// component of a machine reference and the stem of an incus remote name
+// (ADR-0020). Same single-label shape as a machine name; dashes are allowed
+// (a suffix like "obelix-eu" is legal and round-trips as an opaque label).
+func ValidateInstallSuffix(name string) error {
+	if !safeNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid install suffix %q", name)
+	}
+	return nil
+}
+
 func ValidateUnixUsername(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {

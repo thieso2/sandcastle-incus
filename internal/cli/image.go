@@ -26,7 +26,7 @@ func newImageCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func newImageSaveCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
-		Use:   "save [project:]machine name",
+		Use:   "save [[dns-suffix:]project:]machine name",
 		Short: "Snapshot a running machine into a reusable base image",
 		Long: "Snapshot a running machine and publish it as a reusable local base image.\n" +
 			"The machine keeps running; the shared /home and /workspace volumes are not\n" +

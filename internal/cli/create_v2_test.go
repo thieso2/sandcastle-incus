@@ -16,32 +16,40 @@ func TestParseV2MachineReference(t *testing.T) {
 		name           string
 		reference      string
 		currentProject string
+		wantSuffix     string
 		wantProject    string
 		wantMachine    string
 		wantErr        bool
 	}{
-		{"bare machine", "dev", "", "default", "dev", false},
-		{"machine with current project", "dev", "backend", "backend", "dev", false},
-		{"explicit project", "web:dev", "backend", "web", "dev", false},
-		{"tenant qualified", "acme/web:dev", "", "web", "dev", false},
-		{"wrong tenant", "other/dev", "", "", "", true},
-		{"empty machine", "web:", "", "", "", true},
-		{"invalid machine name", "Bad Name", "", "", "", true},
+		{"bare machine", "dev", "", "", "default", "dev", false},
+		{"machine with current project", "dev", "backend", "", "backend", "dev", false},
+		{"explicit project", "web:dev", "backend", "", "web", "dev", false},
+		// New grammar (ADR-0020): the leftmost of three colon-separated parts is
+		// the install's DNS suffix. `sc c obelix:sc:dev` -> install obelix.
+		{"install qualified", "obelix:web:dev", "backend", "obelix", "web", "dev", false},
+		{"install qualified with dashes", "obelix-eu:web:dev", "", "obelix-eu", "web", "dev", false},
+		// tenant/ retained for now (removed once the coordinated change lands).
+		{"tenant qualified", "acme/web:dev", "", "", "web", "dev", false},
+		{"wrong tenant", "other/dev", "", "", "", "", true},
+		{"empty machine", "web:", "", "", "", "", true},
+		{"too many colons", "a:b:c:d", "", "", "", "", true},
+		{"invalid install suffix", "Bad:web:dev", "", "", "", "", true},
+		{"invalid machine name", "Bad Name", "", "", "", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			project, machine, err := parseV2MachineReference(tt.reference, "acme", tt.currentProject)
+			suffix, project, machine, err := parseV2MachineReference(tt.reference, "acme", tt.currentProject)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("expected error, got project=%q machine=%q", project, machine)
+					t.Fatalf("expected error, got suffix=%q project=%q machine=%q", suffix, project, machine)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if project != tt.wantProject || machine != tt.wantMachine {
-				t.Fatalf("got %q/%q, want %q/%q", project, machine, tt.wantProject, tt.wantMachine)
+			if suffix != tt.wantSuffix || project != tt.wantProject || machine != tt.wantMachine {
+				t.Fatalf("got %q/%q/%q, want %q/%q/%q", suffix, project, machine, tt.wantSuffix, tt.wantProject, tt.wantMachine)
 			}
 		})
 	}
@@ -49,8 +57,9 @@ func TestParseV2MachineReference(t *testing.T) {
 
 func TestResolveV2MachineReference(t *testing.T) {
 	summary := tenant.Summary{
-		Tenant:   "acme",
-		Projects: []meta.Project{{Name: "default"}, {Name: "test2"}, {Name: "test3"}},
+		Tenant:    "acme",
+		DNSSuffix: "acme",
+		Projects:  []meta.Project{{Name: "default"}, {Name: "test2"}, {Name: "test3"}},
 	}
 
 	t.Run("known project passes", func(t *testing.T) {
@@ -60,6 +69,28 @@ func TestResolveV2MachineReference(t *testing.T) {
 		}
 		if project != "test2" || machine != "dev" {
 			t.Fatalf("got %q/%q", project, machine)
+		}
+	})
+
+	t.Run("install suffix matching the current install passes", func(t *testing.T) {
+		project, machine, err := resolveV2MachineReference(summary, "acme:test2:dev", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if project != "test2" || machine != "dev" {
+			t.Fatalf("got %q/%q", project, machine)
+		}
+	})
+
+	t.Run("install suffix for a different install is a cross-install error", func(t *testing.T) {
+		_, _, err := resolveV2MachineReference(summary, "elsewhere:test2:dev", "")
+		if err == nil {
+			t.Fatal("expected cross-install error")
+		}
+		for _, want := range []string{"elsewhere", "acme"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("error %q missing %q", err.Error(), want)
+			}
 		}
 	})
 

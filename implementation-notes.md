@@ -1528,3 +1528,58 @@ flipping the two gates back once the registry moves (#70). The CLI/endpoint
 behaviour tests were replaced with two gate tests (`TestShareCommandsAreGatedOnV2`,
 `TestShareEndpointsAreGatedOnV2`); the dormant plumbing keeps its own unit
 coverage in `internal/share` and `internal/incusx`.
+
+## 2026-07-15 — ADR-0020 stage 1: reference grammar parser (client only, additive)
+
+Implementing the ADR-0020 machine-addressing model (spec:
+`docs/design/machine-addressing-and-remote-naming.md`, wayfinder map #82). The
+full spec is a coordinated change across client parser, remote-naming, the
+first-login suffix-selection browser flow, an auth-DB claim table + provision, a
+client-side lazy migration, and cross-install remote switching. Those pieces are
+**interdependent** and cannot ship as safe isolated increments — e.g. making the
+parser's bare-machine case error when no current project is set (per the spec)
+would regress `sc create dev` *before* the reserved `default` project is removed
+server-side. So this commit lands only the self-contained, unit-testable
+foundation and defers the rest.
+
+**What this commit does:**
+- `parseV2MachineReference` now returns `(dnsSuffix, project, machine, err)` and
+  parses the ADR-0020 grammar `[[dns-suffix:]project:]machine` (colon count 0/1/2
+  selects scope). `naming.ValidateInstallSuffix` validates the install component.
+- `resolveV2MachineReference` treats an install suffix equal to the current
+  install's `summary.DNSSuffix` as a no-op, and returns a clear error for a
+  *different* install (inline cross-install switching is not wired yet).
+- Command help (`Use:`) for connect/create/machine-lifecycle/image-save updated to
+  the new grammar.
+
+**Deliberate deviations from the spec, deferred to later stages:**
+1. **`tenant/` prefix kept.** ADR-0020 drops it, but removal is coupled to the
+   coordinated change and would break existing callers/tests in isolation. Kept
+   working (and dropped from `--help`); remove when the coordinated change lands.
+2. **Bare-machine still defaults to `default` project.** ADR-0020 wants
+   error-with-hint when no current project is set, but that depends on removing the
+   reserved `default` project server-side (#85). Left as-is to avoid regressing
+   `sc create dev`.
+3. **Cross-install execution errors instead of switching remotes.** Remote
+   switching (per-remote `INCUS_CONF`, fetching the target install's summary) is a
+   separate infra change. Same-install suffixes resolve; cross-install is a clear
+   error, matching the ADR-0020 "no magic, guide the user" ethos.
+4. **`naming.ParseUserMachineRef` not yet retired** — done alongside the coordinated
+   change so nothing else regresses.
+
+**Not in this commit (remaining stages):** remote-naming scheme
+(`dns-suffix-projectname`), first-login suffix+project browser form, auth-DB claim
+table + provision changes, client-side lazy migration, cross-install remote
+switching, and the `docs/e2e-sc2.md` / `docs/usage.html` updates. Each is a
+follow-on. e2e (`SANDCASTLE_INCUS_E2E`) needs the live deployment and was not run.
+
+**Code-review follow-ups (same stage, noted so they aren't lost):**
+- The spec §6 *diagnostic* error ("`obelix-sc` is a remote, not a project — did you
+  mean `obelix:sc:dev`?") is **not** implemented — it needs the not-yet-deployed
+  remote-naming scheme to know remote names / known suffixes. Deferred with the
+  remote-naming stage; the existing backwards-reference swap hint still fires.
+- Same-install suffix resolution currently works **only while `summary.DNSSuffix`
+  equals the value the user types**. Today `DNSSuffix` defaults to the *tenant name*
+  (`tenant/list.go`), so `sc c <tenant>:proj:machine` resolves but `sc c obelix:…`
+  does not until the first-login suffix-selection + claim-table stage sets an
+  install-distinguishing suffix. The cross-install branch is otherwise correct.
