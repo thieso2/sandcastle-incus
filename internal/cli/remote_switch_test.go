@@ -99,3 +99,36 @@ func TestSandcastleRemoteRows(t *testing.T) {
 		t.Fatalf("remoteNameKnown wrong")
 	}
 }
+
+// TestRepinProjectForRemote checks the short-project derivation used to re-pin
+// the project when switching installs (obelix-thieso2-work -> work).
+func TestRepinProjectForRemote(t *testing.T) {
+	if got := shortProjectName("obelix-thieso2-work", "thieso2"); got != "work" {
+		t.Fatalf("shortProjectName = %q, want work", got)
+	}
+	if got := shortProjectName("idefix-thieso2-home", "thieso2"); got != "home" {
+		t.Fatalf("shortProjectName = %q, want home", got)
+	}
+	// A pin whose tenant segment doesn't match yields "" (leave the pin untouched).
+	if got := shortProjectName("obelix-other-work", "thieso2"); got != "" {
+		t.Fatalf("shortProjectName mismatch tenant = %q, want empty", got)
+	}
+}
+
+// TestSplitRemotePrefix covers `sc ls` addressing: a leading "<remote>:" targets
+// another install, the rest is the project.
+func TestSplitRemotePrefix(t *testing.T) {
+	cases := []struct{ in, remote, rest string }{
+		{"obelix:home", "obelix", "home"},
+		{"obelix:", "obelix", ""},
+		{"home", "", "home"},
+		{"", "", ""},
+		{" obelix : home ", "obelix", "home"},
+	}
+	for _, c := range cases {
+		remote, rest := splitRemotePrefix(c.in)
+		if remote != c.remote || rest != c.rest {
+			t.Fatalf("splitRemotePrefix(%q) = (%q,%q), want (%q,%q)", c.in, remote, rest, c.remote, c.rest)
+		}
+	}
+}
