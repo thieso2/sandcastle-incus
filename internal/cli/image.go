@@ -26,7 +26,7 @@ func newImageCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 func newImageSaveCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
-		Use:   "save [[dns-suffix:]project:]machine name",
+		Use:   "save [[remote:]project:]machine name",
 		Short: "Snapshot a running machine into a reusable base image",
 		Long: "Snapshot a running machine and publish it as a reusable local base image.\n" +
 			"The machine keeps running; the shared /home and /workspace volumes are not\n" +
@@ -34,11 +34,16 @@ func newImageSaveCommand(config commandConfig, opts *rootOptions) *cobra.Command
 			"  sc create <new-machine> --image <name>",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			config, reference, restore, err := rebindForReference(config, args[0])
+			if err != nil {
+				return err
+			}
+			defer restore()
 			summary, err := requireV2Tenant(cmd.Context(), config)
 			if err != nil {
 				return err
 			}
-			project, machine, err := resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
+			project, machine, err := resolveV2MachineReference(summary, reference, config.adminConfig.Project)
 			if err != nil {
 				return err
 			}

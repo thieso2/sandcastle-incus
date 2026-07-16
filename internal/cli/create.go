@@ -10,15 +10,20 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var image string
 	var vm bool
 	command := &cobra.Command{
-		Use:   "create [[dns-suffix:]project:]machine",
+		Use:   "create [[remote:]project:]machine",
 		Short: "Create a Sandcastle container machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			config, reference, restore, err := rebindForReference(config, args[0])
+			if err != nil {
+				return err
+			}
+			defer restore()
 			summary, err := requireV2Tenant(cmd.Context(), config)
 			if err != nil {
 				return err
 			}
-			return runCreateMachineV2(cmd.Context(), config, opts, summary, args[0], createV2Options{
+			return runCreateMachineV2(cmd.Context(), config, opts, summary, reference, createV2Options{
 				Image:  image,
 				VM:     vm,
 				DryRun: dryRun,

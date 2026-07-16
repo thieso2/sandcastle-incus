@@ -165,37 +165,7 @@ func Execute(name string, args []string) int {
 		fmt.Fprintf(os.Stderr, "[verbose] incus config: %s\n[verbose] incus remote: %s\n", incusConf, adminConfig.Remote)
 		incusx.SetAPITrace(os.Stderr)
 	}
-	sharedRemote := incusx.NewSharedRemote(adminConfig.Remote).WithVerbose(verbose, os.Stderr)
-	cmd := NewRootCommand(commandConfig{
-		name:               name,
-		stdin:              os.Stdin,
-		stdout:             os.Stdout,
-		stderr:             os.Stderr,
-		adminConfig:        adminConfig,
-		tenantStore:        incusx.NewTenantStoreForSharedRemote(sharedRemote),
-		tenantCreator:      incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		projectSettings:    incusx.NewTenantCreator(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		tenantDeleter:      incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		projectDeleter:     incusx.NewTenantDeleter(adminConfig.Remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr),
-		imageManager:       incusx.NewImageManager(adminConfig.Remote),
-		imageBuilder:       images.LocalBuilder{},
-		imageImporter:      images.LocalImporter{},
-		imageUploader:      images.LocalUploader{},
-		remoteImageBuilder: images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: os.Stderr, Verbose: os.Getenv("VERBOSE") == "1"},
-		topologyStore:      incusx.NewTopologyStore(adminConfig.Remote),
-		trustManager:       incusx.NewTrustManager(adminConfig.Remote),
-		machineStore:       incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
-		localDNS:           localdns.FileManager{},
-		tailscale:          incusx.NewTailscaleManager(adminConfig.Remote),
-		localTrust:         incusx.NewLocalTrustManager(adminConfig.Remote, localtrust.NewPlatformStore()),
-		openBrowser:        openBrowser,
-		loginSetup: realLoginSetupRunner{config: commandConfig{
-			stdin:       os.Stdin,
-			stdout:      os.Stdout,
-			stderr:      os.Stderr,
-			adminConfig: adminConfig,
-		}},
-	})
+	cmd := NewRootCommand(newUserCommandConfig(name, os.Stdin, os.Stdout, os.Stderr, adminConfig))
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
 	cmd.SetArgs(args)
@@ -204,6 +174,91 @@ func Execute(name string, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// newUserCommandConfig builds the user CLI's dependency-injection config with
+// every store bound to adminConfig.Remote. Extracted from Execute so the same
+// wiring can be rebuilt for another install when a command reference carries a
+// "<remote>:" prefix (see rebindForReference).
+func newUserCommandConfig(name string, stdin io.Reader, stdout, stderr io.Writer, adminConfig scconfig.Admin) commandConfig {
+	verbose := os.Getenv("VERBOSE") == "1"
+	remote := adminConfig.Remote
+	sharedRemote := incusx.NewSharedRemote(remote).WithVerbose(verbose, stderr)
+	return commandConfig{
+		name:               name,
+		stdin:              stdin,
+		stdout:             stdout,
+		stderr:             stderr,
+		adminConfig:        adminConfig,
+		tenantStore:        incusx.NewTenantStoreForSharedRemote(sharedRemote),
+		tenantCreator:      incusx.NewTenantCreator(remote).WithVerbose(verbose, stderr),
+		projectSettings:    incusx.NewTenantCreator(remote).WithVerbose(verbose, stderr),
+		tenantDeleter:      incusx.NewTenantDeleter(remote).WithVerbose(verbose, stderr),
+		projectDeleter:     incusx.NewTenantDeleter(remote).WithVerbose(verbose, stderr),
+		imageManager:       incusx.NewImageManager(remote),
+		imageBuilder:       images.LocalBuilder{},
+		imageImporter:      images.LocalImporter{},
+		imageUploader:      images.LocalUploader{},
+		remoteImageBuilder: images.LocalRemoteBuilder{Token: ghcrTokenFromEnv, Stderr: stderr, Verbose: verbose},
+		topologyStore:      incusx.NewTopologyStore(remote),
+		trustManager:       incusx.NewTrustManager(remote),
+		machineStore:       incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
+		localDNS:           localdns.FileManager{},
+		tailscale:          incusx.NewTailscaleManager(remote),
+		localTrust:         incusx.NewLocalTrustManager(remote, localtrust.NewPlatformStore()),
+		openBrowser:        openBrowser,
+		loginSetup: realLoginSetupRunner{config: commandConfig{
+			stdin:       stdin,
+			stdout:      stdout,
+			stderr:      stderr,
+			adminConfig: adminConfig,
+		}},
+	}
+}
+
+// rebindForReference implements the "<remote>:" prefix of the universal
+// [[remote:]project:]machine grammar: when a reference's leading segment names
+// an ENROLLED remote different from the current one, it rebuilds the command
+// config bound to that install (INCUS_CONF + all stores) and returns the
+// reference with the prefix stripped, plus a restore func for INCUS_CONF. When
+// the leading segment is not an enrolled remote (e.g. "project:machine"), the
+// reference is returned untouched — so existing project:machine addressing and
+// bare names are unaffected. A prefix naming the current remote is just stripped.
+func rebindForReference(base commandConfig, reference string) (commandConfig, string, func(), error) {
+	noop := func() {}
+	first, rest, ok := strings.Cut(strings.TrimSpace(reference), ":")
+	if !ok {
+		return base, reference, noop, nil
+	}
+	first = strings.TrimSpace(first)
+	incusDir, _ := scconfig.SharedIncusDirExplained()
+	remotes, err := readLocalRemotes(incusDir)
+	if err != nil || !remoteNameKnown(remotes, first) {
+		// Not an enrolled remote — leave the whole reference (project:machine etc.).
+		return base, reference, noop, nil
+	}
+	if first == strings.TrimSpace(base.adminConfig.Remote) {
+		return base, rest, noop, nil
+	}
+	dir := scconfig.ResolveConfigPath(first)
+	if dir == "" {
+		return base, reference, noop, fmt.Errorf("no incus config for remote %q", first)
+	}
+	prev, had := os.LookupEnv("INCUS_CONF")
+	os.Setenv("INCUS_CONF", dir)
+	restore := func() {
+		if had {
+			os.Setenv("INCUS_CONF", prev)
+		} else {
+			os.Unsetenv("INCUS_CONF")
+		}
+	}
+	adminConfig := base.adminConfig
+	adminConfig.Remote = first
+	if short := shortProjectName(scconfig.SharedIncusRemoteProject(first), adminConfig.Tenant); short != "" {
+		adminConfig.Project = short
+	}
+	return newUserCommandConfig(base.name, base.stdin, base.stdout, base.stderr, adminConfig), rest, restore, nil
 }
 
 // NewRootCommand builds the Sandcastle command tree.

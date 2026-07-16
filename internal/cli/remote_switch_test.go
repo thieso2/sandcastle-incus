@@ -115,6 +115,28 @@ func TestRepinProjectForRemote(t *testing.T) {
 	}
 }
 
+// TestRebindForReferenceLeavesNonRemoteReferences ensures the universal
+// [[remote:]project:]machine parsing is backward compatible: a reference whose
+// leading segment is NOT an enrolled remote (project:machine, or a bare name) is
+// returned untouched and the command config/remote is unchanged.
+func TestRebindForReferenceLeavesNonRemoteReferences(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no enrolled remotes in a fresh home
+	base := commandConfig{adminConfig: scconfig.Admin{Remote: "idefix"}}
+	for _, ref := range []string{"work:test2", "test2", ""} {
+		cfg, rest, restore, err := rebindForReference(base, ref)
+		if err != nil {
+			t.Fatalf("rebindForReference(%q) error: %v", ref, err)
+		}
+		restore()
+		if rest != ref {
+			t.Fatalf("rebindForReference(%q) rest = %q, want unchanged", ref, rest)
+		}
+		if cfg.adminConfig.Remote != "idefix" {
+			t.Fatalf("remote changed to %q for %q", cfg.adminConfig.Remote, ref)
+		}
+	}
+}
+
 // TestSplitRemotePrefix covers `sc ls` addressing: a leading "<remote>:" targets
 // another install, the rest is the project.
 func TestSplitRemotePrefix(t *testing.T) {
