@@ -225,6 +225,11 @@ func applyRemoteSwitch(cfg *scconfig.SandcastleConfig, name string) remoteSwitch
 }
 
 func printRemoteSwitchEffects(w io.Writer, cfg scconfig.SandcastleConfig, fx remoteSwitchEffects) {
+	// These are re-pointing details behind the switch — noise for the common case.
+	// Only surface them in verbose mode; the "Switched to remote" line is enough.
+	if os.Getenv("VERBOSE") != "1" {
+		return
+	}
 	if fx.AuthHostname != "" {
 		fmt.Fprintf(w, "Auth hostname re-pointed to %q for this install.\n", fx.AuthHostname)
 	}
