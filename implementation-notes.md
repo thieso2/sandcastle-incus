@@ -5,6 +5,54 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-16 — `sc route`: public routes via the Auth App Caddy (Spec #111)
+
+Implemented the revived `sc route` per the wayfinder map (#103) / spec (#111): a
+Tenant publishes a Machine's local port to the public Internet through the
+Auth App appliance's existing Caddy. Decisions taken during the build that
+weren't spelled out in the spec:
+
+- **`RouteBackend` return type couples `incusx` → `authapp`.** The spec's "one
+  injected interface" is `authapp.RouteBackend`, whose `MachineState` returns
+  `authapp.MachineState`. So `internal/incusx/routebackend.go` imports `authapp`
+  (a new edge). Verified no cycle: `authapp` imports no `incusx`. Alternative
+  (a neutral shared type package) was rejected as more churn for no gain.
+- **`MachineState(tenant, project, machine)` — widened from the spec's implied
+  `(project, machine)`.** The backend needs the Tenant to build the full Incus
+  app-project name `<prefix>-<tenant>-<project>` via `naming.V2ProjectName`.
+- **Device name = `scroute-` + first 16 hex of sha256(hostname).** Incus device
+  names have a limited charset and length; hashing the hostname is stable,
+  unique, and always valid regardless of the hostname's characters.
+- **Proxy device uses `bind=instance`.** Listener lives inside the auth-app
+  container (where Caddy dials `127.0.0.1:<local>`); the `connect` is dialed from
+  the host namespace, which routes to the tenant bridge (single-host).
+- **Caddy reconfig is local, not via Incus.** The auth-app runs in the same
+  container as Caddy, so `LocalCaddyController` does `os.WriteFile` +
+  `caddy reload --config … --force` (Caddy's admin API, no systemd dependency).
+  This is the second, smaller seam (a `CaddyController` interface) beyond the
+  agreed `RouteBackend` — needed because Caddy ops are local file/exec, not Incus.
+- **Ingress-mode + ACME email reach the running service via new env vars**
+  (`SANDCASTLE_AUTH_INGRESS_MODE`, `SANDCASTLE_AUTH_ACME_EMAIL`) written by the
+  installer into the auth-app unit. `admin_root` wires the `RouteBackend`/
+  `LocalCaddyController` only when the mode is `acme`; otherwise `sc route`
+  returns 501 with the "re-install with --ingress acme" precondition message.
+- **`STATUS` = `live`/`unhealthy`/`awaiting-dns`.** `awaiting-dns` is produced for
+  a **custom hostname** (one not under the Auth Hostname wildcard) that does not
+  yet resolve — i.e. the operator's manual CNAME hasn't landed, so no certificate
+  can issue. Detected with a short, bounded `net.DefaultResolver.LookupHost`
+  (injectable via `RouteManager.ResolveHost` / `HandlerOptions.RouteResolveHost`
+  for tests). Auto-subdomains sit under the wildcard and always resolve, so they
+  never trigger a DNS lookup and go straight to `live`/`unhealthy` from Machine
+  state. (Code-review #111 turned this from a deferral into a real implementation.)
+- **`--dry-run` is client-side.** Publish is entirely server-side, so `--dry-run`
+  resolves the machine reference and previews the would-be public hostname
+  (mirroring the server's `<label>.<tenant>.<auth-hostname>` rule) without calling
+  the API — added per the spec's CLI surface.
+- **IP refresh doesn't rewrite the Caddyfile.** Caddy targets the stable
+  loopback port, so an IP change only updates the proxy device's `connect`; the
+  reconcile regenerates Caddy only when the route set changes (prune). Keeps
+  reloads rare.
+
 ## 2026-07-16 — universal `[[remote:]project:]machine` addressing + `sc ls` names its scope
 
 Generalized the `sc ls <remote>:` prefix into a `<remote>:` prefix accepted by every

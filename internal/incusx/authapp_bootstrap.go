@@ -276,6 +276,10 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_AUTH_SIMULATE_GITHUB_TOKEN=" + q(strings.TrimSpace(req.SimulateGitHubToken)),
 		"SANDCASTLE_AUTH_DEFAULT_UNIX_USER=" + q(strings.TrimSpace(req.DefaultUnixUser)),
 		"SANDCASTLE_AUTH_TAILSCALE_AUTHKEY=" + q(strings.TrimSpace(req.TailscaleAuthKey)),
+		// Public Routes (Spec #111): the running auth-app needs its ingress mode
+		// (routes require acme) and the ACME email for Caddyfile regeneration.
+		"SANDCASTLE_AUTH_INGRESS_MODE=" + q(strings.TrimSpace(req.IngressMode)),
+		"SANDCASTLE_AUTH_ACME_EMAIL=" + q(strings.TrimSpace(req.ACMEEmail)),
 		// Incus access: the mounted host admin unix socket.
 		"SANDCASTLE_REMOTE=" + q("local"),
 		"SANDCASTLE_STORAGE_POOL=" + q(orDefaultStr(req.StoragePool, "default")),

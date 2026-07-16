@@ -1077,6 +1077,37 @@ echo | openssl s_client -servername $HOST -connect 65.21.132.31:443 2>/dev/null 
 
 ---
 
+## Phase 7c — Publish a public route with `sc route` (Spec #111) 🚧
+Phase 7b's manual `sc-edge` vhost is exactly what `sc route` productizes, but
+against the **auth-app appliance's own Caddy** (ACME ingress), not a separate
+`sc-edge`. Requires the install to have been deployed with
+`sc-adm install --ingress acme` **and** a wildcard `*.<auth-hostname>` A record →
+the host's public IP. The auth-app owns the route end to end: it records the
+route in its SQLite `routes` table, adds a per-route Incus `proxy` device onto
+its own instance (`listen 127.0.0.1:<local>` → `connect <machine-ip>:<port>`),
+regenerates `/etc/caddy/Caddyfile` (a global `on_demand_tls { ask … }` block plus
+one site per route), reloads Caddy, and gates certificate issuance through the
+`/api/routes/ask` endpoint so only registered hostnames get a cert.
+
+```bash
+# As the tenant (restricted cert), with a machine "web" running an app on :3000.
+sc route publish web --port 3000
+# → https://web.<tenant>.<auth-hostname>
+
+sc route list          # HOSTNAME · MACHINE · PORT · STATUS  → web…  web  3000  live
+sc route status web.<tenant>.<auth-hostname>
+```
+**PASS criteria:**
+- `sc route publish web --port 3000` prints `https://web.<tenant>.<auth-hostname>`.
+- On the auth-app instance, `incus exec big:sc2-auth-app --project sc2-infra -- cat /etc/caddy/Caddyfile` shows the route's site block with `reverse_proxy 127.0.0.1:<local>` and the global `on_demand_tls { ask … }` directive; a per-route `scroute-…` proxy device is present in `incus config device show`.
+- After a short wait (first-request cert issuance), `curl https://web.<tenant>.<auth-hostname>/` returns the app body with a **real Let's Encrypt** cert (`ssl_verify_result=0`).
+- `curl` to an **unregistered** `random.<auth-hostname>` does **not** obtain a certificate (the `ask` endpoint returns 403) — no cert-issuance abuse under the wildcard.
+- **Self-heal:** reboot the machine (new DHCP IP) → within the reconcile window `sc route status` is `live` again and the route still serves (the proxy device's `connect` was refreshed). Delete the machine → the route is pruned from `sc route list` automatically.
+- `sc route delete web.<tenant>.<auth-hostname> --yes` removes the site block, the proxy device, and the registry row.
+- **Precondition:** on an install deployed **without** `--ingress acme`, every `sc route` command errors with the "no public ingress; re-install with `sc-adm install --ingress acme`" message.
+
+---
+
 ## Phase 8 — Tenant DNS via CoreDNS (queried at the sidecar tailscale IP) ✅
 The tenant sidecar's CoreDNS serves the `<suffix>` zone (`/etc/coredns/zones/db.e2etest`).
 Machine A-records live there; query CoreDNS at the **sidecar's tailscale IP** — that's the

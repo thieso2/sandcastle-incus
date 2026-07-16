@@ -88,6 +88,23 @@ func ExecuteAdmin(name string, args []string) int {
 		}
 	}
 
+	// Public Routes (Spec #111) are available only on installs with ACME public
+	// ingress (Caddy binds host :80/:443). Wire the Incus-backed RouteBackend and
+	// a local Caddy controller only then; otherwise `sc route` returns a clear
+	// "no public ingress" error.
+	var authAppRoutes authapp.RouteBackend
+	var authAppRouteCaddy authapp.CaddyController
+	if authAppSocketServer != nil && strings.EqualFold(strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_INGRESS_MODE")), incusx.IngressACME) {
+		v2Prefix := installV2Prefix(adminConfig.IncusProjectPrefix)
+		authAppRoutes = incusx.RouteBackend{
+			Server:          authAppSocketServer,
+			MachinePrefix:   adminConfig.IncusProjectPrefix,
+			AuthAppInstance: v2Prefix + "-auth-app",
+			AuthAppProject:  v2Prefix + "-infra",
+		}
+		authAppRouteCaddy = authapp.LocalCaddyController{}
+	}
+
 	cmd := NewAdminRootCommand(commandConfig{
 		name:               name,
 		stdin:              os.Stdin,
@@ -132,6 +149,15 @@ func ExecuteAdmin(name string, args []string) int {
 				Prefix:  adminConfig.IncusProjectPrefix,
 			},
 			DNSEvents: func(ctx context.Context, notify func()) {
+				if authAppSocketServer == nil {
+					return
+				}
+				subscribeInstanceLifecycleEvents(ctx, authAppSocketServer, notify)
+			},
+			Routes:     authAppRoutes,
+			RouteCaddy: authAppRouteCaddy,
+			ACMEEmail:  strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_ACME_EMAIL")),
+			RouteEvents: func(ctx context.Context, notify func()) {
 				if authAppSocketServer == nil {
 					return
 				}

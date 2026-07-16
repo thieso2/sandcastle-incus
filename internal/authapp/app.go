@@ -102,6 +102,18 @@ type HTTPRunner struct {
 	// DNSReconcile, when set, is invoked periodically to register tenant machine
 	// DNS records (auto-registration of freeform `incus launch` machines).
 	DNSReconcile func(context.Context) error
+	// Routes, when set (ACME-ingress installs only), is the Incus seam for Public
+	// Routes: per-Route proxy devices + Machine state. Its presence is what makes
+	// `sc route` available on this install.
+	Routes RouteBackend
+	// RouteCaddy writes the appliance Caddyfile and reloads Caddy for Route
+	// changes. Set alongside Routes.
+	RouteCaddy CaddyController
+	// ACMEEmail is the Let's Encrypt contact email, rendered into the Caddyfile.
+	ACMEEmail string
+	// RouteEvents, when set, subscribes to instance lifecycle events and calls
+	// notify() so the Route reconcile runs within seconds of a Machine change.
+	RouteEvents func(ctx context.Context, notify func())
 }
 
 func PlanServe(request ServeRequest) (ServePlan, error) {
@@ -177,6 +189,9 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			DebugDeviceUser:     plan.DebugDeviceUser,
 			SimulateGitHubToken: plan.SimulateGitHubToken,
 			TailscaleAuthKey:    plan.TailscaleAuthKey,
+			Routes:              r.Routes,
+			RouteCaddy:          r.RouteCaddy,
+			ACMEEmail:           r.ACMEEmail,
 		})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -188,6 +203,11 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 		// (ADR-0020); `sc-adm tenant delete` runs against Incus and cannot reach the
 		// auth database, so a periodic reconcile is the cleanup path.
 		go r.runSuffixClaimReconcileLoop(ctx, db, logger)
+	}
+	if r.Routes != nil && r.RouteCaddy != nil {
+		// Reconcile Public Routes against live Machine state: prune routes whose
+		// Machine was deleted, refresh proxy-device connect on IP change (Spec #111).
+		go r.runRouteReconcileLoop(ctx, db, logger, plan.AuthHostname)
 	}
 	errCh := make(chan error, 1)
 	go func() {
@@ -249,6 +269,74 @@ func (r HTTPRunner) runDNSReconcileLoop(ctx context.Context, logger *svclog.Logg
 						}
 						select {
 						case <-trigger: // coalesce triggers that arrived meanwhile
+						default:
+						}
+						reconcile()
+					}
+				}
+			}
+		}()
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	reconcile()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reconcile()
+		}
+	}
+}
+
+// runRouteReconcileLoop keeps Public Routes in line with live Machine state
+// (Spec #111), mirroring runDNSReconcileLoop: instance lifecycle events trigger a
+// reconcile within seconds (with settle passes for the DHCP lease after a
+// recreate), and a periodic pass guarantees convergence across missed events and
+// restarts. Prunes routes whose Machine is gone and refreshes proxy-device
+// connect on IP change; never prunes on a transient Incus failure.
+func (r HTTPRunner) runRouteReconcileLoop(ctx context.Context, db *sql.DB, logger *svclog.Logger, authHostname string) {
+	const interval = 5 * time.Minute
+	manager := RouteManager{
+		DB:      db,
+		Backend: r.Routes,
+		Caddy:   r.RouteCaddy,
+		Render:  RouteRenderConfig(authHostname, r.ACMEEmail),
+	}
+	reconcile := func() {
+		pruned, err := manager.Reconcile(ctx)
+		if err != nil {
+			logger.Message(ctx, "ERROR", "auth-app route reconcile: %v", err)
+			return
+		}
+		if pruned > 0 {
+			logger.Message(ctx, "INFO", "auth-app route reconcile: pruned %d route(s) for absent machines", pruned)
+		}
+	}
+	if r.RouteEvents != nil {
+		trigger := make(chan struct{}, 1)
+		go r.RouteEvents(ctx, func() {
+			select {
+			case trigger <- struct{}{}:
+			default:
+			}
+		})
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-trigger:
+					reconcile()
+					for _, settle := range []time.Duration{3 * time.Second, 8 * time.Second} {
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(settle):
+						}
+						select {
+						case <-trigger:
 						default:
 						}
 						reconcile()
@@ -417,6 +505,15 @@ CREATE TABLE IF NOT EXISTS dns_suffix_claims (
     user_key TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS routes (
+    hostname TEXT PRIMARY KEY,
+    tenant TEXT NOT NULL,
+    project TEXT NOT NULL,
+    machine TEXT NOT NULL,
+    backend_port INTEGER NOT NULL,
+    local_port INTEGER NOT NULL,
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS logs_user_ts ON logs(user_key, ts);
 CREATE INDEX IF NOT EXISTS logs_ts ON logs(ts);
@@ -595,6 +692,12 @@ type HandlerOptions struct {
 	DebugDeviceUser     string
 	SimulateGitHubToken string
 	TailscaleAuthKey    string
+	Routes              RouteBackend
+	RouteCaddy          CaddyController
+	ACMEEmail           string
+	// RouteResolveHost overrides how a custom hostname's DNS is checked for the
+	// awaiting-dns status. Optional; nil uses a real DNS lookup. Injected in tests.
+	RouteResolveHost func(ctx context.Context, host string) bool
 }
 
 // TenantProjectCreator creates an app project for a tenant and extends the
@@ -627,6 +730,10 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		simulateToken:    strings.TrimSpace(handlerOptions.SimulateGitHubToken),
 		tailscaleAuthKey: strings.TrimSpace(handlerOptions.TailscaleAuthKey),
 		sessionCookie:    "sandcastle_session",
+		routes:           handlerOptions.Routes,
+		routeCaddy:       handlerOptions.RouteCaddy,
+		acmeEmail:        strings.TrimSpace(handlerOptions.ACMEEmail),
+		routeResolveHost: handlerOptions.RouteResolveHost,
 	}
 	if app.githubClient == nil {
 		if app.simulateToken != "" {
@@ -667,6 +774,8 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/api/device/start", app.deviceStart)
 	mux.HandleFunc("/api/device/poll", app.devicePoll)
 	mux.HandleFunc("/api/workload/enable", app.workloadEnable)
+	mux.HandleFunc("/api/routes", app.routesAPI)
+	mux.HandleFunc("/api/routes/ask", app.routesAsk)
 	mux.HandleFunc("/device", app.deviceApprove)
 	if app.debugDeviceUser != "" {
 		mux.HandleFunc("/debug/device/approve", app.debugDeviceApprove)
@@ -714,6 +823,10 @@ type handler struct {
 	simulateToken    string
 	tailscaleAuthKey string
 	sessionCookie    string
+	routes           RouteBackend
+	routeCaddy       CaddyController
+	acmeEmail        string
+	routeResolveHost func(ctx context.Context, host string) bool
 }
 
 // projectsAPI is the tunnel-friendly tenant plane for project creation
