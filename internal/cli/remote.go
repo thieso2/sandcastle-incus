@@ -101,15 +101,19 @@ func newRemoteSwitchCommand(config commandConfig) *cobra.Command {
 					return fmt.Errorf("no enrolled Sandcastle remote %q; %s", name, hint)
 				}
 			}
-			if strings.TrimSpace(cfg.Remote) == name && strings.TrimSpace(config.adminConfig.Remote) == name {
-				fmt.Fprintf(config.stdout, "Already on remote %q.\n", name)
-				return nil
-			}
+			// Always apply (idempotent) rather than short-circuit on "already on":
+			// the active remote can be right while the project pin is stale, and
+			// re-running the switch is how you fix that.
 			fx := applyRemoteSwitch(&cfg, name)
+			project := repinProjectForRemote(&cfg, name)
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save config: %w", err)
 			}
-			fmt.Fprintf(config.stdout, "Switched to remote %q.\n", name)
+			if project != "" {
+				fmt.Fprintf(config.stdout, "Switched to remote %q (project %q).\n", name, project)
+			} else {
+				fmt.Fprintf(config.stdout, "Switched to remote %q.\n", name)
+			}
 			printRemoteSwitchEffects(config.stdout, cfg, fx)
 			if err := scconfig.SetSharedIncusDefaultRemote(name); err != nil {
 				fmt.Fprintf(config.stdout, "Note: incus current remote not switched: %v\n", err)
@@ -162,6 +166,19 @@ func isSandcastleRemote(r localRemote, cfg scconfig.SandcastleConfig) bool {
 		return true
 	}
 	return cfg.AuthHostnameForRemote(r.Name) != ""
+}
+
+// repinProjectForRemote sets cfg.Project to the target install's own project,
+// derived from that remote's incus project pin (<prefix>-<tenant>-<short>), so
+// switching installs doesn't leave a stale pin that makes `sc ls`/`sc c` fail
+// ("project X not found in tenant Y"). Returns the short project name it set, or
+// "" when the remote has no derivable pin (cfg.Project is then left unchanged).
+func repinProjectForRemote(cfg *scconfig.SandcastleConfig, name string) string {
+	short := shortProjectName(scconfig.SharedIncusRemoteProject(name), cfg.Tenant)
+	if short != "" {
+		cfg.Project = short
+	}
+	return short
 }
 
 func remoteNameKnown(remotes []localRemote, name string) bool {

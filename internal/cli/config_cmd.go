@@ -74,6 +74,9 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			var fx remoteSwitchEffects
 			if key == "remote" {
 				fx = applyRemoteSwitch(&cfg, value)
+				// Re-pin the project to the target install's own, so the switch
+				// doesn't leave a stale pin that fails `sc ls`/`sc c`.
+				repinProjectForRemote(&cfg, value)
 			} else if err := setConfigValue(&cfg, key, value); err != nil {
 				return err
 			}
