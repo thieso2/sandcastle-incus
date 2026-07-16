@@ -10,10 +10,15 @@ import (
 func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use string, action machine.Action, requireYes bool) *cobra.Command {
 	var yes bool
 	command := &cobra.Command{
-		Use:   use + " [[dns-suffix:]project:]machine",
+		Use:   use + " [[remote:]project:]machine",
 		Short: machineLifecycleShort(action),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			config, reference, restore, err := rebindForReference(config, args[0])
+			if err != nil {
+				return err
+			}
+			defer restore()
 			if requireYes && !yes && !isTerminalInput(config) {
 				return fmt.Errorf("refusing to delete machine without --yes")
 			}
@@ -21,7 +26,7 @@ func newMachineLifecycleCommand(config commandConfig, opts *rootOptions, use str
 			if err != nil {
 				return err
 			}
-			project, machineName, err := resolveV2MachineTarget(cmd.Context(), config, summary, args[0])
+			project, machineName, err := resolveV2MachineTarget(cmd.Context(), config, summary, reference)
 			if err != nil {
 				return err
 			}

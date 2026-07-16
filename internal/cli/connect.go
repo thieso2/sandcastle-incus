@@ -10,11 +10,19 @@ import (
 func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var useVM bool
 	command := &cobra.Command{
-		Use:     "connect [[dns-suffix:]project:]machine [-- command...]",
+		Use:     "connect [[remote:]project:]machine [-- command...]",
 		Aliases: []string{"c"},
 		Short:   "Connect to a Sandcastle machine",
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Universal [[remote:]project:]machine: a leading enrolled-remote prefix
+			// rebinds the whole command to that install (all stores); the reference
+			// then continues as project:machine below.
+			config, reference, restore, err := rebindForReference(config, args[0])
+			if err != nil {
+				return err
+			}
+			defer restore()
 			summary, err := requireV2Tenant(cmd.Context(), config)
 			if err != nil {
 				return err
@@ -23,7 +31,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			// its DNS suffix, switch to that install's remote (and re-fetch its
 			// summary) before connecting. A same-install reference falls through
 			// unchanged.
-			if dnsSuffix, project, machine, perr := parseV2MachineReference(args[0], summary.Tenant, config.adminConfig.Project); perr == nil {
+			if dnsSuffix, project, machine, perr := parseV2MachineReference(reference, summary.Tenant, config.adminConfig.Project); perr == nil {
 				switchTo, terr := resolveConnectTarget(dnsSuffix, summary.DNSSuffix, localRemoteExists)
 				if terr != nil {
 					return terr
@@ -37,7 +45,7 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					return runConnectV2(cmd.Context(), switched, targetSummary, project+":"+machine, args[1:], useVM)
 				}
 			}
-			return runConnectV2(cmd.Context(), config, summary, args[0], args[1:], useVM)
+			return runConnectV2(cmd.Context(), config, summary, reference, args[1:], useVM)
 		},
 	}
 	command.Flags().BoolVar(&useVM, "vm", false, "when the machine has to be created first, launch a virtual machine instead of a container")

@@ -19,6 +19,7 @@ import (
 
 type listPayload struct {
 	Tenant         tenant.Summary             `json:"tenant"`
+	Remote         string                     `json:"remote,omitempty"`
 	Project        string                     `json:"project,omitempty"`
 	AllProjects    bool                       `json:"allProjects"`
 	Machines       []meta.Machine             `json:"machines"`
@@ -195,6 +196,7 @@ func listMachines(ctx context.Context, config commandConfig, request listMachine
 	}
 	return listPayload{
 		Tenant:         summary,
+		Remote:         strings.TrimSpace(config.adminConfig.Remote),
 		Project:        projectFilter,
 		AllProjects:    projectFilter == "",
 		Machines:       filtered,
@@ -239,12 +241,30 @@ func summaryHasProject(summary tenant.Summary, name string) bool {
 	return false
 }
 
+// listContext names the remote (always) and project (when filtered to one) the
+// listing covers, so output — especially an empty result — says WHICH install
+// and project it looked in.
+func listContext(result listPayload) string {
+	parts := make([]string, 0, 2)
+	if r := strings.TrimSpace(result.Remote); r != "" {
+		parts = append(parts, fmt.Sprintf("remote %q", r))
+	}
+	if p := strings.TrimSpace(result.Project); p != "" && !result.AllProjects {
+		parts = append(parts, fmt.Sprintf("project %q", p))
+	}
+	if len(parts) == 0 {
+		return "the current install"
+	}
+	return strings.Join(parts, ", ")
+}
+
 func formatMachineList(result listPayload) string {
 	if len(result.Machines) == 0 && len(result.Unmanaged) == 0 {
-		return "No Sandcastle machines found."
+		return "No Sandcastle machines found in " + listContext(result) + "."
 	}
 
 	var builder strings.Builder
+	fmt.Fprintf(&builder, "%s\n", listContext(result))
 	table := tabwriter.NewWriter(&builder, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(table, "PROJECT\tMACHINE\tTYPE\tFQDN\tIP\tCREATED\tSTATE")
 	for _, machine := range result.Machines {

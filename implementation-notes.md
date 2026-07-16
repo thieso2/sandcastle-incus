@@ -5,6 +5,30 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-16 — universal `[[remote:]project:]machine` addressing + `sc ls` names its scope
+
+Generalized the `sc ls <remote>:` prefix into a `<remote>:` prefix accepted by every
+machine-reference command (create, connect, delete/start/stop/restart, image save):
+a leading segment that names an ENROLLED remote rebinds the whole command to that
+install for the one call, then the reference continues as `project:machine`.
+
+- **How.** Extracted Execute's DI wiring into `newUserCommandConfig(remote,…)`, then
+  `rebindForReference(config, ref)`: if the leading segment is an enrolled remote
+  different from the current one, point INCUS_CONF at its (ADR-0021 shared) dir,
+  rebuild ALL stores via `newUserCommandConfig`, default the project to that remote's
+  pin, and return the stripped reference + an INCUS_CONF-restore func. Nothing is
+  persisted — the active install is untouched (verified: `config.remote` unchanged
+  after `sc delete obelix:work:X` from an idefix session, and the API trace shows the
+  calls hitting `project=obelix-thieso2-work`).
+- **Backward compatible.** The prefix is treated as a remote ONLY when it matches an
+  enrolled remote, so `project:machine` and bare names are unchanged (test:
+  `TestRebindForReferenceLeavesNonRemoteReferences`). This is distinct from `sc c`'s
+  older dns-suffix cross-install path, which still works and composes in front of it
+  (rebind strips the remote, then the suffix logic sees `project:machine`).
+- **`sc ls` names its scope.** Output now leads with `remote "X", project "Y"` (and the
+  empty case reads `No Sandcastle machines found in remote "X", project "Y".`) so a
+  zero result is never ambiguous about which install/project it looked in.
+
 ## 2026-07-16 — `sc ls <remote>:<project>` cross-install addressing (no switch)
 
 `sc ls` now accepts a `<remote>:` prefix to read another enrolled install without a
