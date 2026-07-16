@@ -262,13 +262,17 @@ func (h handler) routeHostname(request RoutePublishRequest) (string, error) {
 	if !isValidDNSLabel(label) {
 		return "", fmt.Errorf("invalid route name %q: use letters, digits, and hyphens", label)
 	}
-	if strings.TrimSpace(h.authHostname) == "" {
-		return "", fmt.Errorf("this install has no Auth Hostname configured")
+	base := h.routeBaseDomain
+	if base == "" {
+		base = h.authHostname
+	}
+	if strings.TrimSpace(base) == "" {
+		return "", fmt.Errorf("this install has no route base domain or Auth Hostname configured")
 	}
 	if strings.TrimSpace(request.Tenant) == "" {
 		return "", fmt.Errorf("tenant is required")
 	}
-	return label + "." + request.Tenant + "." + h.authHostname, nil
+	return label + "." + request.Tenant + "." + base, nil
 }
 
 func (h handler) routeManager() (RouteManager, bool) {
@@ -279,7 +283,7 @@ func (h handler) routeManager() (RouteManager, bool) {
 		DB:          h.db,
 		Backend:     h.routes,
 		Caddy:       h.routeCaddy,
-		Render:      RouteRenderConfig(h.authHostname, h.acmeEmail),
+		Render:      RouteRenderConfig(h.authHostname, h.authIngressMode, h.routeBaseDomain, h.acmeEmail),
 		ResolveHost: h.routeResolveHost,
 	}, true
 }

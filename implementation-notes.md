@@ -5,6 +5,36 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-16 — `sc route` coexistence: routes beside a Cloudflare login host
+
+Extended `sc route` so it no longer requires the whole appliance to be in ACME
+ingress mode. Driven by a real deployment (home): login is fronted by a
+Cloudflare tunnel on `home.thieso2.dev`, but routes should be native-ACME under a
+*different* domain (`home.tc42.uk`) on the same box. Decisions:
+
+- **Route ingress is decoupled from the Auth Hostname's ingress.** New
+  `--route-ingress acme` (independent of `--ingress`) binds host :80/:443 for
+  route certs; `sc route` is now gated on `SANDCASTLE_ROUTE_INGRESS=acme`, not on
+  the auth-app's own mode. So cloudflare-login + acme-routes coexist.
+- **Route base domain.** New `--route-base-domain` (`SANDCASTLE_ROUTE_BASE_DOMAIN`):
+  routes render as `<label>.<tenant>.<route-base-domain>`, defaulting to the Auth
+  Hostname when unset (backward-compatible with the original single-domain design).
+- **One Caddyfile serves both.** `RenderCaddyfile` now takes the Auth Hostname's
+  ingress mode: a cloudflare login host is emitted as `http://<host>:8080` (plain,
+  Cloudflare terminates TLS) while route sites are ACME on-demand on :443. The
+  key correctness point: **no global `auto_https off`** (it would kill route
+  certs) — the login host stays cert-free via its explicit `http://…:8080` scheme
+  instead. The auth-app rewrites the Caddyfile once on startup (`SyncCaddy`) so the
+  coexistence shape lands even before the first publish.
+- **`awaiting-dns` / custom-hostname detection keys on the route base domain**, not
+  the Auth Hostname.
+- **Redeploy path.** `sc-adm install` refuses an existing prefix, so enabling this
+  on an already-installed host is done via `sc-adm auth-app deploy` (which gained
+  the `--ingress`/`--acme-email`/`--cloudflare-tunnel-token`/`--route-ingress`/
+  `--route-base-domain` flags it previously lacked). NB for operators: redeploying
+  the appliance recreates the container — the auth DB persistence story is a
+  separate concern to verify before running it on a populated install.
+
 ## 2026-07-16 — `sc route`: public routes via the Auth App Caddy (Spec #111)
 
 Implemented the revived `sc route` per the wayfinder map (#103) / spec (#111): a

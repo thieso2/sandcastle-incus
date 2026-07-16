@@ -61,6 +61,37 @@ func TestRoutePublishAPI_AutoSubdomain(t *testing.T) {
 	}
 }
 
+func TestRoutePublishAPI_UsesRouteBaseDomain(t *testing.T) {
+	// Coexistence: login on cloudflare home.thieso2.dev, routes under home.tc42.uk.
+	backend := newFakeBackend()
+	backend.states["acme/default/web"] = running("10.248.3.42")
+	db := newClaimsTestDB(t)
+	if err := UpsertUser(context.Background(), db, User{UserKey: "acme", GitHubUsername: "acme", Allowlisted: true}); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := CreateCLIToken(context.Background(), db, "acme", timeNow())
+	h := NewHandler(db, HandlerOptions{
+		AuthHostname:     "home.thieso2.dev",
+		AuthIngressMode:  IngressModeCloudflare,
+		RouteBaseDomain:  "home.tc42.uk",
+		Routes:           backend,
+		RouteCaddy:       &fakeCaddy{},
+		RouteResolveHost: func(context.Context, string) bool { return true },
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/routes", strings.NewReader(`{"tenant":"acme","project":"default","machine":"web","backendPort":3000}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("publish = %d %q", res.Code, res.Body.String())
+	}
+	var view RouteView
+	json.Unmarshal(res.Body.Bytes(), &view)
+	if view.Hostname != "web.acme.home.tc42.uk" {
+		t.Fatalf("route should be under the route base domain, got %q", view.Hostname)
+	}
+}
+
 func TestRoutePublishAPI_CustomHostname(t *testing.T) {
 	backend := newFakeBackend()
 	backend.states["acme/default/web"] = running("10.248.3.42")

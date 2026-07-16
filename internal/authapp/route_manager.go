@@ -195,10 +195,14 @@ func (m RouteManager) Status(ctx context.Context, route Route) RouteStatus {
 }
 
 // isCustomHostname reports whether hostname is a customer-supplied hostname
-// rather than an auto-subdomain under the Auth Hostname wildcard.
+// rather than an auto-subdomain under the route base domain (which sits behind
+// the operator's wildcard DNS and always resolves).
 func (m RouteManager) isCustomHostname(hostname string) bool {
-	auth := strings.Trim(strings.TrimSpace(m.Render.AuthHostname), ".")
-	return auth == "" || !strings.HasSuffix(hostname, "."+auth)
+	base := strings.Trim(strings.TrimSpace(m.Render.RouteBaseDomain), ".")
+	if base == "" {
+		base = strings.Trim(strings.TrimSpace(m.Render.AuthHostname), ".")
+	}
+	return base == "" || !strings.HasSuffix(hostname, "."+base)
 }
 
 // hostResolves reports whether host resolves to an address, with a short bound.
@@ -210,6 +214,13 @@ func (m RouteManager) hostResolves(ctx context.Context, host string) bool {
 	defer cancel()
 	addrs, err := net.DefaultResolver.LookupHost(lookupCtx, host)
 	return err == nil && len(addrs) > 0
+}
+
+// SyncCaddy writes the appliance Caddyfile from the current registry without any
+// mutation — used on startup so the coexistence global block, the Auth Hostname
+// site, and any existing route sites are correct before the first publish.
+func (m RouteManager) SyncCaddy(ctx context.Context) error {
+	return m.regenerate(ctx)
 }
 
 // regenerate renders the Caddyfile from the whole registry and applies it.

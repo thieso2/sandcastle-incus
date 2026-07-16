@@ -25,6 +25,8 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 		simulateGitHubToken                                           string
 		cidrPool, projectPrefix, infraProject, tlsMode                string
 		tenantBaseImage, tenantAIImage                                string
+		ingressMode, acmeEmail, tunnelToken                           string
+		routeIngress, routeBaseDomain                                 string
 	)
 	command := &cobra.Command{
 		Use:   "deploy",
@@ -71,6 +73,10 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 				}
 			}
 
+			routeIngress = strings.TrimSpace(routeIngress)
+			if routeIngress != "" && routeIngress != incusx.IngressACME {
+				return fmt.Errorf("unknown --route-ingress %q (acme, or empty to disable)", routeIngress)
+			}
 			if err := creator.BootstrapAuthApp(cmd.Context(), incusx.BootstrapAuthAppRequest{
 				Project:             project,
 				Instance:            instance,
@@ -92,6 +98,11 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 				TLSMode:             tlsMode,
 				BaseImageRef:        tenantBaseImage,
 				AIImageRef:          tenantAIImage,
+				IngressMode:         strings.TrimSpace(ingressMode),
+				ACMEEmail:           strings.TrimSpace(acmeEmail),
+				TunnelToken:         strings.TrimSpace(tunnelToken),
+				RouteIngress:        routeIngress,
+				RouteBaseDomain:     strings.TrimSpace(routeBaseDomain),
 			}); err != nil {
 				return err
 			}
@@ -122,6 +133,11 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&tlsMode, "infra-tls-mode", "acme", "infrastructure TLS mode")
 	command.Flags().StringVar(&tenantBaseImage, "tenant-base-image", incusx.DefaultApplianceImage, "stock base image for tenant sidecars (pulled from the images: remote)")
 	command.Flags().StringVar(&tenantAIImage, "tenant-ai-image", "images:debian/13", "AI image tenants can use (default: stock; set a custom image if you built one)")
+	command.Flags().StringVar(&ingressMode, "ingress", "", "public ingress for the Auth Hostname: none, acme, or cloudflare (redeploy preserves the login front)")
+	command.Flags().StringVar(&acmeEmail, "acme-email", "", "Let's Encrypt contact email (acme or route ingress)")
+	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a Cloudflare tunnel routing the Auth Hostname to http://localhost:8080 (cloudflare ingress)")
+	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt), independent of --ingress; empty disables")
+	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
 	return command
 }
 

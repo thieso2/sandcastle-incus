@@ -45,6 +45,36 @@ func TestRenderCaddyfile_RouteBlockUsesOnDemandAndLoopback(t *testing.T) {
 	}
 }
 
+func TestRenderCaddyfile_CoexistCloudflareLoginAndAcmeRoutes(t *testing.T) {
+	cfg := RouteRenderConfig("home.thieso2.dev", IngressModeCloudflare, "home.tc42.uk", "ops@example.dev")
+	routes := []Route{{Hostname: "web.acme.home.tc42.uk", LocalPort: 20001}}
+	out := RenderCaddyfile(cfg, routes)
+
+	// Login host stays on the Cloudflare tunnel: plain HTTP on :8080, no ACME.
+	if !strings.Contains(out, "http://home.thieso2.dev:8080 {") {
+		t.Errorf("login host should be served plain on :8080 for cloudflare:\n%s", out)
+	}
+	// Route host is a native ACME on-demand site.
+	if !strings.Contains(out, "web.acme.home.tc42.uk {") || !strings.Contains(out, "on_demand") {
+		t.Errorf("route host should be a native ACME on-demand site:\n%s", out)
+	}
+	// Crucially, no global auto_https off — that would suppress the route certs.
+	if strings.Contains(out, "auto_https off") {
+		t.Errorf("must not disable auto_https (routes need certs):\n%s", out)
+	}
+	if !strings.Contains(out, "ask http://127.0.0.1:9444/api/routes/ask") {
+		t.Errorf("ask endpoint missing:\n%s", out)
+	}
+}
+
+func TestRenderCaddyfile_AcmeLoginHostStaysBareSite(t *testing.T) {
+	cfg := RouteRenderConfig("sc2.thieso2.dev", IngressModeACME, "", "ops@example.dev")
+	out := RenderCaddyfile(cfg, nil)
+	if !strings.Contains(out, "sc2.thieso2.dev {") || strings.Contains(out, "http://sc2.thieso2.dev:8080") {
+		t.Errorf("acme login host should be a bare ACME site, not :8080:\n%s", out)
+	}
+}
+
 func TestRenderCaddyfile_RoutesSortedDeterministic(t *testing.T) {
 	routes := []Route{
 		{Hostname: "b.acme.sc2.thieso2.dev", LocalPort: 20002},

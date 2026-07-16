@@ -111,6 +111,13 @@ type HTTPRunner struct {
 	RouteCaddy CaddyController
 	// ACMEEmail is the Let's Encrypt contact email, rendered into the Caddyfile.
 	ACMEEmail string
+	// AuthIngressMode is how the Auth Hostname itself is served (acme|cloudflare|
+	// none); it governs the login site in the regenerated Caddyfile so routes can
+	// coexist with a Cloudflare-tunnelled login hostname.
+	AuthIngressMode string
+	// RouteBaseDomain is where Public Routes live (<label>.<tenant>.<base>); empty
+	// falls back to the Auth Hostname.
+	RouteBaseDomain string
 	// RouteEvents, when set, subscribes to instance lifecycle events and calls
 	// notify() so the Route reconcile runs within seconds of a Machine change.
 	RouteEvents func(ctx context.Context, notify func())
@@ -192,6 +199,8 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			Routes:              r.Routes,
 			RouteCaddy:          r.RouteCaddy,
 			ACMEEmail:           r.ACMEEmail,
+			AuthIngressMode:     r.AuthIngressMode,
+			RouteBaseDomain:     r.RouteBaseDomain,
 		})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -302,7 +311,13 @@ func (r HTTPRunner) runRouteReconcileLoop(ctx context.Context, db *sql.DB, logge
 		DB:      db,
 		Backend: r.Routes,
 		Caddy:   r.RouteCaddy,
-		Render:  RouteRenderConfig(authHostname, r.ACMEEmail),
+		Render:  RouteRenderConfig(authHostname, r.AuthIngressMode, r.RouteBaseDomain, r.ACMEEmail),
+	}
+	// Write the coexistence Caddyfile once at startup so the global block, the
+	// Auth Hostname site, and any existing route sites are correct before the
+	// first publish (routes may run beside a Cloudflare-tunnelled login host).
+	if err := manager.SyncCaddy(ctx); err != nil {
+		logger.Message(ctx, "ERROR", "auth-app route caddy sync: %v", err)
 	}
 	reconcile := func() {
 		pruned, err := manager.Reconcile(ctx)
@@ -695,6 +710,8 @@ type HandlerOptions struct {
 	Routes              RouteBackend
 	RouteCaddy          CaddyController
 	ACMEEmail           string
+	AuthIngressMode     string
+	RouteBaseDomain     string
 	// RouteResolveHost overrides how a custom hostname's DNS is checked for the
 	// awaiting-dns status. Optional; nil uses a real DNS lookup. Injected in tests.
 	RouteResolveHost func(ctx context.Context, host string) bool
@@ -733,6 +750,8 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		routes:           handlerOptions.Routes,
 		routeCaddy:       handlerOptions.RouteCaddy,
 		acmeEmail:        strings.TrimSpace(handlerOptions.ACMEEmail),
+		authIngressMode:  strings.TrimSpace(handlerOptions.AuthIngressMode),
+		routeBaseDomain:  strings.Trim(strings.TrimSpace(handlerOptions.RouteBaseDomain), "."),
 		routeResolveHost: handlerOptions.RouteResolveHost,
 	}
 	if app.githubClient == nil {
@@ -826,6 +845,8 @@ type handler struct {
 	routes           RouteBackend
 	routeCaddy       CaddyController
 	acmeEmail        string
+	authIngressMode  string
+	routeBaseDomain  string
 	routeResolveHost func(ctx context.Context, host string) bool
 }
 

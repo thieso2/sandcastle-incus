@@ -1079,10 +1079,14 @@ echo | openssl s_client -servername $HOST -connect 65.21.132.31:443 2>/dev/null 
 
 ## Phase 7c — Publish a public route with `sc route` (Spec #111) 🚧
 Phase 7b's manual `sc-edge` vhost is exactly what `sc route` productizes, but
-against the **auth-app appliance's own Caddy** (ACME ingress), not a separate
-`sc-edge`. Requires the install to have been deployed with
-`sc-adm install --ingress acme` **and** a wildcard `*.<auth-hostname>` A record →
-the host's public IP. The auth-app owns the route end to end: it records the
+against the **auth-app appliance's own Caddy**, not a separate `sc-edge`.
+Requires **route ingress** — deploy with `--route-ingress acme` (on `sc-adm
+install` or `sc-adm auth-app deploy`), independent of the Auth Hostname's own
+ingress, so routes can run beside a Cloudflare-tunnelled login host (e.g. login
+`--ingress cloudflare` on `home.thieso2.dev`, routes `--route-ingress acme
+--route-base-domain home.tc42.uk`). Needs a wildcard `*.<route-base-domain>` →
+the host's public IP (a wildcard CNAME to a dynamic-DNS name works). The
+auth-app owns the route end to end: it records the
 route in its SQLite `routes` table, adds a per-route Incus `proxy` device onto
 its own instance (`listen 127.0.0.1:<local>` → `connect <machine-ip>:<port>`),
 regenerates `/etc/caddy/Caddyfile` (a global `on_demand_tls { ask … }` block plus
