@@ -88,6 +88,24 @@ func ExecuteAdmin(name string, args []string) int {
 		}
 	}
 
+	// Public Routes (Spec #111) are available when native-ACME route ingress is
+	// enabled (SANDCASTLE_ROUTE_INGRESS=acme → Caddy binds host :80/:443), which is
+	// independent of the Auth Hostname's own ingress mode — so routes can coexist
+	// with a Cloudflare-tunnelled login host. Otherwise `sc route` returns a clear
+	// "no public ingress" error.
+	var authAppRoutes authapp.RouteBackend
+	var authAppRouteCaddy authapp.CaddyController
+	if authAppSocketServer != nil && strings.EqualFold(strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_INGRESS")), incusx.IngressACME) {
+		v2Prefix := installV2Prefix(adminConfig.IncusProjectPrefix)
+		authAppRoutes = incusx.RouteBackend{
+			Server:          authAppSocketServer,
+			MachinePrefix:   adminConfig.IncusProjectPrefix,
+			AuthAppInstance: v2Prefix + "-auth-app",
+			AuthAppProject:  v2Prefix + "-infra",
+		}
+		authAppRouteCaddy = authapp.LocalCaddyController{}
+	}
+
 	cmd := NewAdminRootCommand(commandConfig{
 		name:               name,
 		stdin:              os.Stdin,
@@ -132,6 +150,17 @@ func ExecuteAdmin(name string, args []string) int {
 				Prefix:  adminConfig.IncusProjectPrefix,
 			},
 			DNSEvents: func(ctx context.Context, notify func()) {
+				if authAppSocketServer == nil {
+					return
+				}
+				subscribeInstanceLifecycleEvents(ctx, authAppSocketServer, notify)
+			},
+			Routes:          authAppRoutes,
+			RouteCaddy:      authAppRouteCaddy,
+			ACMEEmail:       strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_ACME_EMAIL")),
+			AuthIngressMode: strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_INGRESS_MODE")),
+			RouteBaseDomain: strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BASE_DOMAIN")),
+			RouteEvents: func(ctx context.Context, notify func()) {
 				if authAppSocketServer == nil {
 					return
 				}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -60,6 +61,14 @@ type BootstrapAuthAppRequest struct {
 	IngressMode string
 	ACMEEmail   string
 	TunnelToken string
+
+	// Public Route ingress (Spec #111 coexistence): when "acme", the appliance
+	// also binds host :80/:443 for native-ACME Public Route sites, independent of
+	// IngressMode — so routes can run beside a Cloudflare-tunnelled login host.
+	// RouteBaseDomain is where routes live (<label>.<tenant>.<base>); empty falls
+	// back to the Auth Hostname.
+	RouteIngress    string
+	RouteBaseDomain string
 
 	// Provisioning config baked into the appliance env (the Auth App provisions
 	// tenants on device login).
@@ -179,8 +188,11 @@ func ensureAuthAppProject(server TenantCreateServer, project string) error {
 }
 
 func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequest, instance string) error {
-	if _, _, err := server.GetInstance(instance); err == nil {
-		return nil
+	if existing, etag, err := server.GetInstance(instance); err == nil {
+		// The appliance already exists (redeploy): keep it — and its auth DB in
+		// the rootfs — but reconcile the ingress proxy devices, so a redeploy that
+		// newly enables acme/route ingress binds host :80/:443 (Spec #111).
+		return reconcileAuthAppIngressDevices(server, existing, etag, instance, req)
 	}
 	source := imageInstanceSource(req.BaseImage)
 	op, err := server.CreateInstance(api.InstancesPost{
@@ -231,6 +243,44 @@ func applianceIngressArch(server TenantResourceServer, instance string) (string,
 // authAppDevices builds the appliance's device map; ACME ingress additionally
 // publishes the host's :80/:443 into the container so caddy can terminate TLS
 // and answer HTTP-01 challenges.
+// reconcileAuthAppIngressDevices adds/removes the host :80/:443 proxy devices on
+// an existing appliance to match the requested ingress, without recreating the
+// container (the auth DB lives in its rootfs). Only the ingress devices are
+// touched; root/eth0/incus-socket are left as-is.
+func reconcileAuthAppIngressDevices(server TenantResourceServer, existing *api.Instance, etag, instance string, req BootstrapAuthAppRequest) error {
+	want := authAppDevices(req)
+	put := existing.Writable()
+	next := api.DevicesMap{}
+	for name, device := range put.Devices {
+		next[name] = device
+	}
+	changed := false
+	for _, name := range []string{"http", "https"} {
+		desired, wanted := want[name]
+		if wanted {
+			if !reflect.DeepEqual(next[name], desired) {
+				next[name] = desired
+				changed = true
+			}
+		} else if _, present := next[name]; present {
+			delete(next, name)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	put.Devices = next
+	op, err := server.UpdateInstance(instance, put, etag)
+	if err != nil {
+		return fmt.Errorf("update auth-app ingress devices: %w", err)
+	}
+	if err := op.Wait(); err != nil {
+		return fmt.Errorf("wait for auth-app ingress devices: %w", err)
+	}
+	return nil
+}
+
 func authAppDevices(req BootstrapAuthAppRequest) api.DevicesMap {
 	devices := api.DevicesMap{
 		"root": {"type": "disk", "pool": req.StoragePool, "path": "/"},
@@ -238,7 +288,10 @@ func authAppDevices(req BootstrapAuthAppRequest) api.DevicesMap {
 		// mount the host admin socket → the Auth App provisions with full rights
 		"incus-socket": {"type": "disk", "source": AuthAppIncusSocket, "path": AuthAppIncusSocket},
 	}
-	if strings.TrimSpace(req.IngressMode) == IngressACME {
+	// Bind the host :80/:443 for Caddy when the Auth Hostname uses ACME OR when
+	// native-ACME Public Route ingress is enabled (routes need the ports even if
+	// the login host is Cloudflare-tunnelled).
+	if strings.TrimSpace(req.IngressMode) == IngressACME || strings.TrimSpace(req.RouteIngress) == IngressACME {
 		devices["http"] = map[string]string{"type": "proxy", "listen": "tcp:0.0.0.0:80", "connect": "tcp:127.0.0.1:80"}
 		devices["https"] = map[string]string{"type": "proxy", "listen": "tcp:0.0.0.0:443", "connect": "tcp:127.0.0.1:443"}
 	}
@@ -276,6 +329,14 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_AUTH_SIMULATE_GITHUB_TOKEN=" + q(strings.TrimSpace(req.SimulateGitHubToken)),
 		"SANDCASTLE_AUTH_DEFAULT_UNIX_USER=" + q(strings.TrimSpace(req.DefaultUnixUser)),
 		"SANDCASTLE_AUTH_TAILSCALE_AUTHKEY=" + q(strings.TrimSpace(req.TailscaleAuthKey)),
+		// Public Routes (Spec #111): the running auth-app needs the Auth Hostname's
+		// own ingress mode (to render its Caddy site), the ACME email, and — for
+		// coexistence — whether native-ACME route ingress is on plus the route base
+		// domain routes live under.
+		"SANDCASTLE_AUTH_INGRESS_MODE=" + q(strings.TrimSpace(req.IngressMode)),
+		"SANDCASTLE_AUTH_ACME_EMAIL=" + q(strings.TrimSpace(req.ACMEEmail)),
+		"SANDCASTLE_ROUTE_INGRESS=" + q(strings.TrimSpace(req.RouteIngress)),
+		"SANDCASTLE_ROUTE_BASE_DOMAIN=" + q(strings.TrimSpace(req.RouteBaseDomain)),
 		// Incus access: the mounted host admin unix socket.
 		"SANDCASTLE_REMOTE=" + q("local"),
 		"SANDCASTLE_STORAGE_POOL=" + q(orDefaultStr(req.StoragePool, "default")),

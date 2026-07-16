@@ -145,6 +145,7 @@
     <li><a href="#tenants">Create &amp; manage tenants</a></li>
     <li><a href="#users">Create users &amp; credentials</a></li>
     <li><a href="#machines">Create &amp; manage machines</a></li>
+    <li><a href="#routes">Publish public routes</a></li>
     <li><a href="#trust">Install local CA trust</a></li>
     <li><a href="#tailscale">Attach Tailscale</a></li>
     <li><a href="#infra">Auth App service</a></li>
@@ -584,6 +585,36 @@ Bootstrap:
 <span class="cmd">sandcastle ls</span> <span class="arg">obelix:</span>             <span class="comment"># that install's default project</span></code></pre>
     <p>Text output is an aligned table with project, machine, FQDN, private IP, local creation time (<code>yyyy-mm-dd hh:mm:ss</code>), and state. Output includes unmanaged Incus instances. Machine FQDNs use <code>&lt;machine&gt;.&lt;project&gt;.&lt;tenant&gt;</code>, for example <code>codex.website.acme</code>. The optional argument is <code>[&lt;remote&gt;:]&lt;project&gt;</code>: a bare name filters a project in the current install; a <code>&lt;remote&gt;:</code> prefix lists another enrolled install (see <code>sc remote list</code>) without switching to it — <code>&lt;remote&gt;:</code> alone uses that install's default project. Output leads with the <code>remote "…", project "…"</code> it covers, so an empty result still tells you where it looked.</p>
     <p><strong>Cross-install addressing is universal.</strong> The same <code>&lt;remote&gt;:</code> prefix works on every machine-reference command as <code>[[&lt;remote&gt;:]&lt;project&gt;:]&lt;machine&gt;</code> — <code>sc create obelix:web:api</code>, <code>sc connect obelix:web:api</code>, <code>sc delete obelix:web:api</code>, <code>sc image save obelix:web:api base</code> — each runs against that enrolled install for the one command without a durable switch. A leading segment is only treated as a remote when it names an enrolled remote (<code>sc remote list</code>), so plain <code>&lt;project&gt;:&lt;machine&gt;</code> and bare names are unaffected.</p>
+  </div>
+
+</section>
+
+<!-- ─── Public routes ─────────────────────────────────────────────────── -->
+<section id="routes">
+  <h2>Publish public routes</h2>
+
+  <div class="note"><strong>Requires route ingress.</strong> <code>sc route</code> works only on installs where native-ACME <strong>route ingress</strong> is enabled — deploy with <code>--route-ingress acme</code> (on <code>sc-adm install</code> or <code>sc-adm auth-app deploy</code>). Caddy then binds the host's <code>:80</code>/<code>:443</code> and gets real Let's Encrypt certificates for route hostnames. This is <em>independent of the Auth Hostname's own ingress</em>: routes can run beside a Cloudflare-tunnelled login host — e.g. login on <code>--ingress cloudflare</code> (<code>home.thieso2.dev</code>) and routes on <code>--route-ingress acme --route-base-domain home.tc42.uk</code>, served by the same appliance Caddy. By default routes live under the Auth Hostname; <code>--route-base-domain</code> puts them under a separate domain. The operator provisions a wildcard <code>*.&lt;route-base-domain&gt;</code> → the host's public IP (a wildcard CNAME to a dynamic-DNS name works — the record tracks the IP). On an install without route ingress every <code>sc route</code> command returns a clear error telling you to enable it.</div>
+
+  <div class="step">
+    <h3>Publish a machine's port <span class="badge badge-user">user</span></h3>
+    <p>Exposes an HTTP app running inside one of your machines to the public Internet through the Auth App's Caddy. The default public hostname is <code>&lt;name&gt;.&lt;tenant&gt;.&lt;auth-hostname&gt;</code> (the <code>&lt;tenant&gt;</code> segment is fixed to your tenant, so it can't collide with another tenant); <code>--name</code> defaults to the machine name. The certificate is issued by Let's Encrypt on the first request, so the very first hit is slow.</p>
+    <pre><code><span class="comment"># Publish port 3000 of machine "web" → https://web.&lt;tenant&gt;.&lt;auth-hostname&gt;</span>
+<span class="cmd">sc route publish</span> <span class="arg">web</span> <span class="flag">--port</span> <span class="arg">3000</span>
+
+<span class="comment"># Choose the subdomain label</span>
+<span class="cmd">sc route publish</span> <span class="arg">web</span> <span class="flag">--port</span> <span class="arg">3000</span> <span class="flag">--name</span> <span class="arg">api</span>
+
+<span class="comment"># Bring your own domain: publish it, then CNAME it onto the auth host yourself</span>
+<span class="cmd">sc route publish</span> <span class="arg">web</span> <span class="flag">--port</span> <span class="arg">3000</span> <span class="flag">--hostname</span> <span class="arg">app.customer.com</span></code></pre>
+    <p>The machine is addressed with the usual <code>[[remote:]project:]machine</code> syntax. <code>--port</code> (the backend port inside the machine) is required. Custom hostnames are self-serve first-come; sc does not automate DNS — a custom route only serves once you point its DNS at the auth host and the certificate is issued.</p>
+  </div>
+
+  <div class="step">
+    <h3>List, inspect, and delete routes <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sc route list</span>                                  <span class="comment"># HOSTNAME · MACHINE · PORT · STATUS</span>
+<span class="cmd">sc route status</span> <span class="arg">web.acme.sc2.example.dev</span>       <span class="comment"># backend, URL, health</span>
+<span class="cmd">sc route delete</span> <span class="arg">web.acme.sc2.example.dev</span> <span class="flag">--yes</span></code></pre>
+    <p>STATUS is <code>live</code> (machine running, serving), <code>awaiting-dns</code> (custom hostname not yet resolving / certificate pending), or <code>unhealthy</code> (backing machine stopped or unreachable). Routes self-heal: if a machine changes IP on reboot the route is refreshed automatically, and if a machine is deleted its routes are pruned. Add <code>--json</code> to <code>list</code>/<code>status</code> for machine-readable output.</p>
   </div>
 
 </section>

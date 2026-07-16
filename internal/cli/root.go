@@ -72,6 +72,7 @@ type commandConfig struct {
 	authTenants          authTenantClient
 	authProjects         authProjectClient
 	authShares           authShareClient
+	authRoutes           authRouteClient
 	shareStore           share.Store
 	shareReconciler      tenantShareReconciler
 	openBrowser          func(string)
@@ -126,6 +127,13 @@ type authTenantClient interface {
 
 type authProjectClient interface {
 	CreateProject(context.Context, string) (projectbroker.ProjectResult, error)
+}
+
+type authRouteClient interface {
+	PublishRoute(context.Context, authapp.RoutePublishRequest) (authapp.RouteView, error)
+	ListRoutes(context.Context, string) ([]authapp.RouteView, error)
+	GetRouteStatus(context.Context, string) (authapp.RouteView, error)
+	DeleteRoute(context.Context, string) error
 }
 
 type authShareClient interface {
@@ -328,6 +336,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newTenantCommand(config, opts))
 	root.AddCommand(newCloudIdentityCommand(config, opts))
 	root.AddCommand(newShareCommand(config, opts))
+	root.AddCommand(newRouteCommand(config, opts))
 	root.AddCommand(newSSHKeyCommand(config, opts))
 
 	return root

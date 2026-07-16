@@ -37,6 +37,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 		defaultUnixUser, tailscaleAuthKey                            string
 		simulateGitHubToken, tlsMode, brokerPort                     string
 		ingressMode, acmeEmail, tunnelToken, cloudflareAPIToken      string
+		routeIngress, routeBaseDomain                                string
 	)
 	command := &cobra.Command{
 		Use:   "install",
@@ -114,6 +115,18 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 			default:
 				return fmt.Errorf("unknown --ingress %q (none, acme, cloudflare)", ingressMode)
 			}
+			// Public Route ingress (Spec #111 coexistence): native ACME for route
+			// hostnames, independent of the Auth Hostname's mode. Needs host
+			// :80/:443 — preflight them here too when the acme branch above didn't.
+			routeIngress = strings.TrimSpace(routeIngress)
+			if routeIngress != "" && routeIngress != incusx.IngressACME {
+				return fmt.Errorf("unknown --route-ingress %q (acme, or empty to disable)", routeIngress)
+			}
+			if routeIngress == incusx.IngressACME && ingressMode != incusx.IngressACME {
+				if busy := hostPortsBusy(80, 443); len(busy) > 0 {
+					return fmt.Errorf("route ingress needs the host ports %v, but they are already in use", busy)
+				}
+			}
 
 			// Appliance bridge: by default each install creates and owns its own
 			// bridge (<prefix>-net), so nothing but the daemon is shared with v1
@@ -152,6 +165,8 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				IngressMode:         ingressMode,
 				ACMEEmail:           acmeEmail,
 				TunnelToken:         tunnelToken,
+				RouteIngress:        routeIngress,
+				RouteBaseDomain:     routeBaseDomain,
 			}); err != nil {
 				return fmt.Errorf("auth-app deploy: %w", err)
 			}
@@ -249,7 +264,9 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&tlsMode, "infra-tls-mode", "acme", "infrastructure TLS mode")
 	command.Flags().StringVar(&brokerPort, "broker-port", "9443", "host port the broker listens on")
 	command.Flags().StringVar(&ingressMode, "ingress", "none", "public ingress for the Auth Hostname: none (BYO edge), acme (host :80/:443 + Let's Encrypt), or cloudflare (outbound tunnel, no inbound ports)")
-	command.Flags().StringVar(&acmeEmail, "acme-email", "", "Let's Encrypt contact email (acme ingress)")
+	command.Flags().StringVar(&acmeEmail, "acme-email", "", "Let's Encrypt contact email (acme or route ingress)")
+	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt), independent of --ingress so routes can run beside a cloudflare login host; empty disables")
+	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
 	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a dashboard-created Cloudflare tunnel routing the hostname to http://localhost:8080 (cloudflare ingress)")
 	command.Flags().StringVar(&cloudflareAPIToken, "cloudflare-api-token", "", "Cloudflare API token (Tunnel:Edit + DNS:Edit + Zone:Read): install creates the tunnel, ingress rule, and proxied DNS record itself (cloudflare ingress)")
 	return command

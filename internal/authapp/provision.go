@@ -187,15 +187,15 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		message = "v2 tenant " + plan.Tenant + " is provisioned; its sidecar is waiting to join your tailnet."
 	}
 	return PersonalTenantResult{
-		UserKey:             userKey,
-		Tenant:              plan.Tenant,
-		IncusProject:        plan.DefaultProject,
-		AccessibleTenants:   []string{plan.Tenant},
-		Token:               tok.Token,
-		RemoteName:          tok.RemoteName,
-		DNSSuffix:           plan.DNSSuffix,
-		IncusRemoteAddress:  created.SidecarTailnetIP,
-		TenantPrivateCIDR:   plan.PrivateCIDR,
+		UserKey:            userKey,
+		Tenant:             plan.Tenant,
+		IncusProject:       plan.DefaultProject,
+		AccessibleTenants:  []string{plan.Tenant},
+		Token:              tok.Token,
+		RemoteName:         tok.RemoteName,
+		DNSSuffix:          plan.DNSSuffix,
+		IncusRemoteAddress: created.SidecarTailnetIP,
+		TenantPrivateCIDR:  plan.PrivateCIDR,
 		// The user-facing project list is SHORT names — the CLI pins one into
 		// config.Project and resolves it back to the full Incus name via
 		// Summary.V2IncusProjectName. tok.Projects are the full cert-grant names
