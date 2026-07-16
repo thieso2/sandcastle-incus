@@ -3,11 +3,14 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -40,9 +43,25 @@ func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List Sandcastle machines",
 		Args:    cobra.MaximumNArgs(1),
+		Long: `List Sandcastle machines in the current install's project.
+
+The argument may carry a "<remote>:" prefix to list another enrolled install
+without switching to it — e.g. "sc ls obelix:home" (project home on remote
+obelix) or "sc ls obelix:" (that remote's default project). "sc remote list"
+shows the enrolled remotes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := listMachines(cmd.Context(), config, listMachinesRequest{
-				Project:     optionalArg(args),
+			remoteOverride, project := splitRemotePrefix(optionalArg(args))
+			runCfg := config
+			if remoteOverride != "" && remoteOverride != strings.TrimSpace(config.adminConfig.Remote) {
+				scoped, restore, err := listConfigForRemote(config, remoteOverride)
+				if err != nil {
+					return err
+				}
+				defer restore()
+				runCfg = scoped
+			}
+			result, err := listMachines(cmd.Context(), runCfg, listMachinesRequest{
+				Project:     project,
 				AllProjects: allProjects,
 			})
 			if err != nil {
@@ -80,6 +99,47 @@ func optionalArg(args []string) string {
 		return ""
 	}
 	return args[0]
+}
+
+// splitRemotePrefix parses `sc ls` addressing: a leading "<remote>:" targets
+// another enrolled install (the incus remote name), the rest is the project.
+// "obelix:home" → ("obelix","home"); "obelix:" → ("obelix",""); "home" → ("","home").
+func splitRemotePrefix(arg string) (remote, rest string) {
+	arg = strings.TrimSpace(arg)
+	if r, p, ok := strings.Cut(arg, ":"); ok {
+		return strings.TrimSpace(r), strings.TrimSpace(p)
+	}
+	return "", arg
+}
+
+// listConfigForRemote rebinds the listing stores to another enrolled remote so
+// `sc ls <remote>:...` reads that install without a durable switch. INCUS_CONF is
+// pointed at that remote's incus config dir (the ADR-0021 shared dir for enrolled
+// installs) for the duration and restored by the returned func; the project
+// defaults to that remote's own pin when the arg carried none.
+func listConfigForRemote(base commandConfig, remote string) (commandConfig, func(), error) {
+	incusDir := scconfig.ResolveConfigPath(remote)
+	if incusDir == "" {
+		return base, func() {}, fmt.Errorf("no enrolled Sandcastle remote %q; run `sc remote list` to see installs", remote)
+	}
+	prev, had := os.LookupEnv("INCUS_CONF")
+	os.Setenv("INCUS_CONF", incusDir)
+	restore := func() {
+		if had {
+			os.Setenv("INCUS_CONF", prev)
+		} else {
+			os.Unsetenv("INCUS_CONF")
+		}
+	}
+	sharedRemote := incusx.NewSharedRemote(remote).WithVerbose(os.Getenv("VERBOSE") == "1", os.Stderr)
+	cfg := base
+	cfg.adminConfig.Remote = remote
+	if short := shortProjectName(scconfig.SharedIncusRemoteProject(remote), base.adminConfig.Tenant); short != "" {
+		cfg.adminConfig.Project = short
+	}
+	cfg.tenantStore = incusx.NewTenantStoreForSharedRemote(sharedRemote)
+	cfg.machineStore = incusx.NewHostOverrideManagerForSharedRemote(sharedRemote)
+	return cfg, restore, nil
 }
 
 func listMachines(ctx context.Context, config commandConfig, request listMachinesRequest) (listPayload, error) {

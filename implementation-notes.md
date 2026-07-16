@@ -5,6 +5,34 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-16 — `sc ls <remote>:<project>` cross-install addressing (no switch)
+
+`sc ls` now accepts a `<remote>:` prefix to read another enrolled install without a
+durable switch: `sc ls obelix:home` (project home on remote obelix), `sc ls obelix:`
+(that remote's default project). Implemented by rebinding the listing stores to the
+target remote for the one call (`listConfigForRemote`): point INCUS_CONF at that
+remote's incus dir — which is the ADR-0021 *shared* dir for enrolled installs, so no
+per-remote-cert juggling — rebuild the tenant + machine stores via
+`NewSharedRemote(remote)`, default the project to the remote's own pin
+(`shortProjectName`), and restore INCUS_CONF on return. The `<remote>:` prefix uses
+the incus **remote name** (distinct from `sc c`'s `dns-suffix:project:machine`
+grammar); this is the first inline cross-install path (previously "select that
+install's remote first"). Nothing is persisted — the active remote/config is
+untouched (verified: bare `sc ls` still targets the current install after a prefixed
+call).
+
+## 2026-07-16 — `sc remote switch` re-pins the project (reversal of the earlier "orthogonal" choice)
+
+The initial `sc remote switch` left the project pin untouched (below), so switching
+to an install with different project names left a stale pin and `sc ls`/`sc c`
+failed with "project X not found". Reversed: switch now re-pins `cfg.Project` to the
+target install's own project, derived **without a network call** from that remote's
+incus project pin (`SharedIncusRemoteProject` → `shortProjectName`, e.g.
+`obelix-thieso2-work` → `work`), and reports it: `Switched to remote "obelix"
+(project "work")`. Same re-pin added to `sc config set remote`. Also dropped the
+"Already on remote" early-return — the remote can be current while the pin is stale,
+and re-running the switch is how you repair it (idempotent).
+
 ## 2026-07-16 — first-class `sc remote list` / `sc remote switch`
 
 Switching installs was only reachable via `sc config set remote <name>` (obscure)
