@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
@@ -24,7 +26,227 @@ func newRemoteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short: "Manage Sandcastle remotes",
 	}
 	cmd.AddCommand(newRemoteAddCommand(config, opts))
+	cmd.AddCommand(newRemoteListCommand(config))
+	cmd.AddCommand(newRemoteSwitchCommand(config))
 	return cmd
+}
+
+// newRemoteListCommand lists the enrolled Sandcastle installs (one incus remote
+// per install under ADR-0021), marking the active one. The active remote is the
+// shared incus dir's current-remote — the same knob `sc ls`/`sc c` resolve from
+// (config.adminConfig.Remote) — so the `*` here always matches what sc operates on.
+func newRemoteListCommand(config commandConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List enrolled Sandcastle remotes (installs)",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath())
+			if err != nil {
+				fmt.Fprintf(config.stderr, "warning: could not read sandcastle config: %v\n", err)
+			}
+			incusDir, _ := scconfig.SharedIncusDirExplained()
+			remotes, err := readLocalRemotes(incusDir)
+			if err != nil {
+				return fmt.Errorf("read incus remotes from %s: %w", incusDir, err)
+			}
+			current := strings.TrimSpace(config.adminConfig.Remote)
+			rows := sandcastleRemoteRows(remotes, cfg)
+			if len(rows) == 0 {
+				fmt.Fprintln(config.stdout, "No Sandcastle remotes enrolled. Run `sc login <auth-hostname>` to enroll one.")
+				return nil
+			}
+			table := tabwriter.NewWriter(config.stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(table, "\tREMOTE\tPROJECT\tAUTH HOSTNAME")
+			for _, r := range rows {
+				marker := ""
+				if r.Name == current {
+					marker = "*"
+				}
+				fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", marker, r.Name, orDash(r.Project), orDash(r.AuthHostname))
+			}
+			return table.Flush()
+		},
+	}
+}
+
+// newRemoteSwitchCommand switches the active Sandcastle install. It writes BOTH
+// the shared incus dir's current-remote (what sc resolves from) and cfg.Remote,
+// and re-points the auth hostname/broker/token to the target install — the same
+// effects as `sc config set remote`, in one intent-named command.
+func newRemoteSwitchCommand(config commandConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:     "switch <name>",
+		Aliases: []string{"use"},
+		Short:   "Switch the active Sandcastle remote (install)",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := strings.TrimSpace(args[0])
+			cfgPath := scconfig.DefaultConfigPath()
+			cfg, err := scconfig.LoadSandcastleConfig(cfgPath)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			// A typo silently pointing sc at a non-existent install is worse than a
+			// loud failure, so validate against the enrolled remotes first.
+			incusDir, _ := scconfig.SharedIncusDirExplained()
+			if remotes, err := readLocalRemotes(incusDir); err == nil {
+				if !remoteNameKnown(remotes, name) {
+					known := sandcastleRemoteNames(remotes, cfg)
+					hint := "run `sc remote list` to see enrolled installs, or `sc login <auth-hostname>` to enroll"
+					if len(known) > 0 {
+						hint = "enrolled remotes: " + strings.Join(known, ", ")
+					}
+					return fmt.Errorf("no enrolled Sandcastle remote %q; %s", name, hint)
+				}
+			}
+			if strings.TrimSpace(cfg.Remote) == name && strings.TrimSpace(config.adminConfig.Remote) == name {
+				fmt.Fprintf(config.stdout, "Already on remote %q.\n", name)
+				return nil
+			}
+			fx := applyRemoteSwitch(&cfg, name)
+			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
+				return fmt.Errorf("save config: %w", err)
+			}
+			fmt.Fprintf(config.stdout, "Switched to remote %q.\n", name)
+			printRemoteSwitchEffects(config.stdout, cfg, fx)
+			if err := scconfig.SetSharedIncusDefaultRemote(name); err != nil {
+				fmt.Fprintf(config.stdout, "Note: incus current remote not switched: %v\n", err)
+			}
+			return nil
+		},
+	}
+}
+
+// sandcastleRemoteRow is one row of `sc remote list`.
+type sandcastleRemoteRow struct {
+	Name         string
+	Project      string
+	AuthHostname string
+}
+
+// sandcastleRemoteRows filters raw incus remotes down to the Sandcastle installs
+// — those pinned to a project (every Sandcastle remote is) or recorded in the
+// installs map at login — so system remotes (local, images, oci) are excluded.
+func sandcastleRemoteRows(remotes []localRemote, cfg scconfig.SandcastleConfig) []sandcastleRemoteRow {
+	rows := make([]sandcastleRemoteRow, 0, len(remotes))
+	for _, r := range remotes {
+		if !isSandcastleRemote(r, cfg) {
+			continue
+		}
+		rows = append(rows, sandcastleRemoteRow{
+			Name:         r.Name,
+			Project:      strings.TrimSpace(r.Project),
+			AuthHostname: cfg.AuthHostnameForRemote(r.Name),
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+	return rows
+}
+
+func sandcastleRemoteNames(remotes []localRemote, cfg scconfig.SandcastleConfig) []string {
+	rows := sandcastleRemoteRows(remotes, cfg)
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, r.Name)
+	}
+	return names
+}
+
+// isSandcastleRemote distinguishes an enrolled Sandcastle install from a system
+// incus remote (local, images, docker, ghcr): Sandcastle remotes are always
+// project-pinned, and also appear in the installs map once logged in.
+func isSandcastleRemote(r localRemote, cfg scconfig.SandcastleConfig) bool {
+	if strings.TrimSpace(r.Project) != "" {
+		return true
+	}
+	return cfg.AuthHostnameForRemote(r.Name) != ""
+}
+
+func remoteNameKnown(remotes []localRemote, name string) bool {
+	for _, r := range remotes {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// remoteSwitchEffects records what re-pointed when the active remote changed, so
+// `sc remote switch` and `sc config set remote` report the switch identically.
+type remoteSwitchEffects struct {
+	AuthHostname  string
+	Broker        string
+	BrokerCleared bool
+	TokenSynced   bool
+	TokenCleared  bool
+}
+
+// applyRemoteSwitch points cfg at the install named by `name`: it sets cfg.Remote
+// and re-points the auth hostname, broker, and CLI auth token to that install
+// (recovered from the installs/brokers/auth_tokens maps recorded at login), so
+// the Incus remote and the Auth App never drift apart on a host running several
+// installs that share one tenant name (ADR-0021: the remote names the install).
+// The caller persists cfg and switches the shared incus current-remote.
+func applyRemoteSwitch(cfg *scconfig.SandcastleConfig, name string) remoteSwitchEffects {
+	cfg.Remote = name
+	var fx remoteSwitchEffects
+	host := cfg.AuthHostnameForRemote(name)
+	if host == "" {
+		return fx
+	}
+	if host != cfg.AuthHostname {
+		cfg.AuthHostname = host
+		fx.AuthHostname = host
+	}
+	switch broker := cfg.BrokerForAuthHostname(host); {
+	case broker != "" && broker != cfg.Broker:
+		cfg.Broker = broker
+		fx.Broker = broker
+	case broker == "" && cfg.Broker != "":
+		// Nothing recorded for this install (a login predating the brokers map).
+		// A stale broker is worse than none — it points broker-derived commands
+		// at the other install's tenant gateway.
+		cfg.Broker = ""
+		fx.BrokerCleared = true
+	}
+	switch token := cfg.AuthTokenForAuthHostname(host); {
+	case token != "" && token != cfg.AuthToken:
+		cfg.AuthToken = token
+		fx.TokenSynced = true
+	case token == "" && cfg.AuthToken != "":
+		// A token minted by another install is rejected across the trust boundary
+		// (403 "user not found"); clear it so the next call fails loudly.
+		cfg.AuthToken = ""
+		fx.TokenCleared = true
+	}
+	return fx
+}
+
+func printRemoteSwitchEffects(w io.Writer, cfg scconfig.SandcastleConfig, fx remoteSwitchEffects) {
+	if fx.AuthHostname != "" {
+		fmt.Fprintf(w, "Auth hostname re-pointed to %q for this install.\n", fx.AuthHostname)
+	}
+	if fx.Broker != "" {
+		fmt.Fprintf(w, "Broker re-pointed to %q for this install.\n", fx.Broker)
+	}
+	if fx.BrokerCleared {
+		fmt.Fprintf(w, "Broker cleared: none recorded for this install. Run `sc login %s` to record it.\n", cfg.AuthHostname)
+	}
+	if fx.TokenSynced {
+		fmt.Fprintln(w, "Auth token switched to this install's token.")
+	}
+	if fx.TokenCleared {
+		fmt.Fprintf(w, "Auth token cleared: none recorded for this install. Run `sc login %s` to sign in.\n", cfg.AuthHostname)
+	}
+}
+
+func orDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
 }
 
 func newRemoteAddCommand(config commandConfig, _ *rootOptions) *cobra.Command {
