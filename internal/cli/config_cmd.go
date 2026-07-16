@@ -66,75 +66,22 @@ func newConfigSetCommand(_ commandConfig) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
-			if err := setConfigValue(&cfg, key, value); err != nil {
-				return err
-			}
 			// Switching the active remote re-points the auth plane at the same
-			// install: the URL-named remote identifies it, and the installs map
-			// (recorded at login) recovers its Auth Hostname. This keeps the
-			// Incus remote and the Auth App from drifting apart on hosts that run
-			// several installs sharing one tenant name.
-			var authSynced string
-			var brokerSynced string
-			var brokerCleared bool
-			var tokenSynced bool
-			var tokenCleared bool
+			// install (auth hostname/broker/token from the installs maps recorded
+			// at login), so the Incus remote and the Auth App never drift apart on
+			// a host running several installs sharing one tenant name. Shared with
+			// `sc remote switch`, which is the intent-named alias for this.
+			var fx remoteSwitchEffects
 			if key == "remote" {
-				if host := cfg.AuthHostnameForRemote(value); host != "" {
-					if host != cfg.AuthHostname {
-						cfg.AuthHostname = host
-						authSynced = host
-					}
-					// The broker addresses the tenant gateway on THIS install's
-					// CIDR pool, so it must follow the remote. Leaving the
-					// previous install's broker in place silently pointed
-					// broker-derived commands at the other install — `sc trust
-					// install` fetched the wrong tenant's CA.
-					switch broker := cfg.BrokerForAuthHostname(host); {
-					case broker != "" && broker != cfg.Broker:
-						cfg.Broker = broker
-						brokerSynced = broker
-					case broker == "" && cfg.Broker != "":
-						// Nothing recorded for this install (a login predating
-						// the brokers map). A stale broker is worse than none.
-						cfg.Broker = ""
-						brokerCleared = true
-					}
-					// The CLI auth token is minted by one install's Auth App and
-					// is meaningless to another — leaving the previous install's
-					// token in place presents a credential across a trust
-					// boundary, and the target rejects it (403 "user not found",
-					// surfacing as `shares:reconcile: error` in `sc status`).
-					// Swap it, or clear it so the next call fails loudly.
-					switch token := cfg.AuthTokenForAuthHostname(host); {
-					case token != "" && token != cfg.AuthToken:
-						cfg.AuthToken = token
-						tokenSynced = true
-					case token == "" && cfg.AuthToken != "":
-						cfg.AuthToken = ""
-						tokenCleared = true
-					}
-				}
+				fx = applyRemoteSwitch(&cfg, value)
+			} else if err := setConfigValue(&cfg, key, value); err != nil {
+				return err
 			}
 			if err := scconfig.SaveSandcastleConfig(cfgPath, cfg); err != nil {
 				return fmt.Errorf("save config: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Set %s = %q in %s\n", key, value, cfgPath)
-			if authSynced != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Auth hostname re-pointed to %q for this install.\n", authSynced)
-			}
-			if brokerSynced != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Broker re-pointed to %q for this install.\n", brokerSynced)
-			}
-			if brokerCleared {
-				fmt.Fprintf(cmd.OutOrStdout(), "Broker cleared: none recorded for this install. Run `sc login %s` to record it.\n", cfg.AuthHostname)
-			}
-			if tokenSynced {
-				fmt.Fprintln(cmd.OutOrStdout(), "Auth token switched to this install's token.")
-			}
-			if tokenCleared {
-				fmt.Fprintf(cmd.OutOrStdout(), "Auth token cleared: none recorded for this install. Run `sc login %s` to sign in.\n", cfg.AuthHostname)
-			}
+			printRemoteSwitchEffects(cmd.OutOrStdout(), cfg, fx)
 			// The shared incus dir's current remote is the source of truth for
 			// the user CLI's remote — write through so `sc config set remote`
 			// and `incus remote switch` never disagree.

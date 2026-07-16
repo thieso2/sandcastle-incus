@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Response verbosity
+
+Keep chat responses concise by default: report the result and the key facts, skip the play-by-play and long recaps. Give the full, verbose treatment (detailed reasoning, step listings, exhaustive summaries) only when the environment has `VERBOSE=1` set.
+
 ## What this is
 
 `sandcastle-incus` is a Go CLI + Auth App that provisions multi-tenant "Sandcastle" infrastructure on [Incus](https://linuxcontainers.org/incus/). The system manages tenant namespaces, projects, machines (Incus containers/VMs), Tailscale networking, public routes, and workload identity. Domain vocabulary is canonical in `CONTEXT.md`; use it when naming code.

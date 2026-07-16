@@ -5,6 +5,31 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-16 — first-class `sc remote list` / `sc remote switch`
+
+Switching installs was only reachable via `sc config set remote <name>` (obscure)
+or `sc incus remote switch` (which moves only the raw incus passthrough, not what
+`sc ls`/`sc c` resolve — a live source of "I switched but sc didn't"). Added
+`sc remote list` (alias `ls`) and `sc remote switch <name>` (alias `use`) to the
+existing `remote` command group.
+
+- **Shared switch logic.** Extracted the auth-hostname/broker/token re-pointing out
+  of `config set remote` into `applyRemoteSwitch` + `printRemoteSwitchEffects`
+  (`remote.go`); both commands now call it, so they can't drift. `remote switch`
+  additionally validates the name against the enrolled incus remotes (a typo fails
+  loudly instead of silently pointing `sc` at a non-existent install) and writes
+  the shared incus current-remote (`SetSharedIncusDefaultRemote`) so `sc`,
+  `sc incus`, and raw `incus <remote>:` agree.
+- **`remote list` scope.** Filters the shared incus dir's remotes to Sandcastle
+  installs — those project-pinned (every Sandcastle remote is) or present in the
+  installs map — so system remotes (`local`, `images`, oci) are excluded. Marks
+  the active one (`config.adminConfig.Remote`, the resolved current-remote) with `*`.
+- **Project pin left orthogonal.** `remote switch` intentionally does NOT re-pin the
+  project (ADR-0021 keeps remote and project independent) — switching to an install
+  whose projects differ leaves a stale pin, and `sc ls` shows nothing until
+  `sc project switch <name>`. Re-pinning would need a per-install tenant-summary
+  lookup; deferred rather than silently guessing a project.
+
 ## 2026-07-15 — Homebrew distribution requires the repo to be public (#102)
 
 The first release (`v0.1.0`) published cleanly and the cask reached the (public)

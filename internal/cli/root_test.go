@@ -3071,6 +3071,7 @@ func TestLoginSendsDNSSuffix(t *testing.T) {
 // silently talked to the other install and fetched the wrong tenant CA.
 func TestConfigSetRemoteRepointsTheBrokerForThatInstall(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VERBOSE", "1") // re-point detail lines are verbose-only
 	configPath := scconfig.DefaultConfigPath()
 	seed := scconfig.SandcastleConfig{
 		Remote:       "sc-b",
@@ -3112,6 +3113,7 @@ func TestConfigSetRemoteRepointsTheBrokerForThatInstall(t *testing.T) {
 // than none (`sc project create` would create the project over there).
 func TestConfigSetRemoteClearsAnUnknownInstallsBroker(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VERBOSE", "1") // re-point detail lines are verbose-only
 	configPath := scconfig.DefaultConfigPath()
 	seed := scconfig.SandcastleConfig{
 		Remote:       "sc-b",
@@ -3146,6 +3148,7 @@ func TestConfigSetRemoteClearsAnUnknownInstallsBroker(t *testing.T) {
 // the token still authenticated fine against the OTHER install.
 func TestConfigSetRemoteSwapsTheAuthTokenForThatInstall(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VERBOSE", "1") // re-point detail lines are verbose-only
 	configPath := scconfig.DefaultConfigPath()
 	seed := scconfig.SandcastleConfig{
 		Remote:       "sc-b",
@@ -3180,6 +3183,7 @@ func TestConfigSetRemoteSwapsTheAuthTokenForThatInstall(t *testing.T) {
 // loudly ("sign in") beats one that quietly ships another install's credential.
 func TestConfigSetRemoteClearsAnUnknownInstallsAuthToken(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VERBOSE", "1") // re-point detail lines are verbose-only
 	configPath := scconfig.DefaultConfigPath()
 	seed := scconfig.SandcastleConfig{
 		Remote:       "sc-b",
