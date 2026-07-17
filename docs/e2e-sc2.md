@@ -648,7 +648,9 @@ Remove any prior test-tenant server state + local client config so the run start
 > trust list` shows no restricted client cert named
 > `sandcastle-[<prefix>-]<tenant>` left with an empty project list — while a
 > shared-identity cert under that name that still grants ANOTHER tenant's
-> projects survives (one keypair can serve several tenants).
+> projects survives (one keypair can serve several tenants). *(Validated live
+> on `majestix` 2026-07-17: fresh-keypair tenant `trashcan` enrolled, purged —
+> entry gone, shared `sandcastle-e2edns` entry untouched.)*
 
 ```bash
 # server: delete the test tenant's instances + images + custom profiles + projects + bridge.

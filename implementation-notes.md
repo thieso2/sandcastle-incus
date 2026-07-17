@@ -2478,10 +2478,11 @@ here, worth a follow-up issue.
   entries under that name whose project list is empty once the tenant's own
   projects are discounted — a shared-identity entry still granting another
   tenant survives. `TenantDeleteServer` gained `GetCertificates`/
-  `DeleteCertificate` (certs are global, not project-scoped). Not validated
-  live (needs a keypair whose FIRST enrollment is the deleted tenant; the
-  running majestix client's entry is named for the still-live e2edns) — unit
-  tests cover the matrix.
+  `DeleteCertificate` (certs are global, not project-scoped). Validated live
+  on majestix 2026-07-17: a fresh keypair's first enrollment (throwaway tenant
+  `trashcan`) created `sandcastle-trashcan`; the purge removed projects,
+  bridge, AND the trust entry, with the shared-identity `sandcastle-e2edns`
+  entry (still granting e2edns+octocat) untouched.
 - **#114 (route refresh coverage).** `scripts/e2e-route.sh` step 5b pins a new
   static lease (`incus config device override … ipv4.address=…`), reboots the
   machine, and asserts the `scroute-…` device's `connect` follows and the route
