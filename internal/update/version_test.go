@@ -7,7 +7,7 @@ func TestIsDevBuild(t *testing.T) {
 		version string
 		want    bool
 	}{
-		{"0.0.0-dev", true},           // go build / go test sentinel
+		{"0.0.0-dev", true},              // go build / go test sentinel
 		{"0.2.0-SNAPSHOT-abcdef1", true}, // goreleaser --snapshot
 		{"", true},
 		{"garbage", true},

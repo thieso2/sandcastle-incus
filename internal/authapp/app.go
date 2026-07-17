@@ -20,6 +20,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/svclog"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 	_ "modernc.org/sqlite"
 )
@@ -124,6 +125,9 @@ type HTTPRunner struct {
 	// RouteEvents, when set, subscribes to instance lifecycle events and calls
 	// notify() so the Route reconcile runs within seconds of a Machine change.
 	RouteEvents func(ctx context.Context, notify func())
+	// Version is the running binary's release version, passed through to the
+	// handler for the version exchange and the admin version card.
+	Version string
 }
 
 func PlanServe(request ServeRequest) (ServePlan, error) {
@@ -205,6 +209,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			AuthIngressMode:     r.AuthIngressMode,
 			RouteBaseDomain:     r.RouteBaseDomain,
 			RouteTLS:            r.RouteTLS,
+			Version:             r.Version,
 		})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -726,6 +731,10 @@ type HandlerOptions struct {
 	// RouteResolveHost overrides how a custom hostname's DNS is checked for the
 	// awaiting-dns status. Optional; nil uses a real DNS lookup. Injected in tests.
 	RouteResolveHost func(ctx context.Context, host string) bool
+	// Version is the running binary's release version (vX.Y.Z or the dev
+	// sentinel); sent on every response as the version exchange (#124 §6) and
+	// shown on the admin version card.
+	Version string
 }
 
 // TenantProjectCreator creates an app project for a tenant and extends the
@@ -769,6 +778,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		routeBaseDomain:  strings.Trim(strings.TrimSpace(handlerOptions.RouteBaseDomain), "."),
 		routeTLS:         strings.TrimSpace(handlerOptions.RouteTLS),
 		routeResolveHost: handlerOptions.RouteResolveHost,
+		version:          strings.TrimSpace(handlerOptions.Version),
 	}
 	if app.githubClient == nil {
 		if app.simulateToken != "" {
@@ -823,7 +833,23 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/.well-known/jwks.json", app.oidcJWKS)
 	mux.HandleFunc("/t/", app.tenantOIDC)
 	mux.HandleFunc("/internal/workload/token", app.workloadToken)
-	return mux
+	return withVersionExchange(mux, app.version)
+}
+
+// withVersionExchange stamps every response with the appliance version
+// (#124 §6) and, when a breaking release sets update.MinCLIVersion, refuses
+// too-old CLIs on the API surface with a clean 426 instead of protocol
+// errors. Browser paths are never refused.
+func withVersionExchange(next http.Handler, serverVersion string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		update.ApplyVersionHeaders(w.Header(), serverVersion, update.MinCLIVersion)
+		if strings.HasPrefix(r.URL.Path, "/api/") &&
+			update.RefuseCLI(r.Header.Get(update.HeaderCLIVersion), update.MinCLIVersion) {
+			http.Error(w, update.RefusalMessage(update.MinCLIVersion), http.StatusUpgradeRequired)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func normalizeHandlerOptions(value any) HandlerOptions {
@@ -865,6 +891,7 @@ type handler struct {
 	routeBaseDomain  string
 	routeTLS         string
 	routeResolveHost func(ctx context.Context, host string) bool
+	version          string
 }
 
 // projectsAPI is the tunnel-friendly tenant plane for project creation

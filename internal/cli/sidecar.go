@@ -13,6 +13,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/certs"
 	"github.com/thieso2/sandcastle-incus/internal/tlssign"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 )
 
 // newSidecarCommand groups commands that run ON a tenant sidecar (invoked there
@@ -55,7 +56,10 @@ func newSidecarTLSSignCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("read CA private key: %w", err)
 			}
-			handler := tlssign.Handler(caCert, caKey, suffix, time.Now)
+			// The signer takes part in the version exchange (#124 §6): its
+			// responses carry the sidecar's binary version, which is how the CLI
+			// learns "your sidecar is behind the deployment" without an extra call.
+			handler := withSidecarVersionHeader(tlssign.Handler(caCert, caKey, suffix, time.Now))
 			server := &http.Server{
 				Addr:              listen,
 				Handler:           handler,
@@ -70,6 +74,15 @@ func newSidecarTLSSignCommand() *cobra.Command {
 	cmd.Flags().StringVar(&suffix, "suffix", "", "tenant DNS suffix; leaf names outside it are refused")
 	cmd.Flags().StringVar(&listen, "listen", "", "listen address (e.g. 10.124.0.3:9443)")
 	return cmd
+}
+
+// withSidecarVersionHeader stamps every signer response with the sidecar's
+// running binary version (version exchange, #124 §6).
+func withSidecarVersionHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		update.ApplyVersionHeaders(w.Header(), version, "")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ensureCA generates the tenant CA at the given paths if it is not already

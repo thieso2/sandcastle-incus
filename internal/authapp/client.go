@@ -14,6 +14,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 )
 
 // defaultDeviceClientTimeout bounds each device poll. The poll that observes
@@ -616,5 +617,11 @@ func (c DeviceClient) client() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: defaultDeviceClientTimeout}
+	// The default client performs the version exchange (#124 §6): it sends the
+	// CLI version and records the appliance version/minimum from responses so
+	// the CLI can print a skew warning after its normal output.
+	return &http.Client{
+		Timeout:   defaultDeviceClientTimeout,
+		Transport: update.DefaultExchange.WrapTransport(nil),
+	}
 }

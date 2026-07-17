@@ -401,6 +401,7 @@ func newAdminProjectBrokerServeCommand(config commandConfig) *cobra.Command {
 					SidecarImage: strings.TrimSpace(sidecarImage),
 					Tenants:      config.tenantStore,
 				},
+				Version: version,
 			}
 			fmt.Fprintf(config.stderr, "broker listening on %s (tenant + admin plane)\n", listen)
 			return projectbroker.Serve(cmd.Context(), projectbroker.ServePlan{

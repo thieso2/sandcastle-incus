@@ -25,6 +25,9 @@ type State struct {
 	// NoticedAt is when the passive CLI notice was last printed; it throttles
 	// the notice to at most once per 24h independently of the check itself.
 	NoticedAt time.Time `json:"noticed_at,omitzero"`
+	// SidecarNoticedAt throttles the "your sidecar is behind the deployment"
+	// notice — its own 24h clock, per #124 §2 (≤ once per 24h per target).
+	SidecarNoticedAt time.Time `json:"sidecar_noticed_at,omitzero"`
 }
 
 // LoadState reads the state file. Missing or corrupt files yield a zero

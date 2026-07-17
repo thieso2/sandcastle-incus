@@ -21,6 +21,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/svclog"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 )
 
 // Principal identifies the caller by their restricted Incus certificate.
@@ -107,9 +108,17 @@ type Handler struct {
 	Creator     ProjectCreator
 	Admin       AdminAuthorizer
 	Provisioner TenantProvisioner
+	// Version is the running binary's release version, sent on every response
+	// as the version exchange (#124 §6).
+	Version string
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	update.ApplyVersionHeaders(w.Header(), h.Version, update.MinCLIVersion)
+	if update.RefuseCLI(r.Header.Get(update.HeaderCLIVersion), update.MinCLIVersion) {
+		http.Error(w, update.RefusalMessage(update.MinCLIVersion), http.StatusUpgradeRequired)
+		return
+	}
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		http.Error(w, "client certificate required", http.StatusUnauthorized)
 		return

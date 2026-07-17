@@ -42,6 +42,28 @@ func TestNoticeDue(t *testing.T) {
 	}
 }
 
+func TestSidecarNoticeDue(t *testing.T) {
+	cases := []struct {
+		name             string
+		sidecar, deploy  string
+		sidecarNoticedAt time.Time
+		want             bool
+	}{
+		{"sidecar behind", "v0.1.0", "v0.2.0", time.Time{}, true},
+		{"sidecar current", "v0.2.0", "v0.2.0", time.Time{}, false},
+		{"sidecar unknown", "", "v0.2.0", time.Time{}, false},
+		{"deployment unknown", "v0.1.0", "", time.Time{}, false},
+		{"noticed recently", "v0.1.0", "v0.2.0", tenHours, false},
+		{"throttle expired", "v0.1.0", "v0.2.0", twoDays, true},
+	}
+	for _, c := range cases {
+		st := State{SidecarNoticedAt: c.sidecarNoticedAt}
+		if got := SidecarNoticeDue(st, c.sidecar, c.deploy, now); got != c.want {
+			t.Errorf("%s: SidecarNoticeDue = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestCheckDue(t *testing.T) {
 	cases := []struct {
 		name    string

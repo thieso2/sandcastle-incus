@@ -50,10 +50,10 @@ const (
 	// treated as outdated. NOT the topology schema version — that is KeyVersion.
 	KeyBinaryVersion = Prefix + "binary-version"
 
-	KeyAppPort           = Prefix + "app_port"
-	KeyLinuxUser         = Prefix + "linux_user"
-	KeyCreatedBy         = Prefix + "created_by"
-	KeyState             = Prefix + "state"
+	KeyAppPort   = Prefix + "app_port"
+	KeyLinuxUser = Prefix + "linux_user"
+	KeyCreatedBy = Prefix + "created_by"
+	KeyState     = Prefix + "state"
 
 	KindMachine   = "machine"
 	KindRoute     = "route"

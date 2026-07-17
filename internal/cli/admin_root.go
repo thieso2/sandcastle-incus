@@ -129,6 +129,7 @@ func ExecuteAdmin(name string, args []string) int {
 		machineStore:       incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
 		tailscale:          incusx.NewTailscaleManager(adminConfig.Remote),
 		authApp: authapp.HTTPRunner{
+			Version:          version,
 			RestrictedUsers:  authAppTrust,
 			Admin:            adminConfig,
 			Tenants:          authAppTenants,

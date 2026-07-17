@@ -41,3 +41,20 @@ func NoticeDue(st State, current string, now time.Time) bool {
 	}
 	return now.Sub(st.NoticedAt) >= checkInterval
 }
+
+// SidecarNoticeDue reports whether the "your sidecar is behind the
+// deployment" notice should print: both versions were observed this run
+// (they ride the version exchange — no extra call), the sidecar is strictly
+// older, and this target's notice was not printed in the last 24h.
+func SidecarNoticeDue(st State, sidecarVersion, deploymentVersion string, now time.Time) bool {
+	if os.Getenv(NoUpdateNotifierEnv) != "" {
+		return false
+	}
+	if sidecarVersion == "" || deploymentVersion == "" {
+		return false
+	}
+	if !IsNewer(deploymentVersion, sidecarVersion) {
+		return false
+	}
+	return now.Sub(st.SidecarNoticedAt) >= checkInterval
+}
