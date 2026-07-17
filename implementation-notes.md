@@ -5,6 +5,57 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-17 — self-update system (#124): decisions beyond the PRD
+
+Implementing PRD #124 surfaced several calls the spec left open:
+
+- **Image-builder has no binary to update.** The PRD lists the image-builder
+  among binary-carrying global components, but the appliance runs upstream
+  Debian + podman only — no sandcastle binary is ever pushed into it
+  (`internal/images/remote_exec.go`). `sc-adm update` therefore covers
+  auth-app + broker and prints a one-line note about the builder instead of
+  pretending to update it.
+- **Hand-rolled rename dance instead of minio/selfupdate.** The PRD allowed
+  either. We ship linux/darwin only, the repo keeps direct dependencies
+  minimal (2 before this change), and the POSIX-only `.new`/`.bak` rename
+  with rollback is ~40 lines with tests (`internal/update/apply.go`).
+  minio/selfupdate's extra value is Windows handling we don't need.
+- **Brew delegation prints, never executes.** Research showed flyctl execs
+  `brew upgrade` while gh only prints it; brew can prompt, update the whole
+  dependency graph, or lag the release. `sc update` prints
+  `brew upgrade sandcastle` (gh's choice) — predictable, no interactive
+  subprocess.
+- **`min_cli_version` is a compile-time const** (`update.MinCLIVersion`,
+  normally ""), not operator config: a known-breaking release sets it in
+  code, which matches "no per-release compat matrix" and needs no new ops
+  surface. A CLI that sends no version header at all predates the version
+  exchange and is refused when a minimum is set.
+- **Notices are TTY-gated.** The PRD didn't say; gh/flyctl suppress
+  notices in non-TTY/CI contexts and we follow (plus
+  `SANDCASTLE_NO_UPDATE_NOTIFIER`). The post-command notice waits ≤2s for an
+  in-flight first check, else serves the cached state next run.
+- **Sidecar "current" version discovery is best-effort.** The signer's
+  version header rides its `/healthz` (address derived from the recorded
+  Broker URL's gateway → DNS role address). Tunnel installs without a broker
+  URL show "unknown", which is treated as outdated — the delegated update is
+  idempotent, so acting on "unknown" is safe.
+- **`sc-adm update` scopes by installation prefix.** Dual-install hosts are
+  a validated production reality (sc + id on obelix); updating every
+  auth-app/broker on the remote would cross install boundaries. Rows are
+  filtered to `<prefix>-infra`/`infrastructure`, `<prefix>-broker`/
+  `sc2-broker`, and `<prefix>-<tenant>` sidecars.
+- **The version state file is JSON** (`update-state.json`), not YAML like
+  `config.yml`: it is machine-managed, never user-edited, and stdlib-only.
+  Corrupt state self-heals to "never checked".
+- **Version injection into deep packages uses one-time setters**
+  (`incusx.SetRunningBinaryVersion`, `update.DefaultExchange.SetCLIVersion`)
+  called from `cli.Execute`/`ExecuteAdmin`, instead of threading a field
+  through every constructor: the ldflags target stays `internal/cli.version`
+  (documented in CLAUDE.md; changing it would touch `.goreleaser.yaml`,
+  which the PRD says to leave alone). The auth-app gets its version
+  explicitly via `HandlerOptions.Version` because its tests construct
+  handlers directly.
+
 ## 2026-07-17 — hermetic route TLS for non-interactive e2e (`--route-tls internal`)
 
 `sc route`'s tail is on-demand HTTP-01 Let's Encrypt, which needs public DNS +

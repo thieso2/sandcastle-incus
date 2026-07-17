@@ -179,6 +179,16 @@
   </div>
 
   <div class="step">
+    <h3>Keep the CLI and your sidecar updated (<code>sc update</code>) <span class="badge badge-user">user</span></h3>
+    <p>The CLI checks GitHub for a newer release at most once per 24h in the background of normal commands and prints a two-line notice on stderr when one is available (suppressed for dev builds, non-TTY runs, releases younger than 24h, and when <code>SANDCASTLE_NO_UPDATE_NOTIFIER</code> is set). Updates are always user-initiated — never automatic.</p>
+    <pre><code><span class="cmd">sc update --check</span>            <span class="comment"># status table only: CLI vs GitHub latest, sidecar vs deployment</span>
+<span class="cmd">sc update</span>                    <span class="comment"># show the table, then prompt to apply what's outdated</span>
+<span class="cmd">sc update --yes</span>              <span class="comment"># apply without prompting</span>
+<span class="cmd">sc update --version v0.3.1</span>   <span class="comment"># pin the CLI to a tag (an older tag rolls back)</span></code></pre>
+    <p>The <strong>CLI target</strong> downloads <code>sandcastle-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> from the release, verifies its SHA-256 against <code>checksums.txt</code>, and atomically replaces the binary, keeping the previous one as <code>.bak</code>. Homebrew-managed installs are never self-replaced &mdash; the command prints <code>brew upgrade sandcastle</code> instead. The <strong>sidecar target</strong> is delegated to the deployment (auth-app token plane, broker mTLS fallback), which pushes its own running binary into your sidecar and restarts only the TLS leaf signer (sub-second; DNS and connectivity untouched).</p>
+  </div>
+
+  <div class="step">
     <h3>Config file (recommended)</h3>
     <p>Store your defaults in <code>~/.config/sandcastle/config.yml</code> so you don't need to set env vars on every call.</p>
     <pre><code><span class="comment"># ~/.config/sandcastle/config.yml</span>
@@ -713,6 +723,18 @@ Bootstrap:
   </div>
 
   <div class="step">
+    <h3>Update the deployment (<code>sc-adm update</code>)</h3>
+    <p>Updates this install's <strong>global components</strong> — the auth-app and broker appliances — from a GitHub release: it downloads the matching <code>linux-&lt;arch&gt;</code> asset per appliance, verifies it against <code>checksums.txt</code>, pushes it into each appliance, restarts the service, and stamps <code>user.sandcastle.binary-version</code> into the instance config. Idempotent — re-run to repair a partial update. Components are scoped by the installation prefix, so a neighbour install sharing the host is untouched. The image-builder appliance carries no sandcastle binary and is not updated.</p>
+    <pre><code><span class="cmd">sc-adm update --check</span>                 <span class="comment"># fleet version table from the stamps (works for stopped instances)</span>
+<span class="cmd">sc-adm update</span>                         <span class="comment"># update auth-app + broker to the latest release</span>
+<span class="cmd">sc-adm update --version v0.3.1</span>        <span class="comment"># pin (an older tag rolls back)</span>
+<span class="cmd">sc-adm update --tenants alice,bob</span>     <span class="comment"># also force-roll these tenants' sidecars</span>
+<span class="cmd">sc-adm update --all-tenants</span>           <span class="comment"># force-roll every tenant sidecar (e.g. a security fix)</span></code></pre>
+    <p>Tenant sidecars are normally <strong>tenant-managed</strong>: each tenant runs <code>sc update</code>, which the deployment serves by pushing its own running binary — so sidecars can never run ahead of the deployment. <code>--tenants</code>/<code>--all-tenants</code> is the operator override for security fixes and abandoned tenants. Appliances with no version stamp (deployed before the update system) show <code>unknown</code> and are treated as outdated; their first update self-heals the stamp. The auth-app also shows an always-visible version card on its web pages: green when current, amber with the <code>sc-adm update</code> command and a release-notes link when behind.</p>
+    <p><strong>Version skew.</strong> The CLI sends its version on every auth-app/broker call and responses carry the appliance version: a mismatch prints a one-line warning, never a block. A known-breaking release can set a minimum CLI version, in which case older CLIs get a clean &ldquo;run <code>sc update</code>&rdquo; refusal instead of protocol errors.</p>
+  </div>
+
+  <div class="step">
     <h3>Manage the Login Allowlist</h3>
     <p>Open <code>https://auth.example.com/admin/allowlist</code> as a Sandcastle Admin. Adding a user verifies the GitHub username and stores the normalized username plus GitHub numeric account ID. Removing a user blocks future GitHub and CLI login, revokes their restricted Incus certificate grants, and removes their User SSH Public Key from Machines without deleting their Personal Tenant or Machines.</p>
   </div>
@@ -851,6 +873,7 @@ Bootstrap:
       <thead><tr><th>Variable</th><th>Used by</th><th>Purpose</th></tr></thead>
       <tbody>
         <tr><td><code>SANDCASTLE_TENANT</code></td><td><code>sc</code>, <code>sc-adm</code></td><td>Default tenant for tenant-scoped commands.</td></tr>
+        <tr><td><code>SANDCASTLE_NO_UPDATE_NOTIFIER</code></td><td><code>sc</code></td><td>Any non-empty value disables the daily release check and the passive update notice.</td></tr>
         <tr><td><code>SANDCASTLE_PROJECT</code></td><td><code>sc</code>, <code>sc-adm</code></td><td>Default lightweight project inside the current tenant.</td></tr>
         <tr><td><code>SANDCASTLE_REMOTE</code></td><td><code>sc</code>, <code>sc-adm</code>, mise image tasks</td><td>Incus remote name. For <code>sc</code>, this is usually the restricted Sandcastle remote.</td></tr>
         <tr><td><code>SANDCASTLE_ADMIN_REMOTE</code></td><td><code>sc-adm</code>, local DNS setup</td><td>Admin Incus remote when it differs from <code>SANDCASTLE_REMOTE</code>.</td></tr>
@@ -990,6 +1013,7 @@ Bootstrap:
         <tr><td>sandcastle login &lt;auth-host&gt;</td><td>Start CLI Device Login through the Auth App</td></tr>
         <tr><td>sandcastle tenant list/switch</td><td>List accessible tenants and select the local Current Tenant</td></tr>
         <tr><td>sandcastle config show/set/unset</td><td>Manage local CLI defaults</td></tr>
+        <tr><td>sandcastle update [--check] [--yes] [--version vX.Y.Z]</td><td>Show CLI + sidecar update status and apply updates (self-update or <code>brew upgrade</code> hint; sidecar via the deployment)</td></tr>
         <tr><td>sandcastle status [tenant]</td><td>Show tenant status (defaults to the Current Tenant)</td></tr>
         <tr><td>sandcastle create &lt;ref&gt;</td><td>Create and connect to a machine</td></tr>
         <tr><td>sandcastle connect/c &lt;ref&gt;</td><td>Connect to a machine, starting it first when stopped and creating it when missing</td></tr>

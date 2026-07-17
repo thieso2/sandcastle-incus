@@ -1444,6 +1444,67 @@ leaf; the corrected machine-id reset was validated live (old→new random id).
 
 ---
 
+## Phase 10 — Self-update system (#124) 🚧
+
+Validates the update surfaces end to end: check → global update → tenant
+sidecar update → skew warning. Needs at least one published GitHub release
+(the release check and downloads hit `github.com/thieso2/sandcastle-incus`);
+run with release-stamped binaries (goreleaser artifacts), not `make build`
+dev builds — dev builds intentionally skip the release check.
+
+```bash
+# 10a — fleet check (admin): stamp-based table, one Incus listing
+sc-adm update --check
+# expect: auth-app + broker rows (VERSION = stamped tag, or "unknown" on
+# pre-#124 deploys, noted outdated), every sidecar row marked tenant-managed;
+# latest release printed; image-builder noted as carrying no binary.
+
+# 10b — global update (admin)
+sc-adm update --yes                     # or --version v<X.Y.Z> to pin/rollback
+# expect: per-component "ok" lines; services back active
+#   (systemctl is-active sandcastle-auth-app / sandcastle-broker inside the
+#   appliances); user.sandcastle.binary-version stamped on both instances;
+#   re-run is idempotent ("ok" again, no errors).
+
+# 10c — tenant-facing status + sidecar update (from the enrolled client)
+sc update --check
+# expect: table with "sc CLI" row (vs GitHub latest) and "sidecar" row
+#   (current from the signer's version header, wanted = deployment version).
+sc update --yes
+# expect: sidecar updated via the deployment (auth-app token plane on tunnel
+#   installs, broker mTLS otherwise); ONLY sandcastle-tls-sign.service
+#   restarts (verify: coredns/tailscaled uptime unchanged, tenant DNS + SSH
+#   still work mid-update); sidecar stamp = deployment version afterwards.
+
+# 10d — CLI self-update (direct install)
+sc update --version v<older> --yes      # roll the CLI back…
+sc version                              # …binary now reports <older>, .bak kept
+sc update --yes                         # …and forward to latest again
+# Homebrew installs instead print `brew upgrade sandcastle` and change nothing.
+
+# 10e — passive notice + skew warning
+#   with the CLI one release behind: any sc command on a TTY prints (stderr,
+#   once per 24h) the two-line "new release available / run `sc update`"
+#   notice; after touching the auth-app it prints the one-line CLI↔deployment
+#   skew note. SANDCASTLE_NO_UPDATE_NOTIFIER=1 silences both. Releases
+#   younger than 24h are not announced (Homebrew tap grace).
+
+# 10f — admin page version card
+#   open https://<auth-hostname>/ — the version card shows the auth-app's own
+#   version; green "Up to date" when current, amber "run sc-adm update" +
+#   release-notes link when behind (appliance-side daily-cached GitHub check).
+```
+
+**PASS:** 10a table complete and truthful (unknown ⇒ outdated); 10b idempotent
+with stamps written; 10c restarts only the leaf signer with connectivity
+untouched and the sidecar never ahead of the deployment; 10d atomic replace
+with `.bak` rollback artifact (brew installs never self-replace); 10e notices
+throttled ≤1/24h per target and env-suppressible; 10f card states match the
+stamps. Not yet validated live — no second release existed when this phase
+was written.
+
+---
+
 ## Summary
 **Green today (validated live 2026-07-02):** Phases 0–9 — teardown, auth-app deploy, sc-edge
 front, v2 tenant provision (stock Debian sidecar: CoreDNS + Tailscale), client enrollment,

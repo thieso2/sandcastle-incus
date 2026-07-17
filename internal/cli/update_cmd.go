@@ -62,7 +62,8 @@ func newUpdateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			// Status table.
 			w := tabwriter.NewWriter(config.stdout, 2, 8, 2, ' ', 0)
 			fmt.Fprintln(w, "TARGET\tCURRENT\tWANTED\tSTATUS")
-			fmt.Fprintf(w, "sc CLI\t%s\t%s\t%s\n", cliCurrent, orUnknown(cliWanted), cliStatus(cliOutdated, brewManaged, releaseErr))
+			fmt.Fprintf(w, "sc CLI\t%s\t%s\t%s\n", cliCurrent, orUnknown(cliWanted),
+				cliStatus(cliOutdated, brewManaged, update.IsDevBuild(version) && pin == "", releaseErr))
 			if sidecarKnown || sidecarCurrent != "" {
 				fmt.Fprintf(w, "sidecar\t%s\t%s\t%s\n", orUnknown(sidecarCurrent), orUnknown(deployment), sidecarStatus(sidecarOutdated, sidecarKnown))
 			}
@@ -128,7 +129,7 @@ func orUnknown(v string) string {
 	return v
 }
 
-func cliStatus(outdated, brewManaged bool, releaseErr error) string {
+func cliStatus(outdated, brewManaged, devBuild bool, releaseErr error) string {
 	switch {
 	case releaseErr != nil:
 		return "unknown (release check failed)"
@@ -136,6 +137,8 @@ func cliStatus(outdated, brewManaged bool, releaseErr error) string {
 		return "outdated (brew-managed)"
 	case outdated:
 		return "outdated"
+	case devBuild:
+		return "dev build (pin with --version to replace)"
 	default:
 		return "current"
 	}

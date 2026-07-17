@@ -123,7 +123,7 @@ func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 	command.Flags().BoolVar(&check, "check", false, "show the fleet version table; change nothing")
 	command.Flags().BoolVar(&yes, "yes", false, "apply without prompting")
 	command.Flags().StringVar(&pin, "version", "", "release tag to install (vX.Y.Z; default: latest); an older tag rolls back")
-	command.Flags().StringSliceVar(&tenants, "tenants", nil, "also force-roll these tenants' sidecars (normally tenant-managed via `sc update`)")
+	command.Flags().StringSliceVar(&tenants, "tenants", nil, "also force-roll these tenants' sidecars (normally tenant-managed via sc update)")
 	command.Flags().BoolVar(&allTenants, "all-tenants", false, "also force-roll every tenant sidecar")
 	return command
 }
