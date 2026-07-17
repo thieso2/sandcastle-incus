@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/thieso2/sandcastle-incus/internal/update"
 )
 
 // brokerPost performs an mTLS POST to the Sandcastle Broker. The caller's
@@ -25,13 +27,15 @@ func brokerPost(ctx context.Context, brokerURL string, path string, certFile str
 	}
 	client := &http.Client{
 		Timeout: 5 * time.Minute,
-		Transport: &http.Transport{
+		// Wrapped for the version exchange (#124 §6): sends the CLI version,
+		// records the broker's version/minimum from the response headers.
+		Transport: update.DefaultExchange.WrapTransport(&http.Transport{
 			TLSClientConfig: &tls.Config{
 				Certificates:       []tls.Certificate{cert},
 				InsecureSkipVerify: true,
 				MinVersion:         tls.VersionTLS12,
 			},
-		},
+		}),
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {

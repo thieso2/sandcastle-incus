@@ -207,10 +207,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 	if err != nil {
 		return CreatePlanV2{}, err
 	}
-	prefix := strings.TrimSpace(admin.IncusProjectPrefix)
-	if prefix == "" || prefix == naming.DefaultIncusProjectPrefix {
-		prefix = naming.V2IncusProjectPrefix
-	}
+	prefix := naming.NormalizeV2Prefix(admin.IncusProjectPrefix)
 	infraProject, err := naming.V2TenantInfraProjectName(prefix, ref.Tenant)
 	if err != nil {
 		return CreatePlanV2{}, err

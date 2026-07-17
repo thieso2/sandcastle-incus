@@ -25,6 +25,7 @@ import (
 func ExecuteAdmin(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
 	verbose := os.Getenv("VERBOSE") == "1"
+	incusx.SetRunningBinaryVersion(version)
 	explicitRemote := strings.TrimSpace(os.Getenv("SANDCASTLE_REMOTE")) != "" || strings.TrimSpace(adminConfig.AdminRemote) != ""
 
 	// Prefer explicit admin_remote; fall back to cert/IP-based auto-detection;
@@ -128,6 +129,8 @@ func ExecuteAdmin(name string, args []string) int {
 		machineStore:       incusx.NewHostOverrideManagerForSharedRemote(sharedRemote),
 		tailscale:          incusx.NewTailscaleManager(adminConfig.Remote),
 		authApp: authapp.HTTPRunner{
+			Version:          version,
+			Sidecars:         incusx.SidecarSelfUpdater{Creator: authAppCreator, Admin: adminConfig},
 			RestrictedUsers:  authAppTrust,
 			Admin:            adminConfig,
 			Tenants:          authAppTenants,
@@ -279,6 +282,7 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "write JSON output")
 
 	root.AddCommand(newAdminVersionCommand(config, opts))
+	root.AddCommand(newAdminUpdateCommand(config))
 	root.AddCommand(newAdminMachineListCommand(config, opts))
 	root.AddCommand(newAdminTenantCommand(config, opts))
 	root.AddCommand(newAdminUserCommand(config, opts))

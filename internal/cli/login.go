@@ -28,6 +28,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/localdns"
 	"github.com/thieso2/sandcastle-incus/internal/localtrust"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -153,6 +154,9 @@ func fetchAndInstallTenantCAFromSigner(ctx context.Context, out io.Writer, tenan
 		return fmt.Errorf("could not reach the tenant CA signer at %s (%v)", dnsAddr, err)
 	}
 	defer resp.Body.Close()
+	// The signer's responses carry the sidecar's binary version (§6); record
+	// it so the post-command notice can flag a sidecar behind the deployment.
+	update.DefaultExchange.RecordSidecarVersion(resp.Header.Get(update.HeaderVersion))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("tenant CA fetch returned %s", resp.Status)
 	}

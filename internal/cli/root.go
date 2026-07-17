@@ -24,6 +24,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/share"
 	"github.com/thieso2/sandcastle-incus/internal/tailscale"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
@@ -159,6 +160,9 @@ type rootOptions struct {
 func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadUser()
 	verbose := os.Getenv("VERBOSE") == "1"
+	incusx.SetRunningBinaryVersion(version)
+	update.DefaultExchange.SetCLIVersion(version)
+	refreshedUpdateState := startBackgroundUpdateCheck()
 
 	// Always use the per-remote Sandcastle config dir (restricted cert) for user commands.
 	if userPath := scconfig.ResolveConfigPath(adminConfig.Remote); userPath != "" {
@@ -179,8 +183,10 @@ func Execute(name string, args []string) int {
 	cmd.SetArgs(args)
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
+		maybePrintUpdateNotices(os.Stderr, refreshedUpdateState)
 		return 1
 	}
+	maybePrintUpdateNotices(os.Stderr, refreshedUpdateState)
 	return 0
 }
 
@@ -312,6 +318,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "write JSON output")
 
 	root.AddCommand(newVersionCommand(config, opts))
+	root.AddCommand(newUpdateCommand(config, opts))
 	root.AddCommand(newListCommand(config, opts))
 	root.AddCommand(newStatusCommand(config, opts))
 	root.AddCommand(newInfoCommand(config, opts))

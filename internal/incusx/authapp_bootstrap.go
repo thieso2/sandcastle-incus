@@ -151,6 +151,9 @@ func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAp
 			return err
 		}
 	}
+	if err := stampBinaryVersion(psrv, instance, runningBinaryVersion); err != nil {
+		return err
+	}
 
 	c.log("start services: " + strings.Join(units, " "))
 	start := applianceStartScript([]string{
@@ -209,7 +212,7 @@ func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequ
 			// mounted admin unix socket, matching the broker/auth-app pattern.
 			Config: api.ConfigMap{
 				"security.privileged": "true",
-				meta.KeyKind:          "auth-app",
+				meta.KeyKind:          meta.KindAuthApp,
 			},
 			Devices:  authAppDevices(req),
 			Profiles: []string{},

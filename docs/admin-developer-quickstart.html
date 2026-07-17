@@ -276,6 +276,12 @@ sc-adm install \
 sc c dev                                     <span class="comment"># create + SSH into a machine as your login user</span>
 sc project create web --broker https://&lt;tenant-gateway&gt;:9443 --cert … --key …  <span class="comment"># a second project</span></code></pre>
       <p>The client needs the <code>incus</code> client (<code>apt-get install incus-client</code> / <code>brew install incus</code>) and must be a Tailscale node — <code>sc login</code> refuses up front otherwise and prints the install one-liner. Full runbook: <code>docs/e2e-sc2.md</code>.</p>
+      <h3>Keeping it updated</h3>
+      <p>Updates are always operator/tenant-initiated, never automatic. When a new GitHub release is out:</p>
+      <pre><code>sc-adm update --check     <span class="comment"># fleet table: auth-app, broker, sidecars (stamped versions vs latest)</span>
+sc-adm update             <span class="comment"># update the global components (auth-app + broker); idempotent</span>
+sc-adm update --all-tenants   <span class="comment"># operator override: also force-roll every tenant sidecar</span></code></pre>
+      <p>Tenants keep their own CLI and sidecar current with <code>sc update</code> (the CLI also prints a passive once-a-day notice when a release is available; Homebrew installs are told to <code>brew upgrade sandcastle</code> instead of self-replacing). The auth-app's web page shows a version card — amber with the update command when the appliance is behind. Rollback = <code>sc-adm update --version v&lt;older&gt;</code>.</p>
     </section>
 
     <section id="assumptions">

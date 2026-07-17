@@ -454,7 +454,7 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 		InstancePut: api.InstancePut{
 			Description: "Sandcastle v2 sidecar (CoreDNS + Tailscale + Caddy)",
 			Config: api.ConfigMap{
-				meta.KeyKind:    "sidecar",
+				meta.KeyKind:    meta.KindSidecar,
 				meta.KeyTenant:  plan.Tenant,
 				meta.KeyVersion: "2",
 			},
@@ -667,6 +667,11 @@ func configureV2TLSSigner(server TenantResourceServer, plan tenant.CreatePlanV2)
 			WriteMode: "overwrite",
 		}); err != nil {
 			return fmt.Errorf("push sandcastle binary to sidecar: %w", err)
+		}
+		// Stamp only on an actual push: an already-present (possibly older)
+		// binary keeps its previous stamp — or none, which reads as "unknown".
+		if err := stampBinaryVersion(server, plan.SidecarInstance, runningBinaryVersion); err != nil {
+			return err
 		}
 	}
 

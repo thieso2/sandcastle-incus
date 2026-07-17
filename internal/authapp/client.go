@@ -14,6 +14,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/share"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 )
 
 // defaultDeviceClientTimeout bounds each device poll. The poll that observes
@@ -220,6 +221,31 @@ func (c DeviceClient) CreateProject(ctx context.Context, project string) (projec
 	var result projectbroker.ProjectResult
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return projectbroker.ProjectResult{}, err
+	}
+	return result, nil
+}
+
+// UpdateSidecar asks the deployment to update the caller's own tenant
+// sidecar to the deployment's running binary (#124 §5) via the
+// token-authenticated POST /api/sidecar/update.
+func (c DeviceClient) UpdateSidecar(ctx context.Context) (projectbroker.SidecarUpdateResult, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/sidecar/update"), nil)
+	if err != nil {
+		return projectbroker.SidecarUpdateResult{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	response, err := c.client().Do(request)
+	if err != nil {
+		return projectbroker.SidecarUpdateResult{}, err
+	}
+	defer response.Body.Close()
+	payload, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if response.StatusCode != http.StatusOK {
+		return projectbroker.SidecarUpdateResult{}, fmt.Errorf("sidecar update: %s: %s", response.Status, strings.TrimSpace(string(payload)))
+	}
+	var result projectbroker.SidecarUpdateResult
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return projectbroker.SidecarUpdateResult{}, err
 	}
 	return result, nil
 }
@@ -616,5 +642,11 @@ func (c DeviceClient) client() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: defaultDeviceClientTimeout}
+	// The default client performs the version exchange (#124 §6): it sends the
+	// CLI version and records the appliance version/minimum from responses so
+	// the CLI can print a skew warning after its normal output.
+	return &http.Client{
+		Timeout:   defaultDeviceClientTimeout,
+		Transport: update.DefaultExchange.WrapTransport(nil),
+	}
 }

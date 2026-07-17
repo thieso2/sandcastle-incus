@@ -110,6 +110,9 @@ func (c TenantCreator) BootstrapV2(ctx context.Context, req BootstrapV2Request) 
 			return err
 		}
 	}
+	if err := stampBinaryVersion(psrv, req.instance(), runningBinaryVersion); err != nil {
+		return err
+	}
 
 	c.log("start broker service")
 	start := applianceStartScript([]string{
@@ -137,7 +140,7 @@ func ensureBrokerProject(server TenantCreateServer, name string) error {
 				"features.networks": "false",
 				"features.images":   "false",
 				"features.profiles": "true",
-				meta.KeyKind:        "broker",
+				meta.KeyKind:        meta.KindBroker,
 				meta.KeyVersion:     "2",
 			},
 		},
@@ -170,7 +173,7 @@ func ensureBrokerInstance(server TenantResourceServer, req BootstrapV2Request, p
 			// route-broker appliance.
 			Config: api.ConfigMap{
 				"security.privileged": "true",
-				meta.KeyKind:          "broker",
+				meta.KeyKind:          meta.KindBroker,
 				meta.KeyVersion:       "2",
 			},
 			Devices:  devices,
