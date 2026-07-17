@@ -56,12 +56,14 @@ packages:
 	// without ingress.
 
 	// Caddy HTTPS ingress (ADR-0011): only when we know the machine's identity
-	// (jinja) and where to fetch its leaf (the sidecar signer). The setup script
-	// is base64-embedded to sidestep YAML/indentation pitfalls; machine.env
-	// carries the per-machine FQDN (jinja) and signer URL.
+	// (jinja) and where to fetch its leaf (the sidecar signer). What gets baked
+	// is only the stable boot SHIMS (base64 to sidestep YAML/indentation
+	// pitfalls) — the caddy-setup and generalize bodies ship in the /.sc
+	// platform payload (ADR-0022) and update centrally. machine.env stays
+	// per-machine: it carries this machine's FQDN (jinja) and signer URL.
 	if jinja && signerURL != "" {
-		script := base64.StdEncoding.EncodeToString([]byte(caddyIngressSetupScript))
-		generalize := base64.StdEncoding.EncodeToString([]byte(machineGeneralizeScript))
+		script := base64.StdEncoding.EncodeToString([]byte(SCCaddySetupShim))
+		generalize := base64.StdEncoding.EncodeToString([]byte(SCGeneralizeShim))
 		body += "write_files:\n" + scShimWriteFiles + fmt.Sprintf(`  - path: /etc/sandcastle/machine.env
     permissions: '0644'
     content: |
@@ -245,7 +247,9 @@ if [ "$need" = 0 ]; then echo "agent-forwarding: OK"; else echo "agent-forwardin
 // machineGeneralizeScript freshens per-instance identity so a machine launched
 // from an `sc image save` base image does NOT inherit the source machine's SSH
 // host keys, machine-id, or stale TLS leaf. It runs once per instance (cloud-init
-// per-instance runcmd) before sshd is (re)started. On a fresh stock machine the
+// per-instance runcmd, via the /usr/local/sbin/sandcastle-generalize boot shim
+// — the body ships as the platform-payload entry SCPayloadGeneralizePath, so it
+// updates centrally) before sshd is (re)started. On a fresh stock machine the
 // identity is already unique, so every step is a harmless no-op — correctness
 // lives here in one place rather than at save time.
 const machineGeneralizeScript = `#!/bin/bash
@@ -265,6 +269,8 @@ systemctl try-restart ssh >/dev/null 2>&1 || true
 // caddyIngressSetupScript installs Caddy, trusts the tenant CA, fetches this
 // machine's leaf from the sidecar signer, writes the Caddyfile, and (re)starts
 // Caddy as root. It sources /etc/sandcastle/machine.env for FQDN + SIGNER.
+// Runs via the /usr/local/sbin/sandcastle-caddy-setup boot shim — the body
+// ships as the platform-payload entry SCPayloadCaddySetupPath (ADR-0022).
 const caddyIngressSetupScript = `#!/bin/bash
 set -eu
 . /etc/sandcastle/machine.env

@@ -32,8 +32,10 @@ const PlatformPayloadVersionFile = "VERSION"
 // the baked shims source — the shim↔payload contract test keeps the two sides
 // in agreement, so a shim can never point at a script the payload doesn't ship.
 const (
-	SCPayloadSSHRCPath   = "ssh/sshrc"
-	SCPayloadShellRCPath = "shell/rc.sh"
+	SCPayloadSSHRCPath      = "ssh/sshrc"
+	SCPayloadShellRCPath    = "shell/rc.sh"
+	SCPayloadGeneralizePath = "sbin/machine-generalize"
+	SCPayloadCaddySetupPath = "sbin/caddy-setup"
 )
 
 // PlatformPayload returns the versioned /.sc/platform payload: every platform
@@ -49,6 +51,8 @@ func PlatformPayload() ([]PlatformPayloadFile, string) {
 	files := []PlatformPayloadFile{
 		{Path: SCPayloadSSHRCPath, Mode: 0o755, Content: sshAgentRepublishScript},
 		{Path: SCPayloadShellRCPath, Mode: 0o644, Content: sshAgentConsumeSnippet},
+		{Path: SCPayloadGeneralizePath, Mode: 0o755, Content: machineGeneralizeScript},
+		{Path: SCPayloadCaddySetupPath, Mode: 0o755, Content: caddyIngressSetupScript},
 	}
 	version := platformPayloadVersion(files)
 	files = append(files, PlatformPayloadFile{Path: PlatformPayloadVersionFile, Mode: 0o644, Content: version + "\n"})
@@ -105,6 +109,34 @@ var SCSSHRCShim = "#!/bin/sh\n" +
 // it up whichever shell it runs).
 var SCShellRCShim = "# " + SCShimMarker + " (stable) — shell setup lives on the /.sc volume (ADR-0022).\n" +
 	scShimSourceLines(SCPayloadShellRCPath)
+
+// scBootShim renders the stable shim for a boot-time payload consumer (a
+// cloud-init runcmd target under /usr/local/sbin). Unlike the shell-rc shims,
+// boot consumers can race the volume mount — a VM's virtiofs share comes up
+// via the incus agent and may lag early cloud-init — so the shim waits briefly
+// for the payload before the usual fail-safe no-op. Only the platform layer is
+// sourced: boot scripts are platform-managed; tenant customization belongs in
+// the shell/rc overlay, not machine bring-up.
+func scBootShim(relPath string) string {
+	platform := SCPlatformPath + "/" + relPath
+	return "#!/bin/sh\n" +
+		"# " + SCShimMarker + " (stable) — the logic lives on the /.sc volume (ADR-0022).\n" +
+		"# Boot-time consumer: wait briefly for the volume mount, then fail safe.\n" +
+		"i=0\n" +
+		"while [ ! -r " + platform + " ] && [ \"$i\" -lt 30 ]; do i=$((i+1)); sleep 1; done\n" +
+		"[ -r " + platform + " ] && . " + platform + "\n" +
+		"true\n"
+}
+
+// SCGeneralizeShim / SCCaddySetupShim are the stable bodies baked at
+// /usr/local/sbin/sandcastle-generalize and /usr/local/sbin/sandcastle-caddy-setup
+// (the cloud-init runcmd targets). The scripts they used to carry inline now
+// ship as platform-payload entries, so fixing machine bring-up no longer means
+// re-baking cloud-init.
+var (
+	SCGeneralizeShim = scBootShim(SCPayloadGeneralizePath)
+	SCCaddySetupShim = scBootShim(SCPayloadCaddySetupPath)
+)
 
 // SCVolume describes one layer of the /.sc shared-scripts volume as plan data:
 // the custom volume, the default-profile disk device attaching it, its

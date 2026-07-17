@@ -1,6 +1,7 @@
 package tenant
 
 import (
+	"encoding/base64"
 	"regexp"
 	"strings"
 	"testing"
@@ -263,6 +264,49 @@ func TestV2DefaultProfileUserDataBakesSCShims(t *testing.T) {
 	}
 }
 
+// The boot-time consumers (generalize + caddy-setup) are baked as stable /.sc
+// shims too: the b64-embedded write_files carry the shim bodies, never the
+// script bodies — those ship in the platform payload and update centrally.
+func TestV2DefaultProfileUserDataBakesBootShims(t *testing.T) {
+	data := V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "default", "acme", "http://10.0.0.3:9443")
+
+	for name, shim := range map[string]string{
+		"generalize":  SCGeneralizeShim,
+		"caddy-setup": SCCaddySetupShim,
+	} {
+		if !strings.Contains(data, base64.StdEncoding.EncodeToString([]byte(shim))) {
+			t.Fatalf("user-data does not embed the %s boot shim:\n%s", name, data)
+		}
+	}
+	for name, body := range map[string]string{
+		"generalize":  machineGeneralizeScript,
+		"caddy-setup": caddyIngressSetupScript,
+	} {
+		if strings.Contains(data, base64.StdEncoding.EncodeToString([]byte(body))) {
+			t.Fatalf("user-data must not inline the %s script body (it lives in the payload)", name)
+		}
+	}
+	// The boot shims wait for the volume mount (VM virtiofs can lag early
+	// cloud-init) before the fail-safe no-op.
+	for _, shim := range []string{SCGeneralizeShim, SCCaddySetupShim} {
+		if !strings.Contains(shim, "sleep 1") || !strings.Contains(shim, SCShimMarker) {
+			t.Fatalf("boot shim lost its mount-wait or marker:\n%s", shim)
+		}
+	}
+	// And the payload ships both bodies.
+	files, _ := PlatformPayload()
+	byPath := map[string]string{}
+	for _, f := range files {
+		byPath[f.Path] = f.Content
+	}
+	if byPath[SCPayloadGeneralizePath] != machineGeneralizeScript {
+		t.Fatalf("payload %s is not the generalize script", SCPayloadGeneralizePath)
+	}
+	if byPath[SCPayloadCaddySetupPath] != caddyIngressSetupScript {
+		t.Fatalf("payload %s is not the caddy-setup script", SCPayloadCaddySetupPath)
+	}
+}
+
 // The single most important /.sc unit test (spec #127): every /.sc/platform
 // path a baked shim sources must be produced by the platform-payload builder,
 // so a shim can never point at a script the payload doesn't ship.
@@ -273,7 +317,7 @@ func TestSCShimPayloadContract(t *testing.T) {
 		produced[SCPlatformPath+"/"+f.Path] = true
 	}
 	sourced := regexp.MustCompile(regexp.QuoteMeta(SCPlatformPath) + `/[^\s\]]+`)
-	shims := SCSSHRCShim + SCShellRCShim
+	shims := SCSSHRCShim + SCShellRCShim + SCGeneralizeShim + SCCaddySetupShim
 	matches := sourced.FindAllString(shims, -1)
 	if len(matches) == 0 {
 		t.Fatalf("shims source no platform paths:\n%s", shims)
