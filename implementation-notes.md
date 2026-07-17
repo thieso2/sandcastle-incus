@@ -2490,3 +2490,21 @@ here, worth a follow-up issue.
   race is now documented in Phase 7f as intended behavior (delete prunes within
   seconds; only a live machine's IP change refreshes in place) rather than
   changed with a prune grace period.
+
+## 2026-07-17 — #115: fingerprint-first tenant-plane cert extension
+
+`extendTenantCertificate` now extends the CALLER's certificate by fingerprint
+first and never runs the name-bucket `Grant` when a recorded certificate
+exists — the name bucket extended every same-named entry, re-arming dead
+keypairs when tenant/project names recurred (observed live on majestix). The
+tenant's other live devices are synced by the new `GrantTenantFleet` (same
+name AND already holding a project in the tenant's namespace) because the
+login-path union only grants the default project, so fingerprint-only would
+have left a user's second device without new projects until who-knows-when.
+Alternatives considered: (a) filtering inside `Grant` itself — rejected,
+`sc-adm tenant grant` legitimately targets entries that hold none of the
+tenant's projects yet (first grant), and multi-device users legitimately share
+an entry name; (b) fingerprint-only without fleet sync — rejected per above.
+Legacy name-based Grant remains only when no certificate was ever recorded
+(pre-cacd832 logins) or the record is stale. Validated live with a
+manufactured dead+fleet+caller matrix on majestix.

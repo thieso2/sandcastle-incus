@@ -2,13 +2,13 @@ package incusx
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/lxc/incus/v6/shared/api"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
@@ -41,7 +41,17 @@ func (p ProjectBrokerCreator) CreateTenantProject(ctx context.Context, tenant st
 			Projects:        []string{res.IncusProject},
 			Description:     "Sandcastle v2 tenant " + tenant,
 		}
-		if err := extendTenantCertificate(ctx, p.Trust, plan, clientCertificatePEM); err != nil {
+		// The tenant's project namespace root (`<prefix>-<tenant>`), from the
+		// canonical naming home. Prefix defaulting mirrors PlanDeleteV2.
+		prefix := strings.TrimSpace(p.Prefix)
+		if prefix == "" || prefix == naming.DefaultIncusProjectPrefix {
+			prefix = naming.V2IncusProjectPrefix
+		}
+		tenantNamespace, err := naming.V2TenantInfraProjectName(prefix, tenant)
+		if err != nil {
+			return projectbroker.ProjectResult{}, fmt.Errorf("derive tenant namespace: %w", err)
+		}
+		if err := extendTenantCertificate(ctx, p.Trust, plan, clientCertificatePEM, tenantNamespace); err != nil {
 			return projectbroker.ProjectResult{}, fmt.Errorf("extend tenant certificate for %s: %w", res.IncusProject, err)
 		}
 	}
@@ -55,31 +65,36 @@ func (p ProjectBrokerCreator) CreateTenantProject(ctx context.Context, tenant st
 }
 
 // extendTenantCertificate grants plan.Projects to the tenant's restricted
-// certificate. The lookup is by certificate name; with shared client identity
-// (one keypair enrolled by several tenants/installs) the trust entry is named
-// after whichever tenant enrolled it FIRST, so this tenant's name misses even
-// though the caller's certificate is trusted — login provisioning unioned this
-// tenant's projects into that entry by fingerprint (EnsureClientCertificate).
-// Fall back to the same fingerprint union here.
-func extendTenantCertificate(ctx context.Context, trust usertrust.Manager, plan usertrust.UserPlan, clientCertificatePEM string) error {
-	err := trust.Grant(ctx, plan)
-	if !errors.Is(err, errRestrictedCertificateNotFound) || strings.TrimSpace(clientCertificatePEM) == "" {
-		return err
+// certificate(s). FINGERPRINT-FIRST (#115): when the caller's certificate is
+// recorded, extend exactly that entry (EnsureClientCertificate) — a name-based
+// grant extends EVERY entry sharing the name, silently re-arming dead keypairs
+// whose tenant/project names recurred. The tenant's other live devices (same
+// name, already holding a tenant project) are then synced via GrantTenantFleet.
+// The name-based Grant remains only as the legacy path: no recorded
+// certificate (a login predating cacd832), or a stale record the daemon no
+// longer trusts. It also covers shared client identity — an entry named after
+// another tenant is reached by fingerprint even though the name would miss.
+func extendTenantCertificate(ctx context.Context, trust usertrust.Manager, plan usertrust.UserPlan, clientCertificatePEM string, tenantNamespace string) error {
+	if pem := strings.TrimSpace(clientCertificatePEM); pem != "" {
+		ensurer, ok := trust.(interface {
+			EnsureClientCertificate(context.Context, string, usertrust.UserPlan) (bool, error)
+		})
+		if ok {
+			found, err := ensurer.EnsureClientCertificate(ctx, pem, plan)
+			if err != nil {
+				return err
+			}
+			if found {
+				if fleet, ok := trust.(interface {
+					GrantTenantFleet(context.Context, usertrust.UserPlan, string) error
+				}); ok {
+					return fleet.GrantTenantFleet(ctx, plan, tenantNamespace)
+				}
+				return nil
+			}
+		}
 	}
-	ensurer, ok := trust.(interface {
-		EnsureClientCertificate(context.Context, string, usertrust.UserPlan) (bool, error)
-	})
-	if !ok {
-		return err
-	}
-	found, ensureErr := ensurer.EnsureClientCertificate(ctx, clientCertificatePEM, plan)
-	if ensureErr != nil {
-		return ensureErr
-	}
-	if !found {
-		return err
-	}
-	return nil
+	return trust.Grant(ctx, plan)
 }
 
 // TenantProvisionerAdapter implements projectbroker.TenantProvisioner: the

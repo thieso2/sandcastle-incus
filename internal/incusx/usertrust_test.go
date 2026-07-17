@@ -13,13 +13,17 @@ import (
 type fakeTrustServer struct {
 	certificates []api.Certificate
 	updated      *api.CertificatePut
-	deleted      []string
-	tokenOp      incus.Operation
+	// updatedFingerprints records every UpdateCertificate target in order (the
+	// `updated` pointer only keeps the last write).
+	updatedFingerprints []string
+	deleted             []string
+	tokenOp             incus.Operation
 }
 
 func (s *fakeTrustServer) GetCertificates() ([]api.Certificate, error) { return s.certificates, nil }
 func (s *fakeTrustServer) UpdateCertificate(fingerprint string, certificate api.CertificatePut, etag string) error {
 	s.updated = &certificate
+	s.updatedFingerprints = append(s.updatedFingerprints, fingerprint)
 	return nil
 }
 func (s *fakeTrustServer) DeleteCertificate(fingerprint string) error {

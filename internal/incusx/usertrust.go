@@ -56,16 +56,68 @@ func (m TrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) error 
 		if err := validateGrantCertificate(cert, plan.CertificateName); err != nil {
 			return err
 		}
-		projects := mergeProjects(cert.Projects, plan.Projects)
-		if err := server.UpdateCertificate(cert.Fingerprint, api.CertificatePut{
-			Name:        cert.Name,
-			Type:        api.CertificateTypeClient,
-			Restricted:  true,
-			Projects:    projects,
-			Certificate: cert.Certificate,
-			Description: plan.Description,
-		}, ""); err != nil {
-			return fmt.Errorf("update certificate %s: %w", cert.Fingerprint[:12], err)
+		if err := extendCertificateProjects(server, cert, plan); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// extendCertificateProjects unions plan.Projects into one trust entry — the
+// shared write behind Grant and GrantTenantFleet.
+func extendCertificateProjects(server TrustServer, cert api.Certificate, plan usertrust.UserPlan) error {
+	projects := mergeProjects(cert.Projects, plan.Projects)
+	if err := server.UpdateCertificate(cert.Fingerprint, api.CertificatePut{
+		Name:        cert.Name,
+		Type:        api.CertificateTypeClient,
+		Restricted:  true,
+		Projects:    projects,
+		Certificate: cert.Certificate,
+		Description: plan.Description,
+	}, ""); err != nil {
+		return fmt.Errorf("update certificate %s: %w", cert.Fingerprint[:min(12, len(cert.Fingerprint))], err)
+	}
+	return nil
+}
+
+// GrantTenantFleet extends the tenant's OTHER enrolled devices with
+// plan.Projects: trust entries under plan.CertificateName that ALREADY hold a
+// project inside the tenant's namespace (the infra project or anything under
+// `<namespace>-`). Same-named entries with no such project are never touched —
+// a name-bucket Grant re-armed dead keypairs whose project names recurred
+// (#115); an entry emptied by a teardown, or one granting only another
+// tenant's projects, is not part of this tenant's fleet. The CALLER's own
+// certificate is extended separately by fingerprint (EnsureClientCertificate).
+// Finding no fleet entries is a no-op, not an error.
+func (m TrustManager) GrantTenantFleet(ctx context.Context, plan usertrust.UserPlan, tenantNamespace string) error {
+	tenantNamespace = strings.TrimSpace(tenantNamespace)
+	if tenantNamespace == "" || strings.TrimSpace(plan.CertificateName) == "" {
+		return nil
+	}
+	server, err := m.server()
+	if err != nil {
+		return err
+	}
+	certificates, err := server.GetCertificates()
+	if err != nil {
+		return fmt.Errorf("list Incus certificates: %w", err)
+	}
+	for _, cert := range certificates {
+		if cert.Name != plan.CertificateName || cert.Type != api.CertificateTypeClient || !cert.Restricted {
+			continue
+		}
+		inFleet := false
+		for _, project := range cert.Projects {
+			if project == tenantNamespace || strings.HasPrefix(project, tenantNamespace+"-") {
+				inFleet = true
+				break
+			}
+		}
+		if !inFleet {
+			continue
+		}
+		if err := extendCertificateProjects(server, cert, plan); err != nil {
+			return err
 		}
 	}
 	return nil
