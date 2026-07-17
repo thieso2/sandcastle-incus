@@ -2508,3 +2508,15 @@ an entry name; (b) fingerprint-only without fleet sync — rejected per above.
 Legacy name-based Grant remains only when no certificate was ever recorded
 (pre-cacd832 logins) or the record is stale. Validated live with a
 manufactured dead+fleet+caller matrix on majestix.
+
+## 2026-07-17 — #115 addendum: admin-plane Grant hardened too
+
+`TrustManager.Grant` now skips restricted client entries with ZERO projects
+and errors (with remediation) when every same-named entry is dead. Rationale:
+post-#113 a live device always holds ≥1 project (enrollment grants one; the
+sweep removes entries a teardown emptied), so an empty entry is a dead keypair
+by definition — extending it is the #115 re-arm, and `sc-adm tenant grant` /
+the web grant were still doing it. Multi-device users and first-grants are
+unaffected (their entries are non-empty). A silent all-skipped "success" was
+rejected in favor of a loud error naming the cleanup command. Validated live
+on majestix (synthetic dead+live pair under one name).

@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
@@ -247,3 +248,48 @@ func (o staticOperation) RemoveHandler(*incus.EventTarget) error                
 func (o staticOperation) Refresh() error                                             { return nil }
 func (o staticOperation) Wait() error                                                { return nil }
 func (o staticOperation) WaitContext(context.Context) error                          { return nil }
+
+// #115 (admin plane): a restricted client entry with ZERO projects is a dead
+// keypair — post-#113 every live device holds at least one project, and empty
+// entries are exactly what a name-bucket grant used to silently re-arm. Grant
+// must skip them and extend only the live same-named entries.
+func TestTrustManagerGrantSkipsDeadEntries(t *testing.T) {
+	server := &fakeTrustServer{certificates: []api.Certificate{
+		{Fingerprint: "dead", CertificatePut: api.CertificatePut{Name: "sandcastle-alice", Type: api.CertificateTypeClient, Restricted: true, Projects: []string{}}},
+		{Fingerprint: "live", CertificatePut: api.CertificatePut{Name: "sandcastle-alice", Type: api.CertificateTypeClient, Restricted: true, Projects: []string{"sc2-alice-default"}}},
+	}}
+	manager := TrustManager{Server: server}
+	err := manager.Grant(context.Background(), usertrust.UserPlan{
+		User:            "alice",
+		CertificateName: "sandcastle-alice",
+		Restricted:      true,
+		Projects:        []string{"sc2-acme", "sc2-acme-default"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(server.updatedFingerprints) != 1 || server.updatedFingerprints[0] != "live" {
+		t.Fatalf("updated = %v, want [live] only", server.updatedFingerprints)
+	}
+}
+
+// When EVERY same-named entry is dead, the grant must fail loudly with the
+// reason — a silent no-op would report success while granting nothing.
+func TestTrustManagerGrantAllDeadEntriesErrors(t *testing.T) {
+	server := &fakeTrustServer{certificates: []api.Certificate{
+		{Fingerprint: "dead1", CertificatePut: api.CertificatePut{Name: "sandcastle-alice", Type: api.CertificateTypeClient, Restricted: true, Projects: []string{}}},
+		{Fingerprint: "dead2", CertificatePut: api.CertificatePut{Name: "sandcastle-alice", Type: api.CertificateTypeClient, Restricted: true, Projects: []string{}}},
+	}}
+	manager := TrustManager{Server: server}
+	err := manager.Grant(context.Background(), usertrust.UserPlan{
+		User:            "alice",
+		CertificateName: "sandcastle-alice",
+		Projects:        []string{"sc2-acme-default"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "no projects") {
+		t.Fatalf("expected an all-dead-entries error, got %v", err)
+	}
+	if len(server.updatedFingerprints) != 0 {
+		t.Fatalf("updated = %v, want none", server.updatedFingerprints)
+	}
+}

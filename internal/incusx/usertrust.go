@@ -52,13 +52,25 @@ func (m TrustManager) Grant(ctx context.Context, plan usertrust.UserPlan) error 
 	if err != nil {
 		return err
 	}
+	granted := 0
 	for _, cert := range certs {
 		if err := validateGrantCertificate(cert, plan.CertificateName); err != nil {
 			return err
 		}
+		// A restricted client entry with ZERO projects is a dead keypair: every
+		// live device holds at least one project (enrollment grants one, and
+		// #113 sweeps entries a teardown emptied). Extending it would re-arm
+		// standing trust nothing legitimate uses (#115) — skip, never grant.
+		if len(cert.Projects) == 0 {
+			continue
+		}
 		if err := extendCertificateProjects(server, cert, plan); err != nil {
 			return err
 		}
+		granted++
+	}
+	if granted == 0 {
+		return fmt.Errorf("every trust entry named %q holds no projects (dead keypairs from torn-down tenants); remove them (`incus config trust remove <fingerprint>`) and re-enroll the user", plan.CertificateName)
 	}
 	return nil
 }
