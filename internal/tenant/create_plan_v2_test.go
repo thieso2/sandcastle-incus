@@ -1,6 +1,7 @@
 package tenant
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -121,6 +122,37 @@ func TestPlanCreateV2FlatDNSZone(t *testing.T) {
 	}
 }
 
+// The plan must describe the /.sc shared-scripts volume set (spec #127) as
+// data: two layers with the correct per-layer writability — platform read-only
+// to machines, local read-write — at the fixed mount paths.
+func TestPlanCreateV2SCVolumes(t *testing.T) {
+	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := map[string]SCVolume{}
+	for _, v := range plan.SCVolumes {
+		byPath[v.Path] = v
+	}
+	platform, ok := byPath[SCPlatformPath]
+	if !ok {
+		t.Fatalf("plan has no /.sc platform layer: %+v", plan.SCVolumes)
+	}
+	if !platform.ReadOnly || platform.Volume != V2SCPlatformVolumeName {
+		t.Fatalf("platform layer must be read-only volume %q: %+v", V2SCPlatformVolumeName, platform)
+	}
+	local, ok := byPath[SCLocalPath]
+	if !ok {
+		t.Fatalf("plan has no /.sc local layer: %+v", plan.SCVolumes)
+	}
+	if local.ReadOnly || local.Volume != V2SCLocalVolumeName {
+		t.Fatalf("local layer must be read-write volume %q: %+v", V2SCLocalVolumeName, local)
+	}
+	if len(plan.SCVolumes) != 2 {
+		t.Fatalf("SCVolumes = %+v, want exactly the two layers", plan.SCVolumes)
+	}
+}
+
 func TestPlanCreateV2GeneratesCA(t *testing.T) {
 	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
 	if err != nil {
@@ -182,11 +214,11 @@ func TestV2DefaultProfileUserDataNoSignerIsMinimal(t *testing.T) {
 	}
 }
 
-// A herdr/tmux server outlives the ssh session that seeded its SSH_AUTH_SOCK,
-// so panes inherit a socket sshd has already deleted. Every machine must ship
-// the forwarded-agent indirection (stable per-user link, refreshed each login)
-// in both the ingress and the minimal branch, with the two load-bearing guards.
-func TestV2DefaultProfileUserDataForwardsSSHAgent(t *testing.T) {
+// Machines carry only stable /.sc shims (ADR-0022): both profile branches bake
+// guarded sourcing stubs at the fixed OS paths — platform first, local second,
+// each `-r`-guarded so a missing payload fails safe — and NO inline script
+// bodies (those live in the platform payload and update centrally).
+func TestV2DefaultProfileUserDataBakesSCShims(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		data string
@@ -200,24 +232,56 @@ func TestV2DefaultProfileUserDataForwardsSSHAgent(t *testing.T) {
 				"path: /etc/zsh/zshrc",
 				"path: /etc/bash.bashrc",
 				"append: true",
-				`ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/ssh_auth_sock"`,
-				`export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"`,
+				SCShimMarker,
+				"[ -r " + SCPlatformPath + "/" + SCPayloadSSHRCPath + " ] && . " + SCPlatformPath + "/" + SCPayloadSSHRCPath,
+				"[ -r " + SCLocalPath + "/" + SCPayloadSSHRCPath + " ] && . " + SCLocalPath + "/" + SCPayloadSSHRCPath,
+				"[ -r " + SCPlatformPath + "/" + SCPayloadShellRCPath + " ] && . " + SCPlatformPath + "/" + SCPayloadShellRCPath,
+				"[ -r " + SCLocalPath + "/" + SCPayloadShellRCPath + " ] && . " + SCLocalPath + "/" + SCPayloadShellRCPath,
 			} {
 				if !strings.Contains(tc.data, want) {
 					t.Fatalf("user-data missing %q:\n%s", want, tc.data)
 				}
 			}
-			// Republish must fire on every session (not only a dead link): the
-			// only -S guard belongs to the sshrc self-link check, never a "link
-			// is dead" gate. Consume must follow the symlink via -h, not -S.
-			if strings.Contains(tc.data, `[ ! -S "$HOME/.ssh/ssh_auth_sock" ]`) {
-				t.Fatalf("republish must not gate on a dead link:\n%s", tc.data)
+			// The shims must source platform BEFORE local (local overrides).
+			platform := strings.Index(tc.data, SCPlatformPath+"/"+SCPayloadSSHRCPath)
+			local := strings.Index(tc.data, SCLocalPath+"/"+SCPayloadSSHRCPath)
+			if !(platform >= 0 && platform < local) {
+				t.Fatalf("sshrc shim must source platform before local:\n%s", tc.data)
 			}
-			if strings.Contains(tc.data, `[ -S "$HOME/.ssh/ssh_auth_sock" ]`) {
-				t.Fatalf("consume must follow the symlink via -h, not -S:\n%s", tc.data)
+			// No inline script bodies: the agent-forwarding logic must NOT be
+			// baked into the machine any more.
+			for _, forbidden := range []string{
+				`ln -sf "$SSH_AUTH_SOCK"`,
+				`export SSH_AUTH_SOCK=`,
+			} {
+				if strings.Contains(tc.data, forbidden) {
+					t.Fatalf("user-data must bake shims, not inline bodies (%q):\n%s", forbidden, tc.data)
+				}
 			}
 			assertCloudConfigYAML(t, tc.data)
 		})
+	}
+}
+
+// The single most important /.sc unit test (spec #127): every /.sc/platform
+// path a baked shim sources must be produced by the platform-payload builder,
+// so a shim can never point at a script the payload doesn't ship.
+func TestSCShimPayloadContract(t *testing.T) {
+	produced := map[string]bool{}
+	files, _ := PlatformPayload()
+	for _, f := range files {
+		produced[SCPlatformPath+"/"+f.Path] = true
+	}
+	sourced := regexp.MustCompile(regexp.QuoteMeta(SCPlatformPath) + `/[^\s\]]+`)
+	shims := SCSSHRCShim + SCShellRCShim
+	matches := sourced.FindAllString(shims, -1)
+	if len(matches) == 0 {
+		t.Fatalf("shims source no platform paths:\n%s", shims)
+	}
+	for _, path := range matches {
+		if !produced[path] {
+			t.Fatalf("shim sources %s but the payload builder does not produce it (payload: %v)", path, files)
+		}
 	}
 }
 
@@ -247,30 +311,34 @@ func TestV2DefaultProfileUserDataDefaultsToZsh(t *testing.T) {
 	}
 }
 
-// The `sc fix` backfill/check scripts must be built from the SAME sshrc body and
-// consume snippet the profile embeds, so a repaired machine is byte-identical to
-// a fresh one — and the two guards must survive into the backfill.
-func TestSSHAgentForwardScriptsShareProfileContent(t *testing.T) {
-	profile := V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "default", "acme", "http://10.0.0.3:9443")
+// The `sc fix` backfill/check scripts must be built from the SAME shims the
+// profile bakes and the SAME payload content the builder ships — one source of
+// truth, so a repaired machine matches a fresh one. The two load-bearing
+// agent-forwarding guards live in the payload and must survive there.
+func TestSSHAgentForwardScriptsShareShimAndPayloadContent(t *testing.T) {
 	backfill := SSHAgentForwardBackfillScript()
 	check := SSHAgentForwardCheckScript()
 
-	for _, want := range []string{
-		`ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/ssh_auth_sock"`, // republish, from sshrc body
-		`export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"`,    // consume, from snippet
-		"/etc/ssh/sshrc",
-		"/etc/zsh/zshrc",
-		"/etc/bash.bashrc",
-	} {
-		if !strings.Contains(profile, want) || !strings.Contains(backfill, want) {
-			t.Fatalf("profile and backfill must share %q", want)
+	// The payload keeps the two load-bearing guards.
+	files, _ := PlatformPayload()
+	payload := ""
+	for _, f := range files {
+		payload += f.Content
+	}
+	if !strings.Contains(payload, `ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/ssh_auth_sock"`) {
+		t.Fatalf("payload lost the republish body:\n%s", payload)
+	}
+	if !strings.Contains(payload, `[ -h "$HOME/.ssh/ssh_auth_sock" ]`) {
+		t.Fatalf("payload lost the -h consume guard:\n%s", payload)
+	}
+
+	// Backfill installs the same stable shims the profile bakes.
+	for _, want := range []string{SCShimMarker, "/etc/ssh/sshrc", "/etc/zsh/zshrc", "/etc/bash.bashrc"} {
+		if !strings.Contains(backfill, want) {
+			t.Fatalf("backfill missing %q:\n%s", want, backfill)
 		}
 	}
-	// The -h consume guard (not -S) must survive into the backfill.
-	if !strings.Contains(backfill, `[ -h "$HOME/.ssh/ssh_auth_sock" ]`) {
-		t.Fatalf("backfill lost the -h consume guard:\n%s", backfill)
-	}
-	// Backfill mutates; check is read-only (no writes to system files).
+	// Check is read-only (no writes to system files).
 	if strings.Contains(check, "cat >") || strings.Contains(check, ">>") || strings.Contains(check, "ln -sf") {
 		t.Fatalf("check script must not mutate:\n%s", check)
 	}

@@ -78,6 +78,10 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	if err := ensureV2ProjectVolumes(server.UseProject(plan.DefaultProject), plan.StoragePool, plan.Tenant, shifted); err != nil {
 		return err
 	}
+	c.log("ensure /.sc platform payload in " + plan.DefaultProject)
+	if _, err := ensureV2PlatformPayload(server.UseProject(plan.DefaultProject), plan.StoragePool); err != nil {
+		return err
+	}
 	c.log("ensure app default profile " + plan.DefaultProject)
 	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted, plan.DefaultProjectShort); err != nil {
 		return err
@@ -354,7 +358,28 @@ func ensureV2ProjectVolumes(server TenantResourceServer, pool string, tenantName
 	if err := ensureV2SharedVolume(server, pool, v2WorkspaceVolumeName, "Shared /workspace for Sandcastle v2 tenant "+tenantName, workspaceConfig); err != nil {
 		return err
 	}
+	if err := ensureV2SCVolumes(server, pool, shifted); err != nil {
+		return err
+	}
 	return ensureV2SharedVolume(server, pool, v2HomeVolumeName, "Shared /home for Sandcastle v2 tenant "+tenantName, homeConfig)
+}
+
+// ensureV2SCVolumes creates the /.sc layer volumes (spec #127) if missing:
+// local is tenant-writable from machines (like /workspace, owned by the
+// UID-2000 login user); platform keeps root-owned 0755 — machines additionally
+// mount it read-only at the device level. Shared by tenant/project creation
+// and the payload-sync legacy onboarding.
+func ensureV2SCVolumes(server TenantResourceServer, pool string, shifted bool) error {
+	scPlatformConfig := map[string]string{}
+	scLocalConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
+	if shifted {
+		scPlatformConfig["security.shifted"] = "true"
+		scLocalConfig["security.shifted"] = "true"
+	}
+	if err := ensureV2SharedVolume(server, pool, tenant.V2SCPlatformVolumeName, "Shared /.sc/platform scripts (Sandcastle v2)", scPlatformConfig); err != nil {
+		return err
+	}
+	return ensureV2SharedVolume(server, pool, tenant.V2SCLocalVolumeName, "Shared /.sc/local scripts (Sandcastle v2)", scLocalConfig)
 }
 
 func ensureV2SharedVolume(server TenantResourceServer, pool string, name string, description string, config map[string]string) error {
@@ -380,6 +405,23 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, s
 	if strings.TrimSpace(plan.DNSAddress) == "" {
 		return fmt.Errorf("refusing to render the default profile of %s with an empty sidecar DNS address", plan.DefaultProject)
 	}
+	desired := api.ProfilePut{
+		Description: "Sandcastle v2 default profile for " + plan.Tenant,
+		Config: api.ConfigMap{
+			"cloud-init.user-data": tenant.V2DefaultProfileUserData(plan.DefaultProfileUser, plan.SSHPublicKey, projectShort, plan.DNSSuffix, fmt.Sprintf("http://%s:%d", plan.DNSAddress, SidecarTLSSignPort)),
+			meta.KeyKind:           "profile",
+			meta.KeyTenant:         plan.Tenant,
+			meta.KeyVersion:        "2",
+		},
+		Devices: v2AppProfileDevices(plan, shifted),
+	}
+	return ensureExactProfile(server, "default", desired)
+}
+
+// v2AppProfileDevices builds the default profile's device map — pure, so the
+// volume attachments (and the /.sc layers' per-device writability) are unit
+// testable without a fake server.
+func v2AppProfileDevices(plan tenant.CreatePlanV2, shifted bool) api.DevicesMap {
 	devices := api.DevicesMap{
 		"root":      {"type": "disk", "pool": plan.StoragePool, "path": "/"},
 		"eth0":      {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},
@@ -393,17 +435,20 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, s
 	if shifted {
 		devices["home"] = map[string]string{"type": "disk", "pool": plan.StoragePool, "source": v2HomeVolumeName, "path": "/home"}
 	}
-	desired := api.ProfilePut{
-		Description: "Sandcastle v2 default profile for " + plan.Tenant,
-		Config: api.ConfigMap{
-			"cloud-init.user-data": tenant.V2DefaultProfileUserData(plan.DefaultProfileUser, plan.SSHPublicKey, projectShort, plan.DNSSuffix, fmt.Sprintf("http://%s:%d", plan.DNSAddress, SidecarTLSSignPort)),
-			meta.KeyKind:           "profile",
-			meta.KeyTenant:         plan.Tenant,
-			meta.KeyVersion:        "2",
-		},
-		Devices: devices,
+	// The /.sc shared-scripts layers (spec #127). readonly on the platform
+	// device is the tenant-facing writability contract: machines (CT and VM)
+	// mount the layer read-only, so a tenant cannot accidentally delete a
+	// script the fleet depends on; central updates go through the volume API.
+	scVolumes := plan.SCVolumes
+	if len(scVolumes) == 0 {
+		// Plans built outside PlanCreateV2 (profile re-renders) carry no
+		// SCVolumes; the built-in set is the same contract.
+		scVolumes = tenant.V2SCVolumes()
 	}
-	return ensureExactProfile(server, "default", desired)
+	for _, v := range scVolumes {
+		devices[v.DeviceName] = v.Device(plan.StoragePool)
+	}
+	return devices
 }
 
 func ensureV2SidecarProfile(server TenantResourceServer, plan tenant.CreatePlanV2) error {

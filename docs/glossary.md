@@ -45,6 +45,20 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
 - **Per-tenant CA** — The certificate authority for private machine TLS
   hostnames, scoped to the tenant. (Leaf issuance for the private HTTPS path is
   future work; the public ingress path needs no CA install.)
+- **`/.sc` volume** — The per-tenant shared-scripts volume (ADR-0022, spec
+  #127): two layers mounted on every machine — `/.sc/platform` (read-only in
+  machines; centrally updated platform scripts) and `/.sc/local`
+  (tenant-writable from any machine, like `/workspace`). Realized as the
+  per-app-project custom volumes `sc-platform`/`sc-local`.
+- **Platform Payload** — The versioned file set on `/.sc/platform`
+  (`tenant.PlatformPayload()`): the platform scripts plus a content-derived
+  `VERSION` marker. Written once per project (tenant/project provisioning,
+  `sc-adm tenant payload-sync`, `sc fix`) — never per machine; rollback is the
+  previous binary's sync.
+- **`/.sc` Shim** — A stable, baked stub at a fixed OS path (`/etc/ssh/sshrc`,
+  appended blocks in `/etc/zsh/zshrc` + `/etc/bash.bashrc`) that sources
+  `/.sc/platform/<x>` then `/.sc/local/<x>`, each `[ -r … ] &&`-guarded so a
+  missing payload fails safe. The shim never changes; the payload does.
 
 ## Infrastructure
 

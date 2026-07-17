@@ -49,11 +49,11 @@ packages:
   - zsh
 `, user, sshKey)
 
-	// SSH agent forwarding survives terminal multiplexers: a herdr/tmux server
-	// outlives the ssh session that seeded its SSH_AUTH_SOCK, so panes inherit a
-	// socket sshd has already deleted. sshAgentForwardWriteFiles republishes each
-	// session's forwarded agent at a stable per-user path and points shells at it.
-	// It ships in both branches so agent forwarding works with or without ingress.
+	// Machines carry only stable /.sc shims (ADR-0022): scShimWriteFiles bakes
+	// thin, guarded sourcing stubs at the fixed OS paths; the actual platform
+	// scripts (agent-forwarding first) live on the shared /.sc volume and are
+	// updated centrally. Ships in both branches so the shims work with or
+	// without ingress.
 
 	// Caddy HTTPS ingress (ADR-0011): only when we know the machine's identity
 	// (jinja) and where to fetch its leaf (the sidecar signer). The setup script
@@ -62,7 +62,7 @@ packages:
 	if jinja && signerURL != "" {
 		script := base64.StdEncoding.EncodeToString([]byte(caddyIngressSetupScript))
 		generalize := base64.StdEncoding.EncodeToString([]byte(machineGeneralizeScript))
-		body += "write_files:\n" + sshAgentForwardWriteFiles + fmt.Sprintf(`  - path: /etc/sandcastle/machine.env
+		body += "write_files:\n" + scShimWriteFiles + fmt.Sprintf(`  - path: /etc/sandcastle/machine.env
     permissions: '0644'
     content: |
       FQDN={{ v1.local_hostname }}.%s.%s
@@ -84,15 +84,13 @@ runcmd:
 		return header + identity + body
 	}
 
-	return header + identity + body + "write_files:\n" + sshAgentForwardWriteFiles + `runcmd:
+	return header + identity + body + "write_files:\n" + scShimWriteFiles + `runcmd:
   - [systemctl, enable, --now, ssh]
 `
 }
 
-// sshAgentForwardWriteFiles is a cloud-init write_files fragment (entries only,
-// under a caller-supplied `write_files:` key) installing the forwarded-agent
-// indirection. Two guards must be exactly this way — the obvious alternatives
-// silently break multiplexer panes:
+// The forwarded-agent indirection. Two guards must be exactly this way — the
+// obvious alternatives silently break multiplexer panes:
 //
 //  1. /etc/ssh/sshrc re-points the stable link on EVERY session (not only when
 //     it is dead): a link left pointing at a session that has since closed is
@@ -103,14 +101,14 @@ runcmd:
 //     follows the link once a new session heals it in place — the whole point of
 //     the indirection. Guarding on -S would pin such a pane to a dead socket.
 //
-// The consume snippet ships in both /etc/zsh/zshrc (zsh is the default login
-// shell) and /etc/bash.bashrc, so a herdr pane picks up the agent whichever
-// shell it runs; both are sourced by their shell's interactive startup.
+// The consume snippet reaches both zsh (the default login shell) and bash via
+// the /.sc shell shim appended to /etc/zsh/zshrc and /etc/bash.bashrc, so a
+// herdr pane picks up the agent whichever shell it runs.
 //
-// sshAgentRepublishScript (the /etc/ssh/sshrc body) and sshAgentConsumeSnippet
-// are the single source of truth: the cloud-init write_files below AND the
-// `sc fix` backfill/check scripts (SSHAgentForward*Script) are both built from
-// them, so a machine repaired after the fact is byte-identical to a fresh one.
+// sshAgentRepublishScript and sshAgentConsumeSnippet are the single source of
+// truth, shipped as the first entries of the /.sc platform payload (ADR-0022):
+// machines bake only the stable shims and source these from /.sc, so a payload
+// update reaches every machine in a tenant centrally.
 const sshAgentRepublishScript = `#!/bin/sh
 # Sandcastle: republish this session's forwarded SSH agent at a stable path
 # so multiplexer panes (herdr/tmux) that outlive the session keep a live
@@ -129,16 +127,14 @@ if [ -h "$HOME/.ssh/ssh_auth_sock" ]; then
 fi
 `
 
-// sshAgentConsumeMarker is the grep sentinel identifying an already-installed
-// consume snippet; the apply/check scripts and the profile share it.
-const sshAgentConsumeMarker = "Sandcastle: follow the forwarded agent"
-
-// sshAgentForwardWriteFiles is a cloud-init write_files fragment (entries only,
-// under a caller-supplied `write_files:` key), built from the shared scripts.
-var sshAgentForwardWriteFiles = "  - path: /etc/ssh/sshrc\n" +
-	"    permissions: '0755'\n    content: |\n" + indentBlock(sshAgentRepublishScript, 6) +
-	"  - path: /etc/zsh/zshrc\n    append: true\n    content: |\n" + indentBlock(sshAgentConsumeSnippet, 6) +
-	"  - path: /etc/bash.bashrc\n    append: true\n    content: |\n" + indentBlock(sshAgentConsumeSnippet, 6)
+// scShimWriteFiles is a cloud-init write_files fragment (entries only, under a
+// caller-supplied `write_files:` key) baking the stable /.sc shims (ADR-0022)
+// at the fixed OS paths. The script bodies live in the platform payload on the
+// shared volume — never inline here — so they update centrally.
+var scShimWriteFiles = "  - path: /etc/ssh/sshrc\n" +
+	"    permissions: '0755'\n    content: |\n" + indentBlock(SCSSHRCShim, 6) +
+	"  - path: /etc/zsh/zshrc\n    append: true\n    content: |\n" + indentBlock(SCShellRCShim, 6) +
+	"  - path: /etc/bash.bashrc\n    append: true\n    content: |\n" + indentBlock(SCShellRCShim, 6)
 
 // indentBlock left-pads every non-empty line of s by n spaces (for embedding a
 // script under a YAML `content: |` block scalar).
@@ -158,22 +154,32 @@ func indentBlock(s string, n int) string {
 }
 
 // SSHAgentForwardBackfillScript is an idempotent /bin/sh script — run as root —
-// that installs the forwarded-agent indirection onto a machine built before it
-// shipped in cloud-init (`sc fix <machine>`). It writes the exact same files the
-// profile does, and reports (never rewrites) a broken hand-rolled ~/.zshrc.
+// that bootstraps a machine into the /.sc model (`sc fix <machine>`, ADR-0022):
+// it installs the exact stable shims cloud-init bakes on fresh machines (it no
+// longer pushes script bodies — those live in the platform payload on /.sc and
+// update centrally), and reports (never rewrites) a broken hand-rolled ~/.zshrc.
 func SSHAgentForwardBackfillScript() string {
+	versionPath := SCPlatformPath + "/" + PlatformPayloadVersionFile
 	return `set -eu
-cat > /etc/ssh/sshrc <<'SANDCASTLE_SSHRC_EOF'
-` + sshAgentRepublishScript + `SANDCASTLE_SSHRC_EOF
-chmod 0755 /etc/ssh/sshrc
-SNIPPET='` + strings.TrimRight(sshAgentConsumeSnippet, "\n") + `'
+if grep -q '` + SCShimMarker + `' /etc/ssh/sshrc 2>/dev/null; then
+  echo "  = /etc/ssh/sshrc is already the /.sc shim"
+else
+  cat > /etc/ssh/sshrc <<'SANDCASTLE_SSHRC_EOF'
+` + SCSSHRCShim + `SANDCASTLE_SSHRC_EOF
+  chmod 0755 /etc/ssh/sshrc
+  echo "  + installed the /etc/ssh/sshrc /.sc shim"
+fi
+SNIPPET='` + strings.TrimRight(SCShellRCShim, "\n") + `'
 for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
-  [ -e "$RC" ] || continue
-  if grep -q '` + sshAgentConsumeMarker + `' "$RC" 2>/dev/null; then
-    echo "  = $RC already has the consume snippet"
+  # A missing rc means the shell isn't installed (legacy machines predate the
+  # zsh-default profile) — creating it would collide with the package's
+  # conffile later, so skip; a re-run after installing the shell adds the shim.
+  [ -e "$RC" ] || { echo "  - $RC absent (shell not installed), skipped"; continue; }
+  if grep -q '` + SCShimMarker + `' "$RC" 2>/dev/null; then
+    echo "  = $RC already has the /.sc shim"
   else
     printf '\n%s\n' "$SNIPPET" >> "$RC"
-    echo "  + appended consume snippet to $RC"
+    echo "  + appended the /.sc shim to $RC"
   fi
 done
 for home in /root /home/*; do
@@ -185,28 +191,47 @@ for home in /root /home/*; do
   fi
   rm -f "$home/.ssh/ssh_auth_sock_known" 2>/dev/null || true
 done
+if [ -r ` + versionPath + ` ]; then
+  echo "  ok  /.sc/platform payload $(cat ` + versionPath + `)"
+else
+  echo "  ! /.sc/platform payload not visible (volume not attached or never synced);"
+  echo "    the shims no-op until it appears"
+fi
 echo "agent-forwarding: installed"
 `
 }
 
 // SSHAgentForwardCheckScript is a read-only /bin/sh script — run as root — that
-// reports whether the forwarded-agent indirection is present, changing nothing.
-// It prints a trailing "agent-forwarding: OK" or "agent-forwarding: NEEDS FIX".
+// reports whether the /.sc shims are installed and the platform payload this
+// binary ships is present and current, changing nothing. It prints a trailing
+// "agent-forwarding: OK" or "agent-forwarding: NEEDS FIX".
 func SSHAgentForwardCheckScript() string {
+	versionPath := SCPlatformPath + "/" + PlatformPayloadVersionFile
+	expected := PlatformPayloadVersion()
 	return `set -u
 need=0
-if [ -f /etc/ssh/sshrc ] && grep -q ssh_auth_sock /etc/ssh/sshrc 2>/dev/null; then
-  echo "  ok  /etc/ssh/sshrc republishes the agent"
+if [ -f /etc/ssh/sshrc ] && grep -q '` + SCShimMarker + `' /etc/ssh/sshrc 2>/dev/null; then
+  echo "  ok  /etc/ssh/sshrc is the /.sc shim"
 else
-  echo "  MISSING  /etc/ssh/sshrc"; need=1
+  echo "  MISSING  /.sc shim at /etc/ssh/sshrc"; need=1
 fi
 for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
-  if grep -q '` + sshAgentConsumeMarker + `' "$RC" 2>/dev/null; then
-    echo "  ok  $RC exports the stable socket"
+  if [ ! -e "$RC" ]; then
+    echo "  --  $RC absent (shell not installed), skipped"
+  elif grep -q '` + SCShimMarker + `' "$RC" 2>/dev/null; then
+    echo "  ok  $RC sources the /.sc shell payload"
   else
-    echo "  MISSING  consume snippet in $RC"; need=1
+    echo "  MISSING  /.sc shim in $RC"; need=1
   fi
 done
+v="$(cat ` + versionPath + ` 2>/dev/null || true)"
+if [ "$v" = "` + expected + `" ]; then
+  echo "  ok  /.sc/platform payload is current ($v)"
+elif [ -n "$v" ]; then
+  echo "  STALE  /.sc/platform payload $v (this binary ships ` + expected + `)"; need=1
+else
+  echo "  MISSING  /.sc/platform payload (volume not attached or never synced)"; need=1
+fi
 for home in /root /home/*; do
   z="$home/.zshrc"
   if [ -f "$z" ] && grep -q 'ssh_auth_sock_known' "$z" 2>/dev/null; then
@@ -320,6 +345,10 @@ type CreatePlanV2 struct {
 	HomeVolume          string     `json:"homeVolume"`
 	WorkspaceVolume     string     `json:"workspaceVolume"`
 	CAVolume            string     `json:"caVolume"`
+	// SCVolumes is the per-tenant /.sc shared-scripts volume set (spec #127):
+	// the platform layer machines mount read-only and the tenant-writable local
+	// layer, as pure-testable plan data.
+	SCVolumes []SCVolume `json:"scVolumes"`
 	SidecarInstance     string     `json:"sidecarInstance"`
 	SidecarImage        string     `json:"sidecarImage"`
 	DefaultProfileUser  string     `json:"defaultProfileUser"`
@@ -452,6 +481,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 		HomeVolume:          HomeVolumeName,
 		WorkspaceVolume:     WorkspaceVolumeName,
 		CAVolume:            CAVolumeName,
+		SCVolumes:           V2SCVolumes(),
 		SidecarInstance:     naming.V2SidecarInstanceName,
 		SidecarImage:        admin.Images.Base,
 		DefaultProfileUser:  unixUser,

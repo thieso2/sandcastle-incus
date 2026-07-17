@@ -56,7 +56,7 @@ cleanup() {
     # a project is only removable once empty: drop non-default profiles, any
     # images it owns (app projects run features.images=true), and the shared
     # home/workspace volumes (detach from the default profile FIRST).
-    for v in home workspace; do
+    for v in home workspace sc-platform sc-local; do
       incus profile device remove default "$v" --project "$p" 2>/dev/null || true
       incus storage volume delete default "$v" --project "$p" 2>/dev/null || true
     done
@@ -152,6 +152,66 @@ check_machine() {
 check_machine web "$DEF" default
 check_machine api "$BACK" backend
 
+# ── /.sc shared-scripts volume (ADR-0022, spec #127) ────────────────────────
+# Platform payload present + consistent across projects; platform RO / local RW
+# in machines; broken local payload fails safe; a central volume write reaches
+# a RUNNING machine with no re-create; payload-sync detects + heals drift.
+scv() { incus exec "$1" --project "$2" -- sh -c "$3"; }
+log "/.sc: payload + per-layer writability"
+V_WEB="$(scv web "$DEF" 'cat /.sc/platform/VERSION' 2>/dev/null || true)"
+V_API="$(scv api "$BACK" 'cat /.sc/platform/VERSION' 2>/dev/null || true)"
+if [ -n "$V_WEB" ] && [ "$V_WEB" = "$V_API" ]; then
+  pass "platform payload present + consistent across projects ($V_WEB)"
+else fail "platform payload (web='$V_WEB' api='$V_API')"; fi
+if scv web "$DEF" 'touch /.sc/platform/e2e-probe' 2>/dev/null; then
+  fail "/.sc/platform is writable inside a machine"
+else pass "/.sc/platform is read-only inside machines"; fi
+if scv api "$BACK" 'echo sc-local-marker > /.sc/local/e2e-marker && grep -q sc-local-marker /.sc/local/e2e-marker' 2>/dev/null; then
+  pass "/.sc/local is writable from a machine"
+else fail "/.sc/local write"; fi
+# shims present on a fresh machine (baked by cloud-init)
+if scv web "$DEF" 'grep -q "Sandcastle /.sc shim" /etc/ssh/sshrc && grep -q "Sandcastle /.sc shim" /etc/zsh/zshrc && grep -q "Sandcastle /.sc shim" /etc/bash.bashrc' 2>/dev/null; then
+  pass "stable /.sc shims baked (sshrc + zshrc + bash.bashrc)"
+else fail "/.sc shims missing on a fresh machine"; fi
+
+log "/.sc: broken local payload fails safe"
+scv api "$BACK" 'mkdir -p /.sc/local/shell && printf "this is not a shell script\n" > /.sc/local/shell/rc.sh' 2>/dev/null || true
+out="$(scv api "$BACK" 'su - dev -c "zsh -i -c \"echo shell-ok\"" 2>/dev/null' 2>/dev/null || true)"
+if printf '%s' "$out" | grep -q shell-ok; then
+  pass "interactive shell survives a broken /.sc/local script"
+else fail "broken /.sc/local script broke the shell (out='$out')"; fi
+scv api "$BACK" 'rm -f /.sc/local/shell/rc.sh' 2>/dev/null || true
+
+log "/.sc: central update reaches a RUNNING machine; payload-sync heals"
+SPOOL="$(incus profile device get default sc-platform pool --project "$DEF" 2>/dev/null || echo default)"
+if incus config device add web e2e-scrw disk pool="$SPOOL" source=sc-platform path=/mnt/e2e-scrw --project "$DEF" >/dev/null 2>&1 &&
+   scv web "$DEF" 'echo tampered > /mnt/e2e-scrw/VERSION'; then
+  V_NOW="$(scv web "$DEF" 'cat /.sc/platform/VERSION' 2>/dev/null || true)"
+  [ "$V_NOW" = "tampered" ] && pass "central volume write visible on the running machine (no re-create)" \
+    || fail "running machine did not observe the central write (got '$V_NOW')"
+  if "$SC_ADM" tenant payload-sync "$TENANT" --check 2>/dev/null | grep -q STALE; then
+    pass "payload-sync --check detects drift"
+  else fail "payload-sync --check missed the drift"; fi
+  "$SC_ADM" tenant payload-sync "$TENANT" >/dev/null 2>&1 || true
+  V_RESTORED="$(scv web "$DEF" 'cat /.sc/platform/VERSION' 2>/dev/null || true)"
+  [ "$V_RESTORED" = "$V_WEB" ] && pass "payload-sync restored the payload centrally ($V_RESTORED)" \
+    || fail "payload-sync did not restore (got '$V_RESTORED', want '$V_WEB')"
+  incus config device remove web e2e-scrw --project "$DEF" >/dev/null 2>&1 || true
+else
+  fail "could not attach sc-platform RW for the tamper test"
+fi
+
+log "/.sc: fleet shim bootstrap is idempotent"
+FLEET="$(dirname "$0")/fix-agent-forwarding.sh"
+# capture-then-grep: `script | grep -q` + pipefail turns grep's early exit
+# (SIGPIPE into the still-writing script) into a spurious pipeline failure.
+FLEET_OK=0
+"$FLEET" --project "$DEF" web >/dev/null 2>&1 && FLEET_OK=1
+FLEET_OUT="$("$FLEET" --project "$DEF" web 2>/dev/null || true)"
+if [ "$FLEET_OK" = 1 ] && printf '%s' "$FLEET_OUT" | grep -q 'already has the /.sc shim'; then
+  pass "fix-agent-forwarding.sh runs + re-run reports already-present"
+else fail "fleet shim bootstrap (first_ok=$FLEET_OK out='$(printf '%s' "$FLEET_OUT" | tail -3)')"; fi
+
 # machine lifecycle through the USER CLI (`sc create` / `sc delete`, v2 path):
 # project-scoped references must resolve, a bad project must fail fast with the
 # tenant's project list (not an Incus permission error for a project that does
@@ -162,6 +222,16 @@ if "$SC" create backend:dev1 --image "$IMAGE" --detach >/dev/null 2>&1 &&
    incus info dev1 --project "$BACK" >/dev/null 2>&1; then
   pass "sc create backend:dev1"
 else fail "sc create backend:dev1"; fi
+# /.sc/local written earlier on api must be visible on this second machine of
+# the same project (shared volume; spec #127 story 3).
+mk=""
+for i in $(seq 1 30); do
+  mk="$(incus exec dev1 --project "$BACK" -- cat /.sc/local/e2e-marker 2>/dev/null || true)"
+  [ -n "$mk" ] && break
+  sleep 2
+done
+[ "$mk" = "sc-local-marker" ] && pass "/.sc/local marker visible on a second machine" \
+  || fail "/.sc/local marker not visible on dev1 (got '$mk')"
 if out="$("$SC" create nosuch:dev1 2>&1)"; then fail "sc create nosuch:dev1 unexpectedly succeeded"
 elif printf '%s' "$out" | grep -q 'not found in tenant'; then pass "unknown project fails with the project list"
 else fail "unknown-project error unclear: $out"; fi

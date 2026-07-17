@@ -76,8 +76,10 @@ func PlanDeleteV2(ctx context.Context, admin config.Admin, store IncusTenantStor
 			// v2 shared volumes are named plain "home"/"workspace" (per-app-
 			// project), NOT the v1 "sc-home"/"sc-workspace" — the v1 names
 			// would 404 (silently ignored) and the project delete then fails
-			// with "Only empty projects can be removed".
-			DurableVolumes: []string{V2HomeVolumeName, V2WorkspaceVolumeName},
+			// with "Only empty projects can be removed". The /.sc layers are
+			// per-app-project custom volumes too and block the project delete
+			// the same way.
+			DurableVolumes: []string{V2HomeVolumeName, V2WorkspaceVolumeName, V2SCPlatformVolumeName, V2SCLocalVolumeName},
 		}, true, nil
 	}
 	return DeletePlanV2{}, false, nil

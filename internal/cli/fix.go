@@ -19,16 +19,35 @@ type machineFixup struct {
 	summary string
 	apply   func() string
 	check   func() string
+	// requiresPayload: this fixup's scripts consume the shared /.sc platform
+	// payload, so `sc fix` converges it (via the Incus API, once per project)
+	// before the per-machine script runs.
+	requiresPayload bool
+}
+
+func anyFixupRequiresPayload(fixups []machineFixup) bool {
+	for _, f := range fixups {
+		if f.requiresPayload {
+			return true
+		}
+	}
+	return false
 }
 
 // machineFixups is the registry `sc fix` iterates. Add an entry when a change
 // ships in cloud-init that older machines also need backfilled.
+//
+// requiresPayload marks fixups whose scripts consume the /.sc platform payload
+// (ADR-0022): before running them, `sc fix` converges the project's shared
+// sc-platform volume via the tenant's own Incus API — once per project, so the
+// per-machine script only has to install the stable shims.
 var machineFixups = []machineFixup{
 	{
-		name:    "agent-forwarding",
-		summary: "forwarded SSH agent survives herdr/tmux panes (/etc/ssh/sshrc + shell rc)",
-		apply:   tenant.SSHAgentForwardBackfillScript,
-		check:   tenant.SSHAgentForwardCheckScript,
+		name:            "agent-forwarding",
+		summary:         "forwarded SSH agent survives herdr/tmux panes (stable /.sc shims + shared payload)",
+		apply:           tenant.SSHAgentForwardBackfillScript,
+		check:           tenant.SSHAgentForwardCheckScript,
+		requiresPayload: true,
 	},
 }
 
@@ -106,6 +125,21 @@ func runFixV2(ctx context.Context, config commandConfig, summary tenant.Summary,
 	fmt.Fprintf(config.stdout, "%s %s (%s@%s)\n", verb, dialed.machine, dialed.loginUser, dialed.privateIP)
 
 	var failed []string
+	// Central half first (ADR-0022): the payload lives on the project's shared
+	// /.sc volume, so it is converged once over the Incus API — the per-machine
+	// scripts below only install the stable shims that source it.
+	if anyFixupRequiresPayload(fixups) {
+		status, err := config.tenantCreator.EnsureProjectPlatformPayload(ctx, summary.V2IncusProjectName(dialed.project), checkOnly)
+		if err != nil {
+			// --check stays report-only: surface the problem, keep checking.
+			fmt.Fprintf(config.stderr, "/.sc payload: %v\n", err)
+			if !checkOnly {
+				failed = append(failed, "sc-payload")
+			}
+		} else {
+			fmt.Fprintf(config.stdout, "/.sc payload: %s\n", formatSCPayloadStatus(status))
+		}
+	}
 	for _, f := range fixups {
 		script := f.apply()
 		if checkOnly {

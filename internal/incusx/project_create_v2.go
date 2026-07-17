@@ -80,6 +80,7 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string
 		SSHPublicKey:       cfg[keyV2SSHKey],
 		DNSSuffix:          cfg[keyV2Suffix],
 		DNSAddress:         dnsAddress,
+		SCVolumes:          tenant.V2SCVolumes(),
 	}
 	if profilePlan.DefaultProfileUser == "" {
 		profilePlan.DefaultProfileUser = tenant.DefaultV2UnixUser
@@ -89,6 +90,10 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string
 	// project's profile pointed at volumes that were never created).
 	c.log("ensure shared /workspace + /home volumes in " + incusProject)
 	if err := ensureV2ProjectVolumes(server.UseProject(incusProject), profilePlan.StoragePool, tenantName, server.SupportsIdmappedMounts()); err != nil {
+		return CreateProjectV2Result{}, err
+	}
+	c.log("ensure /.sc platform payload in " + incusProject)
+	if _, err := ensureV2PlatformPayload(server.UseProject(incusProject), profilePlan.StoragePool); err != nil {
 		return CreateProjectV2Result{}, err
 	}
 	c.log("ensure app default profile " + incusProject)
