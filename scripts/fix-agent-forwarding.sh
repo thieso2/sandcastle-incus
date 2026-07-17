@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
-# Backfill the forwarded-SSH-agent indirection onto machines that were built
-# before it shipped in the v2 default-profile cloud-init (see
-# internal/tenant/create_plan_v2.go, sshAgentForwardWriteFiles).
+# Bootstrap machines into the /.sc shared-scripts model (ADR-0022) over
+# `incus exec` — the admin recovery floor that works even when SSH/shells on a
+# machine are broken.
 #
-# cloud-init only runs at first boot, so already-running machines never get the
-# new write_files. This pushes the same three system files in over `incus exec`
-# (root, no SSH/agent needed), idempotently:
-#   - /etc/ssh/sshrc         republish each session's forwarded agent at the
-#                            stable path ~/.ssh/ssh_auth_sock (sole writer)
-#   - /etc/zsh/zshrc  (append)  export SSH_AUTH_SOCK from that link (-h guard)
+# Machines built before /.sc shipped carry the old inline agent-forwarding
+# scripts (or nothing). This installs the STABLE SHIMS only — the same ones the
+# v2 default-profile cloud-init bakes on fresh machines:
+#   - /etc/ssh/sshrc            sources /.sc/platform/ssh/sshrc then /.sc/local/ssh/sshrc
+#   - /etc/zsh/zshrc  (append)  sources /.sc/platform/shell/rc.sh then /.sc/local/shell/rc.sh
 #   - /etc/bash.bashrc (append) same, for bash panes
-# The fix is durable: it takes effect on the next `ssh -A` login into the
-# machine (which is when sshd runs sshrc and refreshes the link).
+# Each line is `[ -r … ] &&`-guarded: a missing payload or unmounted /.sc is a
+# clean no-op, never a lockout. Script BODIES are no longer pushed per machine —
+# they live in the shared /.sc platform payload, converged centrally with
+#   sc-adm tenant payload-sync <tenant>      (admin)  or
+#   sc fix <machine>                          (tenant)
+# Run one of those once per tenant; after this bootstrap, later script changes
+# reach every machine with no further per-machine touch.
+#
+# NOTE: machines whose default profile predates /.sc also need the volume
+# devices — an idempotent re-provision (tenant re-login, or sc-adm project
+# create path) re-renders the profile; a container picks the new mounts up
+# live, a VM on its next restart.
 #
 # It also DETECTS — and does not silently rewrite — a broken hand-rolled
 # ~/.zshrc block that republishes through the *consumed* path
-# (ssh_auth_sock_known), which self-links and breaks the agent; those are
-# reported for manual review.
+# (ssh_auth_sock_known), which self-links and breaks the agent.
 #
 # Usage:
 #   scripts/fix-agent-forwarding.sh --remote big: --project sc2-thieso2-scraper [instance ...]
@@ -33,7 +41,7 @@ DRY_RUN=0
 SIDECAR="sidecar" # naming.V2SidecarInstanceName
 INSTANCES=()
 
-usage() { sed -n '2,30p' "$0"; exit "${1:-0}"; }
+usage() { sed -n '2,37p' "$0"; exit "${1:-0}"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -65,37 +73,34 @@ fi
 
 [ "${#INSTANCES[@]}" -gt 0 ] || { echo "no target instances in project $PROJECT" >&2; exit 1; }
 
-# The fixup runs as root inside each machine. It is idempotent and never
-# rewrites a user's personal ~/.zshrc — it only reports a broken one.
+# The bootstrap runs as root inside each machine. Idempotent (marker-guarded
+# appends); it installs the stable shims only — mirror of
+# tenant.SCSSHRCShim / tenant.SCShellRCShim (internal/tenant/platform_payload.go).
 read -r -d '' REMOTE_FIXUP <<'FIX' || true
 set -eu
 
 cat > /etc/ssh/sshrc <<'EOF'
 #!/bin/sh
-# Sandcastle: republish this session's forwarded SSH agent at a stable path so
-# multiplexer panes (herdr/tmux) that outlive the session keep a live agent.
-# Re-point on every session so a new login heals a dangling link.
-if [ -n "$SSH_AUTH_SOCK" ] && [ "$SSH_AUTH_SOCK" != "$HOME/.ssh/ssh_auth_sock" ]; then
-  mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
-  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/ssh_auth_sock"
-fi
+# Sandcastle /.sc shim (stable) — the logic lives on the /.sc volume (ADR-0022).
+[ -r /.sc/platform/ssh/sshrc ] && . /.sc/platform/ssh/sshrc
+[ -r /.sc/local/ssh/sshrc ] && . /.sc/local/ssh/sshrc
+true
 EOF
 chmod 0755 /etc/ssh/sshrc
+echo "  + installed the /etc/ssh/sshrc /.sc shim"
 
-SNIPPET='# Sandcastle: follow the forwarded agent republished by /etc/ssh/sshrc.
-# Guard on -h (symlink present), NOT -S (live socket): a pane opened while the
-# link dangles must still point AT the link so the next session heals it.
-if [ -h "$HOME/.ssh/ssh_auth_sock" ]; then
-  export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"
-fi'
+SNIPPET='# Sandcastle /.sc shim (stable) — shell setup lives on the /.sc volume (ADR-0022).
+[ -r /.sc/platform/shell/rc.sh ] && . /.sc/platform/shell/rc.sh
+[ -r /.sc/local/shell/rc.sh ] && . /.sc/local/shell/rc.sh
+true'
 
 for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
-  [ -e "$RC" ] || continue
-  if grep -q 'Sandcastle: follow the forwarded agent' "$RC" 2>/dev/null; then
-    echo "  = $RC already has consume snippet"
+  [ -e "$RC" ] || touch "$RC"
+  if grep -q 'Sandcastle /.sc shim' "$RC" 2>/dev/null; then
+    echo "  = $RC already has the /.sc shim"
   else
     printf '\n%s\n' "$SNIPPET" >> "$RC"
-    echo "  + appended consume snippet to $RC"
+    echo "  + appended the /.sc shim to $RC"
   fi
 done
 
@@ -104,8 +109,7 @@ done
 for home in /root /home/*; do
   [ -d "$home" ] || continue
   z="$home/.zshrc"
-  [ -f "$z" ] || continue
-  if grep -q 'ssh_auth_sock_known' "$z" 2>/dev/null; then
+  if [ -f "$z" ] && grep -q 'ssh_auth_sock_known' "$z" 2>/dev/null; then
     echo "  ! WARNING: $z has a broken hand-rolled agent block (ssh_auth_sock_known);"
     echo "    replace it with the read-only consume snippet by hand (see the script header)."
   fi
@@ -113,10 +117,17 @@ for home in /root /home/*; do
   rm -f "$home/.ssh/ssh_auth_sock_known" 2>/dev/null || true
 done
 
+if [ -r /.sc/platform/VERSION ]; then
+  echo "  ok  /.sc/platform payload $(cat /.sc/platform/VERSION)"
+else
+  echo "  ! /.sc/platform payload not visible — run: sc-adm tenant payload-sync <tenant>"
+  echo "    (and re-provision the profile if this machine predates the /.sc volumes)"
+fi
+
 echo "  done"
 FIX
 
-echo "Backfilling agent forwarding on ${#INSTANCES[@]} instance(s) in project $PROJECT (remote='${REMOTE:-default}')"
+echo "Bootstrapping /.sc shims on ${#INSTANCES[@]} instance(s) in project $PROJECT (remote='${REMOTE:-default}')"
 rc=0
 for inst in "${INSTANCES[@]}"; do
   target="$(incus_target "$inst")"

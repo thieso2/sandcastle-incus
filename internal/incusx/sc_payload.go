@@ -97,6 +97,47 @@ func (c TenantCreator) SyncTenantPlatformPayload(_ context.Context, installPrefi
 	return statuses, nil
 }
 
+// EnsureProjectPlatformPayload converges ONE app project's sc-platform volume
+// onto this binary's payload — the central half of `sc fix` (#132). The
+// tenant's own restricted client certificate may perform it: the volume lives
+// inside their project, and platform read-only-ness is a machine-mount
+// property, not an API one. The storage pool is read from the project's
+// default profile (its sc-platform disk device), so the tenant needs no admin
+// configuration. With checkOnly the volume is only read.
+func (c TenantCreator) EnsureProjectPlatformPayload(_ context.Context, incusProject string, checkOnly bool) (SCPayloadProjectStatus, error) {
+	server, err := c.resolveV2Server()
+	if err != nil {
+		return SCPayloadProjectStatus{}, err
+	}
+	resource := server.UseProject(incusProject)
+	profile, _, err := resource.GetProfile("default")
+	if err != nil {
+		return SCPayloadProjectStatus{}, fmt.Errorf("get default profile of %s: %w", incusProject, err)
+	}
+	pool := ""
+	for _, v := range tenant.V2SCVolumes() {
+		if device, ok := profile.Devices[v.DeviceName]; ok && v.Volume == tenant.V2SCPlatformVolumeName {
+			pool = device["pool"]
+		}
+	}
+	if pool == "" {
+		return SCPayloadProjectStatus{}, fmt.Errorf("project %s has no /.sc volumes yet — re-run `sc login` to provision them (or have the admin run `sc-adm tenant payload-sync`)", incusProject)
+	}
+	status := SCPayloadProjectStatus{
+		IncusProject: incusProject,
+		Before:       readSCPlatformVersion(resource, pool),
+		Target:       tenant.PlatformPayloadVersion(),
+	}
+	if !checkOnly && status.Before != status.Target {
+		changed, err := ensureV2PlatformPayload(resource, pool)
+		if err != nil {
+			return status, fmt.Errorf("sync /.sc payload in %s: %w", incusProject, err)
+		}
+		status.Changed = changed
+	}
+	return status, nil
+}
+
 // ensureV2PlatformPayload converges one app project's sc-platform volume onto
 // the platform payload built into this binary (ADR-0022). This is the central
 // update path: one write per project, never per machine — every machine mounts

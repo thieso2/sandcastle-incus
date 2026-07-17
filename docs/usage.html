@@ -364,6 +364,13 @@ tubu.default.acme,tubu.acme ssh-ed25519 AAAA... <span class="comment"># sandcast
   </div>
 
   <div class="step">
+    <h3>Sync the /.sc platform payload</h3>
+    <p>Converges every app project of a tenant onto the <code>/.sc/platform</code> scripts payload built into this binary (ADR-0022) — one shared-volume write per project, never per machine. Every running machine observes the new payload through its <code>/.sc</code> mount; the baked shims pick it up on next use, no re-create needed. <code>--check</code> reports each project's payload version against the binary's (drift detection); rolling back = running <code>payload-sync</code> from the previous binary.</p>
+    <pre><code><span class="cmd">sandcastle-admin tenant payload-sync</span> <span class="arg">acme</span>
+<span class="cmd">sandcastle-admin tenant payload-sync</span> <span class="arg">acme</span> <span class="flag">--check</span></code></pre>
+  </div>
+
+  <div class="step">
     <h3>Purge a tenant (destroy everything)</h3>
     <p>Removes every app project (machines, images, shared home/workspace volumes, profiles), the infra project (sidecar), and the tenant bridge — scoped to the installation prefix (<code>SANDCASTLE_INCUS_PROJECT_PREFIX</code>), so a same-named tenant of another install on the same daemon is untouched. The sidecar's tailnet device is the tenant's own (BYO tailnet) — remove it in the Tailscale admin console, or use ephemeral keys.</p>
     <pre><code><span class="cmd">sandcastle-admin tenant delete</span> <span class="arg">acme</span> <span class="flag">--yes</span> <span class="flag">--purge</span></code></pre>
@@ -568,9 +575,9 @@ Bootstrap:
     <p><code>fix</code> applies idempotent maintenance fixups to a running machine over SSH (as the login user, via <code>sudo</code>). Cloud-init only runs at a machine's first boot, so a machine built before a fixup shipped never receives it; <code>fix</code> backfills the change in place. It resolves the same <code>[[remote:]project:]machine</code> reference as <code>connect</code> (creating/starting the machine if needed). <code>--check</code> reports status and changes nothing; <code>--only &lt;name&gt;</code> limits it to the named fixup(s).</p>
     <p>Registered fixups:</p>
     <ul>
-      <li><code>agent-forwarding</code> — installs the forwarded-SSH-agent indirection (<code>/etc/ssh/sshrc</code> republishes each session's agent at <code>~/.ssh/ssh_auth_sock</code>; <code>/etc/zsh/zshrc</code> and <code>/etc/bash.bashrc</code> export it) so <code>ssh -A</code> keeps working inside a <code>herdr</code>/<code>tmux</code> pane whose server outlives the ssh session. New machines get this from cloud-init; <code>fix</code> is the backfill for older ones. It also reports (never rewrites) a broken hand-rolled <code>~/.zshrc</code> that republishes through the consumed path.</li>
+      <li><code>agent-forwarding</code> — bootstraps the machine into the <code>/.sc</code> shared-scripts model (ADR-0022). It installs the <em>stable shims</em> cloud-init bakes on fresh machines (<code>/etc/ssh/sshrc</code> plus appended blocks in <code>/etc/zsh/zshrc</code> and <code>/etc/bash.bashrc</code>, each sourcing <code>/.sc/platform/…</code> then <code>/.sc/local/…</code>, <code>[ -r … ]</code>-guarded) and converges the project's shared <code>/.sc/platform</code> payload — which carries the forwarded-SSH-agent republish/consume logic — over the Incus API, once per project. Script bodies are no longer pushed per machine; a later platform-script change reaches every machine centrally. It also reports (never rewrites) a broken hand-rolled <code>~/.zshrc</code> that republishes through the consumed path.</li>
     </ul>
-    <div class="note"><strong>Fleet backfill.</strong> To apply a fixup across every machine in a project at once (admin, over <code>incus exec</code>, no SSH/agent needed), use <code>scripts/fix-agent-forwarding.sh --remote &lt;r&gt;: --project &lt;p&gt;</code>.</div>
+    <div class="note"><strong>Fleet backfill.</strong> To bootstrap the shims across every machine in a project at once (admin, over <code>incus exec</code>, no SSH/agent needed), use <code>scripts/fix-agent-forwarding.sh --remote &lt;r&gt;: --project &lt;p&gt;</code>; converge the shared payload centrally with <code>sandcastle-admin tenant payload-sync &lt;tenant&gt;</code>.</div>
   </div>
 
   <div class="step">

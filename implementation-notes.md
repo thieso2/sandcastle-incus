@@ -2681,3 +2681,51 @@ dedicated `sc fix` verb.
   agent block — rewriting a personal dotfile blind is worse than a loud warning.
 - Fixup registry is a slice of `{name, summary, apply, check}` so adding the next
   backfill is one entry; `--only` and the help text derive from it.
+
+## 2026-07-17 — `/.sc` shared-scripts volume (spec #127, tickets #128–#132)
+
+**What shipped:** the per-tenant `/.sc` two-layer shared-scripts volume
+(ADR-0022): per-app-project custom volumes `sc-platform` (→ `/.sc/platform`,
+machine-RO) + `sc-local` (→ `/.sc/local`, tenant-RW), stable guarded shims in
+cloud-init, a pure versioned payload builder (`tenant.PlatformPayload`),
+payload population at tenant/project provisioning, `sc-adm tenant
+payload-sync` for central updates, and `sc fix` retargeted to
+shim-bootstrap + API-side payload converge.
+
+**Decisions not in the spec (the spec left them open or said "implementation
+choice"):**
+- **Two volumes, not one volume with an ownership-enforced subtree.** RO/RW is
+  enforced with `readonly=true` on the platform disk device — works
+  identically for CT (RO bind) and VM (RO virtiofs), needs no idmap tricks,
+  and mirrors how storage shares already do RO. One-volume/subtree would have
+  hinged on `security.shifted` ownership semantics differing across CT/VM.
+- **Per-project volumes realize the per-tenant contract** (exactly the
+  home/workspace machinery ticket #129 pointed at). Multi-project tenants stay
+  converged on the *platform* layer because every central write loops all app
+  projects of the tenant; the *local* layer is per-project for now — accepted,
+  single-project tenants are the primary target (spec's own scope note).
+- **"Sidecar owns the payload" is realized as "the admin binary owns it".**
+  The sidecar has (by design, ADR-0017) no Incus API credentials, and app-project
+  volumes are only reachable via the API — so the canonical payload lives in
+  the binary (`tenant.PlatformPayload`) and the sync runs wherever
+  sandcastle-admin runs (tenant create, project create, `payload-sync`,
+  `sc fix`). Same binary ships on the sidecar, so a future sidecar-resident
+  sync is a wiring change, not a redesign.
+- **Content-derived version (`sc-payload-<sha256/16>`)** instead of a manual
+  counter: two binaries with identical scripts agree, any change (or an older
+  binary = rollback) yields its own version, and "stable for a given payload"
+  holds by construction. VERSION is written **last** so a partial write never
+  advertises the new version.
+- **The tenant's own restricted cert may write the platform volume** (that is
+  how `sc fix` converges the payload without admin help). Platform "read-only
+  to the tenant" is a *machine-mount* guarantee (accident prevention — the
+  spec's user story 7), not an API ACL; the tenant already has root on their
+  machines, so this adds no authority (trust analysis in ADR-0022/spec).
+- **Legacy machines need one re-provision for the mounts**: `sc fix` installs
+  shims + payload but cannot invent the profile's volume devices; the
+  idempotent re-provision at login (or `sc-adm project create` path) re-renders
+  the profile. Containers pick the new disks up live; VMs on next restart.
+  Documented in Phase 6 of `docs/e2e-sc2.md`.
+- Old inline consume snippets on legacy machines are left in place beside the
+  new shims (identical logic, harmless duplication) — deleting user-visible rc
+  content risked more than it bought.

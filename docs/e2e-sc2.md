@@ -843,28 +843,60 @@ incus profile show big:default --project sc2-$TENANT-default
 **PASS (✅ validated):** `cloud-init.user-data` contains the login user with
 `shell: /bin/zsh` and `ssh_authorized_keys: [ <your key> ]`, installs
 `openssh-server` and `zsh`, and `runcmd: [systemctl, enable, --now, ssh]`;
-devices include the shared **`home`** (→ `/home`) and **`workspace`**
-(→ `/workspace`) volumes.
+devices include the shared **`home`** (→ `/home`), **`workspace`**
+(→ `/workspace`), **`sc-platform`** (→ `/.sc/platform`, `readonly: "true"`) and
+**`sc-local`** (→ `/.sc/local`) volumes.
 
-> **Forwarded SSH agent survives multiplexers.** The profile also writes
-> `/etc/ssh/sshrc` (republishes each session's forwarded agent at the stable
-> path `~/.ssh/ssh_auth_sock`) and appends a consume snippet to both
-> `/etc/zsh/zshrc` and `/etc/bash.bashrc` (`export SSH_AUTH_SOCK` when that
-> link exists). This keeps `ssh -A` working inside a `herdr`/`tmux` pane whose
-> server outlives the ssh session that seeded `SSH_AUTH_SOCK`. Verify on a
-> machine with `herdr pane split` → `ssh-add -l` → `herdr pane close`. Two
-> guards are load-bearing: sshrc re-points on **every** session (heals a link
-> left dangling by a closed one), and the shell consumes via `-h` (symlink
+> **`/.sc` shared-scripts volume (ADR-0022, spec #127).** Machines carry only
+> *stable shims*: the profile writes `/etc/ssh/sshrc` and appends a block to
+> `/etc/zsh/zshrc` + `/etc/bash.bashrc`, each sourcing
+> `/.sc/platform/<x>` then `/.sc/local/<x>` behind `[ -r … ] &&` guards (a
+> missing payload fails safe — never a lockout). The script *bodies* — the
+> forwarded-agent republish (`ssh/sshrc`) and consume (`shell/rc.sh`) logic —
+> live in the **platform payload** on the shared `sc-platform` volume, written
+> at tenant/project provisioning and updatable centrally with
+> `sc-adm tenant payload-sync <tenant>` (once per project, never per machine;
+> running machines pick it up on next shell/SSH use). `/.sc/platform/VERSION`
+> carries the content-derived payload version. **PASS:**
+> - `incus exec <m> -- cat /.sc/platform/VERSION` prints `sc-payload-…` and
+>   matches on every machine of the tenant;
+> - `/.sc/platform` is **read-only in machines**: `incus exec <m> -- sh -c
+>   'touch /.sc/platform/x'` fails (`Read-only file system`); as the login user
+>   a write to `/.sc/local/` **succeeds** and the file is visible from every
+>   other machine in the project;
+> - a broken `/.sc/local/shell/rc.sh` (e.g. `exit`-free garbage) leaves login
+>   shells and SSH working (guarded shims fail safe);
+> - **central update reaches a running machine without re-create:** append a
+>   marker line to `/.sc/platform/shell/rc.sh` via
+>   `incus storage volume` (or run `payload-sync` from a binary with a changed
+>   payload) and observe the change on an already-running machine's next
+>   login; `sc-adm tenant payload-sync <t> --check` then reports the drifted
+>   version, and a re-run restores (rollback = older binary's sync).
+>
+> **Forwarded SSH agent survives multiplexers** — served from the payload:
+> `/.sc/platform/ssh/sshrc` republishes each session's forwarded agent at the
+> stable path `~/.ssh/ssh_auth_sock`; `/.sc/platform/shell/rc.sh` exports it.
+> This keeps `ssh -A` working inside a `herdr`/`tmux` pane whose server
+> outlives the ssh session that seeded `SSH_AUTH_SOCK`. Verify on a machine
+> with `herdr pane split` → `ssh-add -l` → `herdr pane close`. Two guards are
+> load-bearing: sshrc re-points on **every** session (heals a link left
+> dangling by a closed one), and the shell consumes via `-h` (symlink
 > present), **not** `-S` (live socket), so a pane opened while the link
 > dangles still follows it and heals in place.
 >
-> **Backfilling older machines.** cloud-init runs only at first boot, so a
-> machine built before this shipped never gets the files. `sc fix <machine>`
-> installs them in place over SSH (idempotent; `--check` reports without
-> changing anything); `scripts/fix-agent-forwarding.sh --remote <r>: --project
-> <p>` does the whole project at once over `incus exec`. **PASS:** on an older
-> machine, `sc fix <m> --check` prints `agent-forwarding: NEEDS FIX`, then
-> `sc fix <m>` followed by `sc fix <m> --check` prints `agent-forwarding: OK`.
+> **Onboarding older machines.** cloud-init runs only at first boot, so a
+> machine built before /.sc shipped still has the old inline scripts (or
+> nothing). `sc fix <machine>` bootstraps it: converges the project's shared
+> payload over the Incus API and installs the stable shims over SSH
+> (idempotent; `--check` reports shim + payload-version status without
+> changing anything); `scripts/fix-agent-forwarding.sh --remote <r>:
+> --project <p>` installs the shims across a whole project over `incus exec`.
+> **PASS:** on an older machine, `sc fix <m> --check` prints
+> `agent-forwarding: NEEDS FIX`, then `sc fix <m>` followed by
+> `sc fix <m> --check` prints `agent-forwarding: OK` (payload line shows
+> `current`). Machines whose profile predates the /.sc devices additionally
+> need the idempotent re-provision (re-login) to gain the volume mounts —
+> containers pick them up live, VMs on next restart.
 
 > **Login user + key provenance.** `sc login` prepares the SSH key itself —
 > it uses `~/.ssh/id_ed25519.pub` when present, otherwise generates
@@ -928,8 +960,10 @@ incus exec big:ct1 $Pd -- cat /workspace/marker                                 
 **PASS (✅ validated on Incus 7.2):** the VM reads `from-ct` written by the CT, and the
 CT sees the VM's append — `/workspace` is one shared volume per project.
 ✅ **Built:** `CreateTenantV2` (and `CreateProjectV2` for later app projects) creates
-two per-project custom **filesystem** volumes — `workspace` (→ `/workspace`) and
-`home` (→ `/home`) — and the `default` profile attaches both as `disk` devices. The
+per-project custom **filesystem** volumes — `workspace` (→ `/workspace`), `home`
+(→ `/home`), plus the `/.sc` script layers `sc-platform` (→ `/.sc/platform`,
+read-only in machines) and `sc-local` (→ `/.sc/local`) — and the `default`
+profile attaches them as `disk` devices. The
 same fs volume attaches to a CT **and** a VM simultaneously (incus shares it via
 virtiofs to the VM), so files written on any machine in the project are visible on the
 others — including the login user's whole home directory (cloud-init creates it with
