@@ -173,6 +173,17 @@ else fail "/.sc/local write"; fi
 if scv web "$DEF" 'grep -q "Sandcastle /.sc shim" /etc/ssh/sshrc && grep -q "Sandcastle /.sc shim" /etc/zsh/zshrc && grep -q "Sandcastle /.sc shim" /etc/bash.bashrc' 2>/dev/null; then
   pass "stable /.sc shims baked (sshrc + zshrc + bash.bashrc)"
 else fail "/.sc shims missing on a fresh machine"; fi
+# boot-time consumers are shims too; generalize + caddy-setup ran from the payload
+if scv web "$DEF" 'grep -q "Sandcastle /.sc shim" /usr/local/sbin/sandcastle-generalize && grep -q "Sandcastle /.sc shim" /usr/local/sbin/sandcastle-caddy-setup' 2>/dev/null; then
+  pass "boot shims baked (sandcastle-generalize + sandcastle-caddy-setup)"
+else fail "boot shims missing on a fresh machine"; fi
+caddy_ok=""
+for i in $(seq 1 45); do
+  scv web "$DEF" 'systemctl is-active caddy' >/dev/null 2>&1 && { caddy_ok=1; break; }
+  sleep 2
+done
+[ -n "$caddy_ok" ] && pass "caddy came up via the /.sc boot payload (machine HTTPS)" \
+  || fail "caddy not active on web (boot payload consumer)"
 
 log "/.sc: broken local payload fails safe"
 scv api "$BACK" 'mkdir -p /.sc/local/shell && printf "this is not a shell script\n" > /.sc/local/shell/rc.sh' 2>/dev/null || true

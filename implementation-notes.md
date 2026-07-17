@@ -2729,3 +2729,24 @@ choice"):**
 - Old inline consume snippets on legacy machines are left in place beside the
   new shims (identical logic, harmless duplication) — deleting user-visible rc
   content risked more than it bought.
+
+## 2026-07-17 — boot scripts migrated onto /.sc (follow-up to #127)
+
+`sandcastle-generalize` and `sandcastle-caddy-setup` no longer ship inline in
+cloud-init: the profile bakes stable **boot shims** at the same
+`/usr/local/sbin` paths and the bodies are platform-payload entries
+(`sbin/machine-generalize`, `sbin/caddy-setup`). Decisions:
+
+- **Boot shims wait up to 30s for the mount** before the fail-safe no-op — a
+  VM's virtiofs share is mounted by the incus agent and can lag early
+  cloud-init runcmd; the shell-rc shims don't need this (a login always comes
+  later than boot).
+- Boot shims source **only the platform layer** — machine bring-up is
+  platform-managed; tenant customization stays in the shell-rc overlay. Sourcing
+  tenant-writable code into a root boot path would also weaken the blast-radius
+  story for no benefit.
+- The runcmd paths are unchanged, so `sc image save` children and any tooling
+  referencing `/usr/local/sbin/sandcastle-*` keep working; legacy machines keep
+  their baked full scripts (still functional — no fixup added).
+- Token/workload helpers were NOT migrated: no such baked script exists yet
+  (workload identity isn't wired into provisioning), so there is nothing to move.

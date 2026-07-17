@@ -852,7 +852,9 @@ devices include the shared **`home`** (→ `/home`), **`workspace`**
 > `/etc/zsh/zshrc` + `/etc/bash.bashrc`, each sourcing
 > `/.sc/platform/<x>` then `/.sc/local/<x>` behind `[ -r … ] &&` guards (a
 > missing payload fails safe — never a lockout). The script *bodies* — the
-> forwarded-agent republish (`ssh/sshrc`) and consume (`shell/rc.sh`) logic —
+> forwarded-agent republish (`ssh/sshrc`) and consume (`shell/rc.sh`) logic,
+> plus the boot-time `sbin/machine-generalize` and `sbin/caddy-setup` (run via
+> stable shims at `/usr/local/sbin/sandcastle-{generalize,caddy-setup}`) —
 > live in the **platform payload** on the shared `sc-platform` volume, written
 > at tenant/project provisioning and updatable centrally with
 > `sc-adm tenant payload-sync <tenant>` (once per project, never per machine;
@@ -1493,6 +1495,13 @@ sc image rm <name>                      # delete the base
 Children are generalized on first boot (`sandcastle-generalize`, before sshd):
 fresh SSH host keys + machine-id, stale TLS leaf dropped; the caddy-setup then
 re-fetches a leaf and rewrites `machine.env`/Caddyfile for the new FQDN.
+Both `/usr/local/sbin/sandcastle-generalize` and `…/sandcastle-caddy-setup` are
+stable `/.sc` **boot shims** (ADR-0022): the script bodies live in the platform
+payload (`/.sc/platform/sbin/machine-generalize`, `…/sbin/caddy-setup`) and
+update centrally; the shim waits briefly for the volume mount (VM virtiofs can
+lag early cloud-init) then fails safe. **PASS:** on a fresh machine both sbin
+files contain the `Sandcastle /.sc shim` marker (not the script bodies), and
+`systemctl is-active caddy` still comes up serving the machine's HTTPS.
 
 **PASS (validated 2026-07-08 on obelix):** planted a rootfs marker on `test`,
 `sc image save test mybase` → 309.7 MB image (re-save replaced it idempotently),
