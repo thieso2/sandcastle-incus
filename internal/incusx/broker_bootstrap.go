@@ -110,6 +110,9 @@ func (c TenantCreator) BootstrapV2(ctx context.Context, req BootstrapV2Request) 
 			return err
 		}
 	}
+	if err := stampBinaryVersion(psrv, req.instance(), runningBinaryVersion); err != nil {
+		return err
+	}
 
 	c.log("start broker service")
 	start := applianceStartScript([]string{

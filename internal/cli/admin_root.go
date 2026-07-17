@@ -25,6 +25,7 @@ import (
 func ExecuteAdmin(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
 	verbose := os.Getenv("VERBOSE") == "1"
+	incusx.SetRunningBinaryVersion(version)
 	explicitRemote := strings.TrimSpace(os.Getenv("SANDCASTLE_REMOTE")) != "" || strings.TrimSpace(adminConfig.AdminRemote) != ""
 
 	// Prefer explicit admin_remote; fall back to cert/IP-based auto-detection;

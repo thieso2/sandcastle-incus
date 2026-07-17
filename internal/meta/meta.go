@@ -44,6 +44,12 @@ const (
 	// ever read back, so `sc project set-cloud-identity` was a no-op.
 	KeyV2CloudIdentity   = Prefix + "v2.cloud-identity"
 	KeyV2DockerAutostart = Prefix + "v2.docker-autostart"
+	// KeyBinaryVersion records the release version (vX.Y.Z) of the sandcastle
+	// binary last pushed into an instance (#124 §7) — auth-app, broker, tenant
+	// sidecars. Written on every binary push; missing means "unknown" and is
+	// treated as outdated. NOT the topology schema version — that is KeyVersion.
+	KeyBinaryVersion = Prefix + "binary-version"
+
 	KeyAppPort           = Prefix + "app_port"
 	KeyLinuxUser         = Prefix + "linux_user"
 	KeyCreatedBy         = Prefix + "created_by"

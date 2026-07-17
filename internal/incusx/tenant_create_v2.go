@@ -668,6 +668,11 @@ func configureV2TLSSigner(server TenantResourceServer, plan tenant.CreatePlanV2)
 		}); err != nil {
 			return fmt.Errorf("push sandcastle binary to sidecar: %w", err)
 		}
+		// Stamp only on an actual push: an already-present (possibly older)
+		// binary keeps its previous stamp — or none, which reads as "unknown".
+		if err := stampBinaryVersion(server, plan.SidecarInstance, runningBinaryVersion); err != nil {
+			return err
+		}
 	}
 
 	// 3. systemd unit for the signer, bound to the tenant bridge address.

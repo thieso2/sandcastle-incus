@@ -159,6 +159,7 @@ type rootOptions struct {
 func Execute(name string, args []string) int {
 	adminConfig := scconfig.LoadUser()
 	verbose := os.Getenv("VERBOSE") == "1"
+	incusx.SetRunningBinaryVersion(version)
 
 	// Always use the per-remote Sandcastle config dir (restricted cert) for user commands.
 	if userPath := scconfig.ResolveConfigPath(adminConfig.Remote); userPath != "" {

@@ -151,6 +151,9 @@ func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAp
 			return err
 		}
 	}
+	if err := stampBinaryVersion(psrv, instance, runningBinaryVersion); err != nil {
+		return err
+	}
 
 	c.log("start services: " + strings.Join(units, " "))
 	start := applianceStartScript([]string{
