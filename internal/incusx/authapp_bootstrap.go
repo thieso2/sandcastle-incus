@@ -69,6 +69,9 @@ type BootstrapAuthAppRequest struct {
 	// back to the Auth Hostname.
 	RouteIngress    string
 	RouteBaseDomain string
+	// RouteTLS overrides route-site TLS: "internal" = Caddy self-signed CA (for
+	// hermetic e2e tests — no public DNS / ACME); empty = on-demand Let's Encrypt.
+	RouteTLS string
 
 	// Provisioning config baked into the appliance env (the Auth App provisions
 	// tenants on device login).
@@ -337,6 +340,7 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_AUTH_ACME_EMAIL=" + q(strings.TrimSpace(req.ACMEEmail)),
 		"SANDCASTLE_ROUTE_INGRESS=" + q(strings.TrimSpace(req.RouteIngress)),
 		"SANDCASTLE_ROUTE_BASE_DOMAIN=" + q(strings.TrimSpace(req.RouteBaseDomain)),
+		"SANDCASTLE_ROUTE_TLS=" + q(strings.TrimSpace(req.RouteTLS)),
 		// Incus access: the mounted host admin unix socket.
 		"SANDCASTLE_REMOTE=" + q("local"),
 		"SANDCASTLE_STORAGE_POOL=" + q(orDefaultStr(req.StoragePool, "default")),

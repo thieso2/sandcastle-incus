@@ -26,7 +26,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 		cidrPool, projectPrefix, infraProject, tlsMode                string
 		tenantBaseImage, tenantAIImage                                string
 		ingressMode, acmeEmail, tunnelToken                           string
-		routeIngress, routeBaseDomain                                 string
+		routeIngress, routeBaseDomain, routeTLS                       string
 	)
 	command := &cobra.Command{
 		Use:   "deploy",
@@ -103,6 +103,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 				TunnelToken:         strings.TrimSpace(tunnelToken),
 				RouteIngress:        routeIngress,
 				RouteBaseDomain:     strings.TrimSpace(routeBaseDomain),
+				RouteTLS:            strings.TrimSpace(routeTLS),
 			}); err != nil {
 				return err
 			}
@@ -138,6 +139,8 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a Cloudflare tunnel routing the Auth Hostname to http://localhost:8080 (cloudflare ingress)")
 	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt), independent of --ingress; empty disables")
 	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
+	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e)")
+	_ = command.Flags().MarkHidden("route-tls")
 	return command
 }
 

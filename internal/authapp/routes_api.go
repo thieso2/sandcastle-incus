@@ -283,7 +283,7 @@ func (h handler) routeManager() (RouteManager, bool) {
 		DB:          h.db,
 		Backend:     h.routes,
 		Caddy:       h.routeCaddy,
-		Render:      RouteRenderConfig(h.authHostname, h.authIngressMode, h.routeBaseDomain, h.acmeEmail),
+		Render:      RouteRenderConfig(h.authHostname, h.authIngressMode, h.routeBaseDomain, h.acmeEmail, h.routeTLS),
 		ResolveHost: h.routeResolveHost,
 	}, true
 }
