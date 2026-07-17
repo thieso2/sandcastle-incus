@@ -15,6 +15,12 @@ const (
 	IngressModeNone       = "none"
 )
 
+// RouteTLSInternal makes route sites use Caddy's internal self-signed CA instead
+// of on-demand Let's Encrypt. It exists for hermetic e2e tests: it exercises the
+// full ingress→Caddy→proxy-device→machine chain over real HTTPS without public
+// DNS, inbound ports, or a real ACME server. Never set in production.
+const RouteTLSInternal = "internal"
+
 // CaddyRenderConfig carries the inputs the Auth App needs to regenerate the
 // appliance Caddyfile. It renders one Caddy config that serves BOTH the Auth
 // Hostname (per its own ingress mode) AND native-ACME Public Route sites — so
@@ -27,6 +33,7 @@ type CaddyRenderConfig struct {
 	ACMEEmail       string // Let's Encrypt contact email (optional)
 	AuthAppUpstream string // where the Auth App HTTP listener is, e.g. 127.0.0.1:9444
 	AskURL          string // on-demand-TLS ask endpoint, e.g. http://127.0.0.1:9444/api/routes/ask
+	RouteTLS        string // route-site TLS: "" = on-demand Let's Encrypt; "internal" = Caddy self-signed (tests)
 }
 
 // The Auth App HTTP listener and its on-demand-TLS ask endpoint are fixed at the
@@ -45,7 +52,7 @@ const (
 // + authIngressMode describe the login site; routeBaseDomain is where routes live
 // (empty → the Auth Hostname). Single source for both the reconcile loop and the
 // handlers.
-func RouteRenderConfig(authHostname, authIngressMode, routeBaseDomain, acmeEmail string) CaddyRenderConfig {
+func RouteRenderConfig(authHostname, authIngressMode, routeBaseDomain, acmeEmail, routeTLS string) CaddyRenderConfig {
 	return CaddyRenderConfig{
 		AuthHostname:    strings.Trim(strings.TrimSpace(authHostname), "."),
 		AuthIngressMode: strings.TrimSpace(authIngressMode),
@@ -53,6 +60,7 @@ func RouteRenderConfig(authHostname, authIngressMode, routeBaseDomain, acmeEmail
 		ACMEEmail:       strings.TrimSpace(acmeEmail),
 		AuthAppUpstream: authAppLoopbackUpstream,
 		AskURL:          authAppAskURL,
+		RouteTLS:        strings.TrimSpace(routeTLS),
 	}
 }
 
@@ -104,7 +112,11 @@ func RenderCaddyfile(cfg CaddyRenderConfig, routes []Route) string {
 		}
 		b.WriteString("\n")
 		fmt.Fprintf(&b, "%s {\n", host)
-		b.WriteString("\ttls {\n\t\ton_demand\n\t}\n")
+		if cfg.RouteTLS == RouteTLSInternal {
+			b.WriteString("\ttls internal\n")
+		} else {
+			b.WriteString("\ttls {\n\t\ton_demand\n\t}\n")
+		}
 		fmt.Fprintf(&b, "\treverse_proxy 127.0.0.1:%d\n", route.LocalPort)
 		b.WriteString("}\n")
 	}

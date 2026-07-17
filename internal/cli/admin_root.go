@@ -160,6 +160,7 @@ func ExecuteAdmin(name string, args []string) int {
 			ACMEEmail:       strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_ACME_EMAIL")),
 			AuthIngressMode: strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_INGRESS_MODE")),
 			RouteBaseDomain: strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BASE_DOMAIN")),
+			RouteTLS:        strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_TLS")),
 			RouteEvents: func(ctx context.Context, notify func()) {
 				if authAppSocketServer == nil {
 					return

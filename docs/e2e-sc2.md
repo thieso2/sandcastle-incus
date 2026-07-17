@@ -1140,6 +1140,33 @@ sc route delete <hostname> --yes
 > (the tenant `sc` restricted cert wasn't set up on the test client); the `sc route`
 > CLI drives the same endpoints after a normal `sc login`.
 
+### Non-interactive / hermetic variant (`scripts/e2e-route.sh`)
+The live check above needs public DNS + inbound `:80/:443` + real Let's Encrypt.
+For CI, deploy the appliance in **hermetic route-TLS mode** so the *entire chain*
+runs on a LAN with no public dependencies:
+
+```bash
+sc-adm auth-app deploy … \
+  --route-ingress acme --route-base-domain routes.test \
+  --route-tls internal \        # route sites use Caddy's self-signed CA (no ACME/DNS)
+  --debug-device-user <tenant>  # headless token via /debug/device/approve
+
+SANDCASTLE_REMOTE=<remote> SC_AUTH_HOST=https://<auth-host> \
+SC_ROUTE_BASE_DOMAIN=routes.test SC_HOST_IP=<host-ip> \
+  scripts/e2e-route.sh
+```
+The script mints a tenant token via the debug device flow (no browser), launches a
+machine running an app on `:3000`, publishes a route, and reaches it with
+`curl --resolve <host>:443:<host-ip> -k` — asserting: the route serves the app
+body, the Caddyfile gained the site, a `scroute-…` proxy device exists, the
+`/api/routes/ask` gate returns **403** for an unknown host, and delete removes
+everything. **PASS:** `ALL PASS — sc route non-interactive e2e`.
+
+`--route-tls internal` is **test-only** (hidden flag / `SANDCASTLE_ROUTE_TLS=internal`);
+production always uses on-demand Let's Encrypt. The internal-TLS mode swaps the cert
+issuer but exercises the same ingress → Caddy → proxy-device → machine plumbing; the
+real-LE issuance path is covered by the live run above.
+
 ---
 
 ## Phase 8 — Tenant DNS via CoreDNS (queried at the sidecar tailscale IP) ✅

@@ -5,6 +5,27 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-17 — hermetic route TLS for non-interactive e2e (`--route-tls internal`)
+
+`sc route`'s tail is on-demand HTTP-01 Let's Encrypt, which needs public DNS +
+inbound :80/:443 — unusable in CI. Added a **test-only** `RouteTLS` knob
+(`SANDCASTLE_ROUTE_TLS=internal`, hidden `--route-tls` flag on install/deploy):
+route sites render `tls internal` (Caddy's self-signed CA) instead of
+`tls { on_demand }`. This exercises the entire ingress → Caddy → per-route
+proxy-device → machine chain over real HTTPS on a LAN (`curl --resolve … -k`),
+with no public dependency and no real ACME.
+
+- **Why a config knob, not a separate test binary:** the plumbing is what
+  regresses; the cert *issuer* is Caddy's stable job. Internal-TLS covers the
+  plumbing; the real-LE issuance path stays covered by the live/nightly run
+  (Phase 7f in `docs/e2e-sc2.md`).
+- **Trade-off:** internal issuance doesn't consult the on-demand `ask` gate, so
+  `scripts/e2e-route.sh` asserts the gate *directly* (`GET /api/routes/ask` → 403
+  for an unknown host) rather than relying on cert issuance to exercise it.
+- **Non-interactive token:** the script mints a tenant CLI token via the existing
+  debug device flow (`/api/device/start` → `/debug/device/approve` → poll's
+  `cli_auth_token`), the same path `sc login --debug-approve` uses — no browser.
+
 ## 2026-07-16 — `sc route` coexistence: routes beside a Cloudflare login host
 
 Extended `sc route` so it no longer requires the whole appliance to be in ACME

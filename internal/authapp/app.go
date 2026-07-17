@@ -118,6 +118,9 @@ type HTTPRunner struct {
 	// RouteBaseDomain is where Public Routes live (<label>.<tenant>.<base>); empty
 	// falls back to the Auth Hostname.
 	RouteBaseDomain string
+	// RouteTLS overrides route-site TLS ("internal" = Caddy self-signed, for
+	// hermetic tests; empty = on-demand Let's Encrypt). Never set in production.
+	RouteTLS string
 	// RouteEvents, when set, subscribes to instance lifecycle events and calls
 	// notify() so the Route reconcile runs within seconds of a Machine change.
 	RouteEvents func(ctx context.Context, notify func())
@@ -201,6 +204,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			ACMEEmail:           r.ACMEEmail,
 			AuthIngressMode:     r.AuthIngressMode,
 			RouteBaseDomain:     r.RouteBaseDomain,
+			RouteTLS:            r.RouteTLS,
 		})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -311,7 +315,7 @@ func (r HTTPRunner) runRouteReconcileLoop(ctx context.Context, db *sql.DB, logge
 		DB:      db,
 		Backend: r.Routes,
 		Caddy:   r.RouteCaddy,
-		Render:  RouteRenderConfig(authHostname, r.AuthIngressMode, r.RouteBaseDomain, r.ACMEEmail),
+		Render:  RouteRenderConfig(authHostname, r.AuthIngressMode, r.RouteBaseDomain, r.ACMEEmail, r.RouteTLS),
 	}
 	// Write the coexistence Caddyfile once at startup so the global block, the
 	// Auth Hostname site, and any existing route sites are correct before the
@@ -712,6 +716,7 @@ type HandlerOptions struct {
 	ACMEEmail           string
 	AuthIngressMode     string
 	RouteBaseDomain     string
+	RouteTLS            string
 	// RouteResolveHost overrides how a custom hostname's DNS is checked for the
 	// awaiting-dns status. Optional; nil uses a real DNS lookup. Injected in tests.
 	RouteResolveHost func(ctx context.Context, host string) bool
@@ -752,6 +757,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		acmeEmail:        strings.TrimSpace(handlerOptions.ACMEEmail),
 		authIngressMode:  strings.TrimSpace(handlerOptions.AuthIngressMode),
 		routeBaseDomain:  strings.Trim(strings.TrimSpace(handlerOptions.RouteBaseDomain), "."),
+		routeTLS:         strings.TrimSpace(handlerOptions.RouteTLS),
 		routeResolveHost: handlerOptions.RouteResolveHost,
 	}
 	if app.githubClient == nil {
@@ -847,6 +853,7 @@ type handler struct {
 	acmeEmail        string
 	authIngressMode  string
 	routeBaseDomain  string
+	routeTLS         string
 	routeResolveHost func(ctx context.Context, host string) bool
 }
 

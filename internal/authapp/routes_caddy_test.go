@@ -46,7 +46,7 @@ func TestRenderCaddyfile_RouteBlockUsesOnDemandAndLoopback(t *testing.T) {
 }
 
 func TestRenderCaddyfile_CoexistCloudflareLoginAndAcmeRoutes(t *testing.T) {
-	cfg := RouteRenderConfig("home.thieso2.dev", IngressModeCloudflare, "home.tc42.uk", "ops@example.dev")
+	cfg := RouteRenderConfig("home.thieso2.dev", IngressModeCloudflare, "home.tc42.uk", "ops@example.dev", "")
 	routes := []Route{{Hostname: "web.acme.home.tc42.uk", LocalPort: 20001}}
 	out := RenderCaddyfile(cfg, routes)
 
@@ -68,10 +68,22 @@ func TestRenderCaddyfile_CoexistCloudflareLoginAndAcmeRoutes(t *testing.T) {
 }
 
 func TestRenderCaddyfile_AcmeLoginHostStaysBareSite(t *testing.T) {
-	cfg := RouteRenderConfig("sc2.thieso2.dev", IngressModeACME, "", "ops@example.dev")
+	cfg := RouteRenderConfig("sc2.thieso2.dev", IngressModeACME, "", "ops@example.dev", "")
 	out := RenderCaddyfile(cfg, nil)
 	if !strings.Contains(out, "sc2.thieso2.dev {") || strings.Contains(out, "http://sc2.thieso2.dev:8080") {
 		t.Errorf("acme login host should be a bare ACME site, not :8080:\n%s", out)
+	}
+}
+
+func TestRenderCaddyfile_RouteTLSInternal(t *testing.T) {
+	cfg := RouteRenderConfig("sc2.thieso2.dev", IngressModeACME, "routes.test", "", RouteTLSInternal)
+	routes := []Route{{Hostname: "web.acme.routes.test", LocalPort: 20001}}
+	out := RenderCaddyfile(cfg, routes)
+	if !strings.Contains(out, "tls internal") {
+		t.Errorf("internal mode should emit `tls internal` for route sites:\n%s", out)
+	}
+	if strings.Contains(out, "\ttls {\n\t\ton_demand") {
+		t.Errorf("internal mode must not use on-demand TLS for the route site:\n%s", out)
 	}
 }
 

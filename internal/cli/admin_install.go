@@ -37,7 +37,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 		defaultUnixUser, tailscaleAuthKey                            string
 		simulateGitHubToken, tlsMode, brokerPort                     string
 		ingressMode, acmeEmail, tunnelToken, cloudflareAPIToken      string
-		routeIngress, routeBaseDomain                                string
+		routeIngress, routeBaseDomain, routeTLS                      string
 	)
 	command := &cobra.Command{
 		Use:   "install",
@@ -167,6 +167,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				TunnelToken:         tunnelToken,
 				RouteIngress:        routeIngress,
 				RouteBaseDomain:     routeBaseDomain,
+				RouteTLS:            routeTLS,
 			}); err != nil {
 				return fmt.Errorf("auth-app deploy: %w", err)
 			}
@@ -267,6 +268,8 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&acmeEmail, "acme-email", "", "Let's Encrypt contact email (acme or route ingress)")
 	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt), independent of --ingress so routes can run beside a cloudflare login host; empty disables")
 	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
+	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e, no public DNS/ACME)")
+	_ = command.Flags().MarkHidden("route-tls")
 	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a dashboard-created Cloudflare tunnel routing the hostname to http://localhost:8080 (cloudflare ingress)")
 	command.Flags().StringVar(&cloudflareAPIToken, "cloudflare-api-token", "", "Cloudflare API token (Tunnel:Edit + DNS:Edit + Zone:Read): install creates the tunnel, ingress rule, and proxied DNS record itself (cloudflare ingress)")
 	return command
