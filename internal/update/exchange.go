@@ -3,6 +3,7 @@ package update
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 )
@@ -164,9 +165,14 @@ func (t exchangeTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 }
 
 // SkewWarning returns the one-line CLI↔deployment mismatch warning, or
-// ok=false when versions match, nothing was observed, or the CLI is a dev
-// build.
+// ok=false when versions match, nothing was observed, the CLI is a dev
+// build, or the update-notifier opt-out is set — the env silences EVERY
+// passive stderr notice (#124 §2), this one included (caught live in the
+// Phase 10e validation: the skew note leaked through the opt-out).
 func SkewWarning(cliVersion, applianceVersion string) (string, bool) {
+	if os.Getenv(NoUpdateNotifierEnv) != "" {
+		return "", false
+	}
 	cli := NormalizeTag(cliVersion)
 	appliance := NormalizeTag(applianceVersion)
 	if cli == "" || appliance == "" || IsDevBuild(cli) || cli == appliance {

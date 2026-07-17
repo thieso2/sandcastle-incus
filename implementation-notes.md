@@ -2750,3 +2750,19 @@ cloud-init: the profile bakes stable **boot shims** at the same
   their baked full scripts (still functional — no fixup added).
 - Token/workload helpers were NOT migrated: no such baked script exists yet
   (workload identity isn't wired into provisioning), so there is nothing to move.
+
+## 2026-07-17 — Phase 10 (self-update) validated live with v0.1.3; skew-note opt-out fix
+
+10a–10f all validated on the majestix dual-install stack against the real
+v0.1.3 release (details in docs/e2e-sc2.md Phase 10 status). Two findings:
+
+- **Fixed here:** `SANDCASTLE_NO_UPDATE_NOTIFIER=1` silenced the release and
+  sidecar notices but NOT the CLI↔deployment skew note (the gate lived in
+  `NoticeDue`/`SidecarNoticeDue`, and `SkewWarning` had none). The gate now
+  lives inside `update.SkewWarning` itself so every print site inherits it.
+  Ships in v0.1.4.
+- **Filed as #134 (not fixed here):** admin `tenant create` re-run without
+  `--unix-user`/`--ssh-key` clobbers the tenant's stored user/key (additive
+  metadata converge + defaulting request); needs the Existing*-reuse pattern
+  the DNS suffix already has. The live e2edns tenant was repaired via the
+  product path (unattended `sc login` re-provision on the new auth-app).

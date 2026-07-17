@@ -74,3 +74,12 @@ func TestSkewWarning(t *testing.T) {
 		}
 	}
 }
+
+// The opt-out env silences EVERY passive notice (#124 §2) — the skew note
+// included. Caught live in Phase 10e: the note leaked through the opt-out.
+func TestSkewWarningRespectsOptOut(t *testing.T) {
+	t.Setenv(NoUpdateNotifierEnv, "1")
+	if _, warn := SkewWarning("v0.1.0", "v0.2.0"); warn {
+		t.Fatal("SkewWarning must be silent under SANDCASTLE_NO_UPDATE_NOTIFIER")
+	}
+}

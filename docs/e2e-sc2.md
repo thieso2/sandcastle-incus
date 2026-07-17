@@ -1511,7 +1511,7 @@ leaf; the corrected machine-id reset was validated live (old→new random id).
 
 ---
 
-## Phase 10 — Self-update system (#124) 🚧
+## Phase 10 — Self-update system (#124) ✅
 
 Validates the update surfaces end to end: check → global update → tenant
 sidecar update → skew warning. Needs at least one published GitHub release
@@ -1577,6 +1577,29 @@ downloaded, SHA-256 verified, atomic replace through the `sc` symlink
 with no reachable deployment; the tap bumped to 0.1.1 in the same release
 run. 10a/10b/10c/10e/10f still need a live deployment (majestix/obelix)
 running release-stamped appliances.
+
+**Status (2026-07-17 late, v0.1.3 cut): 10a–10f ALL validated live on the
+majestix dual-install stack.** 10a: fleet tables truthful on both installs
+(unknown ⇒ outdated; tunnel installs have no broker appliance, so an
+auth-app-only table is correct; image-builder note printed). 10b: both
+auth-apps → v0.1.3, stamped, services active, tunnels serving 200, re-run
+idempotent. 10c: sidecar updated via the auth-app token plane; ONLY
+`sandcastle-tls-sign` restarted (coredns/tailscaled uptimes unchanged),
+sidecar stamp v0.1.3, DNS + `sc c` SSH fine afterwards. 10d re-validated on
+the client VM: v0.1.3 → v0.1.2 → v0.1.3, `.bak` kept, symlinks preserved;
+NOTE a root-owned `/usr/local/bin` needs the update run as root ("permission
+denied" is the truthful per-user error). 10e: with the CLI at v0.1.2 the
+release notice correctly did NOT fire (v0.1.3 was inside the 24h tap-grace
+window — asserting the grace, not the notice); the skew note printed after
+touching the deployment; **run-caught bug:** `SANDCASTLE_NO_UPDATE_NOTIFIER=1`
+did not silence the skew note — fixed (gate moved into `update.SkewWarning`,
+ships in v0.1.4) and suppression re-validated against the v0.1.4 release
+binary. 10f: version card green "Up to date" at v0.1.3. Side finding
+(pre-existing, NOT an update bug): the live e2edns profile had been rendered
+by an old binary with default user `dev` + empty key (admin `tenant create`
+re-run without `--unix-user`/`--ssh-key` clobbers the stored values — filed
+as an issue); repaired via the product path (unattended `sc login` against
+the v0.1.3 auth-app re-rendered user/key/shims and `sc c` works again).
 
 ---
 
