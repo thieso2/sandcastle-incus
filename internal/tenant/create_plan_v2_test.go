@@ -121,6 +121,37 @@ func TestPlanCreateV2FlatDNSZone(t *testing.T) {
 	}
 }
 
+// The plan must describe the /.sc shared-scripts volume set (spec #127) as
+// data: two layers with the correct per-layer writability — platform read-only
+// to machines, local read-write — at the fixed mount paths.
+func TestPlanCreateV2SCVolumes(t *testing.T) {
+	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := map[string]SCVolume{}
+	for _, v := range plan.SCVolumes {
+		byPath[v.Path] = v
+	}
+	platform, ok := byPath[SCPlatformPath]
+	if !ok {
+		t.Fatalf("plan has no /.sc platform layer: %+v", plan.SCVolumes)
+	}
+	if !platform.ReadOnly || platform.Volume != V2SCPlatformVolumeName {
+		t.Fatalf("platform layer must be read-only volume %q: %+v", V2SCPlatformVolumeName, platform)
+	}
+	local, ok := byPath[SCLocalPath]
+	if !ok {
+		t.Fatalf("plan has no /.sc local layer: %+v", plan.SCVolumes)
+	}
+	if local.ReadOnly || local.Volume != V2SCLocalVolumeName {
+		t.Fatalf("local layer must be read-write volume %q: %+v", V2SCLocalVolumeName, local)
+	}
+	if len(plan.SCVolumes) != 2 {
+		t.Fatalf("SCVolumes = %+v, want exactly the two layers", plan.SCVolumes)
+	}
+}
+
 func TestPlanCreateV2GeneratesCA(t *testing.T) {
 	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
 	if err != nil {

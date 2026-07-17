@@ -344,14 +344,27 @@ const (
 func ensureV2ProjectVolumes(server TenantResourceServer, pool string, tenantName string, shifted bool) error {
 	workspaceConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
 	homeConfig := map[string]string{}
+	// /.sc layers (spec #127): local is tenant-writable from machines (like
+	// /workspace, owned by the UID-2000 login user); platform keeps root-owned
+	// 0755 — machines additionally mount it read-only at the device level.
+	scPlatformConfig := map[string]string{}
+	scLocalConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
 	if shifted {
 		// Requires kernel idmapped-mount support on the incus host; a
 		// container-hosted daemon lacks it and volume attachment would fail
 		// with "idmapping abilities are required but aren't supported".
 		workspaceConfig["security.shifted"] = "true"
 		homeConfig["security.shifted"] = "true"
+		scPlatformConfig["security.shifted"] = "true"
+		scLocalConfig["security.shifted"] = "true"
 	}
 	if err := ensureV2SharedVolume(server, pool, v2WorkspaceVolumeName, "Shared /workspace for Sandcastle v2 tenant "+tenantName, workspaceConfig); err != nil {
+		return err
+	}
+	if err := ensureV2SharedVolume(server, pool, tenant.V2SCPlatformVolumeName, "Shared /.sc/platform scripts for Sandcastle v2 tenant "+tenantName, scPlatformConfig); err != nil {
+		return err
+	}
+	if err := ensureV2SharedVolume(server, pool, tenant.V2SCLocalVolumeName, "Shared /.sc/local scripts for Sandcastle v2 tenant "+tenantName, scLocalConfig); err != nil {
 		return err
 	}
 	return ensureV2SharedVolume(server, pool, v2HomeVolumeName, "Shared /home for Sandcastle v2 tenant "+tenantName, homeConfig)
@@ -380,6 +393,23 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, s
 	if strings.TrimSpace(plan.DNSAddress) == "" {
 		return fmt.Errorf("refusing to render the default profile of %s with an empty sidecar DNS address", plan.DefaultProject)
 	}
+	desired := api.ProfilePut{
+		Description: "Sandcastle v2 default profile for " + plan.Tenant,
+		Config: api.ConfigMap{
+			"cloud-init.user-data": tenant.V2DefaultProfileUserData(plan.DefaultProfileUser, plan.SSHPublicKey, projectShort, plan.DNSSuffix, fmt.Sprintf("http://%s:%d", plan.DNSAddress, SidecarTLSSignPort)),
+			meta.KeyKind:           "profile",
+			meta.KeyTenant:         plan.Tenant,
+			meta.KeyVersion:        "2",
+		},
+		Devices: v2AppProfileDevices(plan, shifted),
+	}
+	return ensureExactProfile(server, "default", desired)
+}
+
+// v2AppProfileDevices builds the default profile's device map — pure, so the
+// volume attachments (and the /.sc layers' per-device writability) are unit
+// testable without a fake server.
+func v2AppProfileDevices(plan tenant.CreatePlanV2, shifted bool) api.DevicesMap {
 	devices := api.DevicesMap{
 		"root":      {"type": "disk", "pool": plan.StoragePool, "path": "/"},
 		"eth0":      {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},
@@ -393,17 +423,18 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, s
 	if shifted {
 		devices["home"] = map[string]string{"type": "disk", "pool": plan.StoragePool, "source": v2HomeVolumeName, "path": "/home"}
 	}
-	desired := api.ProfilePut{
-		Description: "Sandcastle v2 default profile for " + plan.Tenant,
-		Config: api.ConfigMap{
-			"cloud-init.user-data": tenant.V2DefaultProfileUserData(plan.DefaultProfileUser, plan.SSHPublicKey, projectShort, plan.DNSSuffix, fmt.Sprintf("http://%s:%d", plan.DNSAddress, SidecarTLSSignPort)),
-			meta.KeyKind:           "profile",
-			meta.KeyTenant:         plan.Tenant,
-			meta.KeyVersion:        "2",
-		},
-		Devices: devices,
+	// The /.sc shared-scripts layers (spec #127). readonly on the platform
+	// device is the tenant-facing writability contract: machines (CT and VM)
+	// mount the layer read-only, so a tenant cannot accidentally delete a
+	// script the fleet depends on; central updates go through the volume API.
+	for _, v := range tenant.V2SCVolumes() {
+		device := map[string]string{"type": "disk", "pool": plan.StoragePool, "source": v.Volume, "path": v.Path}
+		if v.ReadOnly {
+			device["readonly"] = "true"
+		}
+		devices[v.DeviceName] = device
 	}
-	return ensureExactProfile(server, "default", desired)
+	return devices
 }
 
 func ensureV2SidecarProfile(server TenantResourceServer, plan tenant.CreatePlanV2) error {

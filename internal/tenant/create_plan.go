@@ -20,6 +20,13 @@ const (
 	// "workspace" (the project scopes them; no sc- prefix).
 	V2HomeVolumeName      = "home"
 	V2WorkspaceVolumeName = "workspace"
+
+	// The /.sc shared-scripts volume layers (spec #127), modeled on
+	// home/workspace: per-app-project custom volumes attached to every machine.
+	// Platform is mounted read-only in machines (centrally updated scripts);
+	// local is tenant-writable from any machine, like /workspace.
+	V2SCPlatformVolumeName = "sc-platform"
+	V2SCLocalVolumeName    = "sc-local"
 )
 
 // TailscaleInstanceName returns the Incus instance name for the tenant's Tailscale sidecar.

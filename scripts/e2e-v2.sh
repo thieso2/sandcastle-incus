@@ -56,7 +56,7 @@ cleanup() {
     # a project is only removable once empty: drop non-default profiles, any
     # images it owns (app projects run features.images=true), and the shared
     # home/workspace volumes (detach from the default profile FIRST).
-    for v in home workspace; do
+    for v in home workspace sc-platform sc-local; do
       incus profile device remove default "$v" --project "$p" 2>/dev/null || true
       incus storage volume delete default "$v" --project "$p" 2>/dev/null || true
     done

@@ -53,6 +53,15 @@ func TestPlanDeleteV2(t *testing.T) {
 				t.Fatalf("must not plan the other install's project: %v", plan.AppProjects)
 			}
 		}
+		// The /.sc layers are per-app-project custom volumes like
+		// home/workspace: leaving them out makes the project delete fail with
+		// "Only empty projects can be removed".
+		durable := strings.Join(plan.DurableVolumes, ",")
+		for _, volume := range []string{V2HomeVolumeName, V2WorkspaceVolumeName, V2SCPlatformVolumeName, V2SCLocalVolumeName} {
+			if !strings.Contains(","+durable+",", ","+volume+",") {
+				t.Fatalf("DurableVolumes = %v, missing %s", plan.DurableVolumes, volume)
+			}
+		}
 	})
 
 	t.Run("prefixed install scopes to its own tenant", func(t *testing.T) {

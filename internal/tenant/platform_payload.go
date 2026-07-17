@@ -74,3 +74,26 @@ func PlatformPayloadVersion() string {
 	return version
 }
 
+// SCVolume describes one layer of the /.sc shared-scripts volume as plan data:
+// the custom volume, the default-profile disk device attaching it, its
+// in-machine mount path, and whether machines mount it read-only (the platform
+// layer) or read-write (the tenant-owned local layer).
+type SCVolume struct {
+	Volume     string `json:"volume"`
+	DeviceName string `json:"deviceName"`
+	Path       string `json:"path"`
+	ReadOnly   bool   `json:"readOnly"`
+}
+
+// V2SCVolumes is the /.sc volume set every v2 app project carries. The
+// external contract is the two paths and their writability (spec #127):
+// /.sc/platform read-only to the tenant's machines, /.sc/local read-write —
+// for containers and virtual machines alike. RO/RW is enforced where machines
+// mount the layer (the disk device), matching how /workspace is shared.
+func V2SCVolumes() []SCVolume {
+	return []SCVolume{
+		{Volume: V2SCPlatformVolumeName, DeviceName: "sc-platform", Path: SCPlatformPath, ReadOnly: true},
+		{Volume: V2SCLocalVolumeName, DeviceName: "sc-local", Path: SCLocalPath, ReadOnly: false},
+	}
+}
+

@@ -188,5 +188,5 @@ func (d TenantDeleter) DeleteProjectV2(_ context.Context, incusProject string, s
 	if err != nil {
 		return err
 	}
-	return d.deleteV2AppProject(server, incusProject, storagePool, []string{v2HomeVolumeName, v2WorkspaceVolumeName})
+	return d.deleteV2AppProject(server, incusProject, storagePool, []string{v2HomeVolumeName, v2WorkspaceVolumeName, tenant.V2SCPlatformVolumeName, tenant.V2SCLocalVolumeName})
 }

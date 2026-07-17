@@ -320,6 +320,10 @@ type CreatePlanV2 struct {
 	HomeVolume          string     `json:"homeVolume"`
 	WorkspaceVolume     string     `json:"workspaceVolume"`
 	CAVolume            string     `json:"caVolume"`
+	// SCVolumes is the per-tenant /.sc shared-scripts volume set (spec #127):
+	// the platform layer machines mount read-only and the tenant-writable local
+	// layer, as pure-testable plan data.
+	SCVolumes []SCVolume `json:"scVolumes"`
 	SidecarInstance     string     `json:"sidecarInstance"`
 	SidecarImage        string     `json:"sidecarImage"`
 	DefaultProfileUser  string     `json:"defaultProfileUser"`
@@ -452,6 +456,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 		HomeVolume:          HomeVolumeName,
 		WorkspaceVolume:     WorkspaceVolumeName,
 		CAVolume:            CAVolumeName,
+		SCVolumes:           V2SCVolumes(),
 		SidecarInstance:     naming.V2SidecarInstanceName,
 		SidecarImage:        admin.Images.Base,
 		DefaultProfileUser:  unixUser,
