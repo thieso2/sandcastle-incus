@@ -348,30 +348,38 @@ const (
 func ensureV2ProjectVolumes(server TenantResourceServer, pool string, tenantName string, shifted bool) error {
 	workspaceConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
 	homeConfig := map[string]string{}
-	// /.sc layers (spec #127): local is tenant-writable from machines (like
-	// /workspace, owned by the UID-2000 login user); platform keeps root-owned
-	// 0755 — machines additionally mount it read-only at the device level.
-	scPlatformConfig := map[string]string{}
-	scLocalConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
 	if shifted {
 		// Requires kernel idmapped-mount support on the incus host; a
 		// container-hosted daemon lacks it and volume attachment would fail
 		// with "idmapping abilities are required but aren't supported".
 		workspaceConfig["security.shifted"] = "true"
 		homeConfig["security.shifted"] = "true"
-		scPlatformConfig["security.shifted"] = "true"
-		scLocalConfig["security.shifted"] = "true"
 	}
 	if err := ensureV2SharedVolume(server, pool, v2WorkspaceVolumeName, "Shared /workspace for Sandcastle v2 tenant "+tenantName, workspaceConfig); err != nil {
 		return err
 	}
-	if err := ensureV2SharedVolume(server, pool, tenant.V2SCPlatformVolumeName, "Shared /.sc/platform scripts for Sandcastle v2 tenant "+tenantName, scPlatformConfig); err != nil {
-		return err
-	}
-	if err := ensureV2SharedVolume(server, pool, tenant.V2SCLocalVolumeName, "Shared /.sc/local scripts for Sandcastle v2 tenant "+tenantName, scLocalConfig); err != nil {
+	if err := ensureV2SCVolumes(server, pool, shifted); err != nil {
 		return err
 	}
 	return ensureV2SharedVolume(server, pool, v2HomeVolumeName, "Shared /home for Sandcastle v2 tenant "+tenantName, homeConfig)
+}
+
+// ensureV2SCVolumes creates the /.sc layer volumes (spec #127) if missing:
+// local is tenant-writable from machines (like /workspace, owned by the
+// UID-2000 login user); platform keeps root-owned 0755 — machines additionally
+// mount it read-only at the device level. Shared by tenant/project creation
+// and the payload-sync legacy onboarding.
+func ensureV2SCVolumes(server TenantResourceServer, pool string, shifted bool) error {
+	scPlatformConfig := map[string]string{}
+	scLocalConfig := map[string]string{"initial.uid": "2000", "initial.gid": "2000", "initial.mode": "0775"}
+	if shifted {
+		scPlatformConfig["security.shifted"] = "true"
+		scLocalConfig["security.shifted"] = "true"
+	}
+	if err := ensureV2SharedVolume(server, pool, tenant.V2SCPlatformVolumeName, "Shared /.sc/platform scripts (Sandcastle v2)", scPlatformConfig); err != nil {
+		return err
+	}
+	return ensureV2SharedVolume(server, pool, tenant.V2SCLocalVolumeName, "Shared /.sc/local scripts (Sandcastle v2)", scLocalConfig)
 }
 
 func ensureV2SharedVolume(server TenantResourceServer, pool string, name string, description string, config map[string]string) error {

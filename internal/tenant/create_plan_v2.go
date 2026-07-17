@@ -167,7 +167,10 @@ chmod 0755 /etc/ssh/sshrc
 echo "  + installed the /etc/ssh/sshrc /.sc shim"
 SNIPPET='` + strings.TrimRight(SCShellRCShim, "\n") + `'
 for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
-  [ -e "$RC" ] || touch "$RC"
+  # A missing rc means the shell isn't installed (legacy machines predate the
+  # zsh-default profile) — creating it would collide with the package's
+  # conffile later, so skip; a re-run after installing the shell adds the shim.
+  [ -e "$RC" ] || { echo "  - $RC absent (shell not installed), skipped"; continue; }
   if grep -q '` + SCShimMarker + `' "$RC" 2>/dev/null; then
     echo "  = $RC already has the /.sc shim"
   else
@@ -209,7 +212,9 @@ else
   echo "  MISSING  /.sc shim at /etc/ssh/sshrc"; need=1
 fi
 for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
-  if grep -q '` + SCShimMarker + `' "$RC" 2>/dev/null; then
+  if [ ! -e "$RC" ]; then
+    echo "  --  $RC absent (shell not installed), skipped"
+  elif grep -q '` + SCShimMarker + `' "$RC" 2>/dev/null; then
     echo "  ok  $RC sources the /.sc shell payload"
   else
     echo "  MISSING  /.sc shim in $RC"; need=1

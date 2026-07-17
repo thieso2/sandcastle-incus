@@ -67,7 +67,7 @@ if [ "${#INSTANCES[@]}" -eq 0 ]; then
     [ -n "$name" ] || continue
     [ "$name" = "$SIDECAR" ] && continue
     INSTANCES+=("$name")
-  done < <(incus list "${REMOTE%:}:" --project "$PROJECT" -c n --format csv 2>/dev/null || \
+  done < <({ [ -n "$REMOTE" ] && incus list "$REMOTE" --project "$PROJECT" -c n --format csv 2>/dev/null; } || \
            incus list --project "$PROJECT" -c n --format csv)
 fi
 
@@ -95,7 +95,9 @@ SNIPPET='# Sandcastle /.sc shim (stable) — shell setup lives on the /.sc volum
 true'
 
 for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
-  [ -e "$RC" ] || touch "$RC"
+  # A missing rc means the shell isn't installed (legacy machines predate the
+  # zsh-default profile) — skip rather than pre-create the package's conffile.
+  [ -e "$RC" ] || { echo "  - $RC absent (shell not installed), skipped"; continue; }
   if grep -q 'Sandcastle /.sc shim' "$RC" 2>/dev/null; then
     echo "  = $RC already has the /.sc shim"
   else

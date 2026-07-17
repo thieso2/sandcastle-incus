@@ -203,10 +203,14 @@ fi
 
 log "/.sc: fleet shim bootstrap is idempotent"
 FLEET="$(dirname "$0")/fix-agent-forwarding.sh"
-if "$FLEET" --project "$DEF" web >/dev/null 2>&1 &&
-   "$FLEET" --project "$DEF" web 2>/dev/null | grep -q 'already has the /.sc shim'; then
+# capture-then-grep: `script | grep -q` + pipefail turns grep's early exit
+# (SIGPIPE into the still-writing script) into a spurious pipeline failure.
+FLEET_OK=0
+"$FLEET" --project "$DEF" web >/dev/null 2>&1 && FLEET_OK=1
+FLEET_OUT="$("$FLEET" --project "$DEF" web 2>/dev/null || true)"
+if [ "$FLEET_OK" = 1 ] && printf '%s' "$FLEET_OUT" | grep -q 'already has the /.sc shim'; then
   pass "fix-agent-forwarding.sh runs + re-run reports already-present"
-else fail "fleet shim bootstrap"; fi
+else fail "fleet shim bootstrap (first_ok=$FLEET_OK out='$(printf '%s' "$FLEET_OUT" | tail -3)')"; fi
 
 # machine lifecycle through the USER CLI (`sc create` / `sc delete`, v2 path):
 # project-scoped references must resolve, a bad project must fail fast with the

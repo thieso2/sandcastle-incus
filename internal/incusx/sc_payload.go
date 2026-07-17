@@ -77,6 +77,14 @@ func (c TenantCreator) SyncTenantPlatformPayload(_ context.Context, installPrefi
 			continue
 		}
 		resource := server.UseProject(name)
+		if !checkOnly {
+			// Legacy onboarding (#132): a project provisioned before /.sc has
+			// neither the volumes nor the profile devices — create/merge them
+			// so the payload write below lands on a mounted volume.
+			if err := ensureSCVolumesAndDevices(resource, pool, server.SupportsIdmappedMounts()); err != nil {
+				return statuses, fmt.Errorf("onboard %s onto /.sc: %w", name, err)
+			}
+		}
 		status := SCPayloadProjectStatus{
 			IncusProject: name,
 			Before:       readSCPlatformVersion(resource, pool),
@@ -114,14 +122,25 @@ func (c TenantCreator) EnsureProjectPlatformPayload(_ context.Context, incusProj
 	if err != nil {
 		return SCPayloadProjectStatus{}, fmt.Errorf("get default profile of %s: %w", incusProject, err)
 	}
+	// The storage pool comes from whichever shared-volume device already
+	// exists — sc-platform on current projects, workspace/root on legacy ones
+	// (which then get onboarded below).
 	pool := ""
-	for _, v := range tenant.V2SCVolumes() {
-		if device, ok := profile.Devices[v.DeviceName]; ok && v.Volume == tenant.V2SCPlatformVolumeName {
+	for _, name := range []string{"sc-platform", "workspace", "root"} {
+		if device, ok := profile.Devices[name]; ok && device["pool"] != "" {
 			pool = device["pool"]
+			break
 		}
 	}
 	if pool == "" {
-		return SCPayloadProjectStatus{}, fmt.Errorf("project %s has no /.sc volumes yet — re-run `sc login` to provision them (or have the admin run `sc-adm tenant payload-sync`)", incusProject)
+		return SCPayloadProjectStatus{}, fmt.Errorf("project %s: cannot determine the storage pool from the default profile — re-run `sc login` (or have the admin run `sc-adm tenant payload-sync`)", incusProject)
+	}
+	if !checkOnly {
+		// Legacy onboarding (#132): the tenant's restricted cert may create
+		// the volumes and merge the profile devices inside its own project.
+		if err := ensureSCVolumesAndDevices(resource, pool, server.SupportsIdmappedMounts()); err != nil {
+			return SCPayloadProjectStatus{}, fmt.Errorf("onboard %s onto /.sc: %w", incusProject, err)
+		}
 	}
 	status := SCPayloadProjectStatus{
 		IncusProject: incusProject,
@@ -136,6 +155,44 @@ func (c TenantCreator) EnsureProjectPlatformPayload(_ context.Context, incusProj
 		status.Changed = changed
 	}
 	return status, nil
+}
+
+// ensureSCVolumesAndDevices onboards a (possibly pre-/.sc) app project: it
+// creates the two layer volumes if missing and additively merges their disk
+// devices into the project's default profile. Running containers pick a
+// profile device change up live; VMs on their next restart. The rest of the
+// profile is untouched — full re-renders stay with the provisioning paths.
+func ensureSCVolumesAndDevices(resource TenantResourceServer, pool string, shifted bool) error {
+	if err := ensureV2SCVolumes(resource, pool, shifted); err != nil {
+		return err
+	}
+	profile, etag, err := resource.GetProfile("default")
+	if err != nil {
+		return fmt.Errorf("get default profile: %w", err)
+	}
+	put := profile.Writable()
+	changed := false
+	for _, v := range tenant.V2SCVolumes() {
+		if _, ok := put.Devices[v.DeviceName]; ok {
+			continue
+		}
+		device := map[string]string{"type": "disk", "pool": pool, "source": v.Volume, "path": v.Path}
+		if v.ReadOnly {
+			device["readonly"] = "true"
+		}
+		if put.Devices == nil {
+			put.Devices = map[string]map[string]string{}
+		}
+		put.Devices[v.DeviceName] = device
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	if err := resource.UpdateProfile("default", put, etag); err != nil {
+		return fmt.Errorf("attach /.sc devices to default profile: %w", err)
+	}
+	return nil
 }
 
 // ensureV2PlatformPayload converges one app project's sc-platform volume onto

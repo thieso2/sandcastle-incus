@@ -894,9 +894,12 @@ devices include the shared **`home`** (→ `/home`), **`workspace`**
 > **PASS:** on an older machine, `sc fix <m> --check` prints
 > `agent-forwarding: NEEDS FIX`, then `sc fix <m>` followed by
 > `sc fix <m> --check` prints `agent-forwarding: OK` (payload line shows
-> `current`). Machines whose profile predates the /.sc devices additionally
-> need the idempotent re-provision (re-login) to gain the volume mounts —
-> containers pick them up live, VMs on next restart.
+> `current`). Projects that predate /.sc are onboarded by the sync itself:
+> `sc-adm tenant payload-sync` (and `sc fix`) create the missing volumes and
+> additively merge the profile's `sc-platform`/`sc-local` devices — running
+> containers **and** VMs pick the new mounts up live (validated on Incus 7.2);
+> a machine without zsh gets the shim only in `/etc/bash.bashrc` (`/etc/zsh/`
+> is skipped, not pre-created).
 
 > **Login user + key provenance.** `sc login` prepares the SSH key itself —
 > it uses `~/.ssh/id_ed25519.pub` when present, otherwise generates

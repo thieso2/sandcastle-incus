@@ -365,7 +365,7 @@ tubu.default.acme,tubu.acme ssh-ed25519 AAAA... <span class="comment"># sandcast
 
   <div class="step">
     <h3>Sync the /.sc platform payload</h3>
-    <p>Converges every app project of a tenant onto the <code>/.sc/platform</code> scripts payload built into this binary (ADR-0022) — one shared-volume write per project, never per machine. Every running machine observes the new payload through its <code>/.sc</code> mount; the baked shims pick it up on next use, no re-create needed. <code>--check</code> reports each project's payload version against the binary's (drift detection); rolling back = running <code>payload-sync</code> from the previous binary.</p>
+    <p>Converges every app project of a tenant onto the <code>/.sc/platform</code> scripts payload built into this binary (ADR-0022) — one shared-volume write per project, never per machine. Every running machine observes the new payload through its <code>/.sc</code> mount; the baked shims pick it up on next use, no re-create needed. Projects provisioned before <code>/.sc</code> are onboarded in the same pass: the sync creates the missing <code>sc-platform</code>/<code>sc-local</code> volumes and additively merges their disk devices into the default profile (running machines pick the mounts up live). <code>--check</code> reports each project's payload version against the binary's (drift detection) without changing anything; rolling back = running <code>payload-sync</code> from the previous binary.</p>
     <pre><code><span class="cmd">sandcastle-admin tenant payload-sync</span> <span class="arg">acme</span>
 <span class="cmd">sandcastle-admin tenant payload-sync</span> <span class="arg">acme</span> <span class="flag">--check</span></code></pre>
   </div>
