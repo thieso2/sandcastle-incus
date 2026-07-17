@@ -118,3 +118,52 @@ func TestHandlerAdminTenantCreateRejectsNonAdmin(t *testing.T) {
 		t.Fatalf("status = %d, want 403", rec.Code)
 	}
 }
+
+type fakeSidecarUpdater struct {
+	gotTenant string
+	result    SidecarUpdateResult
+	err       error
+}
+
+func (f *fakeSidecarUpdater) UpdateTenantSidecar(tenant string) (SidecarUpdateResult, error) {
+	f.gotTenant = tenant
+	if f.err != nil {
+		return SidecarUpdateResult{}, f.err
+	}
+	return f.result, nil
+}
+
+func TestHandlerSidecarUpdateForMappedTenant(t *testing.T) {
+	updater := &fakeSidecarUpdater{result: SidecarUpdateResult{Tenant: "acme", Project: "sc2-acme", Instance: "sidecar", BinaryVersion: "v0.2.0"}}
+	h := Handler{Trust: fakeMapper{tenant: "acme"}, Sidecars: updater}
+
+	req := httptest.NewRequest("POST", "/v2/sidecar/update", nil)
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{Raw: []byte("dummy-der")}}}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if updater.gotTenant != "acme" {
+		t.Fatalf("updater got tenant %q", updater.gotTenant)
+	}
+	var got SidecarUpdateResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.BinaryVersion != "v0.2.0" || got.Instance != "sidecar" {
+		t.Fatalf("result = %+v", got)
+	}
+}
+
+func TestHandlerSidecarUpdateNotConfigured(t *testing.T) {
+	h := Handler{Trust: fakeMapper{tenant: "acme"}}
+	req := httptest.NewRequest("POST", "/v2/sidecar/update", nil)
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{Raw: []byte("dummy-der")}}}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 501 {
+		t.Fatalf("status = %d, want 501", rec.Code)
+	}
+}

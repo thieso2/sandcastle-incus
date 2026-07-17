@@ -15,6 +15,7 @@ import (
 type TenantCreateServer interface {
 	GetProject(name string) (*api.Project, string, error)
 	GetProjectNames() ([]string, error)
+	GetInstancesFullAllProjects(instanceType api.InstanceType) ([]api.InstanceFull, error)
 	CreateProject(project api.ProjectsPost) error
 	UpdateProject(name string, project api.ProjectPut, ETag string) error
 	UseProject(name string) TenantResourceServer
@@ -216,6 +217,10 @@ func (s sdkTenantCreateServer) imageServer() incus.ImageServer {
 
 func (s sdkTenantCreateServer) UpdateProject(name string, project api.ProjectPut, etag string) error {
 	return s.inner.UpdateProject(name, project, etag)
+}
+
+func (s sdkTenantCreateServer) GetInstancesFullAllProjects(instanceType api.InstanceType) ([]api.InstanceFull, error) {
+	return s.inner.GetInstancesFullAllProjects(instanceType)
 }
 
 func (s sdkTenantCreateServer) GetProjectNames() ([]string, error) {

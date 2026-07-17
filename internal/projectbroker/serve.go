@@ -99,6 +99,21 @@ type createRequest struct {
 	Project string `json:"project"`
 }
 
+// SidecarUpdateResult reports a completed delegated sidecar update (#124 §5).
+type SidecarUpdateResult struct {
+	Tenant        string `json:"tenant"`
+	Project       string `json:"project"`
+	Instance      string `json:"instance"`
+	BinaryVersion string `json:"binaryVersion"`
+}
+
+// SidecarUpdater pushes the service's OWN running binary into the tenant's
+// sidecar and restarts the TLS leaf signer — the delegated tenant sidecar
+// update (#124 §5). Satisfied by incusx.SidecarSelfUpdater.
+type SidecarUpdater interface {
+	UpdateTenantSidecar(tenant string) (SidecarUpdateResult, error)
+}
+
 // Handler is the broker's HTTP handler. It expects a verified client
 // certificate on the request TLS state. The tenant plane (Trust + Creator)
 // serves `sc project create`; the admin plane (Admin + Provisioner) serves
@@ -108,6 +123,8 @@ type Handler struct {
 	Creator     ProjectCreator
 	Admin       AdminAuthorizer
 	Provisioner TenantProvisioner
+	// Sidecars serves the tenant-triggered sidecar update (nil ⇒ 501).
+	Sidecars SidecarUpdater
 	// Version is the running binary's release version, sent on every response
 	// as the version exchange (#124 §6).
 	Version string
@@ -129,6 +146,8 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleProjectCreate(w, r, fingerprint)
 	case r.Method == http.MethodPost && r.URL.Path == "/v2/tenants":
 		h.handleTenantCreate(w, r, fingerprint)
+	case r.Method == http.MethodPost && r.URL.Path == "/v2/sidecar/update":
+		h.handleSidecarUpdate(w, r, fingerprint)
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}
@@ -197,6 +216,33 @@ func (h Handler) handleTenantCreate(w http.ResponseWriter, r *http.Request, fing
 		var createErr error
 		result, createErr = h.Provisioner.CreateTenant(r.Context(), req)
 		return createErr
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, result)
+}
+
+// handleSidecarUpdate is the tenant plane of #124 §5: the caller's cert maps
+// to their tenant, and the broker pushes its own running binary into that
+// tenant's sidecar — a tenant can only ever update their own sidecar.
+func (h Handler) handleSidecarUpdate(w http.ResponseWriter, r *http.Request, fingerprint string) {
+	if h.Sidecars == nil {
+		http.Error(w, "sidecar updates not configured", http.StatusNotImplemented)
+		return
+	}
+	principal, err := ResolvePrincipal(r.Context(), h.Trust, fingerprint)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	svclog.SetUser(r.Context(), principal.Tenant)
+	var result SidecarUpdateResult
+	err = svclog.Span(r.Context(), "sidecar.update", func() error {
+		var updateErr error
+		result, updateErr = h.Sidecars.UpdateTenantSidecar(principal.Tenant)
+		return updateErr
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

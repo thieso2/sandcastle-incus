@@ -130,6 +130,7 @@ func ExecuteAdmin(name string, args []string) int {
 		tailscale:          incusx.NewTailscaleManager(adminConfig.Remote),
 		authApp: authapp.HTTPRunner{
 			Version:          version,
+			Sidecars:         incusx.SidecarSelfUpdater{Creator: authAppCreator, Admin: adminConfig},
 			RestrictedUsers:  authAppTrust,
 			Admin:            adminConfig,
 			Tenants:          authAppTenants,

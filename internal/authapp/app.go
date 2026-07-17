@@ -128,6 +128,8 @@ type HTTPRunner struct {
 	// Version is the running binary's release version, passed through to the
 	// handler for the version exchange and the admin version card.
 	Version string
+	// Sidecars serves the token-authenticated tenant sidecar update (#124 §5).
+	Sidecars projectbroker.SidecarUpdater
 }
 
 func PlanServe(request ServeRequest) (ServePlan, error) {
@@ -210,6 +212,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			RouteBaseDomain:     r.RouteBaseDomain,
 			RouteTLS:            r.RouteTLS,
 			Version:             r.Version,
+			Sidecars:            r.Sidecars,
 		})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -735,6 +738,9 @@ type HandlerOptions struct {
 	// sentinel); sent on every response as the version exchange (#124 §6) and
 	// shown on the admin version card.
 	Version string
+	// Sidecars serves the token-authenticated tenant sidecar update (#124 §5)
+	// — the tunnel-friendly twin of the broker's /v2/sidecar/update.
+	Sidecars projectbroker.SidecarUpdater
 }
 
 // TenantProjectCreator creates an app project for a tenant and extends the
@@ -779,6 +785,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		routeTLS:         strings.TrimSpace(handlerOptions.RouteTLS),
 		routeResolveHost: handlerOptions.RouteResolveHost,
 		version:          strings.TrimSpace(handlerOptions.Version),
+		sidecars:         handlerOptions.Sidecars,
 	}
 	if app.githubClient == nil {
 		if app.simulateToken != "" {
@@ -816,6 +823,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	} {
 		mux.HandleFunc(path, sharesUnsupportedHandler)
 	}
+	mux.HandleFunc("/api/sidecar/update", app.sidecarUpdateAPI)
 	mux.HandleFunc("/api/device/start", app.deviceStart)
 	mux.HandleFunc("/api/device/poll", app.devicePoll)
 	mux.HandleFunc("/api/workload/enable", app.workloadEnable)
@@ -892,6 +900,7 @@ type handler struct {
 	routeTLS         string
 	routeResolveHost func(ctx context.Context, host string) bool
 	version          string
+	sidecars         projectbroker.SidecarUpdater
 }
 
 // projectsAPI is the tunnel-friendly tenant plane for project creation
@@ -930,6 +939,38 @@ func (h handler) projectsAPI(w http.ResponseWriter, r *http.Request) {
 		var createErr error
 		result, createErr = h.projects.CreateTenantProject(r.Context(), user.UserKey, project, clientCertificatePEM)
 		return createErr
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+// sidecarUpdateAPI is the token-authenticated tenant sidecar update (#124
+// §5): POST /api/sidecar/update, authenticated by the CLI Auth Token. The
+// caller's own sidecar is updated to the auth-app's running binary — the
+// tunnel-friendly twin of the broker's mTLS /v2/sidecar/update.
+func (h handler) sidecarUpdateAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.sidecars == nil {
+		http.Error(w, "sidecar updates are not available on this deployment", http.StatusNotImplemented)
+		return
+	}
+	user, err := h.requireBearerUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	var result projectbroker.SidecarUpdateResult
+	err = svclog.Span(r.Context(), "sidecar.update", func() error {
+		var updateErr error
+		result, updateErr = h.sidecars.UpdateTenantSidecar(user.UserKey)
+		return updateErr
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
