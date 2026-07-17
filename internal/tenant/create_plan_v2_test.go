@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
+	"gopkg.in/yaml.v2"
 )
 
 func v2TestAdmin() config.Admin {
@@ -178,6 +179,143 @@ func TestV2DefaultProfileUserDataNoSignerIsMinimal(t *testing.T) {
 	}
 	if !strings.Contains(data, "- [systemctl, enable, --now, ssh]") {
 		t.Fatalf("fallback user-data should still enable ssh:\n%s", data)
+	}
+}
+
+// A herdr/tmux server outlives the ssh session that seeded its SSH_AUTH_SOCK,
+// so panes inherit a socket sshd has already deleted. Every machine must ship
+// the forwarded-agent indirection (stable per-user link, refreshed each login)
+// in both the ingress and the minimal branch, with the two load-bearing guards.
+func TestV2DefaultProfileUserDataForwardsSSHAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{"ingress", V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "default", "acme", "http://10.0.0.3:9443")},
+		{"minimal", V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "", "", "")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, want := range []string{
+				"path: /etc/ssh/sshrc",
+				"path: /etc/zsh/zshrc",
+				"path: /etc/bash.bashrc",
+				"append: true",
+				`ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/ssh_auth_sock"`,
+				`export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"`,
+			} {
+				if !strings.Contains(tc.data, want) {
+					t.Fatalf("user-data missing %q:\n%s", want, tc.data)
+				}
+			}
+			// Republish must fire on every session (not only a dead link): the
+			// only -S guard belongs to the sshrc self-link check, never a "link
+			// is dead" gate. Consume must follow the symlink via -h, not -S.
+			if strings.Contains(tc.data, `[ ! -S "$HOME/.ssh/ssh_auth_sock" ]`) {
+				t.Fatalf("republish must not gate on a dead link:\n%s", tc.data)
+			}
+			if strings.Contains(tc.data, `[ -S "$HOME/.ssh/ssh_auth_sock" ]`) {
+				t.Fatalf("consume must follow the symlink via -h, not -S:\n%s", tc.data)
+			}
+			assertCloudConfigYAML(t, tc.data)
+		})
+	}
+}
+
+// zsh is the default login shell (issue: "use zsh by default"): the profile
+// must set /bin/zsh and install the zsh package so a fresh machine has it.
+func TestV2DefaultProfileUserDataDefaultsToZsh(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{"ingress", V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "default", "acme", "http://10.0.0.3:9443")},
+		{"minimal", V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "", "", "")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(tc.data, "shell: /bin/zsh") {
+				t.Fatalf("login shell should be /bin/zsh:\n%s", tc.data)
+			}
+			if strings.Contains(tc.data, "shell: /bin/bash") {
+				t.Fatalf("login shell should not be bash:\n%s", tc.data)
+			}
+			// zsh must be installed so /bin/zsh exists on a stock machine.
+			pkgs := tc.data[strings.Index(tc.data, "packages:"):]
+			if !strings.Contains(pkgs[:strings.Index(pkgs, "\nwrite_files:")], "- zsh") {
+				t.Fatalf("packages must install zsh:\n%s", tc.data)
+			}
+		})
+	}
+}
+
+// The `sc fix` backfill/check scripts must be built from the SAME sshrc body and
+// consume snippet the profile embeds, so a repaired machine is byte-identical to
+// a fresh one — and the two guards must survive into the backfill.
+func TestSSHAgentForwardScriptsShareProfileContent(t *testing.T) {
+	profile := V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "default", "acme", "http://10.0.0.3:9443")
+	backfill := SSHAgentForwardBackfillScript()
+	check := SSHAgentForwardCheckScript()
+
+	for _, want := range []string{
+		`ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/ssh_auth_sock"`, // republish, from sshrc body
+		`export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"`,    // consume, from snippet
+		"/etc/ssh/sshrc",
+		"/etc/zsh/zshrc",
+		"/etc/bash.bashrc",
+	} {
+		if !strings.Contains(profile, want) || !strings.Contains(backfill, want) {
+			t.Fatalf("profile and backfill must share %q", want)
+		}
+	}
+	// The -h consume guard (not -S) must survive into the backfill.
+	if !strings.Contains(backfill, `[ -h "$HOME/.ssh/ssh_auth_sock" ]`) {
+		t.Fatalf("backfill lost the -h consume guard:\n%s", backfill)
+	}
+	// Backfill mutates; check is read-only (no writes to system files).
+	if strings.Contains(check, "cat >") || strings.Contains(check, ">>") || strings.Contains(check, "ln -sf") {
+		t.Fatalf("check script must not mutate:\n%s", check)
+	}
+	// Backfill detects (does not rewrite) the self-link trap; check flags it too.
+	for _, s := range []string{backfill, check} {
+		if !strings.Contains(s, "ssh_auth_sock_known") {
+			t.Fatalf("script should account for the legacy self-link trap:\n%s", s)
+		}
+	}
+	if !strings.Contains(check, "agent-forwarding: OK") || !strings.Contains(check, "agent-forwarding: NEEDS FIX") {
+		t.Fatalf("check script must print a status verdict:\n%s", check)
+	}
+}
+
+// assertCloudConfigYAML parses the rendered user-data as YAML to catch the
+// indentation faults that make cloud-init silently drop write_files entries.
+// The `## template: jinja` and `#cloud-config` comment lines are valid YAML
+// comments, so the whole document parses as-is.
+func assertCloudConfigYAML(t *testing.T, data string) {
+	t.Helper()
+	// `{{ v1.local_hostname }}` is a jinja expression cloud-init renders before
+	// parsing; the literal `{{` is not valid YAML, so stand it in first.
+	rendered := strings.ReplaceAll(data, "{{ v1.local_hostname }}", "machine")
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(rendered), &doc); err != nil {
+		t.Fatalf("rendered user-data is not valid YAML: %v\n%s", err, data)
+	}
+	files, ok := doc["write_files"].([]any)
+	if !ok {
+		t.Fatalf("write_files missing or wrong type:\n%s", data)
+	}
+	want := map[string]bool{"/etc/ssh/sshrc": false, "/etc/zsh/zshrc": false, "/etc/bash.bashrc": false}
+	for _, f := range files {
+		if m, ok := f.(map[any]any); ok {
+			if p, ok := m["path"].(string); ok {
+				if _, tracked := want[p]; tracked {
+					want[p] = true
+				}
+			}
+		}
+	}
+	for path, seen := range want {
+		if !seen {
+			t.Fatalf("write_files did not parse an entry for %s:\n%s", path, data)
+		}
 	}
 }
 

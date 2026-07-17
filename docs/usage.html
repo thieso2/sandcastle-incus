@@ -561,6 +561,19 @@ Bootstrap:
   </div>
 
   <div class="step">
+    <h3>Fix machines <span class="badge badge-user">user</span></h3>
+    <pre><code><span class="cmd">sandcastle fix</span>   <span class="arg">dev</span>
+<span class="cmd">sandcastle fix</span>   <span class="arg">dev</span> <span class="flag">--check</span>
+<span class="cmd">sandcastle fix</span>   <span class="arg">obelix:web:api</span> <span class="flag">--only</span> <span class="arg">agent-forwarding</span></code></pre>
+    <p><code>fix</code> applies idempotent maintenance fixups to a running machine over SSH (as the login user, via <code>sudo</code>). Cloud-init only runs at a machine's first boot, so a machine built before a fixup shipped never receives it; <code>fix</code> backfills the change in place. It resolves the same <code>[[remote:]project:]machine</code> reference as <code>connect</code> (creating/starting the machine if needed). <code>--check</code> reports status and changes nothing; <code>--only &lt;name&gt;</code> limits it to the named fixup(s).</p>
+    <p>Registered fixups:</p>
+    <ul>
+      <li><code>agent-forwarding</code> — installs the forwarded-SSH-agent indirection (<code>/etc/ssh/sshrc</code> republishes each session's agent at <code>~/.ssh/ssh_auth_sock</code>; <code>/etc/zsh/zshrc</code> and <code>/etc/bash.bashrc</code> export it) so <code>ssh -A</code> keeps working inside a <code>herdr</code>/<code>tmux</code> pane whose server outlives the ssh session. New machines get this from cloud-init; <code>fix</code> is the backfill for older ones. It also reports (never rewrites) a broken hand-rolled <code>~/.zshrc</code> that republishes through the consumed path.</li>
+    </ul>
+    <div class="note"><strong>Fleet backfill.</strong> To apply a fixup across every machine in a project at once (admin, over <code>incus exec</code>, no SSH/agent needed), use <code>scripts/fix-agent-forwarding.sh --remote &lt;r&gt;: --project &lt;p&gt;</code>.</div>
+  </div>
+
+  <div class="step">
     <h3>Lifecycle commands <span class="badge badge-user">user</span></h3>
     <pre><code><span class="cmd">sandcastle start</span>   <span class="arg">website:codex</span>
 <span class="cmd">sandcastle stop</span>    <span class="arg">website:codex</span>

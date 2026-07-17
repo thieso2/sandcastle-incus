@@ -308,9 +308,44 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 // machine if it doesn't exist, start it if it is stopped, wait for sshd, then
 // open an SSH session as the profile login user with the login SSH key.
 func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, command []string, vm bool) error {
-	project, machineName, err := resolveV2MachineReference(summary, reference, config.adminConfig.Project)
+	dialed, err := dialV2Machine(ctx, config, summary, reference, vm)
 	if err != nil {
 		return err
+	}
+	sshArgs := dialed.sshArgs
+	// ssh joins its trailing arguments with spaces into ONE remote command
+	// string that the remote shell re-splits, so argv must be shell-quoted here
+	// or `sh -c 'echo hi'` arrives as `sh -c echo hi`.
+	if line := remoteCommandLine(command); line != "" {
+		sshArgs = append(sshArgs, line)
+	}
+	fmt.Fprintf(config.stdout, "Connecting: ssh %s@%s\n", dialed.loginUser, dialed.privateIP)
+	sshCmd := exec.CommandContext(ctx, "ssh", sshArgs...)
+	sshCmd.Stdin = osStdinFor(config)
+	sshCmd.Stdout = config.stdout
+	sshCmd.Stderr = config.stderr
+	return sshCmd.Run()
+}
+
+// dialedV2Machine carries everything needed to run ssh against a resolved,
+// running machine: the base ssh argv (options + login target, no remote command
+// yet) plus the login user and IP for messaging.
+type dialedV2Machine struct {
+	sshArgs   []string
+	loginUser string
+	privateIP string
+	project   string
+	machine   string
+}
+
+// dialV2Machine resolves a machine reference, ensures the machine exists and is
+// up (creating it if absent, like `sc connect`), waits for sshd, and builds the
+// ssh argv with strict host-key checking. Callers append their own remote
+// command (or feed one on stdin). Shared by `sc connect` and `sc fix`.
+func dialV2Machine(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, vm bool) (dialedV2Machine, error) {
+	project, machineName, err := resolveV2MachineReference(summary, reference, config.adminConfig.Project)
+	if err != nil {
+		return dialedV2Machine{}, err
 	}
 	ensured, err := config.tenantCreator.EnsureMachineV2(ctx, incusx.CreateMachineV2Request{
 		IncusProject: summary.V2IncusProjectName(project),
@@ -319,7 +354,7 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 		VM:           vm,
 	})
 	if err != nil {
-		return err
+		return dialedV2Machine{}, err
 	}
 	switch {
 	case ensured.Created:
@@ -328,7 +363,7 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 		fmt.Fprintf(config.stdout, "Machine %s started.\n", machineName)
 	}
 	if ensured.PrivateIP == "" {
-		return fmt.Errorf("machine %s has no IP yet — still booting; retry in a few seconds (watch with: sc list)", machineName)
+		return dialedV2Machine{}, fmt.Errorf("machine %s has no IP yet — still booting; retry in a few seconds (watch with: sc list)", machineName)
 	}
 	// A fresh machine needs cloud-init to install and start sshd. VMs take
 	// longer: image download + firmware/kernel boot before cloud-init even runs.
@@ -339,17 +374,17 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 	sshDeadline := time.Now().Add(sshWait)
 	for !probeSSHPort(ensured.PrivateIP, 3*time.Second) {
 		if !time.Now().Before(sshDeadline) {
-			return fmt.Errorf("machine %s (%s) did not open SSH within %s — cloud-init may still be running", machineName, ensured.PrivateIP, sshWait)
+			return dialedV2Machine{}, fmt.Errorf("machine %s (%s) did not open SSH within %s — cloud-init may still be running", machineName, ensured.PrivateIP, sshWait)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return dialedV2Machine{}, ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
 	}
 	sshKey, err := prepareLoginSSHKey(loginSSHKeyRequest{})
 	if err != nil {
-		return err
+		return dialedV2Machine{}, err
 	}
 	privateKeyPath := strings.TrimSuffix(sshKey.PublicKeyPath, ".pub")
 	// Record the machine's authoritative host key under the names it answers
@@ -369,18 +404,13 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 		sshArgs = append(sshArgs, "-o", "StrictHostKeyChecking=accept-new")
 	}
 	sshArgs = append(sshArgs, ensured.LoginUser+"@"+ensured.PrivateIP)
-	// ssh joins its trailing arguments with spaces into ONE remote command
-	// string that the remote shell re-splits, so argv must be shell-quoted here
-	// or `sh -c 'echo hi'` arrives as `sh -c echo hi`.
-	if line := remoteCommandLine(command); line != "" {
-		sshArgs = append(sshArgs, line)
-	}
-	fmt.Fprintf(config.stdout, "Connecting: ssh %s@%s\n", ensured.LoginUser, ensured.PrivateIP)
-	sshCmd := exec.CommandContext(ctx, "ssh", sshArgs...)
-	sshCmd.Stdin = osStdinFor(config)
-	sshCmd.Stdout = config.stdout
-	sshCmd.Stderr = config.stderr
-	return sshCmd.Run()
+	return dialedV2Machine{
+		sshArgs:   sshArgs,
+		loginUser: ensured.LoginUser,
+		privateIP: ensured.PrivateIP,
+		project:   project,
+		machine:   machineName,
+	}, nil
 }
 
 // remoteCommandLine renders argv as a single command line for ssh, which
