@@ -134,3 +134,39 @@ func TestRouteStatusFormat(t *testing.T) {
 		}
 	}
 }
+
+// Caught live (majestix 2026-07-17): the --yes flag was registered but never
+// read, so a non-interactive `sc route delete <host> --yes` refused with
+// "refusing to delete route without --yes".
+func TestRouteDeleteHonorsYesWithoutTTY(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := &fakeRouteClient{}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: scconfig.Admin{Tenant: "acme", Project: "web", Remote: "sc-acme", AuthToken: "x"},
+		authRoutes:  fake,
+	}, "route", "delete", "api.acme.sc2.dev", "--yes")
+	if err != nil {
+		t.Fatalf("route delete --yes must not prompt or refuse: %v", err)
+	}
+	if fake.deleted != "api.acme.sc2.dev" {
+		t.Errorf("deleted = %q, want api.acme.sc2.dev", fake.deleted)
+	}
+	if !strings.Contains(stdout, "Deleted route") {
+		t.Errorf("stdout missing deletion line:\n%s", stdout)
+	}
+}
+
+func TestRouteDeleteWithoutYesRefusesNonInteractive(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := &fakeRouteClient{}
+	_, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: scconfig.Admin{Tenant: "acme", Project: "web", Remote: "sc-acme", AuthToken: "x"},
+		authRoutes:  fake,
+	}, "route", "delete", "api.acme.sc2.dev")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("expected the --yes refusal, got %v", err)
+	}
+	if fake.deleted != "" {
+		t.Errorf("delete must not reach the client without confirmation")
+	}
+}

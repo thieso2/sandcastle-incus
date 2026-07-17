@@ -307,16 +307,27 @@ type applianceFile struct {
 	mode    int
 }
 
+// writeApplianceFile lands f.content at f.path inside the instance. The
+// content is pushed to a temp path beside the target and renamed over it:
+// a direct overwrite of a RUNNING executable (the auth-app binary, caddy,
+// cloudflared — every redeploy hits this) fails with ETXTBSY and aborts the
+// file-push stream mid-transfer, while rename() swaps the directory entry
+// and leaves the running program on its old inode. Caught live twice in the
+// 2026-07-17 majestix e2e run.
 func writeApplianceFile(server TenantResourceServer, instance string, f applianceFile) error {
 	if err := writeInstanceDir(server, instance, f.path); err != nil {
 		return err
 	}
-	return server.CreateInstanceFile(instance, f.path, incus.InstanceFileArgs{
+	tmp := f.path + ".sandcastle-push"
+	if err := server.CreateInstanceFile(instance, tmp, incus.InstanceFileArgs{
 		Content:   strings.NewReader(string(f.content)),
 		Type:      "file",
 		Mode:      f.mode,
 		WriteMode: "overwrite",
-	})
+	}); err != nil {
+		return err
+	}
+	return execSidecar(server, instance, fmt.Sprintf("mv -f '%s' '%s'", tmp, f.path))
 }
 
 func authAppEnv(req BootstrapAuthAppRequest) string {

@@ -200,16 +200,24 @@ type brokerFile struct {
 	mode    int
 }
 
+// writeBrokerFile pushes to a temp path and renames over the target — an
+// in-place overwrite of a RUNNING executable (redeploy) dies with ETXTBSY
+// mid-stream; rename() swaps the directory entry safely (see
+// writeApplianceFile).
 func writeBrokerFile(server TenantResourceServer, instance string, f brokerFile) error {
 	if err := writeInstanceDir(server, instance, f.path); err != nil {
 		return err
 	}
-	return server.CreateInstanceFile(instance, f.path, incus.InstanceFileArgs{
+	tmp := f.path + ".sandcastle-push"
+	if err := server.CreateInstanceFile(instance, tmp, incus.InstanceFileArgs{
 		Content:   strings.NewReader(string(f.content)),
 		Type:      "file",
 		Mode:      f.mode,
 		WriteMode: "overwrite",
-	})
+	}); err != nil {
+		return err
+	}
+	return execSidecar(server, instance, fmt.Sprintf("mv -f '%s' '%s'", tmp, f.path))
 }
 
 func brokerEnv(req BootstrapV2Request) string {

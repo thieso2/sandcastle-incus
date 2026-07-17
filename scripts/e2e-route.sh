@@ -67,11 +67,17 @@ fi
 pass "have a tenant token"
 
 # --- 2. a machine running an app on :3000 --------------------------------------
-IMG=$(incus image list "${REMOTE}:" --project "$APPPROJ" -c f --format csv 2>/dev/null | head -1)
-[ -n "$IMG" ] || fail "no cached image in $APPPROJ to launch from"
+# CONTAINER images only: the project also caches VM variants, and launching a
+# VM image without --vm yields an instance that never boots (no IP, caught live).
+IMG=$(incus image list "${REMOTE}:" --project "$APPPROJ" -c ft --format csv 2>/dev/null | awk -F, '$2=="CONTAINER"{print $1; exit}')
+[ -n "$IMG" ] || fail "no cached container image in $APPPROJ to launch from"
 incus launch "${REMOTE}:${IMG}" "${REMOTE}:${MACHINE}" --project "$APPPROJ" >/dev/null
 for _ in $(seq 1 40); do
-  MIP=$(incus list "${REMOTE}:${MACHINE}" --project "$APPPROJ" --format csv -c 4 2>/dev/null | grep -oE '10\.[0-9.]+' | head -1)
+  # List unfiltered and match client-side: a name-filtered
+  # `incus list <remote>:<name>` returns an empty set on Incus 7.2 (caught
+  # live), and under pipefail an empty poll's grep exit 1 would kill the
+  # script (set -e) — hence the `|| true`.
+  MIP=$(incus list "${REMOTE}:" --project "$APPPROJ" --format csv -c n4 2>/dev/null | awk -F, -v m="$MACHINE" '$1==m{print $2}' | grep -oE '10\.[0-9.]+' | head -1 || true)
   [ -n "$MIP" ] && break; sleep 3
 done
 [ -n "$MIP" ] || fail "machine $MACHINE never got an IP"

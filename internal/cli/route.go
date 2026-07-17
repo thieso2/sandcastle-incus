@@ -151,12 +151,14 @@ func newRouteDeleteCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hostname := strings.TrimSpace(args[0])
-			confirmed, err := confirmMissingYes(config, "Delete route "+hostname+"?", "refusing to delete route without --yes")
-			if err != nil {
-				return err
-			}
-			if !confirmed {
-				return nil
+			if !yes {
+				confirmed, err := confirmMissingYes(config, "Delete route "+hostname+"?", "refusing to delete route without --yes")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return nil
+				}
 			}
 			client, err := routeClient(config)
 			if err != nil {

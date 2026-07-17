@@ -44,7 +44,7 @@ type RouteListResult struct {
 	Routes []RouteView `json:"routes"`
 }
 
-const routesUnavailableMessage = "public routes are not available on this install: it has no public ingress. Re-install with `sc-adm install --ingress acme`."
+const routesUnavailableMessage = "public routes are not available on this install: it has no route ingress. Redeploy with `--route-ingress acme` (sc-adm install or sc-adm auth-app deploy) — it runs beside a Cloudflare-tunnelled login host."
 
 func routeView(rs RouteStatus) RouteView {
 	return RouteView{

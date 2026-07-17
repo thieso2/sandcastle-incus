@@ -2437,3 +2437,27 @@ no TLS peer, so a recorded certificate is needed anyway. Also noticed during
 teardown: `tenant delete --purge` leaves the tenant's trust entries behind
 (orphaned `sandcastle-<tenant>` certs with empty project lists) — not fixed
 here, worth a follow-up issue.
+
+## 2026-07-17 — Route-phase fixes from the majestix full e2e run
+
+- **`sc route delete --yes` honored.** The flag was registered but never read;
+  non-interactive deletes always refused. Gated the confirm on `!yes` (the
+  pattern every other delete command uses) + regression tests.
+- **Appliance redeploy no longer overwrites running executables.**
+  `writeApplianceFile`/`writeBrokerFile` now push to a `.sandcastle-push` temp
+  path and `mv -f` over the target. A direct overwrite of the running
+  auth-app/caddy binary aborted the push stream with ETXTBSY ("broken pipe"),
+  killing every redeploy of a live appliance. Alternative considered: stop all
+  units before pushing — rejected, it turns every redeploy into a login outage;
+  rename keeps services running on the old inode until restart.
+- **`scripts/e2e-route.sh` made robust** (pipefail-safe IP poll, container-image
+  pick instead of `head -1` grabbing the VM image, client-side name match since
+  name-filtered `incus list <remote>:<name>` returns an empty set on Incus 7.2).
+- **Routes-unavailable message corrected** to point at `--route-ingress acme`
+  (redeploy), not `--ingress acme` (which would change the login front).
+- Noted but not changed: with two tenants of one install enrolled from one
+  client, the per-install `auth_tokens` map means the LAST login's token wins —
+  `sc remote switch` between two same-install suffix remotes does not switch
+  the bearer identity, so the other tenant's `sc route`/API calls 403 until a
+  re-login. Security-correct but surprising; candidate for a per-(install,user)
+  token map keyed off the remote.
