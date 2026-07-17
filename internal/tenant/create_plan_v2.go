@@ -40,13 +40,20 @@ func V2DefaultProfileUserData(user string, sshKey string, project string, suffix
   - name: %s
     uid: 2000
     groups: [sudo]
-    shell: /bin/bash
+    shell: /bin/zsh
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
       - %s
 packages:
   - openssh-server
+  - zsh
 `, user, sshKey)
+
+	// SSH agent forwarding survives terminal multiplexers: a herdr/tmux server
+	// outlives the ssh session that seeded its SSH_AUTH_SOCK, so panes inherit a
+	// socket sshd has already deleted. sshAgentForwardWriteFiles republishes each
+	// session's forwarded agent at a stable per-user path and points shells at it.
+	// It ships in both branches so agent forwarding works with or without ingress.
 
 	// Caddy HTTPS ingress (ADR-0011): only when we know the machine's identity
 	// (jinja) and where to fetch its leaf (the sidecar signer). The setup script
@@ -55,8 +62,7 @@ packages:
 	if jinja && signerURL != "" {
 		script := base64.StdEncoding.EncodeToString([]byte(caddyIngressSetupScript))
 		generalize := base64.StdEncoding.EncodeToString([]byte(machineGeneralizeScript))
-		body += fmt.Sprintf(`write_files:
-  - path: /etc/sandcastle/machine.env
+		body += "write_files:\n" + sshAgentForwardWriteFiles + fmt.Sprintf(`  - path: /etc/sandcastle/machine.env
     permissions: '0644'
     content: |
       FQDN={{ v1.local_hostname }}.%s.%s
@@ -78,8 +84,136 @@ runcmd:
 		return header + identity + body
 	}
 
-	return header + identity + body + `runcmd:
+	return header + identity + body + "write_files:\n" + sshAgentForwardWriteFiles + `runcmd:
   - [systemctl, enable, --now, ssh]
+`
+}
+
+// sshAgentForwardWriteFiles is a cloud-init write_files fragment (entries only,
+// under a caller-supplied `write_files:` key) installing the forwarded-agent
+// indirection. Two guards must be exactly this way — the obvious alternatives
+// silently break multiplexer panes:
+//
+//  1. /etc/ssh/sshrc re-points the stable link on EVERY session (not only when
+//     it is dead): a link left pointing at a session that has since closed is
+//     healed by the next login, so a persistent herdr/tmux server always ends
+//     up on a live agent.
+//  2. The consume snippet guards on -h (symlink present), NOT -S (live socket):
+//     a pane opened while the link dangles must still export the LINK path so it
+//     follows the link once a new session heals it in place — the whole point of
+//     the indirection. Guarding on -S would pin such a pane to a dead socket.
+//
+// The consume snippet ships in both /etc/zsh/zshrc (zsh is the default login
+// shell) and /etc/bash.bashrc, so a herdr pane picks up the agent whichever
+// shell it runs; both are sourced by their shell's interactive startup.
+//
+// sshAgentRepublishScript (the /etc/ssh/sshrc body) and sshAgentConsumeSnippet
+// are the single source of truth: the cloud-init write_files below AND the
+// `sc fix` backfill/check scripts (SSHAgentForward*Script) are both built from
+// them, so a machine repaired after the fact is byte-identical to a fresh one.
+const sshAgentRepublishScript = `#!/bin/sh
+# Sandcastle: republish this session's forwarded SSH agent at a stable path
+# so multiplexer panes (herdr/tmux) that outlive the session keep a live
+# agent. Re-point on every session so a new login heals a dangling link.
+if [ -n "$SSH_AUTH_SOCK" ] && [ "$SSH_AUTH_SOCK" != "$HOME/.ssh/ssh_auth_sock" ]; then
+  mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/ssh_auth_sock"
+fi
+`
+
+const sshAgentConsumeSnippet = `# Sandcastle: follow the forwarded agent republished by /etc/ssh/sshrc.
+# Guard on -h (symlink present), NOT -S (live socket): a pane opened while
+# the link dangles must still point AT the link so the next session heals it.
+if [ -h "$HOME/.ssh/ssh_auth_sock" ]; then
+  export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"
+fi
+`
+
+// sshAgentConsumeMarker is the grep sentinel identifying an already-installed
+// consume snippet; the apply/check scripts and the profile share it.
+const sshAgentConsumeMarker = "Sandcastle: follow the forwarded agent"
+
+// sshAgentForwardWriteFiles is a cloud-init write_files fragment (entries only,
+// under a caller-supplied `write_files:` key), built from the shared scripts.
+var sshAgentForwardWriteFiles = "  - path: /etc/ssh/sshrc\n" +
+	"    permissions: '0755'\n    content: |\n" + indentBlock(sshAgentRepublishScript, 6) +
+	"  - path: /etc/zsh/zshrc\n    append: true\n    content: |\n" + indentBlock(sshAgentConsumeSnippet, 6) +
+	"  - path: /etc/bash.bashrc\n    append: true\n    content: |\n" + indentBlock(sshAgentConsumeSnippet, 6)
+
+// indentBlock left-pads every non-empty line of s by n spaces (for embedding a
+// script under a YAML `content: |` block scalar).
+func indentBlock(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
+		if line == "" {
+			b.WriteByte('\n')
+			continue
+		}
+		b.WriteString(pad)
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// SSHAgentForwardBackfillScript is an idempotent /bin/sh script — run as root —
+// that installs the forwarded-agent indirection onto a machine built before it
+// shipped in cloud-init (`sc fix <machine>`). It writes the exact same files the
+// profile does, and reports (never rewrites) a broken hand-rolled ~/.zshrc.
+func SSHAgentForwardBackfillScript() string {
+	return `set -eu
+cat > /etc/ssh/sshrc <<'SANDCASTLE_SSHRC_EOF'
+` + sshAgentRepublishScript + `SANDCASTLE_SSHRC_EOF
+chmod 0755 /etc/ssh/sshrc
+SNIPPET='` + strings.TrimRight(sshAgentConsumeSnippet, "\n") + `'
+for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
+  [ -e "$RC" ] || continue
+  if grep -q '` + sshAgentConsumeMarker + `' "$RC" 2>/dev/null; then
+    echo "  = $RC already has the consume snippet"
+  else
+    printf '\n%s\n' "$SNIPPET" >> "$RC"
+    echo "  + appended consume snippet to $RC"
+  fi
+done
+for home in /root /home/*; do
+  [ -d "$home" ] || continue
+  z="$home/.zshrc"
+  if [ -f "$z" ] && grep -q 'ssh_auth_sock_known' "$z" 2>/dev/null; then
+    echo "  ! WARNING: $z has a broken hand-rolled agent block (ssh_auth_sock_known);"
+    echo "    replace it with the read-only consume snippet by hand — it self-links and breaks the agent."
+  fi
+  rm -f "$home/.ssh/ssh_auth_sock_known" 2>/dev/null || true
+done
+echo "agent-forwarding: installed"
+`
+}
+
+// SSHAgentForwardCheckScript is a read-only /bin/sh script — run as root — that
+// reports whether the forwarded-agent indirection is present, changing nothing.
+// It prints a trailing "agent-forwarding: OK" or "agent-forwarding: NEEDS FIX".
+func SSHAgentForwardCheckScript() string {
+	return `set -u
+need=0
+if [ -f /etc/ssh/sshrc ] && grep -q ssh_auth_sock /etc/ssh/sshrc 2>/dev/null; then
+  echo "  ok  /etc/ssh/sshrc republishes the agent"
+else
+  echo "  MISSING  /etc/ssh/sshrc"; need=1
+fi
+for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
+  if grep -q '` + sshAgentConsumeMarker + `' "$RC" 2>/dev/null; then
+    echo "  ok  $RC exports the stable socket"
+  else
+    echo "  MISSING  consume snippet in $RC"; need=1
+  fi
+done
+for home in /root /home/*; do
+  z="$home/.zshrc"
+  if [ -f "$z" ] && grep -q 'ssh_auth_sock_known' "$z" 2>/dev/null; then
+    echo "  BROKEN  $z has a hand-rolled ssh_auth_sock_known block"; need=1
+  fi
+done
+if [ "$need" = 0 ]; then echo "agent-forwarding: OK"; else echo "agent-forwarding: NEEDS FIX"; fi
 `
 }
 

@@ -841,9 +841,30 @@ export INCUS_CONF=~/.config/incus-admin
 incus profile show big:default --project sc2-$TENANT-default
 ```
 **PASS (✅ validated):** `cloud-init.user-data` contains the login user with
-`ssh_authorized_keys: [ <your key> ]`, installs `openssh-server`, and
-`runcmd: [systemctl, enable, --now, ssh]`; devices include the shared
-**`home`** (→ `/home`) and **`workspace`** (→ `/workspace`) volumes.
+`shell: /bin/zsh` and `ssh_authorized_keys: [ <your key> ]`, installs
+`openssh-server` and `zsh`, and `runcmd: [systemctl, enable, --now, ssh]`;
+devices include the shared **`home`** (→ `/home`) and **`workspace`**
+(→ `/workspace`) volumes.
+
+> **Forwarded SSH agent survives multiplexers.** The profile also writes
+> `/etc/ssh/sshrc` (republishes each session's forwarded agent at the stable
+> path `~/.ssh/ssh_auth_sock`) and appends a consume snippet to both
+> `/etc/zsh/zshrc` and `/etc/bash.bashrc` (`export SSH_AUTH_SOCK` when that
+> link exists). This keeps `ssh -A` working inside a `herdr`/`tmux` pane whose
+> server outlives the ssh session that seeded `SSH_AUTH_SOCK`. Verify on a
+> machine with `herdr pane split` → `ssh-add -l` → `herdr pane close`. Two
+> guards are load-bearing: sshrc re-points on **every** session (heals a link
+> left dangling by a closed one), and the shell consumes via `-h` (symlink
+> present), **not** `-S` (live socket), so a pane opened while the link
+> dangles still follows it and heals in place.
+>
+> **Backfilling older machines.** cloud-init runs only at first boot, so a
+> machine built before this shipped never gets the files. `sc fix <machine>`
+> installs them in place over SSH (idempotent; `--check` reports without
+> changing anything); `scripts/fix-agent-forwarding.sh --remote <r>: --project
+> <p>` does the whole project at once over `incus exec`. **PASS:** on an older
+> machine, `sc fix <m> --check` prints `agent-forwarding: NEEDS FIX`, then
+> `sc fix <m>` followed by `sc fix <m> --check` prints `agent-forwarding: OK`.
 
 > **Login user + key provenance.** `sc login` prepares the SSH key itself —
 > it uses `~/.ssh/id_ed25519.pub` when present, otherwise generates

@@ -2602,3 +2602,82 @@ return) — rejected, it never pinned that a name-mismatched entry is matched by
 fingerprint, the exact property the incident depended on; (b) add a code fix —
 none needed, the behaviour is already correct in-tree. The test locks it so a
 future refactor of the fingerprint match can't silently regress to name-only.
+
+## 2026-07-17 — v2 profile: zsh default shell + forwarded-agent indirection (herdr panes)
+
+**Symptom:** `herdr --remote dev.scraper.obelix` panes had no working SSH agent
+even though `ssh -A` to the machine worked. A terminal multiplexer's server
+outlives the ssh session that seeded its `SSH_AUTH_SOCK`, so panes inherit a
+`/tmp/ssh-*/agent.*` socket sshd has already deleted.
+
+**Root cause (two layers):**
+1. `V2DefaultProfileUserData` shipped **no** agent indirection at all — contrary
+   to a stale memory that claimed it existed. It was never committed to
+   `internal/`; the only copy lived in the legacy v1 `images/base/sandcastle-bootstrap`
+   (not run on v2 machines), and even there with the wrong guards.
+2. The live machine's personal `~/.zshrc` had a hand-rolled block that conflated
+   *republish* and *consume* on one path: `export SSH_AUTH_SOCK=~/.ssh/ssh_auth_sock_known`
+   plus `ln -sf "$SSH_AUTH_SOCK" ~/.ssh/ssh_auth_sock_known` guarded only by
+   `[ -n "$SSH_AUTH_SOCK" ]`. A pane inheriting the (dangling) `_known` path
+   re-linked it to itself → a **self-referential symlink** that broke the agent
+   for every pane.
+
+**Fix (code):** the profile now sets `shell: /bin/zsh`, installs `zsh` (per
+"use zsh by default"), and writes three files via cloud-init `write_files`:
+`/etc/ssh/sshrc` (republish each session's forwarded agent at the stable path
+`~/.ssh/ssh_auth_sock`) and an append to both `/etc/zsh/zshrc` and
+`/etc/bash.bashrc` (consume it). Guards: republish on **every** session (heals a
+dangling link); consume via `-h` not `-S` (a pane opened while the link dangles
+still follows it and heals in place). The shell only ever *reads* the link;
+sshrc is the sole writer, from the real forwarded socket — eliminating the
+self-link race the `~/.zshrc` version had.
+
+**Alternatives considered:** (a) `/etc/profile.d/*.sh` for the consume snippet —
+rejected, sourced only by login shells, and herdr panes are non-login; Debian's
+`/etc/bash.bashrc` (and `/etc/zsh/zshrc`) cover both. (b) keep the shell-side
+republish (as `~/.zshrc` did) — rejected, it is the source of the self-link bug;
+splitting republish (root, sshrc, from the real socket) from consume (shell,
+read-only) is what makes it robust. (c) b64-embed the scripts like the caddy
+setup — unnecessary here, the snippets are short and a YAML-validity unit test
+guards the indentation.
+
+**Backfill:** the profile is rendered at project-create, so existing projects
+keep the old (bash, no-indirection) user-data; `sc admin tenant ssh-key <tenant>
+<key>` re-renders every project's profile for future machines. Already-running
+machines need the files installed directly (done live on `dev.scraper.obelix`,
+and its broken `~/.zshrc` block replaced with the read-only consume snippet).
+
+## 2026-07-17 — `sc fix`: backfill machine fixups (agent-forwarding) + shared script source
+
+**Context:** the zsh/agent-forwarding profile change (above) only reaches
+machines built after it ships, because cloud-init runs once at first boot.
+Existing machines need the files pushed in. After weighing a flag on `sc c`, a
+`sc fix` verb, and a `sc machine check|fix|upgrade` subtree, the user chose a
+dedicated `sc fix` verb.
+
+**What shipped:**
+- `sc fix [[remote:]project:]machine` (`internal/cli/fix.go`) — runs idempotent
+  fixups from a small registry (`machineFixups`) over the connect SSH path, as
+  the login user via `sudo sh -s` (script on stdin — nothing to shell-quote).
+  `--check` runs the read-only variant; `--only <name>` filters. One fixup today:
+  `agent-forwarding`.
+- Extracted `withResolvedV2Machine` (reference rebind + cross-install switch) and
+  `dialV2Machine` (ensure + ssh-wait + host-key argv) out of connect so `sc fix`
+  and `sc connect` resolve/dial identically.
+- Single source of truth: `sshAgentRepublishScript` + `sshAgentConsumeSnippet`
+  consts in `create_plan_v2.go` now build BOTH the cloud-init `write_files` and
+  the `SSHAgentForwardBackfillScript()`/`SSHAgentForwardCheckScript()` used by
+  `sc fix`, so a repaired machine is byte-identical to a fresh one. A unit test
+  pins that they share content.
+- `scripts/fix-agent-forwarding.sh` stays as the admin fleet tool (whole project
+  over `incus exec`, no SSH/agent needed); `sc fix` is the per-machine user path.
+
+**Design choices worth noting:**
+- `sc fix` reuses `dialV2Machine`, which *ensures* (creates/starts) the machine
+  like `connect` — so `--check` may start a stopped machine. Accepted: you can't
+  inspect a machine you can't reach, and the alternative (a separate
+  existence-only lookup) added surface for little value. Documented in `--help`.
+- Backfill/check **detect but never rewrite** a user's hand-rolled `~/.zshrc`
+  agent block — rewriting a personal dotfile blind is worse than a loud warning.
+- Fixup registry is a slice of `{name, summary, apply, check}` so adding the next
+  backfill is one entry; `--only` and the help text derive from it.
