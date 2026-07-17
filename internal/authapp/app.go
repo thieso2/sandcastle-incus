@@ -741,6 +741,9 @@ type HandlerOptions struct {
 	// Sidecars serves the token-authenticated tenant sidecar update (#124 §5)
 	// — the tunnel-friendly twin of the broker's /v2/sidecar/update.
 	Sidecars projectbroker.SidecarUpdater
+	// ReleaseResolver overrides the version card's GitHub lookup. Injected in
+	// tests; nil uses the daily-cached releases/latest check.
+	ReleaseResolver func(ctx context.Context) (update.Release, error)
 }
 
 // TenantProjectCreator creates an app project for a tenant and extends the
@@ -786,6 +789,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		routeResolveHost: handlerOptions.RouteResolveHost,
 		version:          strings.TrimSpace(handlerOptions.Version),
 		sidecars:         handlerOptions.Sidecars,
+		releases:         &releaseCache{resolve: handlerOptions.ReleaseResolver},
 	}
 	if app.githubClient == nil {
 		if app.simulateToken != "" {
@@ -901,6 +905,7 @@ type handler struct {
 	routeResolveHost func(ctx context.Context, host string) bool
 	version          string
 	sidecars         projectbroker.SidecarUpdater
+	releases         *releaseCache
 }
 
 // projectsAPI is the tunnel-friendly tenant plane for project creation
@@ -1009,6 +1014,7 @@ func (h handler) status(w http.ResponseWriter, r *http.Request) {
 				User:         user,
 				AuthHostname: h.authHostname,
 				LoginCommand: cliLoginCommand(h.authHostname),
+				VersionCard:  h.releases.card(h.version),
 			})
 			return
 		}
@@ -1016,13 +1022,15 @@ func (h handler) status(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = statusTemplate.Execute(w, struct {
 		AuthHostname string
-	}{AuthHostname: h.authHostname})
+		VersionCard  versionCard
+	}{AuthHostname: h.authHostname, VersionCard: h.releases.card(h.version)})
 }
 
 type onboardingPage struct {
 	User         User
 	AuthHostname string
 	LoginCommand string
+	VersionCard  versionCard
 }
 
 func cliLoginCommand(authHostname string) string {
@@ -1035,6 +1043,20 @@ func cliLoginCommand(authHostname string) string {
 	}
 	return "sandcastle login https://" + strings.Trim(host, ".")
 }
+
+// versionCardHTML is the always-visible version card (#124 §8), shared by
+// the status and onboarding pages. Green when current; amber with the
+// update command and release-notes link when behind.
+const versionCardHTML = `    <section>
+      <h2>Version</h2>
+      <p>auth-app {{.VersionCard.Version}}{{if .VersionCard.Latest}} &middot; latest {{.VersionCard.Latest}}{{end}}</p>
+      {{if .VersionCard.Outdated}}
+        <p style="color:#b45309">Update available &mdash; run <code>sc-adm update</code>.{{if .VersionCard.ReleaseURL}} <a href="{{.VersionCard.ReleaseURL}}">Release notes</a>{{end}}</p>
+      {{else if .VersionCard.Latest}}
+        <p style="color:#15803d">Up to date.</p>
+      {{end}}
+    </section>
+`
 
 var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
 <html lang="en">
@@ -1049,7 +1071,7 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
     <p>Status: ok</p>
     {{if .AuthHostname}}<p>Auth Hostname: {{.AuthHostname}}</p>{{end}}
     <p><a href="/login/github">Sign in with GitHub</a></p>
-  </main>
+` + versionCardHTML + `  </main>
 </body>
 </html>
 `))
@@ -1064,7 +1086,7 @@ var onboardingTemplate = template.Must(template.New("onboarding").Parse(`<!docty
 <body>
   <main>
     <h1>Sandcastle Onboarding</h1>
-    <section>
+` + versionCardHTML + `    <section>
       <p><a href="/machines">View your machines</a></p>
       <p><a href="/logs">Activity log</a></p>
     </section>
