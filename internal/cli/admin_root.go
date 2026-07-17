@@ -282,6 +282,7 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "write JSON output")
 
 	root.AddCommand(newAdminVersionCommand(config, opts))
+	root.AddCommand(newAdminUpdateCommand(config))
 	root.AddCommand(newAdminMachineListCommand(config, opts))
 	root.AddCommand(newAdminTenantCommand(config, opts))
 	root.AddCommand(newAdminUserCommand(config, opts))

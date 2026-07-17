@@ -31,6 +31,7 @@ type ComponentVersion struct {
 	Tenant        string `json:"tenant,omitempty"` // sidecars: owning tenant
 	BinaryVersion string `json:"binaryVersion"`    // "" = unknown ⇒ outdated
 	Status        string `json:"status"`           // Incus instance status
+	Architecture  string `json:"architecture"`     // download-arch token (amd64/arm64)
 	TenantManaged bool   `json:"tenantManaged"`    // sidecars: tenant updates via sc update
 }
 
@@ -66,6 +67,7 @@ func classifyComponents(instances []api.InstanceFull) []ComponentVersion {
 			Tenant:        inst.Config[meta.KeyTenant],
 			BinaryVersion: inst.Config[meta.KeyBinaryVersion],
 			Status:        inst.Status,
+			Architecture:  downloadArch(inst.Architecture),
 			TenantManaged: kind == meta.KindSidecar,
 		})
 	}
@@ -185,6 +187,19 @@ func (u SidecarSelfUpdater) UpdateTenantSidecar(tenantName string) (projectbroke
 		Instance:      component.Instance,
 		BinaryVersion: component.BinaryVersion,
 	}, nil
+}
+
+// downloadArch maps an Incus instance architecture to the release-asset
+// arch token ("" when unknown — the caller falls back to the host arch).
+func downloadArch(incusArch string) string {
+	switch incusArch {
+	case "x86_64", "amd64":
+		return "amd64"
+	case "aarch64", "arm64":
+		return "arm64"
+	default:
+		return ""
+	}
 }
 
 // v2Prefix normalizes the installation prefix the way tenant.PlanCreateV2

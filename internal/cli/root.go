@@ -318,6 +318,7 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "write JSON output")
 
 	root.AddCommand(newVersionCommand(config, opts))
+	root.AddCommand(newUpdateCommand(config, opts))
 	root.AddCommand(newListCommand(config, opts))
 	root.AddCommand(newStatusCommand(config, opts))
 	root.AddCommand(newInfoCommand(config, opts))
