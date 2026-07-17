@@ -1,6 +1,7 @@
 package incusx
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"path"
@@ -9,8 +10,92 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 
+	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
+
+// SCPayloadProjectStatus reports one app project's /.sc platform-payload state
+// from a central sync: the version found on the volume, the version this
+// binary ships, and whether the sync (re)wrote the payload.
+type SCPayloadProjectStatus struct {
+	IncusProject string `json:"incusProject"`
+	Before       string `json:"before"`
+	Target       string `json:"target"`
+	Changed      bool   `json:"changed"`
+}
+
+// SyncTenantPlatformPayload converges every app project of a tenant onto the
+// platform payload built into this binary — the central update path (#131):
+// one volume write per project, never per machine; every running machine
+// observes the new payload through its shared /.sc mount, no re-create needed.
+// Rollback is the same operation run from the previous binary (the payload —
+// and its content-derived version — comes from the binary). With checkOnly the
+// volumes are only read, reporting drift per project.
+func (c TenantCreator) SyncTenantPlatformPayload(_ context.Context, installPrefix string, tenantName string, checkOnly bool) ([]SCPayloadProjectStatus, error) {
+	if err := naming.ValidateTenantName(tenantName); err != nil {
+		return nil, err
+	}
+	server, err := c.resolveV2Server()
+	if err != nil {
+		return nil, err
+	}
+	installPrefix = strings.TrimSpace(installPrefix)
+	if installPrefix == "" || installPrefix == naming.DefaultIncusProjectPrefix {
+		installPrefix = naming.V2IncusProjectPrefix
+	}
+	infraProject, err := naming.V2TenantInfraProjectName(installPrefix, tenantName)
+	if err != nil {
+		return nil, err
+	}
+	infra, _, err := server.GetProject(infraProject)
+	if err != nil {
+		return nil, fmt.Errorf("tenant %q infra project %s not found: %w", tenantName, infraProject, err)
+	}
+	pool := strings.TrimSpace(infra.Config[keyV2Pool])
+	if pool == "" {
+		pool = "default"
+	}
+	names, err := server.GetProjectNames()
+	if err != nil {
+		return nil, fmt.Errorf("list Incus projects: %w", err)
+	}
+	target := tenant.PlatformPayloadVersion()
+	statuses := make([]SCPayloadProjectStatus, 0, 2)
+	for _, name := range names {
+		// This install's app projects only: name-scoped to the tenant AND
+		// metadata-confirmed (a same-named tenant of another install has a
+		// different prefix; a non-Sandcastle project fails the kind check).
+		if !strings.HasPrefix(name, infraProject+"-") {
+			continue
+		}
+		project, _, err := server.GetProject(name)
+		if err != nil {
+			return statuses, fmt.Errorf("get project %s: %w", name, err)
+		}
+		if project.Config[meta.KeyKind] != "project" || project.Config[meta.KeyTenant] != tenantName {
+			continue
+		}
+		resource := server.UseProject(name)
+		status := SCPayloadProjectStatus{
+			IncusProject: name,
+			Before:       readSCPlatformVersion(resource, pool),
+			Target:       target,
+		}
+		if !checkOnly && status.Before != target {
+			changed, err := ensureV2PlatformPayload(resource, pool)
+			if err != nil {
+				return statuses, fmt.Errorf("sync /.sc payload in %s: %w", name, err)
+			}
+			status.Changed = changed
+		}
+		statuses = append(statuses, status)
+	}
+	if len(statuses) == 0 {
+		return nil, fmt.Errorf("tenant %q has no app projects under install prefix %q", tenantName, installPrefix)
+	}
+	return statuses, nil
+}
 
 // ensureV2PlatformPayload converges one app project's sc-platform volume onto
 // the platform payload built into this binary (ADR-0022). This is the central
