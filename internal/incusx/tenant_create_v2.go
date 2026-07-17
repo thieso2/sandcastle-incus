@@ -78,6 +78,10 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	if err := ensureV2ProjectVolumes(server.UseProject(plan.DefaultProject), plan.StoragePool, plan.Tenant, shifted); err != nil {
 		return err
 	}
+	c.log("ensure /.sc platform payload in " + plan.DefaultProject)
+	if _, err := ensureV2PlatformPayload(server.UseProject(plan.DefaultProject), plan.StoragePool); err != nil {
+		return err
+	}
 	c.log("ensure app default profile " + plan.DefaultProject)
 	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted, plan.DefaultProjectShort); err != nil {
 		return err

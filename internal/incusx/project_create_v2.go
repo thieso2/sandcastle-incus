@@ -91,6 +91,10 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string
 	if err := ensureV2ProjectVolumes(server.UseProject(incusProject), profilePlan.StoragePool, tenantName, server.SupportsIdmappedMounts()); err != nil {
 		return CreateProjectV2Result{}, err
 	}
+	c.log("ensure /.sc platform payload in " + incusProject)
+	if _, err := ensureV2PlatformPayload(server.UseProject(incusProject), profilePlan.StoragePool); err != nil {
+		return CreateProjectV2Result{}, err
+	}
 	c.log("ensure app default profile " + incusProject)
 	if err := ensureV2AppProfile(server.UseProject(incusProject), profilePlan, server.SupportsIdmappedMounts(), project); err != nil {
 		return CreateProjectV2Result{}, err

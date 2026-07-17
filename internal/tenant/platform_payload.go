@@ -74,6 +74,38 @@ func PlatformPayloadVersion() string {
 	return version
 }
 
+// SCShimMarker is the grep sentinel identifying an installed /.sc shim — the
+// profile, the `sc fix` backfill/check scripts, and the fleet script share it,
+// so idempotent installs can detect an already-shimmed rc file.
+const SCShimMarker = "Sandcastle /.sc shim"
+
+// scShimSourceLines renders the load-bearing shim body for one payload script:
+// source the platform layer first, then the tenant's local overlay, each
+// guarded with `[ -r … ] &&` so an unmounted /.sc or missing payload is a
+// clean no-op — the feature is simply absent, never a shell/SSH lockout.
+func scShimSourceLines(relPath string) string {
+	platform := SCPlatformPath + "/" + relPath
+	local := SCLocalPath + "/" + relPath
+	return "[ -r " + platform + " ] && . " + platform + "\n" +
+		"[ -r " + local + " ] && . " + local + "\n" +
+		"true\n"
+}
+
+// SCSSHRCShim is the stable /etc/ssh/sshrc baked into every machine. sshd runs
+// it at session start; the agent-forwarding republish logic it used to carry
+// inline now lives in the platform payload on /.sc, so a payload update
+// reaches every machine without touching cloud-init or the machine itself.
+// Content-stable: payload changes never require re-baking this file.
+var SCSSHRCShim = "#!/bin/sh\n" +
+	"# " + SCShimMarker + " (stable) — the logic lives on the /.sc volume (ADR-0022).\n" +
+	scShimSourceLines(SCPayloadSSHRCPath)
+
+// SCShellRCShim is the stable block appended to /etc/zsh/zshrc and
+// /etc/bash.bashrc (both interactive-startup files, so a herdr/tmux pane picks
+// it up whichever shell it runs).
+var SCShellRCShim = "# " + SCShimMarker + " (stable) — shell setup lives on the /.sc volume (ADR-0022).\n" +
+	scShimSourceLines(SCPayloadShellRCPath)
+
 // SCVolume describes one layer of the /.sc shared-scripts volume as plan data:
 // the custom volume, the default-profile disk device attaching it, its
 // in-machine mount path, and whether machines mount it read-only (the platform
