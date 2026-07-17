@@ -169,6 +169,15 @@ and silently operated on the *other* install's project.
   truth** for which install `sc` targets — the whole CLI (remote, project pin,
   tenant scoping) follows it. `sc config set remote …` writes through to the
   same knob; `SANDCASTLE_REMOTE` still overrides for a single invocation.
+  **Bearer identity follows the remote (#112):** login also records the CLI
+  token and Broker URL per REMOTE (`remote_auth_tokens`/`remote_brokers`), so
+  switching between two tenants of ONE install (same Auth Hostname — the
+  hostname-keyed maps can't tell them apart) swaps the token/broker to the
+  target tenant's. **e2e check:** log two users into the same install from one
+  client, `sc remote switch` between their suffix remotes, and a token-backed
+  command (`sc route list`, `sc project create`) must act as the CURRENT
+  remote's tenant — no 403 `user <other> is not authorized`, no re-login.
+  (Logins predating the per-remote maps fall back to last-login-wins.)
 - **PASS:** with a machine created in only one install,
   `VERBOSE=1 sc incus ls` under each remote prints
   `INCUS_PROJECT=<that-install's-prefix>-<tenant>-default` and lists only that
@@ -635,6 +644,11 @@ Remove any prior test-tenant server state + local client config so the run start
 > or use ephemeral keys. **PASS:** after the purge, `incus project list | grep
 > <prefix>-<tenant>` and `incus network list | grep <prefix>-<tenant>` are both
 > empty, and a same-named tenant of ANOTHER install on the daemon is untouched.
+> The purge also sweeps the tenant's **trust entries** (#113): `incus config
+> trust list` shows no restricted client cert named
+> `sandcastle-[<prefix>-]<tenant>` left with an empty project list — while a
+> shared-identity cert under that name that still grants ANOTHER tenant's
+> projects survives (one keypair can serve several tenants).
 
 ```bash
 # server: delete the test tenant's instances + images + custom profiles + projects + bridge.
@@ -1143,8 +1157,16 @@ sc route delete <hostname> --yes
   cert-issuance abuse under the wildcard.
 - `sc route delete <hostname> --yes` removes the site block, the proxy device, and
   the registry row; login stays up.
-- **Self-heal:** machine deleted → route auto-pruned; machine recreated with a new
-  DHCP IP → the reconcile refreshes the proxy device `connect`.
+- **Self-heal:** machine deleted → route auto-pruned (validated live on
+  `majestix` 2026-07-17: gone from `sc route list` ~10 s after the delete —
+  reconcile is event-triggered on instance lifecycle, with a 5-min ticker as
+  backstop); machine's IP changed while it stays alive → the reconcile
+  refreshes the proxy device `connect` (asserted by `scripts/e2e-route.sh`
+  step 5b, which pins a new static lease and reboots the machine, #114).
+  **Prune-vs-refresh race, by design:** a DELETED machine loses its route
+  within seconds — a delete+recreate "rebuild" therefore needs a re-publish;
+  only an IP change on a live machine is refreshed in place. Don't read a
+  pruned route after a slow rebuild as a reconcile bug.
 - **Precondition:** on an install **without** route ingress, every `sc route`
   command errors with "no route ingress … redeploy with `--route-ingress acme`"
   (validated live on `majestix` install B 2026-07-17).
@@ -1174,7 +1196,9 @@ SC_ROUTE_BASE_DOMAIN=routes.test SC_HOST_IP=<host-ip> \
 The script mints a tenant token via the debug device flow (no browser), launches a
 machine running an app on `:3000`, publishes a route, and reaches it with
 `curl --resolve <host>:443:<host-ip> -k` — asserting: the route serves the app
-body, the Caddyfile gained the site, a `scroute-…` proxy device exists, the
+body, the Caddyfile gained the site, a `scroute-…` proxy device exists, **the
+reconcile follows an IP change** (step 5b: new static lease + reboot → the
+device's `connect` re-points and the route serves again, #114), the
 `/api/routes/ask` gate returns **403** for an unknown host, and delete removes
 everything. **PASS:** `ALL PASS — sc route non-interactive e2e`.
 

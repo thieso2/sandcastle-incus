@@ -14,6 +14,10 @@ type TenantDeleteServer interface {
 	DeleteProject(name string) error
 	DeleteStoragePool(name string) error
 	UseProject(name string) TenantDeleteResourceServer
+	// Certificates are global (not project-scoped): the v2 purge sweeps the
+	// tenant's now-empty restricted trust entries (#113).
+	GetCertificates() ([]api.Certificate, error)
+	DeleteCertificate(fingerprint string) error
 }
 
 type TenantDeleteResourceServer interface {
@@ -146,6 +150,12 @@ func (s sdkDeleteServer) DeleteStoragePool(name string) error {
 }
 func (s sdkDeleteServer) UseProject(name string) TenantDeleteResourceServer {
 	return sdkDeleteResourceServer{inner: s.inner.UseProject(name)}
+}
+func (s sdkDeleteServer) GetCertificates() ([]api.Certificate, error) {
+	return s.inner.GetCertificates()
+}
+func (s sdkDeleteServer) DeleteCertificate(fingerprint string) error {
+	return s.inner.DeleteCertificate(fingerprint)
 }
 
 type sdkDeleteResourceServer struct {

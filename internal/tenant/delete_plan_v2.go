@@ -7,6 +7,7 @@ import (
 
 	"github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
+	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
 
 // DeletePlanV2 enumerates everything a v2 tenant owns on the daemon: its app
@@ -19,6 +20,12 @@ type DeletePlanV2 struct {
 	Bridge         string   `json:"bridge"`
 	StoragePool    string   `json:"storagePool"`
 	DurableVolumes []string `json:"durableVolumes"`
+	// TrustEntry is the install-scoped name of the tenant's restricted client
+	// certificate(s) (usertrust.RestrictedInstallName). The purge sweeps trust
+	// entries under this name that are left with no projects — without it the
+	// daemon accumulates orphaned standing trust across install/teardown
+	// cycles (#113).
+	TrustEntry string `json:"trustEntry"`
 }
 
 // PlanDeleteV2 plans the deletion of a v2 tenant, scoped to the installation
@@ -65,6 +72,7 @@ func PlanDeleteV2(ctx context.Context, admin config.Admin, store IncusTenantStor
 			AppProjects:  appProjects,
 			Bridge:       summary.InfraProject,
 			StoragePool:  pool,
+			TrustEntry:   usertrust.RestrictedInstallName(prefix, ref.Tenant),
 			// v2 shared volumes are named plain "home"/"workspace" (per-app-
 			// project), NOT the v1 "sc-home"/"sc-workspace" — the v1 names
 			// would 404 (silently ignored) and the project delete then fails

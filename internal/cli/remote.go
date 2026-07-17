@@ -198,6 +198,7 @@ type remoteSwitchEffects struct {
 	BrokerCleared bool
 	TokenSynced   bool
 	TokenCleared  bool
+	Tenant        string
 }
 
 // applyRemoteSwitch points cfg at the install named by `name`: it sets cfg.Remote
@@ -213,11 +214,38 @@ func applyRemoteSwitch(cfg *scconfig.SandcastleConfig, name string) remoteSwitch
 	if host == "" {
 		return fx
 	}
+	// The tenant must follow the remote too: token-backed commands (`sc route`,
+	// `sc project create`) act on cfg.Tenant, and the right token with the
+	// wrong tenant is still a 403 (#112). Recorded per remote at login; an
+	// unrecorded remote (pre-migration login) leaves the tenant alone.
+	if tenant := cfg.TenantForRemote(name); tenant != "" && tenant != cfg.Tenant {
+		cfg.Tenant = tenant
+		fx.Tenant = tenant
+	}
 	if host != cfg.AuthHostname {
 		cfg.AuthHostname = host
 		fx.AuthHostname = host
 	}
-	switch broker := cfg.BrokerForAuthHostname(host); {
+	// Prefer the per-remote records: two tenants of ONE install share the Auth
+	// Hostname, so the hostname-keyed maps hold only the LAST login's broker and
+	// token — the per-remote maps let the bearer identity follow the remote
+	// (#112). The hostname-keyed maps remain the fallback for logins predating
+	// them — but ONLY while the hostname maps to a single remote: with several
+	// remotes on one hostname the fallback would present the OTHER tenant's
+	// credential (the very bug), so the ambiguous case clears and fails loudly
+	// (re-login records the per-remote maps).
+	ambiguousHost := false
+	for other, otherHost := range cfg.Installs {
+		if other != name && normalizeAuthHostname(otherHost) == normalizeAuthHostname(host) {
+			ambiguousHost = true
+			break
+		}
+	}
+	broker := cfg.BrokerForRemote(name)
+	if broker == "" && !ambiguousHost {
+		broker = cfg.BrokerForAuthHostname(host)
+	}
+	switch {
 	case broker != "" && broker != cfg.Broker:
 		cfg.Broker = broker
 		fx.Broker = broker
@@ -228,7 +256,11 @@ func applyRemoteSwitch(cfg *scconfig.SandcastleConfig, name string) remoteSwitch
 		cfg.Broker = ""
 		fx.BrokerCleared = true
 	}
-	switch token := cfg.AuthTokenForAuthHostname(host); {
+	token := cfg.AuthTokenForRemote(name)
+	if token == "" && !ambiguousHost {
+		token = cfg.AuthTokenForAuthHostname(host)
+	}
+	switch {
 	case token != "" && token != cfg.AuthToken:
 		cfg.AuthToken = token
 		fx.TokenSynced = true
@@ -255,6 +287,9 @@ func printRemoteSwitchEffects(w io.Writer, cfg scconfig.SandcastleConfig, fx rem
 	}
 	if fx.BrokerCleared {
 		fmt.Fprintf(w, "Broker cleared: none recorded for this install. Run `sc login %s` to record it.\n", cfg.AuthHostname)
+	}
+	if fx.Tenant != "" {
+		fmt.Fprintf(w, "Tenant re-pointed to %q for this remote.\n", fx.Tenant)
 	}
 	if fx.TokenSynced {
 		fmt.Fprintln(w, "Auth token switched to this install's token.")

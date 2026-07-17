@@ -2461,3 +2461,31 @@ here, worth a follow-up issue.
   the bearer identity, so the other tenant's `sc route`/API calls 403 until a
   re-login. Security-correct but surprising; candidate for a per-(install,user)
   token map keyed off the remote.
+
+## 2026-07-17 — Fixes for #112 / #113 / #114
+
+- **#112 (bearer identity follows the remote).** New per-REMOTE config maps
+  (`remote_auth_tokens`, `remote_brokers`, `remote_tenants`) recorded at login;
+  `applyRemoteSwitch` prefers them over the hostname-keyed maps and re-points
+  cfg.Tenant too — the live 403 turned out to be the *tenant* selection, not
+  just the token, and the project re-pin also needed the right tenant to parse
+  the pinned project. Hostname-keyed maps stay as fallback for logins predating
+  the new maps (last-login-wins, the old behavior). Alternative considered:
+  re-keying the existing maps with a migration — rejected, additive maps keep
+  old configs working with zero migration code.
+- **#113 (purge sweeps trust entries).** `DeletePlanV2.TrustEntry` carries the
+  install-scoped certificate name; `DeleteTenantV2` deletes restricted client
+  entries under that name whose project list is empty once the tenant's own
+  projects are discounted — a shared-identity entry still granting another
+  tenant survives. `TenantDeleteServer` gained `GetCertificates`/
+  `DeleteCertificate` (certs are global, not project-scoped). Not validated
+  live (needs a keypair whose FIRST enrollment is the deleted tenant; the
+  running majestix client's entry is named for the still-live e2edns) — unit
+  tests cover the matrix.
+- **#114 (route refresh coverage).** `scripts/e2e-route.sh` step 5b pins a new
+  static lease (`incus config device override … ipv4.address=…`), reboots the
+  machine, and asserts the `scroute-…` device's `connect` follows and the route
+  serves again — validated live on majestix (ALL PASS). The prune-vs-refresh
+  race is now documented in Phase 7f as intended behavior (delete prunes within
+  seconds; only a live machine's IP change refreshes in place) rather than
+  changed with a prune grace period.

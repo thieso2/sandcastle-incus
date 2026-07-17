@@ -715,13 +715,17 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 						}
 						approvedAnnounced = true
 					}
-					if err := saveAuthDefaults(args[0], result.CLIAuthToken); err != nil {
+					loginTenant := strings.TrimSpace(result.CurrentTenant)
+					if loginTenant == "" {
+						loginTenant = strings.TrimSpace(result.UserKey)
+					}
+					if err := saveAuthDefaults(args[0], result.CLIAuthToken, result.RemoteName, loginTenant); err != nil {
 						return err
 					}
 					// Record the broker URL so broker-backed commands
 					// (`sc project create`) need no --broker flag.
 					if broker := brokerURLForTenantCIDR(result.TenantPrivateCIDR); broker != "" {
-						if err := saveBrokerDefault(args[0], broker); err != nil {
+						if err := saveBrokerDefault(args[0], broker, result.RemoteName); err != nil {
 							fmt.Fprintf(config.stderr, "Note: could not save broker URL: %v\n", err)
 						}
 					}

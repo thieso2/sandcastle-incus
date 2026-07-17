@@ -74,3 +74,36 @@ func TestPlanDeleteV2(t *testing.T) {
 		}
 	})
 }
+
+// #113: the purge must also sweep the tenant's Incus trust entries, so the
+// plan carries the install-scoped certificate name to sweep.
+func TestPlanDeleteV2CarriesTrustEntry(t *testing.T) {
+	v2Project := func(name string, tenantName string) IncusProject {
+		return IncusProject{Name: name, Config: map[string]string{
+			meta.KeyKind:    meta.KindV2Project,
+			meta.KeyVersion: "2",
+			meta.KeyTenant:  tenantName,
+		}}
+	}
+	store := MemoryStore{Projects: []IncusProject{
+		v2Project("sc2-acme-default", "acme"),
+		v2Project("id-acme-default", "acme"),
+	}}
+
+	plan, _, err := PlanDeleteV2(context.Background(), config.Admin{}, store, "acme", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.TrustEntry != "sandcastle-acme" {
+		t.Fatalf("TrustEntry = %q, want sandcastle-acme (default install)", plan.TrustEntry)
+	}
+
+	prefixed := config.Admin{IncusProjectPrefix: "id"}
+	plan, _, err = PlanDeleteV2(context.Background(), prefixed, store, "acme", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.TrustEntry != "sandcastle-id-acme" {
+		t.Fatalf("TrustEntry = %q, want sandcastle-id-acme (prefixed install)", plan.TrustEntry)
+	}
+}

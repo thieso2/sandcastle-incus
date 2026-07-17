@@ -154,3 +154,180 @@ func TestSplitRemotePrefix(t *testing.T) {
 		}
 	}
 }
+
+// Two tenants of ONE install share an Auth Hostname, so the hostname-keyed
+// maps hold only the LAST login's token/broker — switching between their
+// remotes must prefer the per-remote records so the bearer identity follows
+// the remote (#112).
+func TestApplyRemoteSwitchPrefersPerRemoteIdentity(t *testing.T) {
+	base := func() scconfig.SandcastleConfig {
+		return scconfig.SandcastleConfig{
+			Remote:       "octo",
+			AuthHostname: "https://a.example.dev",
+			AuthToken:    "octo-tok",
+			Broker:       "https://10.61.1.1:9443",
+			Installs: map[string]string{
+				"castle": "https://a.example.dev",
+				"octo":   "https://a.example.dev",
+			},
+			// hostname-keyed maps: last login (octo) won
+			AuthTokens: map[string]string{"https://a.example.dev": "octo-tok"},
+			Brokers:    map[string]string{"https://a.example.dev": "https://10.61.1.1:9443"},
+			RemoteAuthTokens: map[string]string{
+				"castle": "castle-tok",
+				"octo":   "octo-tok",
+			},
+			RemoteBrokers: map[string]string{
+				"castle": "https://10.61.0.1:9443",
+				"octo":   "https://10.61.1.1:9443",
+			},
+		}
+	}
+
+	t.Run("switch to the other tenant of the same install swaps token+broker", func(t *testing.T) {
+		cfg := base()
+		fx := applyRemoteSwitch(&cfg, "castle")
+		if cfg.AuthToken != "castle-tok" || !fx.TokenSynced {
+			t.Fatalf("AuthToken = %q (synced %v), want castle-tok", cfg.AuthToken, fx.TokenSynced)
+		}
+		if cfg.Broker != "https://10.61.0.1:9443" || fx.Broker == "" {
+			t.Fatalf("Broker = %q (fx %q), want castle's gateway", cfg.Broker, fx.Broker)
+		}
+		if cfg.AuthHostname != "https://a.example.dev" {
+			t.Fatalf("AuthHostname = %q", cfg.AuthHostname)
+		}
+	})
+
+	t.Run("falls back to the hostname-keyed maps for pre-migration logins", func(t *testing.T) {
+		// Unambiguous: castle is the ONLY remote on its hostname, so the
+		// hostname-keyed record is that tenant's own. (Two remotes on one
+		// hostname is the ambiguous case — see
+		// TestApplyRemoteSwitchAmbiguousFallbackClears.)
+		cfg := base()
+		cfg.RemoteAuthTokens = nil
+		cfg.RemoteBrokers = nil
+		delete(cfg.Installs, "octo")
+		fx := applyRemoteSwitch(&cfg, "castle")
+		_ = fx
+		if cfg.AuthToken != "octo-tok" {
+			t.Fatalf("AuthToken = %q, want the hostname-map fallback octo-tok", cfg.AuthToken)
+		}
+	})
+}
+
+// Login must record the token and broker under the enrolled remote's name (in
+// addition to the Auth Hostname), or the per-remote preference has nothing to
+// read (#112).
+func TestSaveAuthDefaultsRecordsPerRemoteToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := saveAuthDefaults("https://a.example.dev", "castle-tok", "castle", "e2edns"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.AuthTokenForRemote("castle"); got != "castle-tok" {
+		t.Fatalf("AuthTokenForRemote(castle) = %q, want castle-tok", got)
+	}
+	if got := cfg.AuthTokenForAuthHostname("https://a.example.dev"); got != "castle-tok" {
+		t.Fatalf("hostname map not written: %q", got)
+	}
+}
+
+func TestSaveBrokerDefaultRecordsPerRemoteBroker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := saveBrokerDefault("https://a.example.dev", "https://10.61.0.1:9443", "castle"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.BrokerForRemote("castle"); got != "https://10.61.0.1:9443" {
+		t.Fatalf("BrokerForRemote(castle) = %q", got)
+	}
+}
+
+// The route/project/token-backed commands resolve the TENANT from cfg.Tenant,
+// so switching between two tenants of one install must re-point it too — the
+// right token with the wrong tenant is still a 403 (#112, caught live).
+func TestApplyRemoteSwitchRepointsTenant(t *testing.T) {
+	cfg := scconfig.SandcastleConfig{
+		Tenant:       "e2edns",
+		Remote:       "castle",
+		AuthHostname: "https://a.example.dev",
+		Installs: map[string]string{
+			"castle": "https://a.example.dev",
+			"octo":   "https://a.example.dev",
+		},
+		RemoteTenants: map[string]string{"castle": "e2edns", "octo": "octocat"},
+	}
+	fx := applyRemoteSwitch(&cfg, "octo")
+	if cfg.Tenant != "octocat" || fx.Tenant != "octocat" {
+		t.Fatalf("Tenant = %q (fx %q), want octocat", cfg.Tenant, fx.Tenant)
+	}
+	// no record → leave the tenant alone (pre-migration logins)
+	cfg.RemoteTenants = nil
+	cfg.Tenant = "octocat"
+	fx = applyRemoteSwitch(&cfg, "castle")
+	if cfg.Tenant != "octocat" || fx.Tenant != "" {
+		t.Fatalf("unrecorded remote must not change the tenant: %q (fx %q)", cfg.Tenant, fx.Tenant)
+	}
+}
+
+func TestSaveAuthDefaultsRecordsPerRemoteTenant(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := saveAuthDefaults("https://a.example.dev", "tok", "castle", "e2edns"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.TenantForRemote("castle"); got != "e2edns" {
+		t.Fatalf("TenantForRemote(castle) = %q, want e2edns", got)
+	}
+}
+
+// Pre-migration configs have no per-remote records. For a SINGLE tenant per
+// install the hostname-keyed fallback is correct — but when two remotes share
+// the install's hostname the fallback would present the OTHER tenant's token
+// (the very bug of #112), so the ambiguous case must clear instead of guess.
+func TestApplyRemoteSwitchAmbiguousFallbackClears(t *testing.T) {
+	base := func() scconfig.SandcastleConfig {
+		return scconfig.SandcastleConfig{
+			Remote:       "octo",
+			AuthHostname: "https://a.example.dev",
+			AuthToken:    "octo-tok",
+			Broker:       "https://10.61.1.1:9443",
+			Installs: map[string]string{
+				"castle": "https://a.example.dev",
+				"octo":   "https://a.example.dev",
+			},
+			AuthTokens: map[string]string{"https://a.example.dev": "octo-tok"},
+			Brokers:    map[string]string{"https://a.example.dev": "https://10.61.1.1:9443"},
+		}
+	}
+
+	t.Run("two remotes on one hostname, no per-remote record: clear, do not guess", func(t *testing.T) {
+		cfg := base()
+		fx := applyRemoteSwitch(&cfg, "castle")
+		if cfg.AuthToken != "" || !fx.TokenCleared {
+			t.Fatalf("ambiguous fallback must clear the token, got %q (cleared %v)", cfg.AuthToken, fx.TokenCleared)
+		}
+		if cfg.Broker != "" || !fx.BrokerCleared {
+			t.Fatalf("ambiguous fallback must clear the broker, got %q (cleared %v)", cfg.Broker, fx.BrokerCleared)
+		}
+	})
+
+	t.Run("single remote on the hostname keeps the fallback", func(t *testing.T) {
+		cfg := base()
+		delete(cfg.Installs, "castle")
+		cfg.Remote = "castle"
+		fx := applyRemoteSwitch(&cfg, "octo")
+		if cfg.AuthToken != "octo-tok" || fx.TokenCleared {
+			t.Fatalf("unambiguous fallback must keep working, got %q (cleared %v)", cfg.AuthToken, fx.TokenCleared)
+		}
+	})
+}

@@ -20,13 +20,29 @@ func normalizeAuthHostname(value string) string {
 	return value
 }
 
-func saveAuthHostnameDefault(raw string) error {
-	return saveAuthDefaults(raw, "")
+
+// recordFor writes value under key in one of the config's record maps,
+// allocating the map on first use. Returns whether anything changed.
+func recordFor(records *map[string]string, key string, value string) bool {
+	if key == "" || value == "" || (*records)[key] == value {
+		return false
+	}
+	if *records == nil {
+		*records = map[string]string{}
+	}
+	(*records)[key] = value
+	return true
 }
 
-func saveAuthDefaults(rawHostname string, rawToken string) error {
+func saveAuthHostnameDefault(raw string) error {
+	return saveAuthDefaults(raw, "", "", "")
+}
+
+func saveAuthDefaults(rawHostname string, rawToken string, rawRemote string, rawTenant string) error {
 	host := normalizeAuthHostname(rawHostname)
 	token := strings.TrimSpace(rawToken)
+	remote := strings.TrimSpace(rawRemote)
+	tenant := strings.TrimSpace(rawTenant)
 	if host == "" && token == "" {
 		return nil
 	}
@@ -47,11 +63,18 @@ func saveAuthDefaults(rawHostname string, rawToken string) error {
 	// Record the token against THIS install so switching remotes can swap it.
 	// Presenting one install's token to another leaks a credential across a
 	// trust boundary (and is simply rejected: 403 "user not found").
-	if host != "" && token != "" && cfg.AuthTokenForAuthHostname(host) != token {
-		if cfg.AuthTokens == nil {
-			cfg.AuthTokens = map[string]string{}
-		}
-		cfg.AuthTokens[host] = token
+	if host != "" && token != "" && recordFor(&cfg.AuthTokens, host, token) {
+		changed = true
+	}
+	// And against the enrolled remote: two tenants of ONE install share the
+	// hostname, so only the per-remote record lets `sc remote switch` present
+	// the right tenant's token (#112).
+	if recordFor(&cfg.RemoteAuthTokens, remote, token) {
+		changed = true
+	}
+	// The tenant too: switching remotes must re-point cfg.Tenant along with the
+	// token — the right token with the wrong tenant is still a 403 (#112).
+	if recordFor(&cfg.RemoteTenants, remote, tenant) {
 		changed = true
 	}
 	if !changed {
@@ -113,20 +136,17 @@ func adoptExistingInstall(rawHost, rawRemote, rawToken, rawTenant, rawBroker str
 	cfg.Remote = remote
 	if token != "" {
 		cfg.AuthToken = token
-		if cfg.AuthTokens == nil {
-			cfg.AuthTokens = map[string]string{}
-		}
-		cfg.AuthTokens[host] = token
+		recordFor(&cfg.AuthTokens, host, token)
+		recordFor(&cfg.RemoteAuthTokens, remote, token)
 	}
 	if broker != "" {
 		cfg.Broker = broker
-		if cfg.Brokers == nil {
-			cfg.Brokers = map[string]string{}
-		}
-		cfg.Brokers[host] = broker
+		recordFor(&cfg.Brokers, host, broker)
+		recordFor(&cfg.RemoteBrokers, remote, broker)
 	}
 	if tenant != "" {
 		cfg.Tenant = tenant
+		recordFor(&cfg.RemoteTenants, remote, tenant)
 	}
 	if cfg.Installs == nil {
 		cfg.Installs = map[string]string{}
@@ -177,27 +197,28 @@ func recordInstall(remoteName string, rawHostname string) error {
 // CIDR pool, so it is per-install — without the per-install record,
 // `sc config set remote` could not re-point it and left the active broker
 // aimed at the previously-active install.
-func saveBrokerDefault(authHostname string, rawURL string) error {
+func saveBrokerDefault(authHostname string, rawURL string, rawRemote string) error {
 	broker := strings.TrimRight(strings.TrimSpace(rawURL), "/")
 	if broker == "" {
 		return nil
 	}
 	host := normalizeAuthHostname(authHostname)
+	remote := strings.TrimSpace(rawRemote)
 	path := scconfig.DefaultConfigPath()
 	cfg, err := scconfig.LoadSandcastleConfig(path)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	if cfg.Broker == broker && (host == "" || cfg.BrokerForAuthHostname(host) == broker) {
+	if cfg.Broker == broker &&
+		(host == "" || cfg.BrokerForAuthHostname(host) == broker) &&
+		(remote == "" || cfg.BrokerForRemote(remote) == broker) {
 		return nil
 	}
 	cfg.Broker = broker
-	if host != "" {
-		if cfg.Brokers == nil {
-			cfg.Brokers = map[string]string{}
-		}
-		cfg.Brokers[host] = broker
-	}
+	recordFor(&cfg.Brokers, host, broker)
+	// Per-remote too: the Broker is the TENANT's gateway (its own /24), so two
+	// tenants of one install have different brokers (#112).
+	recordFor(&cfg.RemoteBrokers, remote, broker)
 	if err := scconfig.SaveSandcastleConfig(path, cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}

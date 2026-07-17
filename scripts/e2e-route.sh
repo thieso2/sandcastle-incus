@@ -109,6 +109,41 @@ done
 [ "$BODY" = "e2e-route-ok" ] || fail "route did not serve the app body (got: '$BODY')"
 pass "https://$HOST served the app body over the full chain"
 
+# --- 5b. self-heal: machine IP change → reconcile refreshes the proxy device ---
+# (#114) Pin a different static DHCP lease and reboot the machine; the route
+# reconcile (event-triggered on instance lifecycle, 5-min ticker as backstop)
+# must re-point the scroute-… device's connect at the new IP and the route must
+# serve again. NB deleting the machine instead would PRUNE the route (see the
+# runbook's prune-vs-refresh note) — the IP must change with the machine alive.
+DEV=$(incus config device list "${REMOTE}:${INSTANCE}" --project "$INFRA" 2>/dev/null | grep '^scroute-' | head -1)
+[ -n "$DEV" ] || fail "no scroute-… device to watch for the refresh check"
+LAST=${MIP##*.}
+if [ "$LAST" -ge 200 ]; then NEW_LAST=$((LAST - 50)); else NEW_LAST=$((LAST + 50)); fi
+NEWIP="${MIP%.*}.${NEW_LAST}"
+incus config device override "${REMOTE}:${MACHINE}" eth0 ipv4.address="$NEWIP" --project "$APPPROJ" >/dev/null
+incus restart "${REMOTE}:${MACHINE}" --project "$APPPROJ"
+# Poll past the 5-min reconcile ticker: the refresh normally lands within
+# seconds (event-triggered on instance lifecycle), but a missed event must not
+# flake the test — the ticker is the contractual backstop.
+CONNECT=""
+for _ in $(seq 1 40); do
+  CONNECT=$(incus config device get "${REMOTE}:${INSTANCE}" "$DEV" connect --project "$INFRA" 2>/dev/null || true)
+  [ "$CONNECT" = "tcp:${NEWIP}:3000" ] && break; sleep 8
+done
+[ "$CONNECT" = "tcp:${NEWIP}:3000" ] \
+  || fail "proxy device connect did not follow the IP change (now '$CONNECT', want tcp:${NEWIP}:3000)"
+pass "reconcile refreshed the proxy device to $NEWIP after the IP change"
+# the transient app unit died with the reboot; restart it, then the route must serve
+incus exec "${REMOTE}:${MACHINE}" --project "$APPPROJ" -- bash -c \
+  'systemd-run --unit=app --collect python3 -m http.server 3000 --directory /root' >/dev/null
+BODY=""
+for _ in $(seq 1 8); do
+  BODY=$(curl -sS -k --max-time 20 --resolve "${HOST}:443:${SC_HOST_IP}" "https://${HOST}/" 2>/dev/null || true)
+  [ "$BODY" = "e2e-route-ok" ] && break; sleep 4
+done
+[ "$BODY" = "e2e-route-ok" ] || fail "route did not serve through the refreshed device (got '$BODY')"
+pass "route serves through the refreshed proxy device"
+
 # --- 6. ask gate: unknown host denied ------------------------------------------
 CODE=$(incus exec "${REMOTE}:${INSTANCE}" --project "$INFRA" -- \
   curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:9444/api/routes/ask?domain=nope.${SC_ROUTE_BASE_DOMAIN}")

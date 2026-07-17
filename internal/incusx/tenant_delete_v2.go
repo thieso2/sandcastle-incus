@@ -59,7 +59,56 @@ func (d TenantDeleter) DeleteTenantV2(ctx context.Context, plan tenant.DeletePla
 	if err := ignoreNotFound(server.UseProject("default").DeleteNetwork(plan.Bridge)); err != nil {
 		return fmt.Errorf("delete tenant bridge %s: %w", plan.Bridge, err)
 	}
+	// Trust entries outlive their projects (Incus only drops the project
+	// references), so a purge that leaves them behind accumulates orphaned
+	// standing trust across install/teardown cycles (#113).
+	ownProjects := map[string]bool{plan.InfraProject: true}
+	for _, project := range plan.AppProjects {
+		ownProjects[project] = true
+	}
+	if err := d.sweepTenantTrustEntries(server, plan.TrustEntry, ownProjects); err != nil {
+		return err
+	}
 	d.log("done")
+	return nil
+}
+
+// sweepTenantTrustEntries deletes the tenant's restricted client trust entries
+// — those named `name` (usertrust.RestrictedInstallName) whose project list is
+// empty once this tenant's own projects are discounted. A shared client
+// keypair's entry is NAMED after whichever tenant enrolled it first while
+// still granting other tenants' projects (shared client identity); such an
+// entry stays, it just loses this tenant's projects when Incus drops them.
+func (d TenantDeleter) sweepTenantTrustEntries(server TenantDeleteServer, name string, ownProjects map[string]bool) error {
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+	certificates, err := server.GetCertificates()
+	if err != nil {
+		return fmt.Errorf("list trust entries for purge: %w", err)
+	}
+	for _, cert := range certificates {
+		if cert.Name != name || cert.Type != api.CertificateTypeClient || !cert.Restricted {
+			continue
+		}
+		remaining := 0
+		for _, project := range cert.Projects {
+			if !ownProjects[project] {
+				remaining++
+			}
+		}
+		if remaining > 0 {
+			continue
+		}
+		short := cert.Fingerprint
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		d.log("delete trust entry " + cert.Name + " (" + short + ")")
+		if err := ignoreNotFound(server.DeleteCertificate(cert.Fingerprint)); err != nil {
+			return fmt.Errorf("delete trust entry %s (%s): %w", cert.Name, short, err)
+		}
+	}
 	return nil
 }
 

@@ -37,6 +37,48 @@ type SandcastleConfig struct {
 	// re-point it too. Keyed by Auth Hostname rather than remote name because
 	// that is what `sc login` knows before the remote is enrolled.
 	Brokers map[string]string `yaml:"brokers,omitempty"`
+	// RemoteAuthTokens maps an enrolled Sandcastle remote name (the Tenant DNS
+	// Suffix — unique per (install, tenant) on this client) to that login's CLI
+	// auth token. The hostname-keyed AuthTokens map cannot distinguish two
+	// tenants of ONE install (the last login's token wins), so remote switching
+	// prefers this map — the bearer identity follows the remote (#112).
+	RemoteAuthTokens map[string]string `yaml:"remote_auth_tokens,omitempty"`
+	// RemoteBrokers likewise maps a remote name to its Broker URL. The Broker
+	// addresses the TENANT's own gateway (its /24), so it is per-remote, not
+	// just per-install — two tenants of one install have different gateways.
+	RemoteBrokers map[string]string `yaml:"remote_brokers,omitempty"`
+	// RemoteTenants maps a remote name to the tenant enrolled under it, so
+	// switching remotes re-points cfg.Tenant along with the token — the right
+	// token with the wrong tenant is still a 403 (#112).
+	RemoteTenants map[string]string `yaml:"remote_tenants,omitempty"`
+}
+
+// TenantForRemote returns the tenant recorded for an enrolled remote, or ""
+// when none was recorded (a login predating remote_tenants).
+func (c SandcastleConfig) TenantForRemote(remote string) string {
+	return recordedValue(c.RemoteTenants, remote)
+}
+
+// recordedValue is the shared shape of every per-key record accessor: trimmed
+// lookup, "" for an absent key or a map that predates the record.
+func recordedValue(records map[string]string, key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" || records == nil {
+		return ""
+	}
+	return strings.TrimSpace(records[key])
+}
+
+// AuthTokenForRemote returns the CLI auth token recorded for an enrolled
+// remote, or "" when none was recorded (a login predating remote_auth_tokens).
+func (c SandcastleConfig) AuthTokenForRemote(remote string) string {
+	return recordedValue(c.RemoteAuthTokens, remote)
+}
+
+// BrokerForRemote returns the Broker URL recorded for an enrolled remote, or
+// "" when none was recorded (a login predating remote_brokers).
+func (c SandcastleConfig) BrokerForRemote(remote string) string {
+	return recordedValue(c.RemoteBrokers, remote)
 }
 
 // AuthHostnameForRemote returns the recorded Auth Hostname (global URL) for a
@@ -52,21 +94,13 @@ func (c SandcastleConfig) AuthHostnameForRemote(remote string) string {
 // AuthTokenForAuthHostname returns the recorded CLI auth token for an install,
 // or "" when none was recorded (a login that predates the auth_tokens map).
 func (c SandcastleConfig) AuthTokenForAuthHostname(host string) string {
-	host = strings.TrimSpace(host)
-	if host == "" || c.AuthTokens == nil {
-		return ""
-	}
-	return strings.TrimSpace(c.AuthTokens[host])
+	return recordedValue(c.AuthTokens, host)
 }
 
 // BrokerForAuthHostname returns the recorded Broker URL for an install, or ""
 // when none was recorded (a login that predates the brokers map).
 func (c SandcastleConfig) BrokerForAuthHostname(host string) string {
-	host = strings.TrimSpace(host)
-	if host == "" || c.Brokers == nil {
-		return ""
-	}
-	return strings.TrimSpace(c.Brokers[host])
+	return recordedValue(c.Brokers, host)
 }
 
 // DefaultConfigDir returns ~/.config/sandcastle.
