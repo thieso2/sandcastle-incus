@@ -472,14 +472,14 @@ sc create nosuch:box        # PASS: "project \"nosuch\" not found in tenant … 
 sc delete api:backend --yes # PASS: swapped-reference hint: did you mean "backend:api"?
 
 # 4a. duplicate machine names across projects
-# Incus scopes instance DNS names to the *bridge*, not the project, and every
-# project of the tenant shares one bridge. A second "web" is therefore created
-# but refused a start — and, because the check enumerates instances from the DB
-# regardless of state, the surviving default:web can no longer start either
-# until the duplicate is gone.
-sc create backend:web       # PASS: "Instance DNS name \"web\" already used on network"
-sc ls -a                    # PASS: backend:web listed, stopped, no IP
-sc start web                # PASS (no tty): "machine \"web\" exists in 2 projects (backend:web, default:web)"
+# The tenant bridge carries dns.mode=none (see step 2 above), so a second "web"
+# in another project starts CLEANLY with its own IP — the old "Instance DNS name
+# already used on network" refusal is gone (validated on majestix 2026-07-17;
+# both webs RUNNING, distinct FQDNs web.default.castle / web.backend.castle).
+# What remains is the REFERENCE ambiguity when a bare name matches two projects:
+sc create backend:web       # PASS: created AND running, own IP, FQDN web.backend.castle
+sc ls -a                    # PASS: both webs listed, both running
+sc start web                # PASS (no tty): "machine \"web\" exists in 2 projects (backend:web, default:web); name the one you mean as project:machine"
                             # PASS (tty): numbered prompt "Which one? [1-2]"
 sc delete backend:web --yes # PASS: qualified reference deletes without asking
 sc delete web               # PASS (tty): confirm names it "default:web", not "web"
@@ -569,6 +569,21 @@ incus exec big:sc-edge --project infrastructure -- systemctl reload caddy
 SNI-passthrough entry. Until then, the phases below run against the **persistent**
 sc2 on `big` (edge/broker/auth-app + a throwaway `e2etest` tenant) — same flow, but
 sharing the long-lived appliances. The hermetic harness makes every run disposable.
+
+> ✅ **Full from-scratch validation incl. routes (2026-07-17, `majestix`, run id
+> `74764b9d`):** Phase 0 teardown of a live dual-install stack → two `sc-adm
+> install`s (cloudflare tunnels, prefixes `sc2`+`id`, pools 10.61/10.62) → the
+> whole client battery (suffix scenarios 1-6/8-11/14-15, machines, DNS incl.
+> tailnet-IP + reverse-REFUSED, shared volumes, 7c/7d/7e, 8b incl. the distrust
+> window, 8c, 8d), `scripts/e2e-v2.sh` GREEN, multi-install coexistence + the
+> new addressing features (`sc remote list/switch`, `castle:`-refs,
+> cross-install connect), and **Phase 7f routes**: redeploy-coexistence onto the
+> tunnelled login host, `scripts/e2e-route.sh` ALL PASS (hermetic
+> `--route-tls internal`), the `sc route` CLI end-to-end, auto-prune self-heal
+> (~10 s), and the 501 no-route-ingress precondition. Four defects caught live
+> and fixed in the same run (shared-client-keypair `sc project create` 500,
+> `sc route delete --yes` ignored, appliance redeploy ETXTBSY, e2e-route.sh
+> robustness) — see the appendix rows dated 2026-07-17.
 
 > ✅ **Second full validation (2026-07-04 evening, `testzone-vm1`):** the whole
 > protocol re-ran from scratch on another fresh isolated VM — including the new
