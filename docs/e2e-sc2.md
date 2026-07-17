@@ -1500,8 +1500,16 @@ with stamps written; 10c restarts only the leaf signer with connectivity
 untouched and the sidecar never ahead of the deployment; 10d atomic replace
 with `.bak` rollback artifact (brew installs never self-replace); 10e notices
 throttled ≤1/24h per target and env-suppressible; 10f card states match the
-stamps. Not yet validated live — no second release existed when this phase
-was written.
+stamps.
+
+**Status (2026-07-17, v0.1.1 cut):** 10d validated live against the real
+v0.1.1 release — dev binary pinned to v0.1.1: asset + `checksums.txt`
+downloaded, SHA-256 verified, atomic replace through the `sc` symlink
+(symlink preserved, `.bak` kept), new binary reports 0.1.1 and its own
+`sc update --check` says current; the sidecar row correctly reads "unknown"
+with no reachable deployment; the tap bumped to 0.1.1 in the same release
+run. 10a/10b/10c/10e/10f still need a live deployment (majestix/obelix)
+running release-stamped appliances.
 
 ---
 
