@@ -36,24 +36,28 @@ Rolling back = running payload-sync from the previous binary.`,
 			}
 			lines := make([]string, 0, len(statuses)+1)
 			for _, s := range statuses {
-				before := s.Before
-				if before == "" {
-					before = "(none)"
-				}
-				var state string
-				switch {
-				case s.Changed:
-					state = "synced " + before + " -> " + s.Target
-				case s.Before == s.Target:
-					state = "current (" + s.Target + ")"
-				default:
-					state = "STALE " + before + " (binary ships " + s.Target + ")"
-				}
-				lines = append(lines, s.IncusProject+": "+state)
+				lines = append(lines, s.IncusProject+": "+formatSCPayloadStatus(s))
 			}
 			return writeOutput(config.stdout, opts.output, strings.Join(lines, "\n"), payloadSyncPayload{Tenant: tenantName, Projects: statuses})
 		},
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "report each project's payload version without writing anything")
 	return command
+}
+
+// formatSCPayloadStatus renders one project's payload state — shared by
+// `sc-adm tenant payload-sync` and `sc fix`.
+func formatSCPayloadStatus(s incusx.SCPayloadProjectStatus) string {
+	before := s.Before
+	if before == "" {
+		before = "(none)"
+	}
+	switch {
+	case s.Changed:
+		return "synced " + before + " -> " + s.Target
+	case s.Before == s.Target:
+		return "current (" + s.Target + ")"
+	default:
+		return "STALE " + before + " (binary ships " + s.Target + ")"
+	}
 }

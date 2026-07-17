@@ -161,10 +161,14 @@ func indentBlock(s string, n int) string {
 func SSHAgentForwardBackfillScript() string {
 	versionPath := SCPlatformPath + "/" + PlatformPayloadVersionFile
 	return `set -eu
-cat > /etc/ssh/sshrc <<'SANDCASTLE_SSHRC_EOF'
+if grep -q '` + SCShimMarker + `' /etc/ssh/sshrc 2>/dev/null; then
+  echo "  = /etc/ssh/sshrc is already the /.sc shim"
+else
+  cat > /etc/ssh/sshrc <<'SANDCASTLE_SSHRC_EOF'
 ` + SCSSHRCShim + `SANDCASTLE_SSHRC_EOF
-chmod 0755 /etc/ssh/sshrc
-echo "  + installed the /etc/ssh/sshrc /.sc shim"
+  chmod 0755 /etc/ssh/sshrc
+  echo "  + installed the /etc/ssh/sshrc /.sc shim"
+fi
 SNIPPET='` + strings.TrimRight(SCShellRCShim, "\n") + `'
 for RC in /etc/zsh/zshrc /etc/bash.bashrc; do
   # A missing rc means the shell isn't installed (legacy machines predate the

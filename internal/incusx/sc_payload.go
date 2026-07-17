@@ -40,11 +40,7 @@ func (c TenantCreator) SyncTenantPlatformPayload(_ context.Context, installPrefi
 	if err != nil {
 		return nil, err
 	}
-	installPrefix = strings.TrimSpace(installPrefix)
-	if installPrefix == "" || installPrefix == naming.DefaultIncusProjectPrefix {
-		installPrefix = naming.V2IncusProjectPrefix
-	}
-	infraProject, err := naming.V2TenantInfraProjectName(installPrefix, tenantName)
+	infraProject, err := naming.V2TenantInfraProjectName(naming.NormalizeV2Prefix(installPrefix), tenantName)
 	if err != nil {
 		return nil, err
 	}
@@ -176,14 +172,10 @@ func ensureSCVolumesAndDevices(resource TenantResourceServer, pool string, shift
 		if _, ok := put.Devices[v.DeviceName]; ok {
 			continue
 		}
-		device := map[string]string{"type": "disk", "pool": pool, "source": v.Volume, "path": v.Path}
-		if v.ReadOnly {
-			device["readonly"] = "true"
-		}
 		if put.Devices == nil {
 			put.Devices = map[string]map[string]string{}
 		}
-		put.Devices[v.DeviceName] = device
+		put.Devices[v.DeviceName] = v.Device(pool)
 		changed = true
 	}
 	if !changed {

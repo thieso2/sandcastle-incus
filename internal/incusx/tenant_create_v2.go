@@ -439,12 +439,14 @@ func v2AppProfileDevices(plan tenant.CreatePlanV2, shifted bool) api.DevicesMap 
 	// device is the tenant-facing writability contract: machines (CT and VM)
 	// mount the layer read-only, so a tenant cannot accidentally delete a
 	// script the fleet depends on; central updates go through the volume API.
-	for _, v := range tenant.V2SCVolumes() {
-		device := map[string]string{"type": "disk", "pool": plan.StoragePool, "source": v.Volume, "path": v.Path}
-		if v.ReadOnly {
-			device["readonly"] = "true"
-		}
-		devices[v.DeviceName] = device
+	scVolumes := plan.SCVolumes
+	if len(scVolumes) == 0 {
+		// Plans built outside PlanCreateV2 (profile re-renders) carry no
+		// SCVolumes; the built-in set is the same contract.
+		scVolumes = tenant.V2SCVolumes()
+	}
+	for _, v := range scVolumes {
+		devices[v.DeviceName] = v.Device(plan.StoragePool)
 	}
 	return devices
 }

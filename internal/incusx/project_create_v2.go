@@ -80,6 +80,7 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string
 		SSHPublicKey:       cfg[keyV2SSHKey],
 		DNSSuffix:          cfg[keyV2Suffix],
 		DNSAddress:         dnsAddress,
+		SCVolumes:          tenant.V2SCVolumes(),
 	}
 	if profilePlan.DefaultProfileUser == "" {
 		profilePlan.DefaultProfileUser = tenant.DefaultV2UnixUser

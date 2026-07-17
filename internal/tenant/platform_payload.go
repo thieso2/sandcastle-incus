@@ -129,3 +129,13 @@ func V2SCVolumes() []SCVolume {
 	}
 }
 
+// Device renders the layer's Incus disk-device descriptor for a storage pool —
+// the one shape both the profile renderer and the legacy onboarding attach.
+func (v SCVolume) Device(pool string) map[string]string {
+	device := map[string]string{"type": "disk", "pool": pool, "source": v.Volume, "path": v.Path}
+	if v.ReadOnly {
+		device["readonly"] = "true"
+	}
+	return device
+}
+

@@ -19,25 +19,35 @@ type machineFixup struct {
 	summary string
 	apply   func() string
 	check   func() string
-	// ensuresPayload: converge the shared /.sc platform payload (via the
-	// Incus API, central) before this fixup's per-machine script runs.
-	ensuresPayload bool
+	// requiresPayload: this fixup's scripts consume the shared /.sc platform
+	// payload, so `sc fix` converges it (via the Incus API, once per project)
+	// before the per-machine script runs.
+	requiresPayload bool
+}
+
+func anyFixupRequiresPayload(fixups []machineFixup) bool {
+	for _, f := range fixups {
+		if f.requiresPayload {
+			return true
+		}
+	}
+	return false
 }
 
 // machineFixups is the registry `sc fix` iterates. Add an entry when a change
 // ships in cloud-init that older machines also need backfilled.
 //
-// ensuresPayload marks fixups whose scripts consume the /.sc platform payload
+// requiresPayload marks fixups whose scripts consume the /.sc platform payload
 // (ADR-0022): before running them, `sc fix` converges the project's shared
 // sc-platform volume via the tenant's own Incus API — once per project, so the
 // per-machine script only has to install the stable shims.
 var machineFixups = []machineFixup{
 	{
-		name:           "agent-forwarding",
-		summary:        "forwarded SSH agent survives herdr/tmux panes (stable /.sc shims + shared payload)",
-		apply:          tenant.SSHAgentForwardBackfillScript,
-		check:          tenant.SSHAgentForwardCheckScript,
-		ensuresPayload: true,
+		name:            "agent-forwarding",
+		summary:         "forwarded SSH agent survives herdr/tmux panes (stable /.sc shims + shared payload)",
+		apply:           tenant.SSHAgentForwardBackfillScript,
+		check:           tenant.SSHAgentForwardCheckScript,
+		requiresPayload: true,
 	},
 }
 
@@ -118,10 +128,7 @@ func runFixV2(ctx context.Context, config commandConfig, summary tenant.Summary,
 	// Central half first (ADR-0022): the payload lives on the project's shared
 	// /.sc volume, so it is converged once over the Incus API — the per-machine
 	// scripts below only install the stable shims that source it.
-	for _, f := range fixups {
-		if !f.ensuresPayload {
-			continue
-		}
+	if anyFixupRequiresPayload(fixups) {
 		status, err := config.tenantCreator.EnsureProjectPlatformPayload(ctx, summary.V2IncusProjectName(dialed.project), checkOnly)
 		if err != nil {
 			// --check stays report-only: surface the problem, keep checking.
@@ -130,20 +137,8 @@ func runFixV2(ctx context.Context, config commandConfig, summary tenant.Summary,
 				failed = append(failed, "sc-payload")
 			}
 		} else {
-			before := status.Before
-			if before == "" {
-				before = "(none)"
-			}
-			switch {
-			case status.Changed:
-				fmt.Fprintf(config.stdout, "/.sc payload: synced %s -> %s (shared volume, whole project)\n", before, status.Target)
-			case status.Before == status.Target:
-				fmt.Fprintf(config.stdout, "/.sc payload: current (%s)\n", status.Target)
-			default:
-				fmt.Fprintf(config.stdout, "/.sc payload: STALE %s (this binary ships %s)\n", before, status.Target)
-			}
+			fmt.Fprintf(config.stdout, "/.sc payload: %s\n", formatSCPayloadStatus(status))
 		}
-		break
 	}
 	for _, f := range fixups {
 		script := f.apply()

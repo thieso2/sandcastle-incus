@@ -79,15 +79,19 @@ fi
 read -r -d '' REMOTE_FIXUP <<'FIX' || true
 set -eu
 
-cat > /etc/ssh/sshrc <<'EOF'
+if grep -q 'Sandcastle /.sc shim' /etc/ssh/sshrc 2>/dev/null; then
+  echo "  = /etc/ssh/sshrc is already the /.sc shim"
+else
+  cat > /etc/ssh/sshrc <<'EOF'
 #!/bin/sh
 # Sandcastle /.sc shim (stable) — the logic lives on the /.sc volume (ADR-0022).
 [ -r /.sc/platform/ssh/sshrc ] && . /.sc/platform/ssh/sshrc
 [ -r /.sc/local/ssh/sshrc ] && . /.sc/local/ssh/sshrc
 true
 EOF
-chmod 0755 /etc/ssh/sshrc
-echo "  + installed the /etc/ssh/sshrc /.sc shim"
+  chmod 0755 /etc/ssh/sshrc
+  echo "  + installed the /etc/ssh/sshrc /.sc shim"
+fi
 
 SNIPPET='# Sandcastle /.sc shim (stable) — shell setup lives on the /.sc volume (ADR-0022).
 [ -r /.sc/platform/shell/rc.sh ] && . /.sc/platform/shell/rc.sh
