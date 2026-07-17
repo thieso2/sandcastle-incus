@@ -1077,38 +1077,68 @@ echo | openssl s_client -servername $HOST -connect 65.21.132.31:443 2>/dev/null 
 
 ---
 
-## Phase 7c — Publish a public route with `sc route` (Spec #111) 🚧
+## Phase 7f — Publish a public route with `sc route` (Spec #111) ✅
 Phase 7b's manual `sc-edge` vhost is exactly what `sc route` productizes, but
 against the **auth-app appliance's own Caddy**, not a separate `sc-edge`.
 Requires **route ingress** — deploy with `--route-ingress acme` (on `sc-adm
-install` or `sc-adm auth-app deploy`), independent of the Auth Hostname's own
-ingress, so routes can run beside a Cloudflare-tunnelled login host (e.g. login
-`--ingress cloudflare` on `home.thieso2.dev`, routes `--route-ingress acme
---route-base-domain home.tc42.uk`). Needs a wildcard `*.<route-base-domain>` →
-the host's public IP (a wildcard CNAME to a dynamic-DNS name works). The
-auth-app owns the route end to end: it records the
-route in its SQLite `routes` table, adds a per-route Incus `proxy` device onto
-its own instance (`listen 127.0.0.1:<local>` → `connect <machine-ip>:<port>`),
-regenerates `/etc/caddy/Caddyfile` (a global `on_demand_tls { ask … }` block plus
-one site per route), reloads Caddy, and gates certificate issuance through the
+install` or `sc-adm auth-app deploy`), **independent of the Auth Hostname's own
+ingress**, so routes run beside a Cloudflare-tunnelled login host. `--route-base-domain`
+puts routes under a separate domain from login; empty defaults to the Auth Hostname.
+Auto-subdomains need a wildcard `*.<route-base-domain>` → the host's public IP (a
+wildcard CNAME to a dynamic-DNS name works, tracking a changing residential IP);
+a **custom FQDN** (`--hostname`) instead needs its own CNAME → the public IP. The
+auth-app owns the route end to end: it records the route in its SQLite `routes`
+table, adds a per-route Incus `proxy` device onto its own instance
+(`listen 127.0.0.1:<local>` → `connect <machine-ip>:<port>`), regenerates
+`/etc/caddy/Caddyfile` (a global `on_demand_tls { ask … }` block plus one site per
+route), reloads Caddy, and gates certificate issuance through the
 `/api/routes/ask` endpoint so only registered hostnames get a cert.
 
 ```bash
 # As the tenant (restricted cert), with a machine "web" running an app on :3000.
+
+# Auto-subdomain under the route base domain (rides the wildcard):
 sc route publish web --port 3000
-# → https://web.<tenant>.<auth-hostname>
+# → https://web.<tenant>.<route-base-domain>
+
+# Custom FQDN (you CNAME it to your public IP yourself):
+sc route publish web --port 3000 --hostname app.example.com
 
 sc route list          # HOSTNAME · MACHINE · PORT · STATUS  → web…  web  3000  live
-sc route status web.<tenant>.<auth-hostname>
+sc route status <hostname>
+sc route delete <hostname> --yes
 ```
-**PASS criteria:**
-- `sc route publish web --port 3000` prints `https://web.<tenant>.<auth-hostname>`.
-- On the auth-app instance, `incus exec big:sc2-auth-app --project sc2-infra -- cat /etc/caddy/Caddyfile` shows the route's site block with `reverse_proxy 127.0.0.1:<local>` and the global `on_demand_tls { ask … }` directive; a per-route `scroute-…` proxy device is present in `incus config device show`.
-- After a short wait (first-request cert issuance), `curl https://web.<tenant>.<auth-hostname>/` returns the app body with a **real Let's Encrypt** cert (`ssl_verify_result=0`).
-- `curl` to an **unregistered** `random.<auth-hostname>` does **not** obtain a certificate (the `ask` endpoint returns 403) — no cert-issuance abuse under the wildcard.
-- **Self-heal:** reboot the machine (new DHCP IP) → within the reconcile window `sc route status` is `live` again and the route still serves (the proxy device's `connect` was refreshed). Delete the machine → the route is pruned from `sc route list` automatically.
-- `sc route delete web.<tenant>.<auth-hostname> --yes` removes the site block, the proxy device, and the registry row.
-- **Precondition:** on an install deployed **without** `--ingress acme`, every `sc route` command errors with the "no public ingress; re-install with `sc-adm install --ingress acme`" message.
+**PASS (✅ validated live on `home`/`idefix` 2026-07-17 — login on Cloudflare
+`idefix.thieso2.dev`, routes native-ACME under `home.tc42.uk`):**
+- Redeploying an existing **cloudflare-login** appliance with `--route-ingress acme`
+  binds host `:80/:443`, writes the **coexistence** Caddyfile (login stays
+  `http://<auth-hostname>:8080`, **no** global `auto_https off`), and leaves login
+  serving throughout (`<auth-hostname>/healthz` → 200 across the change).
+- `sc route publish web --port 3000` → `https://web.<tenant>.<route-base-domain>`,
+  `status: live`; the Caddyfile gains a `<host> { tls { on_demand } reverse_proxy
+  127.0.0.1:<local> }` site and a per-route `scroute-…` proxy device appears in
+  `incus config device show`.
+- **Public HTTPS** `curl https://web.<tenant>.<route-base-domain>/` (no `-k`) returns
+  the app body with a **real Let's Encrypt** cert (issuer `Let's Encrypt`), issued
+  on the first request via HTTP-01.
+- **Custom FQDN** `--hostname gurke.thieso2.dev` (own CNAME → public IP) works
+  identically: `curl https://gurke.thieso2.dev/` returns the app body with a real
+  Let's Encrypt cert (`subject=gurke.thieso2.dev`).
+- The `/api/routes/ask` gate returns **403** for an unregistered hostname — no
+  cert-issuance abuse under the wildcard.
+- `sc route delete <hostname> --yes` removes the site block, the proxy device, and
+  the registry row; login stays up.
+- **Self-heal:** machine deleted → route auto-pruned; machine recreated with a new
+  DHCP IP → the reconcile refreshes the proxy device `connect`.
+- **Precondition:** on an install **without** route ingress, every `sc route`
+  command errors with "no public ingress … re-install with `--ingress acme`".
+- **Cloudflare-zone gotcha:** a custom route FQDN on a Cloudflare zone must be
+  **DNS-only (grey cloud)** — a proxied (orange) record makes Cloudflare intercept
+  `:443`, so HTTP-01 never reaches the host and no cert issues.
+
+> Validated via the auth-app's `POST/DELETE /api/routes` with the tenant token
+> (the tenant `sc` restricted cert wasn't set up on the test client); the `sc route`
+> CLI drives the same endpoints after a normal `sc login`.
 
 ---
 
