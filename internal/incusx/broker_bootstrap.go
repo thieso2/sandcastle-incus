@@ -140,7 +140,7 @@ func ensureBrokerProject(server TenantCreateServer, name string) error {
 				"features.networks": "false",
 				"features.images":   "false",
 				"features.profiles": "true",
-				meta.KeyKind:        "broker",
+				meta.KeyKind:        meta.KindBroker,
 				meta.KeyVersion:     "2",
 			},
 		},
@@ -173,7 +173,7 @@ func ensureBrokerInstance(server TenantResourceServer, req BootstrapV2Request, p
 			// route-broker appliance.
 			Config: api.ConfigMap{
 				"security.privileged": "true",
-				meta.KeyKind:          "broker",
+				meta.KeyKind:          meta.KindBroker,
 				meta.KeyVersion:       "2",
 			},
 			Devices:  devices,

@@ -42,12 +42,26 @@ func UnderBrewPrefix(exePath, brewPrefix string) bool {
 // IsBrewManaged reports whether the running binary is Homebrew-managed.
 // Brew-managed installs must never be self-replaced — the next `brew
 // upgrade` would silently downgrade the mutated Caskroom copy.
+//
+// Primary check: the unresolved executable path under `brew --prefix`/bin
+// (gh/flyctl pattern). os.Executable() is only unresolved on macOS — on
+// Linux it reads /proc/self/exe, which is already symlink-resolved and
+// would point into the Cellar/Caskroom — so a layout-based complement
+// catches resolved paths too.
 func IsBrewManaged() bool {
 	exe, err := os.Executable()
 	if err != nil {
 		return false
 	}
-	return UnderBrewPrefix(exe, BrewBinDir())
+	if UnderBrewPrefix(exe, BrewBinDir()) {
+		return true
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return false
+	}
+	sep := string(filepath.Separator)
+	return strings.Contains(resolved, sep+"Caskroom"+sep) || strings.Contains(resolved, sep+"Cellar"+sep)
 }
 
 // Apply atomically replaces the binary at targetPath (typically the

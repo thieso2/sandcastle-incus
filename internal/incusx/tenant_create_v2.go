@@ -454,7 +454,7 @@ func ensureV2Sidecar(server TenantResourceServer, plan tenant.CreatePlanV2, imag
 		InstancePut: api.InstancePut{
 			Description: "Sandcastle v2 sidecar (CoreDNS + Tailscale + Caddy)",
 			Config: api.ConfigMap{
-				meta.KeyKind:    "sidecar",
+				meta.KeyKind:    meta.KindSidecar,
 				meta.KeyTenant:  plan.Tenant,
 				meta.KeyVersion: "2",
 			},

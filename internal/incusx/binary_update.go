@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 
 	"github.com/lxc/incus/v6/shared/api"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/projectbroker"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 )
 
 // SandcastleBinaryPath is where the fat binary lives inside every appliance
@@ -53,7 +53,7 @@ func (c TenantCreator) ListBinaryVersions() ([]ComponentVersion, error) {
 // binary-carrying components, ordered auth-app, broker, then sidecars by
 // tenant.
 func classifyComponents(instances []api.InstanceFull) []ComponentVersion {
-	rank := map[string]int{"auth-app": 0, "broker": 1, meta.KindSidecar: 2}
+	rank := map[string]int{meta.KindAuthApp: 0, meta.KindBroker: 1, meta.KindSidecar: 2}
 	var components []ComponentVersion
 	for _, inst := range instances {
 		kind := inst.Config[meta.KeyKind]
@@ -104,12 +104,16 @@ func (c TenantCreator) UpdateApplianceBinary(project, instance string, binary []
 	}
 	for _, unit := range units {
 		c.log("restart " + unit + " in " + instance)
-		script := "systemctl restart " + unit + " && sleep 1 && systemctl is-active " + unit
-		if err := execSidecar(psrv, instance, script); err != nil {
+		if err := execSidecar(psrv, instance, restartUnitScript(unit)); err != nil {
 			return fmt.Errorf("restart %s in %s/%s: %w", unit, project, instance, err)
 		}
 	}
 	return nil
+}
+
+// restartUnitScript restarts a unit and verifies it came back active.
+func restartUnitScript(unit string) string {
+	return "systemctl restart " + unit + " && sleep 1 && systemctl is-active " + unit
 }
 
 // UpdateTenantSidecar pushes the given binary into the tenant's sidecar,
@@ -138,14 +142,10 @@ func (c TenantCreator) UpdateTenantSidecar(prefix, tenantName string, binary []b
 		return ComponentVersion{}, err
 	}
 	c.log("restart " + TLSSignUnit)
-	script := "systemctl restart " + TLSSignUnit + " && sleep 1 && systemctl is-active " + TLSSignUnit
-	if err := execSidecar(psrv, instance, script); err != nil {
+	if err := execSidecar(psrv, instance, restartUnitScript(TLSSignUnit)); err != nil {
 		return ComponentVersion{}, fmt.Errorf("restart %s on sidecar of %s: %w", TLSSignUnit, tenantName, err)
 	}
-	version := binaryVersion
-	if version != "" && !strings.HasPrefix(version, "v") {
-		version = "v" + version
-	}
+	version := update.NormalizeTag(binaryVersion)
 	return ComponentVersion{
 		Kind:          meta.KindSidecar,
 		Project:       infraProject,
@@ -177,7 +177,7 @@ func (u SidecarSelfUpdater) UpdateTenantSidecar(tenantName string) (projectbroke
 	if err != nil {
 		return projectbroker.SidecarUpdateResult{}, fmt.Errorf("read running binary: %w", err)
 	}
-	component, err := u.Creator.UpdateTenantSidecar(v2Prefix(u.Admin.IncusProjectPrefix), tenantName, binary, runningBinaryVersion)
+	component, err := u.Creator.UpdateTenantSidecar(naming.NormalizeV2Prefix(u.Admin.IncusProjectPrefix), tenantName, binary, runningBinaryVersion)
 	if err != nil {
 		return projectbroker.SidecarUpdateResult{}, err
 	}
@@ -200,14 +200,4 @@ func downloadArch(incusArch string) string {
 	default:
 		return ""
 	}
-}
-
-// v2Prefix normalizes the installation prefix the way tenant.PlanCreateV2
-// does: empty or the legacy default fall back to the v2 default.
-func v2Prefix(prefix string) string {
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" || prefix == naming.DefaultIncusProjectPrefix {
-		return naming.V2IncusProjectPrefix
-	}
-	return prefix
 }

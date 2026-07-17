@@ -2,13 +2,13 @@ package cli
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/update"
 )
@@ -16,8 +16,8 @@ import (
 // componentUnits maps a global component kind to the service units its
 // update restarts.
 var componentUnits = map[string][]string{
-	"auth-app": {"sandcastle-auth-app.service"},
-	"broker":   {"sandcastle-broker.service"},
+	meta.KindAuthApp: {"sandcastle-auth-app.service"},
+	meta.KindBroker:  {"sandcastle-broker.service"},
 }
 
 // newAdminUpdateCommand is the operator-facing `sc-adm update` (#124 §4):
@@ -39,11 +39,11 @@ func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			prefix := installPrefix(config.adminConfig.IncusProjectPrefix)
+			prefix := naming.NormalizeV2Prefix(config.adminConfig.IncusProjectPrefix)
 			scoped := filterInstallComponents(components, prefix, config.adminConfig.InfrastructureProject)
 
 			checker := &update.Checker{}
-			release, releaseErr := checker.ResolveRelease(ctx, normalizeReleaseTag(pin))
+			release, releaseErr := checker.ResolveRelease(ctx, update.NormalizeTag(pin))
 
 			if check {
 				renderFleetTable(config, scoped, release.TagName, releaseErr)
@@ -77,7 +77,9 @@ func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 			binaries := map[string][]byte{}
 			fetchFor := func(arch string) ([]byte, error) {
 				if arch == "" {
-					arch = runtime.GOARCH
+					// Never guess: from a darwin/arm64 workstation a GOARCH
+					// fallback would push an arm64 binary into an amd64 appliance.
+					return nil, fmt.Errorf("instance architecture unknown — cannot pick a release asset")
 				}
 				if b, ok := binaries[arch]; ok {
 					return b, nil
@@ -100,7 +102,7 @@ func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					if t.Kind == "sidecar" {
+					if t.Kind == meta.KindSidecar {
 						_, err = creator.UpdateTenantSidecar(prefix, t.Tenant, binary, release.TagName)
 						return err
 					}
@@ -128,16 +130,6 @@ func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 	return command
 }
 
-// installPrefix normalizes the installation prefix like tenant.PlanCreateV2:
-// empty or the legacy default fall back to the v2 default.
-func installPrefix(prefix string) string {
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" || prefix == naming.DefaultIncusProjectPrefix {
-		return naming.V2IncusProjectPrefix
-	}
-	return prefix
-}
-
 // filterInstallComponents keeps the fleet rows belonging to THIS install:
 // several sandcastles can share one Incus host (--prefix), and updating a
 // neighbour install's appliances would be a surprise.
@@ -155,15 +147,15 @@ func filterInstallComponents(components []incusx.ComponentVersion, prefix, infra
 	var scoped []incusx.ComponentVersion
 	for _, c := range components {
 		switch c.Kind {
-		case "auth-app":
+		case meta.KindAuthApp:
 			if authAppProjects[c.Project] {
 				scoped = append(scoped, c)
 			}
-		case "broker":
+		case meta.KindBroker:
 			if c.Project == prefix+"-broker" || c.Project == incusx.BrokerProjectName {
 				scoped = append(scoped, c)
 			}
-		case "sidecar":
+		case meta.KindSidecar:
 			if c.Tenant != "" && c.Project == prefix+"-"+c.Tenant {
 				scoped = append(scoped, c)
 			}
@@ -186,9 +178,9 @@ func selectUpdateTargets(scoped []incusx.ComponentVersion, tenants []string, all
 	found := map[string]bool{}
 	for _, c := range scoped {
 		switch c.Kind {
-		case "auth-app", "broker":
+		case meta.KindAuthApp, meta.KindBroker:
 			targets = append(targets, c)
-		case "sidecar":
+		case meta.KindSidecar:
 			if allTenants || wanted[c.Tenant] {
 				targets = append(targets, c)
 				found[c.Tenant] = true
@@ -218,7 +210,7 @@ func renderFleetTable(config commandConfig, components []incusx.ComponentVersion
 	for _, c := range components {
 		notes := fleetNotes(c, latestTag)
 		name := c.Kind
-		if c.Kind == "sidecar" {
+		if c.Kind == meta.KindSidecar {
 			name = "sidecar (" + c.Tenant + ")"
 		}
 		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\n", name, c.Project, c.Instance, orUnknown(c.BinaryVersion), c.Status, notes)

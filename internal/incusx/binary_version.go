@@ -2,12 +2,12 @@ package incusx
 
 import (
 	"fmt"
-	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/update"
 )
 
 // runningBinaryVersion is the version of the currently running fat binary,
@@ -33,12 +33,9 @@ type instanceConfigServer interface {
 // which is treated as outdated. Never confuse this with meta.KeyVersion,
 // the topology schema version.
 func stampBinaryVersion(server instanceConfigServer, instance, version string) error {
-	version = strings.TrimSpace(version)
+	version = update.NormalizeTag(version)
 	if version == "" {
 		return nil
-	}
-	if !strings.HasPrefix(version, "v") {
-		version = "v" + version
 	}
 	inst, etag, err := server.GetInstance(instance)
 	if err != nil {

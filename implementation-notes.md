@@ -44,6 +44,11 @@ Implementing PRD #124 surfaced several calls the spec left open:
   auth-app/broker on the remote would cross install boundaries. Rows are
   filtered to `<prefix>-infra`/`infrastructure`, `<prefix>-broker`/
   `sc2-broker`, and `<prefix>-<tenant>` sidecars.
+- **The release check still sends `If-None-Match`** although the PRD notes
+  conditional requests buy no *quota* unauthenticated. The linked research
+  (`docs/research/github-release-checking.md`) explicitly recommends keeping
+  the ETag anyway: a 304 saves bandwidth and JSON parsing and is a definitive
+  "nothing changed" signal. Quota was never the reason; the daily cache is.
 - **The version state file is JSON** (`update-state.json`), not YAML like
   `config.yml`: it is machine-managed, never user-edited, and stdlib-only.
   Corrupt state self-heals to "never checked".

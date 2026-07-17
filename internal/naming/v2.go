@@ -29,6 +29,18 @@ const V2SidecarInstanceName = "sidecar"
 // maxIncusProjectNameLen is Incus's practical instance/project name budget.
 const maxIncusProjectNameLen = 63
 
+// NormalizeV2Prefix normalizes an installation prefix: empty or the legacy
+// default ("sc") falls back to the v2 default ("sc2"). The one place this
+// rule lives — tenant planning, the broker adapter, and sc-adm update all
+// share it.
+func NormalizeV2Prefix(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix == DefaultIncusProjectPrefix {
+		return V2IncusProjectPrefix
+	}
+	return prefix
+}
+
 // V2TenantInfraProjectName returns the per-tenant infra Incus project name
 // (sc2-<tenant>) that holds the tenant's single sidecar.
 func V2TenantInfraProjectName(prefix string, tenant string) (string, error) {

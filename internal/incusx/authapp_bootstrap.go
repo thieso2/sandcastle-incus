@@ -212,7 +212,7 @@ func ensureAuthAppInstance(server TenantResourceServer, req BootstrapAuthAppRequ
 			// mounted admin unix socket, matching the broker/auth-app pattern.
 			Config: api.ConfigMap{
 				"security.privileged": "true",
-				meta.KeyKind:          "auth-app",
+				meta.KeyKind:          meta.KindAuthApp,
 			},
 			Devices:  authAppDevices(req),
 			Profiles: []string{},

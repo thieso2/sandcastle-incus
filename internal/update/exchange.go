@@ -23,8 +23,10 @@ const (
 // deliberately no per-release compat matrix beyond this one value.
 const MinCLIVersion = ""
 
-// normalizeTag returns the version with a "v" prefix, or "" for empty input.
-func normalizeTag(v string) string {
+// NormalizeTag returns the version with a "v" prefix (the release-tag
+// form), or "" for empty input. The one normalizer for version tags —
+// stamping, headers, and display all share it.
+func NormalizeTag(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return ""
@@ -38,10 +40,10 @@ func normalizeTag(v string) string {
 // ApplyVersionHeaders stamps a service response with the appliance version
 // and, when set, the minimum CLI version.
 func ApplyVersionHeaders(h http.Header, serverVersion, minCLI string) {
-	if v := normalizeTag(serverVersion); v != "" {
+	if v := NormalizeTag(serverVersion); v != "" {
 		h.Set(HeaderVersion, v)
 	}
-	if m := normalizeTag(minCLI); m != "" {
+	if m := NormalizeTag(minCLI); m != "" {
 		h.Set(HeaderMinCLIVersion, m)
 	}
 }
@@ -51,7 +53,7 @@ func ApplyVersionHeaders(h http.Header, serverVersion, minCLI string) {
 // before the version exchange existed — older than any minimum). Dev builds
 // are exempt.
 func RefuseCLI(cliHeader, minCLI string) bool {
-	if normalizeTag(minCLI) == "" {
+	if NormalizeTag(minCLI) == "" {
 		return false
 	}
 	if strings.TrimSpace(cliHeader) == "" {
@@ -65,7 +67,7 @@ func RefuseCLI(cliHeader, minCLI string) bool {
 
 // RefusalMessage is the clean refusal body sent with HTTP 426.
 func RefusalMessage(minCLI string) string {
-	return fmt.Sprintf("your CLI is too old for this deployment (minimum %s) — run `sc update`", normalizeTag(minCLI))
+	return fmt.Sprintf("your CLI is too old for this deployment (minimum %s) — run `sc update`", NormalizeTag(minCLI))
 }
 
 // Exchange carries the client half of the version exchange: it stamps
@@ -88,7 +90,7 @@ var DefaultExchange = &Exchange{}
 func (e *Exchange) SetCLIVersion(v string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.cliVersion = normalizeTag(v)
+	e.cliVersion = NormalizeTag(v)
 }
 
 // CLIVersion returns the recorded CLI version (normalized).
@@ -124,7 +126,7 @@ func (e *Exchange) RecordSidecarVersion(v string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if v != "" {
-		e.sidecarVersion = normalizeTag(v)
+		e.sidecarVersion = NormalizeTag(v)
 	}
 }
 
@@ -165,8 +167,8 @@ func (t exchangeTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 // ok=false when versions match, nothing was observed, or the CLI is a dev
 // build.
 func SkewWarning(cliVersion, applianceVersion string) (string, bool) {
-	cli := normalizeTag(cliVersion)
-	appliance := normalizeTag(applianceVersion)
+	cli := NormalizeTag(cliVersion)
+	appliance := NormalizeTag(applianceVersion)
 	if cli == "" || appliance == "" || IsDevBuild(cli) || cli == appliance {
 		return "", false
 	}

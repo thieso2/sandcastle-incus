@@ -37,7 +37,7 @@ func newUpdateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			// CLI target: resolve the wanted release (latest, or a pinned tag —
 			// rollback is just pinning an older tag).
 			checker := &update.Checker{StatePath: updateStatePath()}
-			release, releaseErr := checker.ResolveRelease(ctx, normalizeReleaseTag(pin))
+			release, releaseErr := checker.ResolveRelease(ctx, update.NormalizeTag(pin))
 			if releaseErr != nil {
 				fmt.Fprintf(config.stderr, "note: could not reach GitHub for the latest release: %v\n", releaseErr)
 			}
@@ -54,6 +54,10 @@ func newUpdateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 
 			// Sidecar target: current from the signer's version header (a local
 			// call), wanted = the deployment's version from the auth-app headers.
+			// The row is shown whenever a deployment is configured — even when
+			// probes fail it reads "unknown" rather than silently vanishing.
+			deploymentConfigured := commandAuthHostname(config, "") != "" ||
+				strings.TrimSpace(config.adminConfig.Broker) != ""
 			deployment := probeDeploymentVersion(ctx, config)
 			sidecarCurrent := probeSidecarVersion(ctx, config)
 			sidecarKnown := deployment != ""
@@ -64,7 +68,7 @@ func newUpdateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			fmt.Fprintln(w, "TARGET\tCURRENT\tWANTED\tSTATUS")
 			fmt.Fprintf(w, "sc CLI\t%s\t%s\t%s\n", cliCurrent, orUnknown(cliWanted),
 				cliStatus(cliOutdated, brewManaged, update.IsDevBuild(version) && pin == "", releaseErr))
-			if sidecarKnown || sidecarCurrent != "" {
+			if deploymentConfigured || sidecarCurrent != "" {
 				fmt.Fprintf(w, "sidecar\t%s\t%s\t%s\n", orUnknown(sidecarCurrent), orUnknown(deployment), sidecarStatus(sidecarOutdated, sidecarKnown))
 			}
 			w.Flush()
@@ -110,16 +114,6 @@ func newUpdateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().BoolVar(&yes, "yes", false, "apply without prompting")
 	command.Flags().StringVar(&pin, "version", "", "pin the CLI to a release tag (vX.Y.Z); an older tag rolls back")
 	return command
-}
-
-// normalizeReleaseTag turns a user-given version into the v-prefixed tag
-// GitHub knows ("" stays "" = latest).
-func normalizeReleaseTag(v string) string {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return ""
-	}
-	return "v" + strings.TrimPrefix(v, "v")
 }
 
 func orUnknown(v string) string {
@@ -179,26 +173,28 @@ func selfUpdateCLI(ctx context.Context, config commandConfig, checker *update.Ch
 // auth-app token plane (tunnel-friendly) and falling back to the broker's
 // mTLS plane — the same routing as login provisioning.
 func updateSidecarViaDeployment(ctx context.Context, config commandConfig) error {
+	var updatedTo string
 	if strings.TrimSpace(config.adminConfig.AuthToken) != "" && commandAuthHostname(config, "") != "" {
 		client := authapp.DeviceClient{BaseURL: commandAuthHostname(config, ""), AuthToken: config.adminConfig.AuthToken}
 		result, err := client.UpdateSidecar(ctx)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(config.stdout, "Sidecar updated to %s (%s restarted).\n", orUnknown(result.BinaryVersion), "sandcastle-tls-sign")
-		return nil
+		updatedTo = result.BinaryVersion
+	} else {
+		conn, err := resolveBrokerConnection(config.adminConfig, "", "", "", "")
+		if err != nil {
+			return err
+		}
+		var result struct {
+			BinaryVersion string `json:"binaryVersion"`
+		}
+		if err := brokerPost(ctx, conn.Broker, "/v2/sidecar/update", conn.CertFile, conn.KeyFile, struct{}{}, &result); err != nil {
+			return err
+		}
+		updatedTo = result.BinaryVersion
 	}
-	conn, err := resolveBrokerConnection(config.adminConfig, "", "", "", "")
-	if err != nil {
-		return err
-	}
-	var result struct {
-		BinaryVersion string `json:"binaryVersion"`
-	}
-	if err := brokerPost(ctx, conn.Broker, "/v2/sidecar/update", conn.CertFile, conn.KeyFile, struct{}{}, &result); err != nil {
-		return err
-	}
-	fmt.Fprintf(config.stdout, "Sidecar updated to %s (%s restarted).\n", orUnknown(result.BinaryVersion), "sandcastle-tls-sign")
+	fmt.Fprintf(config.stdout, "Sidecar updated to %s (sandcastle-tls-sign restarted).\n", orUnknown(updatedTo))
 	return nil
 }
 

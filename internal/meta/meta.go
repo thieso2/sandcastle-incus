@@ -58,8 +58,10 @@ const (
 	KindMachine   = "machine"
 	KindRoute     = "route"
 	KindSidecar   = "sidecar"
-	KindInfra     = "infra"   // v2 per-tenant infra project (holds the sidecar + CIDR)
-	KindV2Project = "project" // v2 per-project Incus project (app machines)
+	KindInfra     = "infra"    // v2 per-tenant infra project (holds the sidecar + CIDR)
+	KindV2Project = "project"  // v2 per-project Incus project (app machines)
+	KindAuthApp   = "auth-app" // Auth App appliance instance
+	KindBroker    = "broker"   // Sandcastle Broker appliance instance/project
 
 	Version = 1
 
