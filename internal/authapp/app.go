@@ -561,6 +561,12 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 	if err := ensureColumn(ctx, db, "users", "ssh_key_fingerprint", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	// The client's shared-identity Incus certificate, recorded at device login
+	// so the tenant plane (POST /api/projects) can extend the caller's trust
+	// entry by fingerprint when it is named after another tenant's enrollment.
+	if err := ensureColumn(ctx, db, "users", "client_certificate_pem", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := ensureColumn(ctx, db, "oidc_signing_keys", "tenant", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -724,8 +730,12 @@ type HandlerOptions struct {
 
 // TenantProjectCreator creates an app project for a tenant and extends the
 // tenant's restricted certificate; satisfied by incusx.ProjectBrokerCreator.
+// clientCertificatePEM is the tenant's recorded shared-identity certificate
+// ("" when none): with shared client identity the trust entry can be named
+// after another tenant's enrollment, and the certificate fingerprint is how
+// the extension still finds it.
 type TenantProjectCreator interface {
-	CreateTenantProject(ctx context.Context, tenant string, project string) (projectbroker.ProjectResult, error)
+	CreateTenantProject(ctx context.Context, tenant string, project string, clientCertificatePEM string) (projectbroker.ProjectResult, error)
 }
 
 func NewHandler(db *sql.DB, options any) http.Handler {
@@ -887,10 +897,11 @@ func (h handler) projectsAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	clientCertificatePEM, _ := GetUserClientCertificate(r.Context(), h.db, user.UserKey)
 	var result projectbroker.ProjectResult
 	err = svclog.Span(r.Context(), "project.create", func() error {
 		var createErr error
-		result, createErr = h.projects.CreateTenantProject(r.Context(), user.UserKey, project)
+		result, createErr = h.projects.CreateTenantProject(r.Context(), user.UserKey, project, clientCertificatePEM)
 		return createErr
 	})
 	if err != nil {

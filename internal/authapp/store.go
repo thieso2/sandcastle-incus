@@ -255,6 +255,50 @@ WHERE user_key = ?
 	return key, nil
 }
 
+// SetUserClientCertificate records the client's shared-identity Incus
+// certificate (PEM) on the user. Written at device login; read by the tenant
+// plane to extend the caller's trust entry by fingerprint when the entry is
+// named after another tenant's enrollment (shared client identity).
+func SetUserClientCertificate(ctx context.Context, db *sql.DB, userKey string, certificatePEM string) error {
+	normalizedUser := NormalizeGitHubUsername(userKey)
+	if normalizedUser == "" {
+		return fmt.Errorf("user key is required")
+	}
+	pem := strings.TrimSpace(certificatePEM)
+	if pem == "" {
+		return fmt.Errorf("client certificate is required")
+	}
+	result, err := db.ExecContext(ctx, `
+UPDATE users
+SET client_certificate_pem = ?, updated_at = datetime('now')
+WHERE user_key = ? AND client_certificate_pem != ?
+`, pem, normalizedUser, pem)
+	if err != nil {
+		return fmt.Errorf("store client certificate for %s: %w", normalizedUser, err)
+	}
+	_ = result
+	return nil
+}
+
+// GetUserClientCertificate returns the user's recorded shared-identity Incus
+// certificate PEM ("" when none was recorded).
+func GetUserClientCertificate(ctx context.Context, db *sql.DB, userKey string) (string, error) {
+	normalizedUser := NormalizeGitHubUsername(userKey)
+	row := db.QueryRowContext(ctx, `
+SELECT client_certificate_pem
+FROM users
+WHERE user_key = ?
+`, normalizedUser)
+	var pem string
+	if err := row.Scan(&pem); err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(pem), nil
+}
+
 func normalizeUserSSHPublicKey(value string) (UserSSHKey, error) {
 	key := strings.TrimSpace(value)
 	if key == "" {

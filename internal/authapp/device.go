@@ -229,6 +229,14 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 			login = provisioned
 		}
 	}
+	if login.Status == DeviceStatusApproved && login.UserKey != "" && strings.TrimSpace(request.ClientCertificate) != "" {
+		// Best-effort: record the client's shared-identity certificate so the
+		// tenant plane can later extend its trust entry by fingerprint (the
+		// entry may be named after another tenant's enrollment). A failure
+		// here must not fail the login — provisioning still receives the PEM
+		// transiently with this request.
+		_ = SetUserClientCertificate(r.Context(), h.db, login.UserKey, request.ClientCertificate)
+	}
 	sshFingerprint := ""
 	if login.Status == DeviceStatusApproved && strings.TrimSpace(request.SSHPublicKey) != "" {
 		stored, _, err := SetUserSSHKey(r.Context(), h.db, login.UserKey, request.SSHPublicKey)

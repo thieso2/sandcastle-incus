@@ -2,7 +2,9 @@ package incusx
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/lxc/incus/v6/shared/api"
 
@@ -25,20 +27,21 @@ type ProjectBrokerCreator struct {
 	Prefix string
 }
 
-func (p ProjectBrokerCreator) CreateTenantProject(ctx context.Context, tenant string, project string) (projectbroker.ProjectResult, error) {
+func (p ProjectBrokerCreator) CreateTenantProject(ctx context.Context, tenant string, project string, clientCertificatePEM string) (projectbroker.ProjectResult, error) {
 	res, err := p.Creator.CreateProjectV2(ctx, p.Prefix, tenant, project)
 	if err != nil {
 		return projectbroker.ProjectResult{}, err
 	}
 	if p.Trust != nil {
-		if err := p.Trust.Grant(ctx, usertrust.UserPlan{
+		plan := usertrust.UserPlan{
 			User:            tenant,
 			CertificateName: usertrust.RestrictedInstallName(p.Prefix, tenant),
 			RemoteName:      usertrust.RemoteInstallName(p.Prefix, tenant),
 			Restricted:      true,
 			Projects:        []string{res.IncusProject},
 			Description:     "Sandcastle v2 tenant " + tenant,
-		}); err != nil {
+		}
+		if err := extendTenantCertificate(ctx, p.Trust, plan, clientCertificatePEM); err != nil {
 			return projectbroker.ProjectResult{}, fmt.Errorf("extend tenant certificate for %s: %w", res.IncusProject, err)
 		}
 	}
@@ -49,6 +52,34 @@ func (p ProjectBrokerCreator) CreateTenantProject(ctx context.Context, tenant st
 		Bridge:       res.Bridge,
 		DNSSuffix:    res.DNSSuffix,
 	}, nil
+}
+
+// extendTenantCertificate grants plan.Projects to the tenant's restricted
+// certificate. The lookup is by certificate name; with shared client identity
+// (one keypair enrolled by several tenants/installs) the trust entry is named
+// after whichever tenant enrolled it FIRST, so this tenant's name misses even
+// though the caller's certificate is trusted — login provisioning unioned this
+// tenant's projects into that entry by fingerprint (EnsureClientCertificate).
+// Fall back to the same fingerprint union here.
+func extendTenantCertificate(ctx context.Context, trust usertrust.Manager, plan usertrust.UserPlan, clientCertificatePEM string) error {
+	err := trust.Grant(ctx, plan)
+	if !errors.Is(err, errRestrictedCertificateNotFound) || strings.TrimSpace(clientCertificatePEM) == "" {
+		return err
+	}
+	ensurer, ok := trust.(interface {
+		EnsureClientCertificate(context.Context, string, usertrust.UserPlan) (bool, error)
+	})
+	if !ok {
+		return err
+	}
+	found, ensureErr := ensurer.EnsureClientCertificate(ctx, clientCertificatePEM, plan)
+	if ensureErr != nil {
+		return ensureErr
+	}
+	if !found {
+		return err
+	}
+	return nil
 }
 
 // TenantProvisionerAdapter implements projectbroker.TenantProvisioner: the

@@ -29,7 +29,7 @@ type fakeCreator struct {
 	result     ProjectResult
 }
 
-func (f *fakeCreator) CreateTenantProject(_ context.Context, tenant, project string) (ProjectResult, error) {
+func (f *fakeCreator) CreateTenantProject(_ context.Context, tenant, project string, _ string) (ProjectResult, error) {
 	f.gotTenant = tenant
 	f.gotProject = project
 	return f.result, nil

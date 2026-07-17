@@ -2412,3 +2412,28 @@ choices that were *not* in the original ask:
   `sc ssh-key purge --dry-run` non-mutating, tagged orphans removed by
   `sc ssh-key purge --yes`. A VM without `incus-agent` (`macos-vm`) is correctly
   treated as live-but-unreadable and left alone.
+
+## 2026-07-17 — Tenant-plane cert extension falls back to a fingerprint union (shared client identity)
+
+Caught live in the full majestix e2e run: the SECOND tenant logging in from one
+client (`--as octocat` after `--as e2edns`, one shared keypair) could create
+machines but not projects — `sc project create` 500'd with `restricted
+certificate "sandcastle-octocat" not found`. The daemon's one trust entry for
+the keypair is named after the FIRST tenant's enrollment; login provisioning
+grants the second tenant's projects into it by *fingerprint*
+(`EnsureClientCertificate`), while the tenant plane's `Grant` looked up by
+*name* only.
+
+Decision: record the client's certificate on the user at device login
+(`users.client_certificate_pem`, best-effort) and thread it into
+`CreateTenantProject`; the grant now falls back to the same fingerprint union
+the login path uses (`extendTenantCertificate` in `internal/incusx`). The
+broker plane passes its mTLS peer certificate for the same reason.
+Alternatives considered: (a) matching certs by "already holds this tenant's
+projects" — rejected because it would silently widen *granted* users'
+(`sc-adm tenant grant`) access on every project create; (b) making the name
+lookup fingerprint-first — rejected because the bearer-token tenant plane has
+no TLS peer, so a recorded certificate is needed anyway. Also noticed during
+teardown: `tenant delete --purge` leaves the tenant's trust entries behind
+(orphaned `sandcastle-<tenant>` certs with empty project lists) — not fixed
+here, worth a follow-up issue.

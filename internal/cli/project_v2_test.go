@@ -181,7 +181,7 @@ func (m staticTrustMapper) PrincipalForFingerprint(context.Context, string) (pro
 
 type recordingCreator struct{ tenant, project string }
 
-func (c *recordingCreator) CreateTenantProject(_ context.Context, tenant string, project string) (projectbroker.ProjectResult, error) {
+func (c *recordingCreator) CreateTenantProject(_ context.Context, tenant string, project string, _ string) (projectbroker.ProjectResult, error) {
 	c.tenant, c.project = tenant, project
 	return projectbroker.ProjectResult{Tenant: tenant, Project: project, IncusProject: "sc2-" + tenant + "-" + project}, nil
 }

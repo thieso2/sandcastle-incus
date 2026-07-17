@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,6 +14,13 @@ import (
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/usertrust"
 )
+
+// errRestrictedCertificateNotFound marks a Grant/Revoke lookup that found no
+// trust entry under the plan's certificate name. With shared client identity
+// the keypair's one trust entry is named after whichever tenant enrolled it
+// first, so callers holding the caller's certificate can recover by unioning
+// projects into that entry by fingerprint instead (EnsureClientCertificate).
+var errRestrictedCertificateNotFound = errors.New("restricted certificate not found")
 
 type TrustServer interface {
 	GetCertificates() ([]api.Certificate, error)
@@ -304,7 +312,7 @@ func findCertificates(server TrustServer, name string) ([]api.Certificate, error
 		}
 	}
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("restricted certificate %q not found; create a token first and add the client certificate", name)
+		return nil, fmt.Errorf("restricted certificate %q not found; create a token first and add the client certificate: %w", name, errRestrictedCertificateNotFound)
 	}
 	return matches, nil
 }

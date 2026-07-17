@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/http"
@@ -37,8 +38,11 @@ type TrustMapper interface {
 
 // ProjectCreator performs the privileged scaffolding: create the app Incus
 // project + profile and extend the tenant's restricted cert to include it.
+// clientCertificatePEM is the caller's client certificate (empty when unknown):
+// with shared client identity the trust entry may be named after another
+// tenant's enrollment, and the certificate is how the grant still finds it.
 type ProjectCreator interface {
-	CreateTenantProject(ctx context.Context, tenant string, project string) (ProjectResult, error)
+	CreateTenantProject(ctx context.Context, tenant string, project string, clientCertificatePEM string) (ProjectResult, error)
 }
 
 // AdminAuthorizer reports whether a client-certificate fingerprint belongs to a
@@ -138,10 +142,14 @@ func (h Handler) handleProjectCreate(w http.ResponseWriter, r *http.Request, fin
 		return
 	}
 	svclog.SetUser(r.Context(), principal.Tenant)
+	peerPEM := ""
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		peerPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: r.TLS.PeerCertificates[0].Raw}))
+	}
 	var result ProjectResult
 	err = svclog.Span(r.Context(), "project.create", func() error {
 		var createErr error
-		result, createErr = h.Creator.CreateTenantProject(r.Context(), principal.Tenant, project)
+		result, createErr = h.Creator.CreateTenantProject(r.Context(), principal.Tenant, project, peerPEM)
 		return createErr
 	})
 	if err != nil {
