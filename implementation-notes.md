@@ -2576,3 +2576,29 @@ the web grant were still doing it. Multi-device users and first-grants are
 unaffected (their entries are non-empty). A silent all-skipped "success" was
 rejected in favor of a loud error naming the cleanup command. Validated live
 on majestix (synthetic dead+live pair under one name).
+
+## 2026-07-17 — Regression test for fingerprint-first cert extension across install-prefix name drift
+
+**Decision:** Added `internal/incusx/usertrust_ensure_test.go` exercising the *real*
+`TrustManager.EnsureClientCertificate` (previously only ever faked in
+`projectbroker_adapter_test.go`).
+
+**Why:** Live incident on the `obelix` install — `sc project create scraper`
+returned `500 … extend tenant certificate … restricted certificate
+"sandcastle-obelix-thieso2" not found`. Root cause: the tenant's restricted
+cert is trusted under name `sandcastle-tc2-thieso2` (enrolled when the install
+used prefix `tc2`) while the broker now runs prefix `obelix` and plans for
+`sandcastle-obelix-thieso2`. The name-based `Grant` can never find that name;
+`EnsureClientCertificate` is supposed to reach the entry BY FINGERPRINT and
+union the new project regardless of name. That path already exists (#115,
+`cacd832`/`6d6f064`, shipped v0.1.1) — the failing broker on obelix was an old
+`0.0.0-dev` binary built 2026-07-15, two days before the fix. The Incus project
+itself (`obelix-thieso2-scraper`) was already created; only the cert-grant step
+failed, so the live unblock was a one-line `incus config trust edit` adding the
+project to fingerprint `d9f65d7ef320`.
+
+**Alternatives considered:** (a) leave coverage at the adapter level (fake
+return) — rejected, it never pinned that a name-mismatched entry is matched by
+fingerprint, the exact property the incident depended on; (b) add a code fix —
+none needed, the behaviour is already correct in-tree. The test locks it so a
+future refactor of the fingerprint match can't silently regress to name-only.
