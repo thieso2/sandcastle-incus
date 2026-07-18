@@ -745,8 +745,10 @@ Bootstrap:
   <div class="step">
     <h3>Update the deployment (<code>sc-adm update</code>)</h3>
     <p>Updates this install's <strong>global components</strong> — the auth-app and broker appliances — from a GitHub release: it downloads the matching <code>linux-&lt;arch&gt;</code> asset per appliance, verifies it against <code>checksums.txt</code>, pushes it into each appliance, restarts the service, and stamps <code>user.sandcastle.binary-version</code> into the instance config. Idempotent — re-run to repair a partial update. Components are scoped by the installation prefix, so a neighbour install sharing the host is untouched. The image-builder appliance carries no sandcastle binary and is not updated.</p>
+    <p>One Incus remote can host several installs, so the command must know which one to act on. It resolves the install from <code>--prefix</code>, else an explicit <code>SANDCASTLE_INCUS_PROJECT_PREFIX</code>, else <strong>auto-detection</strong>: with a single install on the remote it is picked automatically (and named on stderr); with several it refuses and lists them so you pass <code>--prefix</code>.</p>
     <pre><code><span class="cmd">sc-adm update --check</span>                 <span class="comment"># fleet version table from the stamps (works for stopped instances)</span>
 <span class="cmd">sc-adm update</span>                         <span class="comment"># update auth-app + broker to the latest release</span>
+<span class="cmd">sc-adm update --prefix idefix</span>         <span class="comment"># target a specific install when several share the remote</span>
 <span class="cmd">sc-adm update --version v0.3.1</span>        <span class="comment"># pin (an older tag rolls back)</span>
 <span class="cmd">sc-adm update --tenants alice,bob</span>     <span class="comment"># also force-roll these tenants' sidecars</span>
 <span class="cmd">sc-adm update --all-tenants</span>           <span class="comment"># force-roll every tenant sidecar (e.g. a security fix)</span></code></pre>

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -26,7 +28,7 @@ var componentUnits = map[string][]string{
 // --tenants/--all-tenants force-roll tenant sidecars (operator override).
 func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 	var check, yes, allTenants bool
-	var pin string
+	var pin, prefixFlag string
 	var tenants []string
 	command := &cobra.Command{
 		Use:   "update",
@@ -39,7 +41,10 @@ func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			prefix := naming.NormalizeV2Prefix(config.adminConfig.IncusProjectPrefix)
+			prefix, err := resolveUpdatePrefix(prefixFlag, config, components)
+			if err != nil {
+				return err
+			}
 			scoped := filterInstallComponents(components, prefix, config.adminConfig.InfrastructureProject)
 
 			checker := &update.Checker{}
@@ -58,7 +63,8 @@ func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 				return err
 			}
 			if len(targets) == 0 {
-				return fmt.Errorf("no updatable components found for prefix %q — is this the right admin remote?", prefix)
+				return fmt.Errorf("no updatable components found for install %q on this admin remote — "+
+					"check the remote (SANDCASTLE_REMOTE) and the install (--prefix)", prefix)
 			}
 			fmt.Fprintf(config.stdout, "Updating to %s:\n", release.TagName)
 			for _, t := range targets {
@@ -122,12 +128,81 @@ func newAdminUpdateCommand(config commandConfig) *cobra.Command {
 			return nil
 		},
 	}
+	command.Flags().StringVar(&prefixFlag, "prefix", "", "install to update when several share this Incus remote; auto-detected when only one is present")
 	command.Flags().BoolVar(&check, "check", false, "show the fleet version table; change nothing")
 	command.Flags().BoolVar(&yes, "yes", false, "apply without prompting")
 	command.Flags().StringVar(&pin, "version", "", "release tag to install (vX.Y.Z; default: latest); an older tag rolls back")
 	command.Flags().StringSliceVar(&tenants, "tenants", nil, "also force-roll these tenants' sidecars (normally tenant-managed via sc update)")
 	command.Flags().BoolVar(&allTenants, "all-tenants", false, "also force-roll every tenant sidecar")
 	return command
+}
+
+// resolveUpdatePrefix decides which install `sc-adm update` acts on. A single
+// Incus remote can host several sandcastles (each under its own --prefix), so
+// the install must be pinned down before scoping the fleet. Precedence:
+//  1. the --prefix flag (explicit operator choice),
+//  2. an explicit SANDCASTLE_*_PREFIX env var (back-compat),
+//  3. auto-detection from the live fleet: exactly one install ⇒ use it; more
+//     than one ⇒ refuse and list them (the operator must pass --prefix); none
+//     ⇒ fall back to the configured/default prefix so the downstream
+//     "no updatable components" error carries the usual guidance.
+//
+// Values are normalized to the v2 project prefix; discovered prefixes are
+// already v2 (read off <prefix>-infra / <prefix>-broker project names).
+func resolveUpdatePrefix(flagVal string, config commandConfig, components []incusx.ComponentVersion) (string, error) {
+	if p := strings.TrimSpace(flagVal); p != "" {
+		return naming.NormalizeV2Prefix(p), nil
+	}
+	if envPrefixExplicit() {
+		return naming.NormalizeV2Prefix(config.adminConfig.IncusProjectPrefix), nil
+	}
+	installs := discoverInstallPrefixes(components)
+	switch len(installs) {
+	case 1:
+		fmt.Fprintf(config.stderr, "targeting install %q (the only one on this remote)\n", installs[0])
+		return installs[0], nil
+	case 0:
+		return naming.NormalizeV2Prefix(config.adminConfig.IncusProjectPrefix), nil
+	default:
+		return "", fmt.Errorf("this Incus remote hosts %d sandcastle installs (%s) — pass --prefix to choose one",
+			len(installs), strings.Join(installs, ", "))
+	}
+}
+
+// envPrefixExplicit reports whether the operator set an install prefix via env
+// (the same keys config.LoadAdminFromEnv reads). Used to keep the pre-flag
+// env-driven behaviour working while still allowing auto-detection when
+// nothing was specified at all.
+func envPrefixExplicit() bool {
+	return strings.TrimSpace(os.Getenv("SANDCASTLE_INCUS_PROJECT_PREFIX")) != "" ||
+		strings.TrimSpace(os.Getenv("SANDCASTLE_PROJECT_PREFIX")) != ""
+}
+
+// discoverInstallPrefixes reads the distinct install prefixes present in a
+// fleet listing, anchored on the global appliances: an auth-app lives in
+// "<prefix>-infra" and a broker in "<prefix>-broker". Legacy appliances in the
+// unprefixed default projects carry no prefix in their name and are skipped —
+// those installs must be targeted with an explicit --prefix.
+func discoverInstallPrefixes(components []incusx.ComponentVersion) []string {
+	set := map[string]bool{}
+	for _, c := range components {
+		switch c.Kind {
+		case meta.KindAuthApp:
+			if p := strings.TrimSuffix(c.Project, "-infra"); p != "" && p != c.Project {
+				set[p] = true
+			}
+		case meta.KindBroker:
+			if p := strings.TrimSuffix(c.Project, "-broker"); p != "" && p != c.Project {
+				set[p] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // filterInstallComponents keeps the fleet rows belonging to THIS install:

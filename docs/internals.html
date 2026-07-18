@@ -185,8 +185,10 @@
       <tr>
         <td><code>sc-adm</code> / <code>sandcastle-admin</code></td>
         <td>Admin CLI (<code>cli.ExecuteAdmin</code>)</td>
-        <td>Global <code>~/.config/incus</code> admin certs / local unix socket — <code>INCUS_CONF</code>
-            deliberately left alone</td>
+        <td>Global admin certs at the real per-OS incus dir — <code>~/.config/incus</code> on Linux,
+            <code>~/Library/Application Support/incus</code> on macOS. Not pinned to a Sandcastle dir;
+            when <code>INCUS_CONF</code> is unset it is defaulted to that native dir
+            (<code>config.PlatformIncusDir</code>) so admin remotes resolve without exporting it</td>
         <td>Also hosts the long-running services as subcommands
             (<code>auth-app serve</code>, <code>project broker-serve</code>)</td>
       </tr>

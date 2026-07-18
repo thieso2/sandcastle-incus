@@ -20,12 +20,34 @@ import (
 )
 
 // ExecuteAdmin runs the Sandcastle admin CLI and returns a process exit code.
-// It always uses the global Incus config (~/.config/incus/) with admin TLS certificates —
-// INCUS_CONF is never set so the OS default applies.
+// It uses the global Incus config with admin TLS certificates. INCUS_CONF is
+// not pinned to a Sandcastle dir; when unset it is defaulted to the real
+// per-OS incus config dir (os.UserConfigDir()/incus — ~/.config/incus on Linux,
+// ~/Library/Application Support/incus on macOS) so admin remotes resolve
+// without the operator exporting INCUS_CONF.
 func ExecuteAdmin(name string, args []string) int {
 	adminConfig := scconfig.LoadAdmin()
 	verbose := os.Getenv("VERBOSE") == "1"
 	incusx.SetRunningBinaryVersion(version)
+
+	// Admin commands use the global Incus config (admin TLS certs) via the OS
+	// default INCUS_CONF. The SDK's built-in default is ~/.config/incus, which
+	// is wrong on macOS, where `incus` stores its config under os.UserConfigDir
+	// (~/Library/Application Support/incus) — so a bare `sc-adm`/`sc admin`
+	// there finds no admin remotes and falls back to the "local" unix socket
+	// ("Can't connect to a local server on a non-Linux system"). When
+	// INCUS_CONF is unset, point it at the dir the real `incus` CLI uses so
+	// remote resolution below reads the actual admin config. No-op on Linux
+	// (UserConfigDir == ~/.config) and where no such config exists.
+	if strings.TrimSpace(os.Getenv("INCUS_CONF")) == "" {
+		if dir := scconfig.PlatformIncusDir(); dir != "" {
+			os.Setenv("INCUS_CONF", dir)
+			if verbose {
+				fmt.Fprintf(os.Stderr, "[verbose] INCUS_CONF defaulted to native incus config dir: %s\n", dir)
+			}
+		}
+	}
+
 	explicitRemote := strings.TrimSpace(os.Getenv("SANDCASTLE_REMOTE")) != "" || strings.TrimSpace(adminConfig.AdminRemote) != ""
 
 	// Prefer explicit admin_remote; fall back to cert/IP-based auto-detection;
@@ -48,7 +70,8 @@ func ExecuteAdmin(name string, args []string) int {
 	if adminRemote != "" {
 		adminConfig.Remote = adminRemote
 	}
-	// INCUS_CONF intentionally not set → uses ~/.config/incus/ (admin certs)
+	// INCUS_CONF is not pinned to a Sandcastle dir → the global incus config
+	// (admin certs) applies, defaulted above to the real per-OS incus dir.
 
 	if verbose {
 		incusConf := os.Getenv("INCUS_CONF")

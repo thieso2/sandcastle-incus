@@ -133,6 +133,29 @@ func DedicatedIncusDir() string {
 	return filepath.Join(DefaultConfigDir(), "incus")
 }
 
+// PlatformIncusDir returns the Incus config directory the stock `incus` CLI
+// uses with no INCUS_CONF set: os.UserConfigDir()/incus. On Linux that is
+// ~/.config/incus (matching the SDK default and NativeIncusDir); on macOS it is
+// ~/Library/Application Support/incus — where `incus` actually stores admin
+// certs/remotes, and where the SDK's own ~/.config/incus default fails to look.
+// Returns "" when the config dir can't be determined or no config.yml lives
+// there, so admin callers fall back to the SDK default unchanged. This is why
+// it exists separately from NativeIncusDir(): the shared-identity user-plane
+// logic keys on the fixed ~/.config/incus path, but admin commands must find
+// the real per-OS incus config so they work on macOS without exporting
+// INCUS_CONF.
+func PlatformIncusDir() string {
+	base, err := os.UserConfigDir()
+	if err != nil || strings.TrimSpace(base) == "" {
+		return ""
+	}
+	dir := filepath.Join(base, "incus")
+	if !fileExists(filepath.Join(dir, "config.yml")) {
+		return ""
+	}
+	return dir
+}
+
 // SharedIncusDir returns the ONE incus config directory holding every
 // sandcastle enrollment (a single client keypair shared across installs; one
 // remote per install — sc-<tenant>, sc-<prefix>-<tenant>). It auto-detects:

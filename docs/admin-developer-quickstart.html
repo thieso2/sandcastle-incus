@@ -280,8 +280,9 @@ sc project create web --broker https://&lt;tenant-gateway&gt;:9443 --cert … --
       <p>Updates are always operator/tenant-initiated, never automatic. When a new GitHub release is out:</p>
       <pre><code>sc-adm update --check     <span class="comment"># fleet table: auth-app, broker, sidecars (stamped versions vs latest)</span>
 sc-adm update             <span class="comment"># update the global components (auth-app + broker); idempotent</span>
+sc-adm update --prefix NAME   <span class="comment"># pick the install when several share this Incus remote</span>
 sc-adm update --all-tenants   <span class="comment"># operator override: also force-roll every tenant sidecar</span></code></pre>
-      <p>Tenants keep their own CLI and sidecar current with <code>sc update</code> (the CLI also prints a passive once-a-day notice when a release is available; Homebrew installs are told to <code>brew upgrade sandcastle</code> instead of self-replacing). The auth-app's web page shows a version card — amber with the update command when the appliance is behind. Rollback = <code>sc-adm update --version v&lt;older&gt;</code>.</p>
+      <p>One Incus remote can host several installs: <code>sc-adm update</code> picks the only one automatically, or names them and asks for <code>--prefix</code> when there is more than one. Tenants keep their own CLI and sidecar current with <code>sc update</code> (the CLI also prints a passive once-a-day notice when a release is available; Homebrew installs are told to <code>brew upgrade sandcastle</code> instead of self-replacing). The auth-app's web page shows a version card — amber with the update command when the appliance is behind. Rollback = <code>sc-adm update --version v&lt;older&gt;</code>.</p>
     </section>
 
     <section id="assumptions">

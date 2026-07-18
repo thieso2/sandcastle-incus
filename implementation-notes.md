@@ -5,6 +5,71 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-18 — admin CLI: default INCUS_CONF to the real per-OS incus dir
+
+`sc admin …` and `sc-adm …` both go through `ExecuteAdmin`, which left
+`INCUS_CONF` unset and relied on the incus SDK's built-in default of
+`~/.config/incus`. On macOS the real `incus` CLI stores its config under
+`os.UserConfigDir()` (`~/Library/Application Support/incus`), so the admin plane
+found no admin remotes, auto-detection failed, and the global-default fallback
+resolved to the SDK's `local` unix-socket remote → "Can't connect to a local
+server on a non-Linux system". Operators had to export
+`INCUS_CONF=~/Library/Application Support/incus` on every admin call.
+
+Fix: when `INCUS_CONF` is unset, `ExecuteAdmin` defaults it to
+`config.PlatformIncusDir()` — `os.UserConfigDir()/incus`, but only when a
+`config.yml` actually exists there. Alternatives considered: (a) require
+operators to set `admin_remote`/`INCUS_CONF` (rejected — `admin_remote` alone
+doesn't help on macOS because the connection still can't find the remote's
+config); (b) rewrite `NativeIncusDir()` to be OS-aware everywhere (rejected —
+it's load-bearing for the user-plane shared-identity logic which keys on the
+fixed `~/.config/incus` path; a separate `PlatformIncusDir` keeps that
+invariant). Guarding on `config.yml` existence makes it a strict no-op on Linux
+(same path as the SDK default) and inside appliances (no such file → unset →
+unchanged), so only macOS workstations see the corrected behaviour. `sc admin
+update` now works on macOS with zero env vars.
+
+## 2026-07-18 — `sc-adm update`: explicit + auto-detected install targeting
+
+`sc-adm update` scoped the fleet solely by `config.adminConfig.IncusProjectPrefix`
+(from `SANDCASTLE_INCUS_PROJECT_PREFIX`, default `sc`). Since one Incus remote
+can host several installs (`--prefix`), a bare `sc-adm update` on a remote whose
+install isn't `sc` silently found nothing — you had to know and export the
+prefix env var. Added a `--prefix` flag (mirrors `sc-adm install`) and, when
+neither flag nor env pins it, **auto-detection**: `resolveUpdatePrefix`
+discovers installs from the global-appliance project names
+(`<prefix>-infra` / `<prefix>-broker`, `discoverInstallPrefixes`) and uses the
+sole install, or refuses and lists them when there's more than one.
+
+- **Why anchor discovery on appliance projects, not sidecars.** A sidecar's
+  project is `<prefix>-<tenant>` — splitting prefix from tenant is ambiguous
+  (both can contain hyphens). `<prefix>-infra`/`-broker` have fixed suffixes, so
+  the prefix is an unambiguous `TrimSuffix`. Legacy unprefixed appliances (in
+  the default `infrastructure` project) carry no prefix in their name and are
+  skipped from auto-detect — those installs need an explicit `--prefix`.
+- **Precedence flag > explicit env > auto-detect > configured default.** Env
+  still wins over auto-detect so pre-flag scripts/muscle-memory keep working;
+  `envPrefixExplicit()` checks the raw env because the merged
+  `adminConfig.IncusProjectPrefix` can't tell "unset" from "defaulted to sc".
+- **Remote (which daemon) was left as-is** — that already had env/auto-detect;
+  the reported gap was install selection, not remote selection.
+
+## 2026-07-18 — `sc update` sidecar row: distinguish "no version" from "unreachable"
+
+`probeDeploymentVersion` returned `""` on both a failed connection and a
+successful `/healthz` that carried no `X-Sandcastle-Version` header, so
+`sidecarStatus` printed `unknown (deployment unreachable)` in both cases. In
+the field this mislabels a perfectly reachable appliance that simply runs a
+binary predating the version-exchange feature (#124) — the appliance answers
+200 but advertises no version. Fixed by having `probeDeploymentVersion` also
+return a `reachable bool` (true once the HTTP request completes) and adding a
+third `sidecarStatus` branch: `unknown (deployment reported no version)` when
+reachable-but-unversioned, keeping `unknown (deployment unreachable)` only for
+an actual connection failure. No behavior change once a deployment advertises
+a version. Discovered debugging the live `idefix` deployment, whose auth-app
+was a pre-#124 build; it was brought current with `sc-adm update` (which
+stamps v0.1.4 and adds the header), after which the row reads normally.
+
 ## 2026-07-17 — self-update system (#124): decisions beyond the PRD
 
 Implementing PRD #124 surfaced several calls the spec left open:

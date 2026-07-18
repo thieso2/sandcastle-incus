@@ -58,7 +58,7 @@ func newUpdateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			// probes fail it reads "unknown" rather than silently vanishing.
 			deploymentConfigured := commandAuthHostname(config, "") != "" ||
 				strings.TrimSpace(config.adminConfig.Broker) != ""
-			deployment := probeDeploymentVersion(ctx, config)
+			deployment, deploymentReachable := probeDeploymentVersion(ctx, config)
 			sidecarCurrent := probeSidecarVersion(ctx, config)
 			sidecarKnown := deployment != ""
 			sidecarOutdated := sidecarKnown && (sidecarCurrent == "" || update.IsNewer(deployment, sidecarCurrent))
@@ -69,7 +69,7 @@ func newUpdateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			fmt.Fprintf(w, "sc CLI\t%s\t%s\t%s\n", cliCurrent, orUnknown(cliWanted),
 				cliStatus(cliOutdated, brewManaged, update.IsDevBuild(version) && pin == "", releaseErr))
 			if deploymentConfigured || sidecarCurrent != "" {
-				fmt.Fprintf(w, "sidecar\t%s\t%s\t%s\n", orUnknown(sidecarCurrent), orUnknown(deployment), sidecarStatus(sidecarOutdated, sidecarKnown))
+				fmt.Fprintf(w, "sidecar\t%s\t%s\t%s\n", orUnknown(sidecarCurrent), orUnknown(deployment), sidecarStatus(sidecarOutdated, sidecarKnown, deploymentReachable))
 			}
 			w.Flush()
 			if release.HTMLURL != "" && cliOutdated {
@@ -138,8 +138,14 @@ func cliStatus(outdated, brewManaged, devBuild bool, releaseErr error) string {
 	}
 }
 
-func sidecarStatus(outdated, known bool) string {
+func sidecarStatus(outdated, known, reachable bool) string {
 	switch {
+	case !known && reachable:
+		// The deployment answered but advertised no X-Sandcastle-Version
+		// header — an appliance built without a version stamp (a dev/snapshot
+		// binary, or one predating the version-exchange feature). It is
+		// reachable, so don't cry "unreachable"; say what actually happened.
+		return "unknown (deployment reported no version)"
 	case !known:
 		return "unknown (deployment unreachable)"
 	case outdated:
@@ -199,12 +205,16 @@ func updateSidecarViaDeployment(ctx context.Context, config commandConfig) error
 }
 
 // probeDeploymentVersion learns the deployment's version from the auth-app's
-// response headers on a cheap unauthenticated /healthz call ("" when no auth
-// hostname is recorded or unreachable).
-func probeDeploymentVersion(ctx context.Context, config commandConfig) string {
+// response headers on a cheap unauthenticated /healthz call. It returns the
+// observed version (or "" when the response carried no version header) and
+// whether the deployment answered at all, so the caller can tell "reachable
+// but not advertising a version" apart from a genuine connection failure.
+// reachable is false when no auth hostname is recorded or the request never
+// completes.
+func probeDeploymentVersion(ctx context.Context, config commandConfig) (version string, reachable bool) {
 	host := commandAuthHostname(config, "")
 	if host == "" {
-		return ""
+		return "", false
 	}
 	base := host
 	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
@@ -213,15 +223,15 @@ func probeDeploymentVersion(ctx context.Context, config commandConfig) string {
 	client := &http.Client{Timeout: 5 * time.Second, Transport: update.DefaultExchange.WrapTransport(nil)}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/healthz", nil)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	resp.Body.Close()
 	deployment, _ := update.DefaultExchange.Observed()
-	return deployment
+	return deployment, true
 }
 
 // probeSidecarVersion asks the tenant's own sidecar signer for its version
