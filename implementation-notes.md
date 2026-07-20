@@ -2831,3 +2831,38 @@ v0.1.3 release (details in docs/e2e-sc2.md Phase 10 status). Two findings:
   metadata converge + defaulting request); needs the Existing*-reuse pattern
   the DNS suffix already has. The live e2edns tenant was repaired via the
   product path (unattended `sc login` re-provision on the new auth-app).
+
+## 2026-07-20 — Machine IP selection keys off Incus NIC devices, not map order
+
+`sc ls` reported `172.17.0.1` (docker0) for a Docker-running machine and the
+correct tenant-bridge address for one without Docker. Cause: the three
+selectors that read a machine's address from live state all iterated
+`InstanceState.Network` — a Go map, so iteration order is randomized. Any
+in-guest bridge was as likely to win as the real NIC; a 12-run loop returned
+docker0 10 times. `firstGlobalIPv4` (routebackend) was the consequential one:
+it feeds a Route's proxy device target, so a published route could point at a
+container-local address that routes nowhere.
+
+Now a single helper (`internal/incusx/instance_ipv4.go`) considers only NIC
+devices from `ExpandedDevices`, in sorted device order.
+
+- **Structural exclusion over a blocklist.** `docker0`/`br-*`/`veth*` are
+  in-guest and never appear in `ExpandedDevices`. Enumerating bad interface
+  names instead would need an edit per new container runtime.
+- **MAC match before name match.** Resolving a NIC device to its guest
+  interface by name alone works for containers (Incus names the veth) but
+  breaks every VM, where the guest renames to `enp5s0`/`ens3` and the device key
+  `eth0` is absent from the state map — it would have reported *no* address for
+  VMs. Matching `hwaddr` / `volatile.<device>.hwaddr` first (case-insensitive)
+  covers both; name is the fallback when no MAC is recorded.
+- **Rejected: filtering by the tenant CIDR**, which is what `instanceTenantIPv4`
+  (`dns_v2.go`) does and was the obvious reuse. That CIDR lives on the infra
+  project and is unreadable from a tenant certificate — `Summary.PrivateCIDR` is
+  empty for `sc ls` callers — so it would have blanked the IP column rather than
+  fixed it. A comment in the new file records this so it isn't "improved" back.
+- **No fallback to the old scan.** When an instance has no NIC device, the
+  helper returns "" rather than any global address it can find: reporting
+  nothing beats reporting whichever bridge sorted first. All three call sites
+  have devices available, so this only affects genuinely NIC-less instances.
+- `waitForV2InstanceIPv4` re-reads devices each poll pass — the instance may not
+  exist on the first iteration, and a NIC can be hot-plugged mid-wait.

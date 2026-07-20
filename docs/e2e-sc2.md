@@ -441,6 +441,11 @@ sc list                                      # FQDN column shows canonical names
 # PASS: EVERY machine created above appears in `sc list` immediately (list is
 #       scoped to the current remote's install — a same-named tenant of another
 #       install on the same daemon must never shadow this one)
+# PASS: the IP column shows each machine's TENANT BRIDGE address (inside the
+#       tenant CIDR) and is STABLE across repeated runs. On a machine running
+#       Docker, `172.17.0.1` (docker0) must never appear: the address is picked
+#       from the instance's Incus NIC devices, not from whichever interface Go's
+#       map iteration surfaced first. Run `sc list` ~10x and diff the IP column.
 # PASS: `backend:web` starts cleanly even though `default:web` already exists —
 #       both projects share the tenant bridge, and the bridge carries
 #       dns.mode=none so Incus does NOT reject the second `web` with

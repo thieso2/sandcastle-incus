@@ -116,24 +116,15 @@ func (m HostOverrideManager) listV2Machines(summary tenant.Summary) ([]meta.Mach
 	return machines, nil
 }
 
-// instanceGlobalIPv4 returns the instance's first global (non-loopback,
-// non-link-local) IPv4 from live state — freeform v2 machines lease via DHCP,
-// so there is no static ip device to read.
+// instanceGlobalIPv4 returns the global IPv4 of the instance's Incus-managed
+// NIC from live state — freeform v2 machines lease via DHCP, so there is no
+// static ip device to read. In-guest bridges such as docker0 are ignored; see
+// instance_ipv4.go.
 func instanceGlobalIPv4(instance api.InstanceFull) string {
 	if instance.State == nil {
 		return ""
 	}
-	for name, iface := range instance.State.Network {
-		if name == "lo" || iface.Type == "loopback" {
-			continue
-		}
-		for _, address := range iface.Addresses {
-			if address.Family == "inet" && address.Scope == "global" {
-				return address.Address
-			}
-		}
-	}
-	return ""
+	return instanceNICIPv4(instance.ExpandedConfig, instance.ExpandedDevices, instance.State.Network).Address
 }
 
 // resolveServer returns the connected server the manager should use (the

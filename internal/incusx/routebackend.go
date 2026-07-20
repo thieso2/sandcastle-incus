@@ -115,27 +115,19 @@ func (b RouteBackend) MachineState(ctx context.Context, tenant, project, machine
 	state := authapp.MachineState{Present: true}
 	if instance.StatusCode == api.Running {
 		state.Running = true
-		state.IPv4 = firstGlobalIPv4(server, machine)
+		state.IPv4 = firstGlobalIPv4(server, machine, instance)
 	}
 	return state, nil
 }
 
-// firstGlobalIPv4 returns a Machine's first global IPv4 from live instance state,
-// skipping loopback — the address a Route's proxy device connects to.
-func firstGlobalIPv4(server incus.InstanceServer, machine string) string {
+// firstGlobalIPv4 returns a Machine's global IPv4 from live instance state — the
+// address a Route's proxy device connects to. Only the instance's Incus-managed
+// NIC is considered: publishing a route to an in-guest bridge address such as
+// docker0's 172.17.0.1 would point the proxy at nothing. See instance_ipv4.go.
+func firstGlobalIPv4(server incus.InstanceServer, machine string, instance *api.Instance) string {
 	state, _, err := server.GetInstanceState(machine)
-	if err != nil || state == nil {
+	if err != nil || state == nil || instance == nil {
 		return ""
 	}
-	for _, network := range state.Network {
-		if network.Type == "loopback" {
-			continue
-		}
-		for _, address := range network.Addresses {
-			if address.Family == "inet" && address.Scope == "global" {
-				return address.Address
-			}
-		}
-	}
-	return ""
+	return instanceNICIPv4(instance.ExpandedConfig, instance.ExpandedDevices, state.Network).Address
 }

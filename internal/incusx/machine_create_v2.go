@@ -207,16 +207,12 @@ func v2MachineIPTimeout(vm bool) time.Duration {
 func waitForV2InstanceIPv4(ctx context.Context, project TenantResourceServer, name string, timeout time.Duration) (string, string) {
 	deadline := time.Now().Add(timeout)
 	for {
-		if state, _, err := project.GetInstanceState(name); err == nil {
-			for _, network := range state.Network {
-				if network.Type == "loopback" {
-					continue
-				}
-				for _, address := range network.Addresses {
-					if address.Family == "inet" && address.Scope == "global" {
-						return address.Address, subnetCIDR(address.Address, address.Netmask)
-					}
-				}
+		// Devices are re-read each pass: the instance may not exist yet on the
+		// first iteration, and a NIC can be hot-plugged while we wait.
+		instance, _, instanceErr := project.GetInstance(name)
+		if state, _, err := project.GetInstanceState(name); err == nil && instanceErr == nil && instance != nil {
+			if nic := instanceNICIPv4(instance.ExpandedConfig, instance.ExpandedDevices, state.Network); nic.Address != "" {
+				return nic.Address, subnetCIDR(nic.Address, nic.Netmask)
 			}
 		}
 		if !time.Now().Before(deadline) || ctx.Err() != nil {
