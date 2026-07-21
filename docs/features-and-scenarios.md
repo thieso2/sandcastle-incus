@@ -122,7 +122,7 @@ Command tree in `internal/cli/admin_root.go` (subcommands promoted to top level)
 HTTPS service at the Auth Hostname, SQLite-backed (`internal/authapp/app.go`).
 
 - **GitHub OAuth web login + sessions** — `/login/github` → `/oauth/github/callback`; 24h `sandcastle_session` cookie; allowlist enforced at callback. `login.go`, `github.go`, `store.go`.
-- **Admin allowlist management** — List/add/remove allowlisted GitHub users (add verifies via GitHub API; remove revokes restricted user + machine SSH keys). `/admin/allowlist`. `allowlist.go`.
+- **Admin allowlist management** — List/add/remove allowlisted GitHub users (add verifies via GitHub API; remove revokes restricted user + machine SSH keys). `/admin/allowlist`, linked from the signed-in home page for Sandcastle Admins. `allowlist.go`.
 - **Admin tenant access management** — Grant/revoke/list a user's tenant access (revoke also revokes machine SSH access). `/admin/access`. `access.go`.
 - **CLI Device Login** — Device code + human `user_code` + verification URI; browser approve; poll returns an Incus Certificate Add Token. `/api/device/start|poll`, `/device`. `device.go`.
 - **Personal tenant provisioning** — On first approved poll, provisions the personal tenant (projects, Unix user) and mints the cert add token + remote name. `provision.go`.

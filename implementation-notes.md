@@ -2912,3 +2912,22 @@ explicit `--unix-user`/`--ssh-key` still replaces the stored values (that is a
 legitimate admin operation); only the blank re-run stops degrading them.
 `meta.KeyV2SSHKey` added so the tenant package can read the key the incusx
 writer already stores (incusx now references the shared constant).
+
+## 2026-07-21 — Admin links on the auth-app home page
+
+Adding a GitHub user to the Login Allowlist has only ever been a web action
+(`/admin/allowlist`); there is no CLI equivalent. But nothing on the signed-in
+home page pointed there — the two admin pages only cross-linked to each other,
+so you had to already know the URL to find them.
+
+- **A conditional section on the onboarding page, not a global nav.** The page
+  already receives the full `User` record, so `{{if .User.SandcastleAdmin}}`
+  gates the section with no handler or struct change. A shared nav bar across
+  every page would have been the bigger refactor and would leak the existence
+  of admin routes to non-admins.
+- **Links only, no inline allowlist form.** Adding a user hits the GitHub API to
+  verify the username and has real revocation semantics on removal; that belongs
+  on its own page with the existing user list beside it, not as a stray field on
+  the landing page.
+- Access control is unchanged — `/admin/*` still enforces `requireAdmin` on
+  every request. The section is discoverability, not authorization.

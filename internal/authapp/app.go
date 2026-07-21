@@ -1090,6 +1090,13 @@ var onboardingTemplate = template.Must(template.New("onboarding").Parse(`<!docty
       <p><a href="/machines">View your machines</a></p>
       <p><a href="/logs">Activity log</a></p>
     </section>
+    {{if .User.SandcastleAdmin}}
+      <section>
+        <h2>Sandcastle Admin</h2>
+        <p><a href="/admin/allowlist">Login Allowlist</a> &mdash; add or remove GitHub users who may sign in.</p>
+        <p><a href="/admin/access">Tenant Access</a> &mdash; grant or revoke Tenant access per user.</p>
+      </section>
+    {{end}}
     <section>
       <h2>GitHub identity</h2>
       <p>GitHub Username: {{.User.GitHubUsername}}</p>
