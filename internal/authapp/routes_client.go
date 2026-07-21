@@ -106,3 +106,29 @@ func (c DeviceClient) DeleteRoute(ctx context.Context, hostname string) error {
 	}
 	return nil
 }
+
+// RouteConfig returns the install's Public Route configuration: where
+// auto-subdomains live and what a custom Hostname must be CNAME'd onto. Answers
+// on installs without route ingress too (Enabled=false), so `sc route` can
+// explain the situation instead of surfacing a bare 501.
+func (c DeviceClient) RouteConfig(ctx context.Context) (RouteConfigView, error) {
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/routes/config"), nil)
+	if err != nil {
+		return RouteConfigView{}, err
+	}
+	httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return RouteConfigView{}, err
+	}
+	defer response.Body.Close()
+	payload, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK {
+		return RouteConfigView{}, fmt.Errorf("route config: %s: %s", response.Status, strings.TrimSpace(string(payload)))
+	}
+	var view RouteConfigView
+	if err := json.Unmarshal(payload, &view); err != nil {
+		return RouteConfigView{}, err
+	}
+	return view, nil
+}

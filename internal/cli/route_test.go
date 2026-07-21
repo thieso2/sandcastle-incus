@@ -15,6 +15,11 @@ type fakeRouteClient struct {
 	view      authapp.RouteView
 	listed    []authapp.RouteView
 	deleted   string
+	config    authapp.RouteConfigView
+}
+
+func (f *fakeRouteClient) RouteConfig(context.Context) (authapp.RouteConfigView, error) {
+	return f.config, nil
 }
 
 func (f *fakeRouteClient) PublishRoute(_ context.Context, req authapp.RoutePublishRequest) (authapp.RouteView, error) {
@@ -168,5 +173,75 @@ func TestRouteDeleteWithoutYesRefusesNonInteractive(t *testing.T) {
 	}
 	if fake.deleted != "" {
 		t.Errorf("delete must not reach the client without confirmation")
+	}
+}
+
+// `sc route` with no subcommand is the discovery surface: it must state the
+// install's own base domain and the exact CNAME target, because a Tenant has no
+// other way to learn either.
+func TestRouteGuideReportsBaseDomainAndCNAMETarget(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := &fakeRouteClient{config: authapp.RouteConfigView{
+		Enabled:     true,
+		Ingress:     "acme-proxied",
+		BaseDomain:  "sc2.dev",
+		CNAMETarget: "edge.sc2.dev",
+	}}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig:       scconfig.Admin{Tenant: "acme", Project: "web", Remote: "sc-acme", AuthToken: "x"},
+		tenantStore:       infoV2ProjectStore("sc2-acme-web"),
+		authRoutes:        fake,
+		routeHostResolver: func(context.Context, string) bool { return true },
+	}, "route")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "<name>.acme.sc2.dev") {
+		t.Errorf("guide should show the tenant's auto-hostname pattern, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "CNAME app.example.com -> edge.sc2.dev") {
+		t.Errorf("guide should show the exact CNAME record, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "does not resolve") {
+		t.Errorf("resolving wildcard must not warn, got:\n%s", stdout)
+	}
+}
+
+// A wildcard that does not resolve is the trap this guide exists to catch: the
+// publish would succeed and then sit at awaiting-dns forever.
+func TestRouteGuideWarnsWhenWildcardMissing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := &fakeRouteClient{config: authapp.RouteConfigView{Enabled: true, BaseDomain: "sc2.dev"}}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig:       scconfig.Admin{Tenant: "acme", Project: "web", Remote: "sc-acme", AuthToken: "x"},
+		tenantStore:       infoV2ProjectStore("sc2-acme-web"),
+		authRoutes:        fake,
+		routeHostResolver: func(context.Context, string) bool { return false },
+	}, "route")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "*.acme.sc2.dev does not resolve") {
+		t.Errorf("guide should warn about the missing wildcard, got:\n%s", stdout)
+	}
+	// No CNAME target declared → say so rather than inventing one.
+	if strings.Contains(stdout, "CNAME app.example.com ->") {
+		t.Errorf("guide must not invent a CNAME target, got:\n%s", stdout)
+	}
+}
+
+func TestRouteGuideOnInstallWithoutRoutes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := &fakeRouteClient{config: authapp.RouteConfigView{Enabled: false}}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		adminConfig: scconfig.Admin{Tenant: "acme", Project: "web", Remote: "sc-acme", AuthToken: "x"},
+		tenantStore: infoV2ProjectStore("sc2-acme-web"),
+		authRoutes:  fake,
+	}, "route")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "not available on this install") {
+		t.Errorf("guide should explain routes are off, got:\n%s", stdout)
 	}
 }

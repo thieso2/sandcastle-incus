@@ -44,36 +44,40 @@ const (
 )
 
 type commandConfig struct {
-	name                 string
-	stdin                io.Reader
-	stdout               io.Writer
-	stderr               io.Writer
-	stdinIsTerminal      func(io.Reader) bool
-	tenantStore          tenant.IncusTenantStore
-	adminConfig          scconfig.Admin
-	tenantCreator        incusx.TenantCreator
-	projectSettings      projectSettingsUpdater
-	projectDeleter       projectDeleter
-	tenantDeleter        tenant.Deleter
-	imageManager         images.Manager
-	imageBuilder         images.Builder
-	imageImporter        images.Importer
-	imageUploader        images.Uploader
-	remoteImageBuilder   images.RemoteImageBuilder
-	topologyStore        tenant.TopologyStore
-	trustManager         usertrust.Manager
-	machineStore         machine.Store
-	localDNS             localdns.Manager
-	tailscale            tailscale.Runner
-	localTrust           localtrust.Manager
-	authApp              authapp.Runner
-	authDevice           authDeviceClient
-	authWorkload         authWorkloadClient
-	authCloudIdentity    authCloudIdentityClient
-	authTenants          authTenantClient
-	authProjects         authProjectClient
-	authShares           authShareClient
-	authRoutes           authRouteClient
+	name               string
+	stdin              io.Reader
+	stdout             io.Writer
+	stderr             io.Writer
+	stdinIsTerminal    func(io.Reader) bool
+	tenantStore        tenant.IncusTenantStore
+	adminConfig        scconfig.Admin
+	tenantCreator      incusx.TenantCreator
+	projectSettings    projectSettingsUpdater
+	projectDeleter     projectDeleter
+	tenantDeleter      tenant.Deleter
+	imageManager       images.Manager
+	imageBuilder       images.Builder
+	imageImporter      images.Importer
+	imageUploader      images.Uploader
+	remoteImageBuilder images.RemoteImageBuilder
+	topologyStore      tenant.TopologyStore
+	trustManager       usertrust.Manager
+	machineStore       machine.Store
+	localDNS           localdns.Manager
+	tailscale          tailscale.Runner
+	localTrust         localtrust.Manager
+	authApp            authapp.Runner
+	authDevice         authDeviceClient
+	authWorkload       authWorkloadClient
+	authCloudIdentity  authCloudIdentityClient
+	authTenants        authTenantClient
+	authProjects       authProjectClient
+	authShares         authShareClient
+	authRoutes         authRouteClient
+	// routeHostResolver overrides the DNS probe `sc route` uses to warn about a
+	// missing wildcard. nil = a real lookup; injected in tests so they never
+	// touch the network. Mirrors authapp's RouteResolveHost seam.
+	routeHostResolver    func(context.Context, string) bool
 	shareStore           share.Store
 	shareReconciler      tenantShareReconciler
 	openBrowser          func(string)
@@ -135,6 +139,7 @@ type authRouteClient interface {
 	ListRoutes(context.Context, string) ([]authapp.RouteView, error)
 	GetRouteStatus(context.Context, string) (authapp.RouteView, error)
 	DeleteRoute(context.Context, string) error
+	RouteConfig(context.Context) (authapp.RouteConfigView, error)
 }
 
 type authShareClient interface {

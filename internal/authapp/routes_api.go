@@ -44,6 +44,25 @@ type RouteListResult struct {
 	Routes []RouteView `json:"routes"`
 }
 
+// RouteConfigView is the GET /api/routes/config response: everything a Tenant
+// needs to publish a Route without asking the operator — where auto-subdomains
+// live, and what a custom Hostname must be CNAME'd onto. The appliance is the
+// only party that knows all of it, so `sc route` reads it from here instead of
+// documenting a per-install answer that goes stale.
+type RouteConfigView struct {
+	// Enabled is false on installs without route ingress; the rest is then empty
+	// and `sc route` explains how to turn it on rather than failing obscurely.
+	Enabled bool `json:"enabled"`
+	// Ingress is the route ingress mode: "acme" or "acme-proxied".
+	Ingress string `json:"ingress,omitempty"`
+	// BaseDomain is what auto-subdomains hang off: <label>.<tenant>.<base>.
+	BaseDomain string `json:"baseDomain,omitempty"`
+	// CNAMETarget is the front door a custom Hostname must point at. Empty when
+	// the operator has not declared one and it cannot be inferred — the CLI then
+	// says so plainly instead of inventing a target.
+	CNAMETarget string `json:"cnameTarget,omitempty"`
+}
+
 const routesUnavailableMessage = "public routes are not available on this install: it has no route ingress. Redeploy with `--route-ingress acme` — or `--route-ingress acme-proxied` when something else already owns the host :80/:443 and an SNI proxy forwards to the appliance (sc-adm install or sc-adm auth-app deploy). Either way it runs beside a Cloudflare-tunnelled login host."
 
 func routeView(rs RouteStatus) RouteView {
@@ -213,6 +232,58 @@ func (h handler) routeDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"hostname": hostname, "status": "deleted"})
+}
+
+// routesConfig answers GET /api/routes/config for `sc route`. Unlike the other
+// route endpoints it does not 501 when route ingress is off: a Tenant asking
+// "how do I publish?" on an install without routes deserves the answer "this
+// install has none", which Enabled=false carries.
+func (h handler) routesConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, err := h.requireBearerUser(r); err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	_, enabled := h.routeManager()
+	if !enabled {
+		writeJSON(w, http.StatusOK, RouteConfigView{Enabled: false})
+		return
+	}
+	writeJSON(w, http.StatusOK, RouteConfigView{
+		Enabled:     true,
+		Ingress:     h.routeIngress,
+		BaseDomain:  h.routeBase(),
+		CNAMETarget: h.routeCNAMETarget(),
+	})
+}
+
+// routeBase is where auto-subdomains live: the configured route base domain,
+// else the Auth Hostname.
+func (h handler) routeBase() string {
+	if base := strings.Trim(strings.TrimSpace(h.routeBaseDomain), "."); base != "" {
+		return base
+	}
+	return strings.Trim(strings.TrimSpace(h.authHostname), ".")
+}
+
+// routeCNAMETarget is the front door custom Hostnames must point at. The
+// operator declares it (--route-cname-target) because only they know the
+// topology: with an SNI front the target is that front's name, not the Auth
+// Hostname. It is inferable in exactly one case — the Auth Hostname is itself
+// served by this appliance over ACME, so its record already points at the host
+// that terminates routes. A Cloudflare-tunnelled Auth Hostname is NOT a valid
+// target (the tunnel only carries login), so nothing is guessed there.
+func (h handler) routeCNAMETarget() string {
+	if target := strings.Trim(strings.TrimSpace(h.routeCNAME), "."); target != "" {
+		return target
+	}
+	if h.authIngressMode == IngressModeACME {
+		return strings.Trim(strings.TrimSpace(h.authHostname), ".")
+	}
+	return ""
 }
 
 // routesAsk is Caddy's on-demand-TLS gate: it returns 200 only for Hostnames

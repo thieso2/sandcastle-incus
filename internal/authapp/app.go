@@ -119,6 +119,13 @@ type HTTPRunner struct {
 	// RouteBaseDomain is where Public Routes live (<label>.<tenant>.<base>); empty
 	// falls back to the Auth Hostname.
 	RouteBaseDomain string
+	// RouteIngress is the route ingress mode ("acme"|"acme-proxied"), reported to
+	// Tenants by GET /api/routes/config.
+	RouteIngress string
+	// RouteCNAMETarget is the front door a custom route Hostname must be CNAME'd
+	// onto. Only the operator knows it when an SNI front sits in front of the
+	// appliance; empty means "cannot be stated", not "use the Auth Hostname".
+	RouteCNAMETarget string
 	// RouteTLS overrides route-site TLS ("internal" = Caddy self-signed, for
 	// hermetic tests; empty = on-demand Let's Encrypt). Never set in production.
 	RouteTLS string
@@ -210,6 +217,8 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			ACMEEmail:           r.ACMEEmail,
 			AuthIngressMode:     r.AuthIngressMode,
 			RouteBaseDomain:     r.RouteBaseDomain,
+			RouteIngress:        r.RouteIngress,
+			RouteCNAMETarget:    r.RouteCNAMETarget,
 			RouteTLS:            r.RouteTLS,
 			Version:             r.Version,
 			Sidecars:            r.Sidecars,
@@ -730,6 +739,8 @@ type HandlerOptions struct {
 	ACMEEmail           string
 	AuthIngressMode     string
 	RouteBaseDomain     string
+	RouteIngress        string
+	RouteCNAMETarget    string
 	RouteTLS            string
 	// RouteResolveHost overrides how a custom hostname's DNS is checked for the
 	// awaiting-dns status. Optional; nil uses a real DNS lookup. Injected in tests.
@@ -785,6 +796,8 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		acmeEmail:        strings.TrimSpace(handlerOptions.ACMEEmail),
 		authIngressMode:  strings.TrimSpace(handlerOptions.AuthIngressMode),
 		routeBaseDomain:  strings.Trim(strings.TrimSpace(handlerOptions.RouteBaseDomain), "."),
+		routeIngress:     strings.TrimSpace(handlerOptions.RouteIngress),
+		routeCNAME:       strings.Trim(strings.TrimSpace(handlerOptions.RouteCNAMETarget), "."),
 		routeTLS:         strings.TrimSpace(handlerOptions.RouteTLS),
 		routeResolveHost: handlerOptions.RouteResolveHost,
 		version:          strings.TrimSpace(handlerOptions.Version),
@@ -833,6 +846,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/api/workload/enable", app.workloadEnable)
 	mux.HandleFunc("/api/routes", app.routesAPI)
 	mux.HandleFunc("/api/routes/ask", app.routesAsk)
+	mux.HandleFunc("/api/routes/config", app.routesConfig)
 	mux.HandleFunc("/device", app.deviceApprove)
 	if app.debugDeviceUser != "" {
 		mux.HandleFunc("/debug/device/approve", app.debugDeviceApprove)
@@ -901,6 +915,8 @@ type handler struct {
 	acmeEmail        string
 	authIngressMode  string
 	routeBaseDomain  string
+	routeIngress     string
+	routeCNAME       string
 	routeTLS         string
 	routeResolveHost func(ctx context.Context, host string) bool
 	version          string
@@ -1010,11 +1026,18 @@ func (h handler) status(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(h.sessionCookie); err == nil {
 		if user, err := UserForSession(r.Context(), h.db, cookie.Value, timeNow()); err == nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			routesEnabled := false
+			if _, ok := h.routeManager(); ok {
+				routesEnabled = true
+			}
 			_ = onboardingTemplate.Execute(w, onboardingPage{
-				User:         user,
-				AuthHostname: h.authHostname,
-				LoginCommand: cliLoginCommand(h.authHostname),
-				VersionCard:  h.releases.card(h.version),
+				User:             user,
+				AuthHostname:     h.authHostname,
+				LoginCommand:     cliLoginCommand(h.authHostname),
+				VersionCard:      h.releases.card(h.version),
+				RoutesEnabled:    routesEnabled,
+				RouteBaseDomain:  h.routeBase(),
+				RouteCNAMETarget: h.routeCNAMETarget(),
 			})
 			return
 		}
@@ -1031,6 +1054,13 @@ type onboardingPage struct {
 	AuthHostname string
 	LoginCommand string
 	VersionCard  versionCard
+	// Public Routes (Spec #111): shown only where the install has route ingress,
+	// so the page never promises a feature this deployment cannot serve. These
+	// are the two facts a Tenant cannot derive on their own — where auto
+	// subdomains live, and what a custom hostname must be CNAME'd onto.
+	RoutesEnabled    bool
+	RouteBaseDomain  string
+	RouteCNAMETarget string
 }
 
 func cliLoginCommand(authHostname string) string {
@@ -1123,6 +1153,21 @@ mise run build:linux-amd64</code></pre>
         <h2>Login command</h2>
         <pre><code>{{.LoginCommand}}</code></pre>
       </section>
+      {{if .RoutesEnabled}}
+      <section>
+        <h2>Publish a public route</h2>
+        <p>Expose a port of one of your machines to the public Internet. The certificate is issued on the first HTTPS request.</p>
+        <pre><code>sc route                       # what this install offers, and the DNS you need
+sc route publish &lt;machine&gt; --port 3000
+sc route list</code></pre>
+        {{if .RouteBaseDomain}}<p>Automatic hostnames: <code>&lt;name&gt;.&lt;your-tenant&gt;.{{.RouteBaseDomain}}</code> (<code>--name</code> defaults to the machine name).</p>{{end}}
+        {{if .RouteCNAMETarget}}
+          <p>Your own hostname: publish with <code>--hostname app.example.com</code> and add the DNS record <code>CNAME app.example.com &rarr; {{.RouteCNAMETarget}}</code>.</p>
+        {{else}}
+          <p>Your own hostname: publish with <code>--hostname app.example.com</code> and ask a Sandcastle Admin which front door to CNAME it onto.</p>
+        {{end}}
+      </section>
+      {{end}}
     {{end}}
   </main>
 </body>

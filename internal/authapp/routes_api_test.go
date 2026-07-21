@@ -200,3 +200,47 @@ func TestRouteListAndDeleteAPI(t *testing.T) {
 		t.Fatal("delete did not remove the proxy device")
 	}
 }
+
+// The CNAME target a Tenant is told to use must never be guessed wrong: a
+// Cloudflare-tunnelled Auth Hostname carries login only, so pointing a route
+// hostname at it would produce a name that resolves but never serves.
+func TestRouteCNAMETarget(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		handler handler
+		want    string
+	}{
+		{
+			name:    "explicit target wins",
+			handler: handler{routeCNAME: "edge.example.dev", authHostname: "auth.example.dev", authIngressMode: IngressModeACME},
+			want:    "edge.example.dev",
+		},
+		{
+			name:    "acme auth hostname is inferable",
+			handler: handler{authHostname: "auth.example.dev", authIngressMode: IngressModeACME},
+			want:    "auth.example.dev",
+		},
+		{
+			name:    "cloudflare auth hostname is not a route front door",
+			handler: handler{authHostname: "auth.example.dev", authIngressMode: IngressModeCloudflare},
+			want:    "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.handler.routeCNAMETarget(); got != tc.want {
+				t.Errorf("routeCNAMETarget() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Auto-subdomains hang off the route base domain, falling back to the Auth
+// Hostname — the same rule routeHostname applies when publishing.
+func TestRouteBaseFallsBackToAuthHostname(t *testing.T) {
+	if got := (handler{authHostname: "auth.example.dev"}).routeBase(); got != "auth.example.dev" {
+		t.Errorf("routeBase() = %q, want the auth hostname", got)
+	}
+	if got := (handler{authHostname: "auth.example.dev", routeBaseDomain: "routes.example.dev"}).routeBase(); got != "routes.example.dev" {
+		t.Errorf("routeBase() = %q, want the configured base domain", got)
+	}
+}

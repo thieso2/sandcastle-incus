@@ -1257,6 +1257,31 @@ sc route delete <hostname> --yes
 > (the tenant `sc` restricted cert wasn't set up on the test client); the `sc route`
 > CLI drives the same endpoints after a normal `sc login`.
 
+### Route discovery — `sc route` and `GET /api/routes/config`
+A Tenant cannot derive the route base domain or the CNAME target from anything
+they can see, so the install reports both: `GET /api/routes/config` (token-gated)
+returns `{enabled, ingress, baseDomain, cnameTarget}`, and bare `sc route` renders
+it. The operator declares the front door with `--route-cname-target`; it is
+inferred only when the Auth Hostname is itself ACME-served by the appliance (a
+Cloudflare-tunnelled Auth Hostname is never used as a route target — the tunnel
+carries login only).
+
+**PASS:**
+- `sc route` on an install **with** routes prints the tenant's auto-hostname
+  pattern (`<name>.<tenant>.<base>`) and, when a target is known, the literal
+  record `CNAME app.example.com -> <front-door>`; with no target declared it says
+  to ask the admin rather than naming a wrong host.
+- `sc route` warns `*.<tenant>.<base> does not resolve` when the wildcard is
+  missing — the case where a publish otherwise succeeds and then sits at
+  `awaiting-dns` with no explanation.
+- `sc route` on an install **without** route ingress prints "not available on
+  this install" plus the admin fix (`--route-ingress acme` / `acme-proxied`),
+  instead of a bare 501.
+- `sc route publish`/`status` append the exact CNAME line whenever the resulting
+  route is `awaiting-dns`.
+- The signed-in web page at the Auth Hostname shows the same facts under
+  *Publish a public route*, and omits the section entirely where routes are off.
+
 ### Variant — routes behind an existing edge (`--route-ingress acme-proxied`)
 When the Incus host's `:80/:443` are already held by another appliance (a shared
 `sc-edge` fronting unrelated vhosts), `--route-ingress acme` cannot bind them.
@@ -1275,12 +1300,18 @@ lives in the appliance.
   `on_demand_tls { ask … }` block, and keeps login serving (`/` → 200 throughout).
 - `sc route` stops returning the 501 no-route-ingress error and lists routes.
 - With nginx `stream` + `ssl_preread` on `sc-edge` mapping
-  `~*^[^.]+\.obelix\.thieso2\.dev$` → `<appliance-ip>:443` (default → the local
-  Caddy moved to `8443`), and `:80` for the same names proxied to the appliance:
+  `~*\.obelix\.thieso2\.dev$` → `<appliance-ip>:443` (default → the local Caddy
+  moved to `8443`), and `:80` for the same names proxied to the appliance:
   `sc route publish work:test --port 8099 --hostname something.obelix.thieso2.dev`
   → `curl https://something.obelix.thieso2.dev/` returns the app body with a real
   **Let's Encrypt** cert (`CN=something.obelix.thieso2.dev`), `http://…` → **308**
   to https, and `sc route list` reports `live`.
+- **Auto-hostnames work through the same wildcard**: `sc route publish work:test2
+  --port 8099` (no `--hostname`) → `https://test2.thieso2.obelix.thieso2.dev`,
+  live, real Let's Encrypt cert. A DNS wildcard matches multi-label names
+  (RFC 4592), so `*.<base>` covers `<name>.<tenant>.<base>` — but the SNI front's
+  pattern must match **any depth** below the base domain, or default publishes
+  fall through to the front's own Caddy.
 - The ask-gate still holds through the SNI front: an unregistered host under the
   same wildcard (`https://nope.obelix.thieso2.dev/`) fails the handshake with a
   TLS internal error — no certificate is issued.

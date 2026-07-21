@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	authapp "github.com/thieso2/sandcastle-incus/internal/authapp"
@@ -14,9 +17,43 @@ import (
 // installs configured with public ingress.
 func newRouteCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{
-		Use:          "route",
-		Short:        "Publish a machine's local port to the public Internet",
+		Use:   "route",
+		Short: "Publish a machine's local port to the public Internet",
+		// Bare `sc route` answers "how do I publish, and what DNS do I need?"
+		// from the install itself. That answer is per-install (base domain, CNAME
+		// target, whether routes are enabled at all), so it cannot live in static
+		// help text — and a Tenant has nowhere else to look it up.
+		Args:         cobra.NoArgs,
 		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			summary, err := requireV2Tenant(cmd.Context(), config)
+			if err != nil {
+				return err
+			}
+			client, err := routeClient(config)
+			if err != nil {
+				return err
+			}
+			view, err := client.RouteConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+			autoResolves := true
+			if view.Enabled {
+				resolve := config.routeHostResolver
+				if resolve == nil {
+					resolve = routeHostResolves
+				}
+				autoResolves = resolve(cmd.Context(),
+					"wildcard-probe."+summary.Tenant+"."+strings.Trim(strings.TrimSpace(view.BaseDomain), "."))
+			}
+			payload := map[string]any{
+				"enabled": view.Enabled, "ingress": view.Ingress,
+				"baseDomain": view.BaseDomain, "cnameTarget": view.CNAMETarget,
+				"autoHostnameResolves": autoResolves,
+			}
+			return writeOutput(config.stdout, opts.output, formatRouteGuide(view, summary.Tenant, autoResolves), payload)
+		},
 	}
 	command.AddCommand(newRoutePublishCommand(config, opts))
 	command.AddCommand(newRouteListCommand(config, opts))
@@ -69,7 +106,11 @@ func newRoutePublishCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatRoutePublished(view), view)
+			text := formatRoutePublished(view)
+			if view.Status == authapp.RouteStatusAwaitingDNS {
+				text += routeCNAMEHint(cmd.Context(), client, view.Hostname)
+			}
+			return writeOutput(config.stdout, opts.output, text, view)
 		},
 	}
 	command.Flags().IntVar(&port, "port", 0, "backend port inside the machine (required), e.g. 3000")
@@ -99,6 +140,67 @@ func previewRouteHostname(config commandConfig, tenant, name, hostname, machine 
 
 func formatRoutePlan(machine string, port int, url string) string {
 	return fmt.Sprintf("Would publish %s:%d  ->  %s\n(dry run; not published)\n", machine, port, url)
+}
+
+// formatRouteGuide renders `sc route` with no subcommand: what this install
+// gives a Tenant and exactly which DNS record they need. autoResolves reports
+// whether the auto-subdomain pattern actually resolves — an install can have
+// route ingress but no wildcard for <tenant>.<base>, and silently handing out a
+// hostname that will never resolve is the failure this guide exists to prevent.
+func formatRouteGuide(view authapp.RouteConfigView, tenant string, autoResolves bool) string {
+	var b strings.Builder
+	if !view.Enabled {
+		b.WriteString("Public routes are not available on this install.\n\n")
+		b.WriteString("  Ask your Sandcastle admin to redeploy with `--route-ingress acme`\n")
+		b.WriteString("  (or `acme-proxied` when an existing edge owns the host's :80/:443).\n")
+		return b.String()
+	}
+	base := strings.Trim(strings.TrimSpace(view.BaseDomain), ".")
+	auto := "<name>." + tenant + "." + base
+
+	b.WriteString("Publish a machine's port to the public Internet.\n\n")
+	fmt.Fprintf(&b, "  sc route publish <machine> --port 3000\n")
+	fmt.Fprintf(&b, "      -> https://%s   (--name overrides <name>, default: the machine name)\n\n", auto)
+	fmt.Fprintf(&b, "  sc route publish <machine> --port 3000 --hostname app.example.com\n")
+	if target := strings.Trim(strings.TrimSpace(view.CNAMETarget), "."); target != "" {
+		fmt.Fprintf(&b, "      -> https://app.example.com, once you add:  CNAME app.example.com -> %s\n\n", target)
+	} else {
+		b.WriteString("      -> a hostname you own; ask your Sandcastle admin what to CNAME it onto\n" +
+			"         (this install has not declared a public front door).\n\n")
+	}
+	b.WriteString("Certificates issue automatically on the first HTTPS request, so that request is slow.\n")
+	if !autoResolves {
+		fmt.Fprintf(&b, "\nHeads up: %s does not resolve, so auto hostnames under it will sit at\n", "*."+tenant+"."+base)
+		b.WriteString("  status awaiting-dns. Use --hostname with a name you control, or ask your\n" +
+			"  Sandcastle admin for the wildcard record.\n")
+	}
+	b.WriteString("\n  sc route list | sc route status <hostname> | sc route delete <hostname> --yes\n")
+	return b.String()
+}
+
+// routeHostResolves reports whether host resolves, bounded so `sc route` never
+// hangs on a slow resolver. Used to warn about a missing wildcard, so "no
+// answer" is the honest, conservative reading of any failure.
+func routeHostResolves(ctx context.Context, host string) bool {
+	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupHost(lookupCtx, host)
+	return err == nil && len(addrs) > 0
+}
+
+// routeCNAMEHint is the line printed beside an awaiting-dns route: the exact
+// record that makes it live. Empty when the install declares no front door —
+// better silent than pointing a Tenant at the wrong target.
+func routeCNAMEHint(ctx context.Context, client authRouteClient, hostname string) string {
+	view, err := client.RouteConfig(ctx)
+	if err != nil {
+		return ""
+	}
+	target := strings.Trim(strings.TrimSpace(view.CNAMETarget), ".")
+	if target == "" {
+		return ""
+	}
+	return fmt.Sprintf("  add this DNS record:  CNAME %s -> %s\n", hostname, target)
 }
 
 func newRouteListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -138,7 +240,11 @@ func newRouteStatusCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 			if err != nil {
 				return err
 			}
-			return writeOutput(config.stdout, opts.output, formatRouteStatus(view), view)
+			text := formatRouteStatus(view)
+			if view.Status == authapp.RouteStatusAwaitingDNS {
+				text += routeCNAMEHint(cmd.Context(), client, view.Hostname)
+			}
+			return writeOutput(config.stdout, opts.output, text, view)
 		},
 	}
 }

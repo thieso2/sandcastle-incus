@@ -635,11 +635,29 @@ Bootstrap:
   <div class="note"><strong>When something else already owns the host's <code>:80</code>/<code>:443</code>.</strong> Use <code>--route-ingress acme-proxied</code> instead of <code>acme</code>. It is the same thing from the tenant's point of view — route sites, on-demand Let's Encrypt, and the <code>/api/routes/ask</code> gate all still live in the appliance's Caddy — but the appliance does <em>not</em> claim the host ports; you put an <strong>SNI proxy</strong> in front that forwards <code>*.&lt;route-base-domain&gt;</code> to the appliance's bridge address with the TLS handshake intact (nginx <code>stream</code> + <code>ssl_preread</code>, HAProxy, or caddy-l4). Forward <code>:80</code> for those hostnames too, so HTTP-01 challenges and the http→https redirect reach the appliance. Because the certificate is still issued inside the appliance, the front must <em>not</em> terminate TLS for route hostnames. Example front (nginx on the box that holds the ports, its own Caddy moved to <code>8080</code>/<code>8443</code>):
     <pre><code><span class="comment"># /etc/nginx/stream.d/sni.conf — layer 4, no termination</span>
 map $ssl_preread_server_name $backend {
-    ~*^[^.]+\.obelix\.example\.dev$   10.239.150.87:443;   <span class="comment"># the appliance</span>
+    ~*\.obelix\.example\.dev$        10.239.150.87:443;   <span class="comment"># the appliance, at any depth</span>
     default                           127.0.0.1:8443;      <span class="comment"># this box's own Caddy</span>
 }
 server { listen 443; proxy_pass $backend; ssl_preread on; proxy_timeout 1h; }</code></pre>
+    Match <em>any depth</em> below the base domain: auto-hostnames are <code>&lt;name&gt;.&lt;tenant&gt;.&lt;base&gt;</code>, two labels deep, and a DNS wildcard covers those too (RFC 4592). A one-label pattern silently sends default publishes to the wrong backend.
     Pin the appliance's address first (<code>incus config device set &lt;instance&gt; eth0 ipv4.address &lt;ip&gt;</code>) so a restart can't move it out from under the front.</div>
+
+  <div class="note"><strong>Operators: declare the front door.</strong> <code>--route-cname-target &lt;hostname&gt;</code> (on <code>sc-adm install</code> or <code>sc-adm auth-app deploy</code>) records what a tenant must CNAME a custom route hostname onto. Set it whenever an SNI proxy or edge sits in front of the appliance — only you know that name. It is inferred <em>only</em> when the Auth Hostname is itself ACME-served by this appliance; a Cloudflare-tunnelled Auth Hostname is never guessed at, because the tunnel carries login only. Tenants read it back with <code>sc route</code>.</div>
+
+  <div class="step">
+    <h3>Find out what this install offers <span class="badge badge-user">user</span></h3>
+    <p><code>sc route</code> with no subcommand asks the install itself and prints the answer: the tenant's own auto-hostname pattern, the exact CNAME record for a custom hostname, and a warning when the wildcard for auto-hostnames does not actually resolve (a publish would otherwise sit at <code>awaiting-dns</code> with no explanation). On an install without route ingress it says so and points at the admin fix.</p>
+    <pre><code><span class="cmd">sc route</span>
+
+Publish a machine's port to the public Internet.
+
+  sc route publish &lt;machine&gt; --port 3000
+      -&gt; https://&lt;name&gt;.&lt;tenant&gt;.&lt;base-domain&gt;   (--name overrides &lt;name&gt;, default: the machine name)
+
+  sc route publish &lt;machine&gt; --port 3000 --hostname app.example.com
+      -&gt; https://app.example.com, once you add:  CNAME app.example.com -&gt; &lt;front-door&gt;</code></pre>
+    <p>The same facts are on the signed-in web page at the Auth Hostname, under <em>Publish a public route</em>. Backed by <code>GET /api/routes/config</code> (token-gated), so the answer always comes from the running install rather than from documentation that can drift.</p>
+  </div>
 
   <div class="step">
     <h3>Publish a machine's port <span class="badge badge-user">user</span></h3>

@@ -183,12 +183,14 @@ func ExecuteAdmin(name string, args []string) int {
 				}
 				subscribeInstanceLifecycleEvents(ctx, authAppSocketServer, notify)
 			},
-			Routes:          authAppRoutes,
-			RouteCaddy:      authAppRouteCaddy,
-			ACMEEmail:       strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_ACME_EMAIL")),
-			AuthIngressMode: strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_INGRESS_MODE")),
-			RouteBaseDomain: strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BASE_DOMAIN")),
-			RouteTLS:        strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_TLS")),
+			Routes:           authAppRoutes,
+			RouteCaddy:       authAppRouteCaddy,
+			ACMEEmail:        strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_ACME_EMAIL")),
+			AuthIngressMode:  strings.TrimSpace(os.Getenv("SANDCASTLE_AUTH_INGRESS_MODE")),
+			RouteBaseDomain:  strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_BASE_DOMAIN")),
+			RouteIngress:     strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_INGRESS")),
+			RouteCNAMETarget: strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_CNAME_TARGET")),
+			RouteTLS:         strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_TLS")),
 			RouteEvents: func(ctx context.Context, notify func()) {
 				if authAppSocketServer == nil {
 					return

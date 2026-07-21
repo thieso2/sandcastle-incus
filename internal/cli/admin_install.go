@@ -37,7 +37,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 		defaultUnixUser, tailscaleAuthKey                            string
 		simulateGitHubToken, tlsMode, brokerPort                     string
 		ingressMode, acmeEmail, tunnelToken, cloudflareAPIToken      string
-		routeIngress, routeBaseDomain, routeTLS                      string
+		routeIngress, routeBaseDomain, routeCNAMETarget, routeTLS    string
 	)
 	command := &cobra.Command{
 		Use:   "install",
@@ -170,6 +170,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				TunnelToken:         tunnelToken,
 				RouteIngress:        routeIngress,
 				RouteBaseDomain:     routeBaseDomain,
+				RouteCNAMETarget:    routeCNAMETarget,
 				RouteTLS:            routeTLS,
 			}); err != nil {
 				return fmt.Errorf("auth-app deploy: %w", err)
@@ -271,6 +272,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&acmeEmail, "acme-email", "", "Let's Encrypt contact email (acme or route ingress)")
 	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt) or acme-proxied (same, but an upstream SNI proxy owns the host ports and forwards to the appliance), independent of --ingress so routes can run beside a cloudflare login host; empty disables")
 	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
+	command.Flags().StringVar(&routeCNAMETarget, "route-cname-target", "", "public front door a tenant CNAMEs a custom route hostname onto (e.g. the SNI proxy's hostname); reported by `sc route`. Defaults to the Auth Hostname only when it is itself ACME-served here")
 	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e, no public DNS/ACME)")
 	_ = command.Flags().MarkHidden("route-tls")
 	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a dashboard-created Cloudflare tunnel routing the hostname to http://localhost:8080 (cloudflare ingress)")
