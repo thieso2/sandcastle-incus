@@ -106,23 +106,24 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 	// projects, so it would miss every v2 tenant and let the allocator collide.
 	// The stored default-project short name is reused too, so a re-login pins the
 	// same project instead of re-creating a duplicate "-default" (issue #93).
-	var ownCIDR, ownSuffix, ownDefaultProject string
-	var occupied []string
+	var reuse tenant.ProvisionReuse
 	if p.Tenants != nil {
-		if own, suffix, defaultProject, others, err := tenant.ProvisionReuseInputs(ctx, p.Tenants, p.Admin.IncusProjectPrefix, userKey); err == nil {
-			ownCIDR, ownSuffix, ownDefaultProject, occupied = own, suffix, defaultProject, others
+		if got, err := tenant.ProvisionReuseInputs(ctx, p.Tenants, p.Admin.IncusProjectPrefix, userKey); err == nil {
+			reuse = got
 		}
 	}
 	plan, err := tenant.PlanCreateV2(p.Admin, tenant.CreateRequest{
 		Reference:              userKey,
 		SSHPublicKey:           strings.TrimSpace(sshPublicKey),
 		UnixUser:               unixUser,
-		OccupiedCIDRs:          occupied,
-		PreferredCIDR:          ownCIDR,
+		OccupiedCIDRs:          reuse.OccupiedCIDRs,
+		PreferredCIDR:          reuse.OwnCIDR,
 		DNSSuffix:              strings.TrimSpace(dnsSuffix),
-		ExistingDNSSuffix:      ownSuffix,
+		ExistingDNSSuffix:      reuse.DNSSuffix,
 		InitialProject:         strings.TrimSpace(initialProject),
-		ExistingDefaultProject: ownDefaultProject,
+		ExistingDefaultProject: reuse.DefaultProject,
+		ExistingUnixUser:       reuse.UnixUser,
+		ExistingSSHKey:         reuse.SSHPublicKey,
 	})
 	if err != nil {
 		return PersonalTenantResult{}, err

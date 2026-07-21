@@ -71,6 +71,14 @@ type CreateRequest struct {
 	// name is not immutable — the stored value is simply the reuse fallback.
 	InitialProject         string
 	ExistingDefaultProject string
+	// ExistingUnixUser / ExistingSSHKey carry the live tenant's stored login
+	// user and SSH public key on idempotent re-provisioning (#134). Like the
+	// default project they are reuse fallbacks, not immutable: a blank request
+	// reuses the stored value; only an explicit request replaces it. Without
+	// them an admin `tenant create` re-run silently clobbered the user back to
+	// "dev" and the key to empty across every app project's default profile.
+	ExistingUnixUser string
+	ExistingSSHKey   string
 }
 
 type SidecarPlan struct {

@@ -476,6 +476,53 @@ func TestPlanCreateV2DNSSuffix(t *testing.T) {
 	}
 }
 
+// #134: a blank unix user / SSH key on the request means "keep what the
+// tenant has" — the stored values are the reuse fallback, and only an
+// explicit request replaces them. Without this, an admin `tenant create`
+// re-run without --unix-user/--ssh-key re-rendered every app project's
+// default profile with user dev and an empty key, breaking SSH tenant-wide.
+func TestPlanCreateV2ReusesStoredUserAndKey(t *testing.T) {
+	// blank request reuses the stored values
+	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{
+		Reference:        "acme",
+		ExistingUnixUser: "sc",
+		ExistingSSHKey:   "ssh-ed25519 AAAA me@box",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DefaultProfileUser != "sc" {
+		t.Fatalf("DefaultProfileUser = %q, want the stored sc", plan.DefaultProfileUser)
+	}
+	if plan.SSHPublicKey != "ssh-ed25519 AAAA me@box" {
+		t.Fatalf("SSHPublicKey = %q, want the stored key", plan.SSHPublicKey)
+	}
+
+	// an explicit request wins over the stored values
+	plan, err = PlanCreateV2(v2TestAdmin(), CreateRequest{
+		Reference:        "acme",
+		UnixUser:         "alice",
+		SSHPublicKey:     "ssh-ed25519 BBBB new@box",
+		ExistingUnixUser: "sc",
+		ExistingSSHKey:   "ssh-ed25519 AAAA me@box",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DefaultProfileUser != "alice" || plan.SSHPublicKey != "ssh-ed25519 BBBB new@box" {
+		t.Fatalf("explicit request must win: user=%q key=%q", plan.DefaultProfileUser, plan.SSHPublicKey)
+	}
+
+	// nothing stored, nothing requested: the dev default still applies
+	plan, err = PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DefaultProfileUser != DefaultV2UnixUser {
+		t.Fatalf("DefaultProfileUser = %q, want %q", plan.DefaultProfileUser, DefaultV2UnixUser)
+	}
+}
+
 func TestPlanCreateV2InitialProject(t *testing.T) {
 	// the chosen name replaces "default" everywhere it is derived (issue #93).
 	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme", InitialProject: "web"})

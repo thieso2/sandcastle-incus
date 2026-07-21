@@ -37,6 +37,10 @@ const (
 	// kind=infra project. It is the actual user@host for SSH — NOT the tenant
 	// name. Must match incusx's keyV2User.
 	KeyV2User = Prefix + "v2.user"
+	// KeyV2SSHKey is where v2 stores the tenant's login SSH public key, on the
+	// kind=infra project — the durable record an idempotent re-provision must
+	// reuse (#134). Must match incusx's keyV2SSHKey.
+	KeyV2SSHKey = Prefix + "v2.sshkey"
 
 	// KeyV2CloudIdentity / KeyV2DockerAutostart hold a v2 project's settings on
 	// its own kind=project Incus project. They used to be written into a

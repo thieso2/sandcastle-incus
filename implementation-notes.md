@@ -2898,3 +2898,17 @@ backend.
 - `ensureProjectPlatformPayload` was extracted from
   `EnsureProjectPlatformPayload` so the admin sync, `sc fix`, and this share one
   per-project convergence body.
+
+## 2026-07-21 — #134: tenant create re-run no longer clobbers stored user/key
+
+`ProvisionReuseInputs` now returns a `ProvisionReuse` struct (the 5-tuple was
+already a data clump) carrying the infra project's stored login unix user and
+SSH public key beside CIDR/suffix/default-project; all three provisioning
+sites (admin CLI, broker adapter, auth-app login) thread them into
+`CreateRequest.ExistingUnixUser`/`ExistingSSHKey`, and `PlanCreateV2` prefers
+request → stored → default (`dev`). Deliberately the *reuse-fallback* pattern
+of the default project — NOT the immutability pattern of the DNS suffix: an
+explicit `--unix-user`/`--ssh-key` still replaces the stored values (that is a
+legitimate admin operation); only the blank re-run stops degrading them.
+`meta.KeyV2SSHKey` added so the tenant package can read the key the incusx
+writer already stores (incusx now references the shared constant).

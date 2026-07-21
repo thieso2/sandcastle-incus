@@ -190,27 +190,40 @@ func AllocatedCIDRs(ctx context.Context, store IncusTenantStore) ([]string, erro
 // OTHER tenant's /24. Create uses `own` as PreferredCIDR (so re-provisioning is
 // idempotent) and `others` as OccupiedCIDRs (so a fresh tenant avoids
 // collisions). Covers both v1 (kind=tenant) and v2 (kind=infra) tenants.
-// ProvisionReuseInputs gathers what an idempotent re-provision must reuse from
-// live state: the tenant's own /24 and Tenant DNS Suffix (immutable, ADR-0018),
-// plus the other tenants' CIDRs the allocator must avoid. "Own" is scoped to
-// the INSTALLATION prefix: several sandcastles share one Incus host (--prefix),
-// and another install's same-named tenant is a foreign tenant, not this one —
-// its CIDR is occupied, its suffix is irrelevant.
-func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPrefix string, tenantName string) (ownCIDR string, ownSuffix string, ownDefaultProject string, occupied []string, err error) {
+// ProvisionReuse is what an idempotent re-provision must carry over from live
+// state: the tenant's own /24 and Tenant DNS Suffix (immutable, ADR-0018), the
+// stored default-project short name, the stored login unix user + SSH key
+// (#134 — a re-run without explicit flags must NOT clobber them back to
+// defaults), and the other tenants' CIDRs the allocator must avoid.
+type ProvisionReuse struct {
+	OwnCIDR        string
+	DNSSuffix      string
+	DefaultProject string
+	UnixUser       string
+	SSHPublicKey   string
+	OccupiedCIDRs  []string
+}
+
+// ProvisionReuseInputs gathers a ProvisionReuse from live Incus state. "Own"
+// is scoped to the INSTALLATION prefix: several sandcastles share one Incus
+// host (--prefix), and another install's same-named tenant is a foreign
+// tenant, not this one — its CIDR is occupied, its stored settings irrelevant.
+func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPrefix string, tenantName string) (ProvisionReuse, error) {
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
-		return "", "", "", nil, err
+		return ProvisionReuse{}, err
 	}
 	tenantName = strings.TrimSpace(tenantName)
 	installPrefix = strings.TrimSpace(installPrefix)
 	if installPrefix == "" || installPrefix == naming.DefaultIncusProjectPrefix {
 		installPrefix = naming.V2IncusProjectPrefix
 	}
+	var reuse ProvisionReuse
 	for _, incusProject := range projects {
 		if !meta.IsManaged(incusProject.Config) {
 			continue
 		}
-		var cidr, suffix, defaultProject, owner string
+		var cidr string
 		own := false
 		switch incusProject.Config[meta.KeyKind] {
 		case legacyTenantKind:
@@ -223,14 +236,18 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 			cidr = strings.TrimSpace(incusProject.Config[meta.KeyPrivateCIDR])
 		case meta.KindInfra:
 			cidr = strings.TrimSpace(incusProject.Config[meta.KeyV2CIDR])
-			suffix = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
-			defaultProject = strings.TrimSpace(incusProject.Config[meta.KeyV2DefaultProject])
-			owner = strings.TrimSpace(incusProject.Config[meta.KeyTenant])
+			owner := strings.TrimSpace(incusProject.Config[meta.KeyTenant])
 			projectPrefix := strings.TrimSpace(incusProject.Config[meta.KeyV2Prefix])
 			if projectPrefix == "" {
 				projectPrefix = naming.V2IncusProjectPrefix
 			}
 			own = tenantName != "" && owner == tenantName && projectPrefix == installPrefix
+			if own {
+				reuse.DNSSuffix = strings.TrimSpace(incusProject.Config[meta.KeyV2Suffix])
+				reuse.DefaultProject = strings.TrimSpace(incusProject.Config[meta.KeyV2DefaultProject])
+				reuse.UnixUser = strings.TrimSpace(incusProject.Config[meta.KeyV2User])
+				reuse.SSHPublicKey = strings.TrimSpace(incusProject.Config[meta.KeyV2SSHKey])
+			}
 		default:
 			continue
 		}
@@ -238,14 +255,12 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 			continue
 		}
 		if own {
-			ownCIDR = cidr
-			ownSuffix = suffix
-			ownDefaultProject = defaultProject
+			reuse.OwnCIDR = cidr
 		} else {
-			occupied = append(occupied, cidr)
+			reuse.OccupiedCIDRs = append(reuse.OccupiedCIDRs, cidr)
 		}
 	}
-	return ownCIDR, ownSuffix, ownDefaultProject, occupied, nil
+	return reuse, nil
 }
 
 func CIDRAllocationInputs(ctx context.Context, store IncusTenantStore, tenantName string) (own string, others []string, err error) {

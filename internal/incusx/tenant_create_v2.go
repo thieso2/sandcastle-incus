@@ -263,7 +263,7 @@ const (
 	keyV2Suffix         = meta.KeyV2Suffix
 	keyV2CIDR           = "user.sandcastle.v2.cidr"
 	keyV2User           = meta.KeyV2User
-	keyV2SSHKey         = "user.sandcastle.v2.sshkey"
+	keyV2SSHKey         = meta.KeyV2SSHKey
 	keyV2Prefix         = meta.KeyV2Prefix
 	keyV2DefaultProject = meta.KeyV2DefaultProject
 )

@@ -165,26 +165,26 @@ func TestProvisionReuseInputsScopedToInstallPrefix(t *testing.T) {
 		}},
 	}}
 	// the "id" install sees ITS tenant as own, the sc2 one as occupied
-	own, suffix, _, occupied, err := ProvisionReuseInputs(context.Background(), store, "id", "acme")
+	reuse, err := ProvisionReuseInputs(context.Background(), store, "id", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if own != "10.251.0.0/24" || suffix != "idefix" {
-		t.Fatalf("id install own = %q/%q", own, suffix)
+	if reuse.OwnCIDR != "10.251.0.0/24" || reuse.DNSSuffix != "idefix" {
+		t.Fatalf("id install own = %q/%q", reuse.OwnCIDR, reuse.DNSSuffix)
 	}
-	if len(occupied) != 1 || occupied[0] != "10.253.0.0/24" {
-		t.Fatalf("occupied = %v", occupied)
+	if len(reuse.OccupiedCIDRs) != 1 || reuse.OccupiedCIDRs[0] != "10.253.0.0/24" {
+		t.Fatalf("occupied = %v", reuse.OccupiedCIDRs)
 	}
 	// and vice versa (default prefix normalizes sc→sc2)
-	own, suffix, _, occupied, err = ProvisionReuseInputs(context.Background(), store, "sc", "acme")
+	reuse, err = ProvisionReuseInputs(context.Background(), store, "sc", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if own != "10.253.0.0/24" || suffix != "acme" {
-		t.Fatalf("sc install own = %q/%q", own, suffix)
+	if reuse.OwnCIDR != "10.253.0.0/24" || reuse.DNSSuffix != "acme" {
+		t.Fatalf("sc install own = %q/%q", reuse.OwnCIDR, reuse.DNSSuffix)
 	}
-	if len(occupied) != 1 || occupied[0] != "10.251.0.0/24" {
-		t.Fatalf("occupied = %v", occupied)
+	if len(reuse.OccupiedCIDRs) != 1 || reuse.OccupiedCIDRs[0] != "10.251.0.0/24" {
+		t.Fatalf("occupied = %v", reuse.OccupiedCIDRs)
 	}
 }
 
@@ -198,15 +198,37 @@ func TestProvisionReuseInputsReturnsStoredDefaultProject(t *testing.T) {
 			meta.KeyV2DefaultProject: "web",
 		}},
 	}}
-	own, suffix, defaultProject, _, err := ProvisionReuseInputs(context.Background(), store, "sc2", "acme")
+	reuse, err := ProvisionReuseInputs(context.Background(), store, "sc2", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if own != "10.253.0.0/24" || suffix != "acme" {
-		t.Fatalf("own = %q/%q", own, suffix)
+	if reuse.OwnCIDR != "10.253.0.0/24" || reuse.DNSSuffix != "acme" {
+		t.Fatalf("own = %q/%q", reuse.OwnCIDR, reuse.DNSSuffix)
 	}
-	if defaultProject != "web" {
-		t.Fatalf("ownDefaultProject = %q, want web", defaultProject)
+	if reuse.DefaultProject != "web" {
+		t.Fatalf("DefaultProject = %q, want web", reuse.DefaultProject)
+	}
+}
+
+// #134: the stored login unix user + SSH key come back so an idempotent
+// re-provision reuses them instead of clobbering to dev/empty.
+func TestProvisionReuseInputsReturnsStoredUserAndKey(t *testing.T) {
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "sc2-acme", Config: map[string]string{
+			meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "acme",
+			meta.KeyV2CIDR: "10.253.0.0/24", meta.KeyV2Prefix: "sc2",
+			meta.KeyV2User: "sc", meta.KeyV2SSHKey: "ssh-ed25519 AAAA me@box",
+		}},
+	}}
+	reuse, err := ProvisionReuseInputs(context.Background(), store, "sc2", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reuse.UnixUser != "sc" {
+		t.Fatalf("UnixUser = %q, want sc", reuse.UnixUser)
+	}
+	if reuse.SSHPublicKey != "ssh-ed25519 AAAA me@box" {
+		t.Fatalf("SSHPublicKey = %q", reuse.SSHPublicKey)
 	}
 }
 
@@ -220,15 +242,15 @@ func TestProvisionReuseInputsNeverOwnsV1CIDR(t *testing.T) {
 		{Name: "sc-thieso2", Config: v1Config},
 	}}
 	for _, prefix := range []string{"tc2", "sc", ""} {
-		own, suffix, _, occupied, err := ProvisionReuseInputs(context.Background(), store, prefix, "thieso2")
+		reuse, err := ProvisionReuseInputs(context.Background(), store, prefix, "thieso2")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if own != "" || suffix != "" {
-			t.Fatalf("prefix %q: own = %q/%q, want empty (v1 CIDR must not be reused)", prefix, own, suffix)
+		if reuse.OwnCIDR != "" || reuse.DNSSuffix != "" {
+			t.Fatalf("prefix %q: own = %q/%q, want empty (v1 CIDR must not be reused)", prefix, reuse.OwnCIDR, reuse.DNSSuffix)
 		}
-		if len(occupied) != 1 || occupied[0] != "10.248.1.0/24" {
-			t.Fatalf("prefix %q: occupied = %v, want the v1 /24", prefix, occupied)
+		if len(reuse.OccupiedCIDRs) != 1 || reuse.OccupiedCIDRs[0] != "10.248.1.0/24" {
+			t.Fatalf("prefix %q: occupied = %v, want the v1 /24", prefix, reuse.OccupiedCIDRs)
 		}
 	}
 }

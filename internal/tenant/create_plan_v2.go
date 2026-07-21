@@ -403,12 +403,22 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 	if err != nil {
 		return CreatePlanV2{}, err
 	}
+	// Reuse fallbacks (#134): a blank request means "keep what the tenant has",
+	// never "reset to defaults" — the stored user/key drive every app project's
+	// default profile, and clobbering them to dev/empty breaks SSH tenant-wide.
 	unixUser := strings.TrimSpace(request.UnixUser)
+	if unixUser == "" {
+		unixUser = strings.TrimSpace(request.ExistingUnixUser)
+	}
 	if unixUser == "" {
 		unixUser = DefaultV2UnixUser
 	}
 	if err := naming.ValidateUnixUsername(unixUser); err != nil {
 		return CreatePlanV2{}, err
+	}
+	sshPublicKey := strings.TrimSpace(request.SSHPublicKey)
+	if sshPublicKey == "" {
+		sshPublicKey = strings.TrimSpace(request.ExistingSSHKey)
 	}
 	requestedSuffix := strings.TrimSpace(request.DNSSuffix)
 	existingSuffix := strings.TrimSpace(request.ExistingDNSSuffix)
@@ -491,7 +501,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 		SidecarInstance:     naming.V2SidecarInstanceName,
 		SidecarImage:        admin.Images.Base,
 		DefaultProfileUser:  unixUser,
-		SSHPublicKey:        request.SSHPublicKey,
+		SSHPublicKey:        sshPublicKey,
 		ImageAliases:        uniqueImageAliases(admin.Images.Base, admin.Images.AI),
 		DNSFiles:            dnsFiles,
 		TenantCA: TenantCA{

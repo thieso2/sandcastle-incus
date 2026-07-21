@@ -187,11 +187,10 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 			if strings.TrimSpace(cidrPool) != "" {
 				admin.CIDRPool = strings.TrimSpace(cidrPool)
 			}
-			var ownCIDR, ownSuffix, ownDefaultProject string
-			var occupied []string
+			var reuse tenant.ProvisionReuse
 			if config.tenantStore != nil {
 				var err error
-				if ownCIDR, ownSuffix, ownDefaultProject, occupied, err = tenant.ProvisionReuseInputs(cmd.Context(), config.tenantStore, admin.IncusProjectPrefix, args[0]); err != nil {
+				if reuse, err = tenant.ProvisionReuseInputs(cmd.Context(), config.tenantStore, admin.IncusProjectPrefix, args[0]); err != nil {
 					return fmt.Errorf("list allocated CIDRs: %w", err)
 				}
 			}
@@ -199,12 +198,14 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				Reference:              args[0],
 				SSHPublicKey:           sshKey,
 				UnixUser:               unixUser,
-				OccupiedCIDRs:          occupied,
-				PreferredCIDR:          ownCIDR,
+				OccupiedCIDRs:          reuse.OccupiedCIDRs,
+				PreferredCIDR:          reuse.OwnCIDR,
 				DNSSuffix:              dnsSuffix,
-				ExistingDNSSuffix:      ownSuffix,
+				ExistingDNSSuffix:      reuse.DNSSuffix,
 				InitialProject:         strings.TrimSpace(initialProject),
-				ExistingDefaultProject: ownDefaultProject,
+				ExistingDefaultProject: reuse.DefaultProject,
+				ExistingUnixUser:       reuse.UnixUser,
+				ExistingSSHKey:         reuse.SSHPublicKey,
 			})
 			if err != nil {
 				return err
