@@ -113,13 +113,15 @@ func ExecuteAdmin(name string, args []string) int {
 	}
 
 	// Public Routes (Spec #111) are available when native-ACME route ingress is
-	// enabled (SANDCASTLE_ROUTE_INGRESS=acme → Caddy binds host :80/:443), which is
+	// enabled — either SANDCASTLE_ROUTE_INGRESS=acme (Caddy binds host :80/:443)
+	// or =acme-proxied (an upstream SNI proxy owns the host ports and forwards
+	// here). Both terminate route TLS in this appliance's Caddy, and both are
 	// independent of the Auth Hostname's own ingress mode — so routes can coexist
 	// with a Cloudflare-tunnelled login host. Otherwise `sc route` returns a clear
 	// "no public ingress" error.
 	var authAppRoutes authapp.RouteBackend
 	var authAppRouteCaddy authapp.CaddyController
-	if authAppSocketServer != nil && strings.EqualFold(strings.TrimSpace(os.Getenv("SANDCASTLE_ROUTE_INGRESS")), incusx.IngressACME) {
+	if authAppSocketServer != nil && routeIngressEnabled(os.Getenv("SANDCASTLE_ROUTE_INGRESS")) {
 		v2Prefix := installV2Prefix(adminConfig.IncusProjectPrefix)
 		authAppRoutes = incusx.RouteBackend{
 			Server:          authAppSocketServer,
@@ -214,6 +216,16 @@ func ExecuteAdmin(name string, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// routeIngressEnabled reports whether SANDCASTLE_ROUTE_INGRESS turns Public
+// Routes on. Both native-ACME modes qualify: "acme" (the appliance owns the
+// host :80/:443) and "acme-proxied" (an upstream SNI proxy forwards them here).
+// They differ only in who binds the host ports at deploy time — the serving side
+// is identical, so the route wiring keys off either.
+func routeIngressEnabled(value string) bool {
+	mode := strings.TrimSpace(value)
+	return strings.EqualFold(mode, incusx.IngressACME) || strings.EqualFold(mode, incusx.IngressACMEProxied)
 }
 
 func authAppServeArgs(args []string) bool {

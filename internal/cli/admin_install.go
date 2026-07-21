@@ -116,11 +116,14 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				return fmt.Errorf("unknown --ingress %q (none, acme, cloudflare)", ingressMode)
 			}
 			// Public Route ingress (Spec #111 coexistence): native ACME for route
-			// hostnames, independent of the Auth Hostname's mode. Needs host
+			// hostnames, independent of the Auth Hostname's mode. "acme" needs host
 			// :80/:443 — preflight them here too when the acme branch above didn't.
+			// "acme-proxied" deliberately skips the preflight: there the host ports
+			// are *expected* to be held by the upstream SNI proxy that forwards to
+			// the appliance.
 			routeIngress = strings.TrimSpace(routeIngress)
-			if routeIngress != "" && routeIngress != incusx.IngressACME {
-				return fmt.Errorf("unknown --route-ingress %q (acme, or empty to disable)", routeIngress)
+			if routeIngress != "" && routeIngress != incusx.IngressACME && routeIngress != incusx.IngressACMEProxied {
+				return fmt.Errorf("unknown --route-ingress %q (acme, acme-proxied, or empty to disable)", routeIngress)
 			}
 			if routeIngress == incusx.IngressACME && ingressMode != incusx.IngressACME {
 				if busy := hostPortsBusy(80, 443); len(busy) > 0 {
@@ -266,7 +269,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&brokerPort, "broker-port", "9443", "host port the broker listens on")
 	command.Flags().StringVar(&ingressMode, "ingress", "none", "public ingress for the Auth Hostname: none (BYO edge), acme (host :80/:443 + Let's Encrypt), or cloudflare (outbound tunnel, no inbound ports)")
 	command.Flags().StringVar(&acmeEmail, "acme-email", "", "Let's Encrypt contact email (acme or route ingress)")
-	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt), independent of --ingress so routes can run beside a cloudflare login host; empty disables")
+	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt) or acme-proxied (same, but an upstream SNI proxy owns the host ports and forwards to the appliance), independent of --ingress so routes can run beside a cloudflare login host; empty disables")
 	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
 	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e, no public DNS/ACME)")
 	_ = command.Flags().MarkHidden("route-tls")

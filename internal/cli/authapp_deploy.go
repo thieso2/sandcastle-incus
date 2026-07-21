@@ -74,8 +74,8 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 			}
 
 			routeIngress = strings.TrimSpace(routeIngress)
-			if routeIngress != "" && routeIngress != incusx.IngressACME {
-				return fmt.Errorf("unknown --route-ingress %q (acme, or empty to disable)", routeIngress)
+			if routeIngress != "" && routeIngress != incusx.IngressACME && routeIngress != incusx.IngressACMEProxied {
+				return fmt.Errorf("unknown --route-ingress %q (acme, acme-proxied, or empty to disable)", routeIngress)
 			}
 			if err := creator.BootstrapAuthApp(cmd.Context(), incusx.BootstrapAuthAppRequest{
 				Project:             project,
@@ -137,7 +137,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&ingressMode, "ingress", "", "public ingress for the Auth Hostname: none, acme, or cloudflare (redeploy preserves the login front)")
 	command.Flags().StringVar(&acmeEmail, "acme-email", "", "Let's Encrypt contact email (acme or route ingress)")
 	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a Cloudflare tunnel routing the Auth Hostname to http://localhost:8080 (cloudflare ingress)")
-	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt), independent of --ingress; empty disables")
+	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt) or acme-proxied (an upstream SNI proxy owns the host ports and forwards to the appliance), independent of --ingress; empty disables")
 	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
 	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e)")
 	_ = command.Flags().MarkHidden("route-tls")

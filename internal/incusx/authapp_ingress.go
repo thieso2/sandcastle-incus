@@ -26,6 +26,15 @@ const (
 	IngressACME       = "acme"
 	IngressCloudflare = "cloudflare"
 
+	// IngressACMEProxied is a Public Route ingress mode only (never an Auth
+	// Hostname mode): Caddy still terminates TLS for route hostnames with
+	// on-demand Let's Encrypt, but an upstream SNI proxy on the host forwards
+	// :80/:443 to the appliance, so the appliance must NOT claim the host ports
+	// itself. Use it when something else already owns :80/:443 on the Incus host
+	// (e.g. an sc-edge fronting other vhosts) and routes reach the appliance by
+	// SNI on its bridge address.
+	IngressACMEProxied = "acme-proxied"
+
 	authAppCaddyBinary       = "/usr/bin/caddy"
 	authAppCloudflaredBinary = "/usr/bin/cloudflared"
 	authAppCaddyfilePath     = "/etc/caddy/Caddyfile"

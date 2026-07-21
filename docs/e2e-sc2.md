@@ -1188,7 +1188,9 @@ Phase 7b's manual `sc-edge` vhost is exactly what `sc route` productizes, but
 against the **auth-app appliance's own Caddy**, not a separate `sc-edge`.
 Requires **route ingress** — deploy with `--route-ingress acme` (on `sc-adm
 install` or `sc-adm auth-app deploy`), **independent of the Auth Hostname's own
-ingress**, so routes run beside a Cloudflare-tunnelled login host. `--route-base-domain`
+ingress**, so routes run beside a Cloudflare-tunnelled login host. Where the host
+ports are already taken, `--route-ingress acme-proxied` does the same behind an
+SNI proxy (variant below). `--route-base-domain`
 puts routes under a separate domain from login; empty defaults to the Auth Hostname.
 Auto-subdomains need a wildcard `*.<route-base-domain>` → the host's public IP (a
 wildcard CNAME to a dynamic-DNS name works, tracking a changing residential IP);
@@ -1254,6 +1256,41 @@ sc route delete <hostname> --yes
 > Validated via the auth-app's `POST/DELETE /api/routes` with the tenant token
 > (the tenant `sc` restricted cert wasn't set up on the test client); the `sc route`
 > CLI drives the same endpoints after a normal `sc login`.
+
+### Variant — routes behind an existing edge (`--route-ingress acme-proxied`)
+When the Incus host's `:80/:443` are already held by another appliance (a shared
+`sc-edge` fronting unrelated vhosts), `--route-ingress acme` cannot bind them.
+`--route-ingress acme-proxied` enables Public Routes **without** adding the
+`http`/`https` proxy devices: route TLS is still terminated by the appliance's
+Caddy (on-demand Let's Encrypt, `/api/routes/ask` gate), and an **SNI proxy** on
+the port-owning box forwards the handshake untouched to the appliance's bridge
+address. The front must not terminate TLS for route hostnames — the certificate
+lives in the appliance.
+
+**PASS (✅ validated live on `big`/`obelix` 2026-07-21 — login on Cloudflare
+`obelix.thieso2.dev`, routes under the same domain via `sc-edge`):**
+- Redeploying the cloudflare-login appliance with `--route-ingress acme-proxied`
+  leaves `incus config device list` at `root/eth0/incus-socket` (**no** `http`/
+  `https` devices), writes the coexistence Caddyfile with the global
+  `on_demand_tls { ask … }` block, and keeps login serving (`/` → 200 throughout).
+- `sc route` stops returning the 501 no-route-ingress error and lists routes.
+- With nginx `stream` + `ssl_preread` on `sc-edge` mapping
+  `~*^[^.]+\.obelix\.thieso2\.dev$` → `<appliance-ip>:443` (default → the local
+  Caddy moved to `8443`), and `:80` for the same names proxied to the appliance:
+  `sc route publish work:test --port 8099 --hostname something.obelix.thieso2.dev`
+  → `curl https://something.obelix.thieso2.dev/` returns the app body with a real
+  **Let's Encrypt** cert (`CN=something.obelix.thieso2.dev`), `http://…` → **308**
+  to https, and `sc route list` reports `live`.
+- The ask-gate still holds through the SNI front: an unregistered host under the
+  same wildcard (`https://nope.obelix.thieso2.dev/`) fails the handshake with a
+  TLS internal error — no certificate is issued.
+- The front's own vhosts are unaffected (`big.thieso2.dev` 200, `grafana.` 302,
+  `prometheus.` 401 basicauth) — nginx does the `http→https` redirect for them
+  itself, since a Caddy on a non-standard `https_port` would put `:8443` in the
+  `Location` header.
+- **Pin the appliance IP** (`incus config device set <instance> eth0 ipv4.address
+  <ip>`) before pointing the front at it; the bridge lease is otherwise free to
+  move on restart and the SNI upstream would go stale.
 
 ### Non-interactive / hermetic variant (`scripts/e2e-route.sh`)
 The live check above needs public DNS + inbound `:80/:443` + real Let's Encrypt.

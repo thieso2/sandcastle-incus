@@ -65,6 +65,9 @@ type BootstrapAuthAppRequest struct {
 	// Public Route ingress (Spec #111 coexistence): when "acme", the appliance
 	// also binds host :80/:443 for native-ACME Public Route sites, independent of
 	// IngressMode — so routes can run beside a Cloudflare-tunnelled login host.
+	// When "acme-proxied", route sites work the same way (on-demand Let's
+	// Encrypt in the appliance's Caddy) but the host ports stay with an upstream
+	// SNI proxy that forwards to the appliance.
 	// RouteBaseDomain is where routes live (<label>.<tenant>.<base>); empty falls
 	// back to the Auth Hostname.
 	RouteIngress    string
@@ -296,7 +299,9 @@ func authAppDevices(req BootstrapAuthAppRequest) api.DevicesMap {
 	}
 	// Bind the host :80/:443 for Caddy when the Auth Hostname uses ACME OR when
 	// native-ACME Public Route ingress is enabled (routes need the ports even if
-	// the login host is Cloudflare-tunnelled).
+	// the login host is Cloudflare-tunnelled). IngressACMEProxied deliberately
+	// does not: an upstream SNI proxy owns the host ports and forwards to the
+	// appliance's bridge address instead.
 	if strings.TrimSpace(req.IngressMode) == IngressACME || strings.TrimSpace(req.RouteIngress) == IngressACME {
 		devices["http"] = map[string]string{"type": "proxy", "listen": "tcp:0.0.0.0:80", "connect": "tcp:127.0.0.1:80"}
 		devices["https"] = map[string]string{"type": "proxy", "listen": "tcp:0.0.0.0:443", "connect": "tcp:127.0.0.1:443"}
