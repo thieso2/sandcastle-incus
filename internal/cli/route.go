@@ -67,6 +67,7 @@ func newRoutePublishCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	var name string
 	var hostname string
 	var dryRun bool
+	var tenantOverride string
 	command := &cobra.Command{
 		Use:   "publish [[remote:]project:]machine --port <n>",
 		Short: "Publish a machine's local port to the public Internet",
@@ -75,18 +76,31 @@ func newRoutePublishCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 			if port <= 0 {
 				return fmt.Errorf("--port is required (the backend port inside the machine, e.g. --port 3000)")
 			}
-			summary, err := requireV2Tenant(cmd.Context(), config)
-			if err != nil {
-				return err
-			}
-			project, machine, err := resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
-			if err != nil {
-				return err
+			// --tenant publishes on another Tenant's behalf (Sandcastle Admins
+			// only; the Auth App enforces that). The local machine lookup is
+			// skipped: an admin's restricted certificate cannot see another
+			// Tenant's Incus projects, so the reference is parsed textually and
+			// the Auth App — which does hold the rights — validates the machine.
+			var tenantName, project, machine string
+			if override := strings.TrimSpace(tenantOverride); override != "" {
+				tenantName = override
+				project, machine = splitRouteMachineReference(args[0], "default")
+			} else {
+				summary, err := requireV2Tenant(cmd.Context(), config)
+				if err != nil {
+					return err
+				}
+				tenantName = summary.Tenant
+				var resolveErr error
+				project, machine, resolveErr = resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
+				if resolveErr != nil {
+					return resolveErr
+				}
 			}
 			if dryRun {
 				plan := map[string]any{
-					"tenant": summary.Tenant, "project": project, "machine": machine,
-					"backendPort": port, "url": "https://" + previewRouteHostname(config, summary.Tenant, name, hostname, machine),
+					"tenant": tenantName, "project": project, "machine": machine,
+					"backendPort": port, "url": "https://" + previewRouteHostname(config, tenantName, name, hostname, machine),
 					"dryRun": true,
 				}
 				return writeOutput(config.stdout, opts.output, formatRoutePlan(machine, port, plan["url"].(string)), plan)
@@ -96,7 +110,7 @@ func newRoutePublishCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 				return err
 			}
 			view, err := client.PublishRoute(cmd.Context(), authapp.RoutePublishRequest{
-				Tenant:      summary.Tenant,
+				Tenant:      tenantName,
 				Project:     project,
 				Machine:     machine,
 				BackendPort: port,
@@ -117,7 +131,20 @@ func newRoutePublishCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 	command.Flags().StringVar(&name, "name", "", "subdomain label; defaults to the machine name")
 	command.Flags().StringVar(&hostname, "hostname", "", "custom public hostname instead of the auto-subdomain (CNAME it onto the auth host yourself)")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "show the plan without publishing")
+	command.Flags().StringVar(&tenantOverride, "tenant", "", "publish for another tenant (Sandcastle Admins only); the machine reference is then [project:]machine, project defaulting to \"default\"")
 	return command
+}
+
+// splitRouteMachineReference parses a "[project:]machine" reference without
+// consulting local Incus state. Used for --tenant, where the caller's
+// restricted certificate cannot see the target Tenant's projects and the Auth
+// App does the real validation.
+func splitRouteMachineReference(reference, defaultProject string) (project, machine string) {
+	reference = strings.TrimSpace(reference)
+	if index := strings.LastIndex(reference, ":"); index >= 0 {
+		return strings.TrimSpace(reference[:index]), strings.TrimSpace(reference[index+1:])
+	}
+	return defaultProject, reference
 }
 
 // previewRouteHostname derives the public hostname a publish would produce, for
@@ -204,26 +231,33 @@ func routeCNAMEHint(ctx context.Context, client authRouteClient, hostname string
 }
 
 func newRouteListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
-	return &cobra.Command{
+	var tenantOverride string
+	command := &cobra.Command{
 		Use:   "list",
 		Short: "List published routes for the current tenant",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := requireV2Tenant(cmd.Context(), config)
-			if err != nil {
-				return err
+			tenantName := strings.TrimSpace(tenantOverride)
+			if tenantName == "" {
+				summary, err := requireV2Tenant(cmd.Context(), config)
+				if err != nil {
+					return err
+				}
+				tenantName = summary.Tenant
 			}
 			client, err := routeClient(config)
 			if err != nil {
 				return err
 			}
-			routes, err := client.ListRoutes(cmd.Context(), summary.Tenant)
+			routes, err := client.ListRoutes(cmd.Context(), tenantName)
 			if err != nil {
 				return err
 			}
 			return writeOutput(config.stdout, opts.output, formatRouteList(routes), map[string]any{"routes": routes})
 		},
 	}
+	command.Flags().StringVar(&tenantOverride, "tenant", "", "list another tenant's routes (Sandcastle Admins only)")
+	return command
 }
 
 func newRouteStatusCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -297,7 +331,7 @@ func routeClient(config commandConfig) (authRouteClient, error) {
 func formatRoutePublished(view authapp.RouteView) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Published %s\n\n", view.Hostname)
-	fmt.Fprintf(&b, "  %s   ->   %s:%d\n", view.URL, view.Machine, view.BackendPort)
+	fmt.Fprintf(&b, "  %s   ->   %s:%d\n", view.URL, routeMachineLabel(view), view.BackendPort)
 	if view.Status == authapp.RouteStatusAwaitingDNS {
 		fmt.Fprintf(&b, "  awaiting DNS/certificate — the certificate issues on first request once DNS points here.\n")
 	}
@@ -308,7 +342,8 @@ func formatRouteStatus(view authapp.RouteView) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Hostname:  %s\n", view.Hostname)
 	fmt.Fprintf(&b, "URL:       %s\n", view.URL)
-	fmt.Fprintf(&b, "Backend:   %s:%s:%d\n", view.Tenant, view.Machine, view.BackendPort)
+	fmt.Fprintf(&b, "Tenant:    %s\n", view.Tenant)
+	fmt.Fprintf(&b, "Backend:   %s:%d\n", routeMachineLabel(view), view.BackendPort)
 	fmt.Fprintf(&b, "Status:    %s\n", view.Status)
 	return b.String()
 }
@@ -321,8 +356,20 @@ func formatRouteList(routes []authapp.RouteView) string {
 	writer := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(writer, "HOSTNAME\tMACHINE\tPORT\tSTATUS")
 	for _, route := range routes {
-		fmt.Fprintf(writer, "%s\t%s\t%d\t%s\n", route.Hostname, route.Machine, route.BackendPort, route.Status)
+		fmt.Fprintf(writer, "%s\t%s\t%d\t%s\n", route.Hostname, routeMachineLabel(route), route.BackendPort, route.Status)
 	}
 	writer.Flush()
 	return b.String()
+}
+
+// routeMachineLabel names a Route's backend the way the Tenant reaches it: the
+// Machine Private Hostname (<machine>.<project>.<Tenant DNS Suffix>), which is
+// what `sc ls` prints as FQDN. Appliances that don't report it — older ones, or
+// one that could not read the suffix — leave it empty, so the bare Machine name
+// stands in rather than the row losing its backend entirely.
+func routeMachineLabel(view authapp.RouteView) string {
+	if fqdn := strings.TrimSpace(view.MachineFQDN); fqdn != "" {
+		return fqdn
+	}
+	return view.Machine
 }

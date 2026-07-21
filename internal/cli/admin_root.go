@@ -123,11 +123,20 @@ func ExecuteAdmin(name string, args []string) int {
 	var authAppRouteCaddy authapp.CaddyController
 	if authAppSocketServer != nil && routeIngressEnabled(os.Getenv("SANDCASTLE_ROUTE_INGRESS")) {
 		v2Prefix := installV2Prefix(adminConfig.IncusProjectPrefix)
+		// A shared front (an sc-edge holding the host ports) is told which route
+		// hostnames to forward by the auth-app itself; a bad value is fatal here
+		// rather than silently unpublished.
+		front, frontErr := incusx.ParseFrontTarget(os.Getenv("SANDCASTLE_ROUTE_FRONT"))
+		if frontErr != nil {
+			fmt.Fprintln(os.Stderr, frontErr)
+			return 1
+		}
 		authAppRoutes = incusx.RouteBackend{
 			Server:          authAppSocketServer,
 			MachinePrefix:   adminConfig.IncusProjectPrefix,
 			AuthAppInstance: v2Prefix + "-auth-app",
 			AuthAppProject:  v2Prefix + "-infra",
+			Front:           front,
 		}
 		authAppRouteCaddy = authapp.LocalCaddyController{}
 	}

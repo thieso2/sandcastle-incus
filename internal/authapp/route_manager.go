@@ -24,6 +24,11 @@ type MachineState struct {
 	Present bool   // the instance exists in Incus
 	Running bool   // it is running
 	IPv4    string // its current private IPv4 (empty unless running)
+	// FQDN is the Machine Private Hostname — <machine>.<project>.<Tenant DNS
+	// Suffix> (ADR-0018) — so `sc route list` can name the backend the way the
+	// Tenant reaches it rather than by its bare instance name. Empty when the
+	// backend cannot resolve the suffix; callers fall back to the Machine name.
+	FQDN string
 }
 
 // RouteBackend is the single injected Incus seam for Public Routes: the Auth App
@@ -39,6 +44,12 @@ type RouteBackend interface {
 	// RemoveProxyDevice removes the per-Route proxy device. Removing an absent
 	// device is not an error.
 	RemoveProxyDevice(ctx context.Context, deviceName string) error
+	// UpdateFrontRoutes publishes the Route Hostname list to the shared front
+	// configured for this install (see routes_front.go): it renders the caddy-l4
+	// fragment, writes it into the front instance, and reloads that Caddy. It is
+	// a no-op when no front is configured, so installs that own the host ports
+	// themselves carry no extra machinery.
+	UpdateFrontRoutes(ctx context.Context, hostnames []string) error
 	// MachineState resolves a Machine's presence, running state, and current IP.
 	// tenant+project identify the Incus app project; the backend knows the install
 	// prefix. A transient Incus failure must be returned as an error (never as
@@ -63,6 +74,9 @@ type RouteManager struct {
 	Backend RouteBackend
 	Caddy   CaddyController
 	Render  CaddyRenderConfig
+	// Logf reports problems that must not fail the operation in hand — notably a
+	// front update that could not be delivered. Optional; nil discards.
+	Logf func(format string, args ...any)
 	// ResolveHost reports whether a hostname resolves to an address. Optional;
 	// defaults to a DNS lookup. Injected in tests. Used to distinguish a custom
 	// hostname still awaiting its manual CNAME (awaiting-dns) from a live one.
@@ -176,6 +190,9 @@ func (m RouteManager) Reconcile(ctx context.Context) (int, error) {
 type RouteStatus struct {
 	Route
 	Status string // RouteStatusLive | RouteStatusUnhealthy | RouteStatusAwaitingDNS
+	// MachineFQDN is the backing Machine's Private Hostname, when the backend
+	// could resolve it. Empty for an absent Machine or a transient failure.
+	MachineFQDN string
 }
 
 // Status resolves the live health of a Route from Machine state, plus DNS for
@@ -185,13 +202,16 @@ type RouteStatus struct {
 // wildcard and always resolve, so they never report awaiting-dns.
 func (m RouteManager) Status(ctx context.Context, route Route) RouteStatus {
 	state, err := m.Backend.MachineState(ctx, route.Tenant, route.Project, route.Machine)
-	if err != nil || !state.Present || !state.Running {
-		return RouteStatus{Route: route, Status: RouteStatusUnhealthy}
+	status := RouteStatus{Route: route, MachineFQDN: strings.TrimSpace(state.FQDN)}
+	switch {
+	case err != nil || !state.Present || !state.Running:
+		status.Status = RouteStatusUnhealthy
+	case m.isCustomHostname(route.Hostname) && !m.hostResolves(ctx, route.Hostname):
+		status.Status = RouteStatusAwaitingDNS
+	default:
+		status.Status = RouteStatusLive
 	}
-	if m.isCustomHostname(route.Hostname) && !m.hostResolves(ctx, route.Hostname) {
-		return RouteStatus{Route: route, Status: RouteStatusAwaitingDNS}
-	}
-	return RouteStatus{Route: route, Status: RouteStatusLive}
+	return status
 }
 
 // isCustomHostname reports whether hostname is a customer-supplied hostname
@@ -232,7 +252,26 @@ func (m RouteManager) regenerate(ctx context.Context) error {
 	if err := m.Caddy.Apply(ctx, RenderCaddyfile(m.Render, routes)); err != nil {
 		return fmt.Errorf("apply caddy config: %w", err)
 	}
+	// Publish the same list to the shared front, if any. Best effort on purpose:
+	// the Route itself is already published here and the registry is correct, so
+	// a front that is down or briefly unreachable must not fail a Tenant's
+	// publish. The reconcile loop re-renders on every pass, so the front
+	// converges on its own.
+	hostnames := make([]string, 0, len(routes))
+	for _, route := range routes {
+		hostnames = append(hostnames, route.Hostname)
+	}
+	if err := m.Backend.UpdateFrontRoutes(ctx, hostnames); err != nil {
+		m.logf("publish route hostnames to the shared front: %v (routes still serve here; the reconcile pass retries)", err)
+	}
 	return nil
+}
+
+func (m RouteManager) logf(format string, args ...any) {
+	if m.Logf == nil {
+		return
+	}
+	m.Logf(format, args...)
 }
 
 // routeDeviceName is the stable, Incus-valid device name for a Route's proxy

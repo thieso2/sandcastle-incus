@@ -1,10 +1,12 @@
 package authapp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	svclog "github.com/thieso2/sandcastle-incus/internal/svclog"
@@ -35,6 +37,7 @@ type RouteView struct {
 	Tenant      string `json:"tenant"`
 	Project     string `json:"project"`
 	Machine     string `json:"machine"`
+	MachineFQDN string `json:"machineFqdn,omitempty"` // Machine Private Hostname; empty when the appliance could not resolve it (clients fall back to Machine)
 	BackendPort int    `json:"backendPort"`
 	Status      string `json:"status"`
 }
@@ -72,6 +75,7 @@ func routeView(rs RouteStatus) RouteView {
 		Tenant:      rs.Tenant,
 		Project:     rs.Project,
 		Machine:     rs.Machine,
+		MachineFQDN: rs.MachineFQDN,
 		BackendPort: rs.BackendPort,
 		Status:      rs.Status,
 	}
@@ -88,6 +92,25 @@ func (h handler) routesAPI(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// authorizeRouteTenant gates the Route API. A Tenant reaches their own Routes
+// exactly as before (authorizeWorkloadTenant); a Sandcastle Admin additionally
+// reaches every Tenant's, because operating an install means publishing and
+// pulling Routes on a Tenant's behalf — the alternative is hand-editing the
+// front door, which is what Public Routes exist to avoid.
+//
+// Deliberately separate from authorizeWorkloadTenant rather than widening it:
+// that one also guards Workload Identity token issuance, where "an admin may
+// act as any tenant" would hand out cloud credentials, not a hostname.
+func (h handler) authorizeRouteTenant(ctx context.Context, user User, tenantName string) error {
+	if user.SandcastleAdmin {
+		if strings.TrimSpace(tenantName) == "" {
+			return fmt.Errorf("tenant is required")
+		}
+		return nil
+	}
+	return h.authorizeWorkloadTenant(ctx, user.UserKey, tenantName)
 }
 
 func (h handler) routePublish(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +132,7 @@ func (h handler) routePublish(w http.ResponseWriter, r *http.Request) {
 	request.Tenant = strings.TrimSpace(request.Tenant)
 	request.Project = strings.TrimSpace(request.Project)
 	request.Machine = strings.TrimSpace(request.Machine)
-	if err := h.authorizeWorkloadTenant(r.Context(), user.UserKey, request.Tenant); err != nil {
+	if err := h.authorizeRouteTenant(r.Context(), user, request.Tenant); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -171,7 +194,7 @@ func (h handler) routeGet(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("route %q is not published", hostname), http.StatusNotFound)
 			return
 		}
-		if err := h.authorizeWorkloadTenant(r.Context(), user.UserKey, route.Tenant); err != nil {
+		if err := h.authorizeRouteTenant(r.Context(), user, route.Tenant); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
@@ -179,7 +202,7 @@ func (h handler) routeGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.authorizeWorkloadTenant(r.Context(), user.UserKey, tenantName); err != nil {
+	if err := h.authorizeRouteTenant(r.Context(), user, tenantName); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -220,7 +243,7 @@ func (h handler) routeDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("route %q is not published", hostname), http.StatusNotFound)
 		return
 	}
-	if err := h.authorizeWorkloadTenant(r.Context(), user.UserKey, route.Tenant); err != nil {
+	if err := h.authorizeRouteTenant(r.Context(), user, route.Tenant); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -351,9 +374,13 @@ func (h handler) routeManager() (RouteManager, bool) {
 		return RouteManager{}, false
 	}
 	return RouteManager{
-		DB:          h.db,
-		Backend:     h.routes,
-		Caddy:       h.routeCaddy,
+		DB:      h.db,
+		Backend: h.routes,
+		Caddy:   h.routeCaddy,
+		// The publish path has no request logger to hand; stderr is the
+		// appliance's journal, which is where an operator looks when a front
+		// falls behind.
+		Logf:        func(format string, args ...any) { fmt.Fprintf(os.Stderr, "auth-app route: "+format+"\n", args...) },
 		Render:      RouteRenderConfig(h.authHostname, h.authIngressMode, h.routeBaseDomain, h.acmeEmail, h.routeTLS),
 		ResolveHost: h.routeResolveHost,
 	}, true

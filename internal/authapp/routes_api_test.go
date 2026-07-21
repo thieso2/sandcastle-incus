@@ -244,3 +244,25 @@ func TestRouteBaseFallsBackToAuthHostname(t *testing.T) {
 		t.Errorf("routeBase() = %q, want the configured base domain", got)
 	}
 }
+
+// A Sandcastle Admin operating an install must be able to publish and pull
+// Routes for any Tenant — otherwise the only cross-tenant path is editing the
+// front door by hand, which is exactly what Public Routes replace.
+func TestAuthorizeRouteTenantAdmitsSandcastleAdmin(t *testing.T) {
+	h := handler{}
+	if err := h.authorizeRouteTenant(context.Background(), User{UserKey: "thieso2", SandcastleAdmin: true}, "skorfmann"); err != nil {
+		t.Fatalf("admin must reach another tenant's routes: %v", err)
+	}
+	if err := h.authorizeRouteTenant(context.Background(), User{UserKey: "thieso2", SandcastleAdmin: true}, ""); err == nil {
+		t.Error("an empty tenant must still be rejected, even for an admin")
+	}
+	// A non-admin falls through to the tenant-access check, which with no
+	// stores wired reports "not authorized" rather than silently allowing.
+	if err := h.authorizeRouteTenant(context.Background(), User{UserKey: "thieso2"}, "skorfmann"); err == nil {
+		t.Error("a non-admin must not reach another tenant's routes")
+	}
+	// ...and still reaches their own.
+	if err := h.authorizeRouteTenant(context.Background(), User{UserKey: "thieso2"}, "thieso2"); err != nil {
+		t.Errorf("a tenant must still reach their own routes: %v", err)
+	}
+}

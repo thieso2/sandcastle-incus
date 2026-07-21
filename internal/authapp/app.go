@@ -333,6 +333,9 @@ func (r HTTPRunner) runRouteReconcileLoop(ctx context.Context, db *sql.DB, logge
 		Backend: r.Routes,
 		Caddy:   r.RouteCaddy,
 		Render:  RouteRenderConfig(authHostname, r.AuthIngressMode, r.RouteBaseDomain, r.ACMEEmail, r.RouteTLS),
+		Logf: func(format string, args ...any) {
+			logger.Message(ctx, "ERROR", "auth-app route: "+format, args...)
+		},
 	}
 	// Write the coexistence Caddyfile once at startup so the global block, the
 	// Auth Hostname site, and any existing route sites are correct before the

@@ -72,6 +72,10 @@ type BootstrapAuthAppRequest struct {
 	// back to the Auth Hostname.
 	RouteIngress    string
 	RouteBaseDomain string
+	// RouteFront is the shared front instance ("<project>/<instance>", e.g.
+	// "infrastructure/sc-edge") this install publishes its Route SNI list to.
+	// Empty = no front; the appliance owns the host ports itself.
+	RouteFront string
 	// RouteCNAMETarget is the public front door a Tenant must CNAME a custom
 	// route Hostname onto. Only the operator knows it once an SNI proxy or edge
 	// sits in front of the appliance, and `sc route` reports it to Tenants.
@@ -326,7 +330,7 @@ type applianceFile struct {
 // file-push stream mid-transfer, while rename() swaps the directory entry
 // and leaves the running program on its old inode. Caught live twice in the
 // 2026-07-17 majestix e2e run.
-func writeApplianceFile(server TenantResourceServer, instance string, f applianceFile) error {
+func writeApplianceFile(server applianceFileServer, instance string, f applianceFile) error {
 	if err := writeInstanceDir(server, instance, f.path); err != nil {
 		return err
 	}
@@ -364,6 +368,7 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_ROUTE_INGRESS=" + q(strings.TrimSpace(req.RouteIngress)),
 		"SANDCASTLE_ROUTE_BASE_DOMAIN=" + q(strings.TrimSpace(req.RouteBaseDomain)),
 		"SANDCASTLE_ROUTE_CNAME_TARGET=" + q(strings.TrimSpace(req.RouteCNAMETarget)),
+		"SANDCASTLE_ROUTE_FRONT=" + q(strings.TrimSpace(req.RouteFront)),
 		"SANDCASTLE_ROUTE_TLS=" + q(strings.TrimSpace(req.RouteTLS)),
 		// Incus access: the mounted host admin unix socket.
 		"SANDCASTLE_REMOTE=" + q("local"),

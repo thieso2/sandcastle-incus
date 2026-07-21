@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	authapp "github.com/thieso2/sandcastle-incus/internal/authapp"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 )
 
@@ -26,6 +28,10 @@ type RouteBackend struct {
 	// whose device map the per-Route proxy devices live on.
 	AuthAppInstance string
 	AuthAppProject  string
+	// Front is the shared front (an sc-edge instance) this install publishes its
+	// Route SNI list to; zero value = the install owns the host ports itself and
+	// nothing is published. See routefront.go.
+	Front FrontTarget
 }
 
 var _ authapp.RouteBackend = RouteBackend{}
@@ -112,12 +118,33 @@ func (b RouteBackend) MachineState(ctx context.Context, tenant, project, machine
 		// prune (Spec #111).
 		return authapp.MachineState{}, fmt.Errorf("get machine %q: %w", machine, err)
 	}
-	state := authapp.MachineState{Present: true}
+	state := authapp.MachineState{Present: true, FQDN: b.machinePrivateHostname(incusProject, project, machine)}
 	if instance.StatusCode == api.Running {
 		state.Running = true
 		state.IPv4 = firstGlobalIPv4(server, machine, instance)
 	}
 	return state, nil
+}
+
+// machinePrivateHostname builds the Machine Private Hostname
+// <machine>.<project>.<Tenant DNS Suffix> (ADR-0018) so a Route can name its
+// backend the way the Tenant reaches it. The suffix is read from the app
+// project's config, where tenant/project create wrote it. Best effort: a failed
+// read yields "" and the caller falls back to the bare Machine name rather than
+// failing a status or reconcile pass over a cosmetic field.
+func (b RouteBackend) machinePrivateHostname(incusProject, project, machine string) string {
+	if b.Server == nil {
+		return ""
+	}
+	found, _, err := b.Server.GetProject(incusProject)
+	if err != nil || found == nil {
+		return ""
+	}
+	suffix := strings.Trim(strings.TrimSpace(found.Config[meta.KeyV2Suffix]), ".")
+	if suffix == "" {
+		return ""
+	}
+	return machine + "." + project + "." + suffix
 }
 
 // firstGlobalIPv4 returns a Machine's global IPv4 from live instance state — the

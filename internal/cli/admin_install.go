@@ -32,12 +32,12 @@ func installV2Prefix(prefix string) string {
 // an installation under the same --prefix already exists.
 func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	var (
-		prefix, cidrPool, baseImage, binaryPath, bridge, storagePool string
-		hostname, githubClientID, githubClientSecret, adminUsers     string
-		defaultUnixUser, tailscaleAuthKey                            string
-		simulateGitHubToken, tlsMode, brokerPort                     string
-		ingressMode, acmeEmail, tunnelToken, cloudflareAPIToken      string
-		routeIngress, routeBaseDomain, routeCNAMETarget, routeTLS    string
+		prefix, cidrPool, baseImage, binaryPath, bridge, storagePool          string
+		hostname, githubClientID, githubClientSecret, adminUsers              string
+		defaultUnixUser, tailscaleAuthKey                                     string
+		simulateGitHubToken, tlsMode, brokerPort                              string
+		ingressMode, acmeEmail, tunnelToken, cloudflareAPIToken               string
+		routeIngress, routeBaseDomain, routeCNAMETarget, routeFront, routeTLS string
 	)
 	command := &cobra.Command{
 		Use:   "install",
@@ -171,6 +171,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				RouteIngress:        routeIngress,
 				RouteBaseDomain:     routeBaseDomain,
 				RouteCNAMETarget:    routeCNAMETarget,
+				RouteFront:          routeFront,
 				RouteTLS:            routeTLS,
 			}); err != nil {
 				return fmt.Errorf("auth-app deploy: %w", err)
@@ -273,6 +274,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt) or acme-proxied (same, but an upstream SNI proxy owns the host ports and forwards to the appliance), independent of --ingress so routes can run beside a cloudflare login host; empty disables")
 	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
 	command.Flags().StringVar(&routeCNAMETarget, "route-cname-target", "", "public front door a tenant CNAMEs a custom route hostname onto (e.g. the SNI proxy's hostname); reported by `sc route`. Defaults to the Auth Hostname only when it is itself ACME-served here")
+	command.Flags().StringVar(&routeFront, "route-front", "", "shared front instance to publish the route SNI list to, as <project>/<instance> (e.g. infrastructure/sc-edge); the auth-app writes a caddy-l4 fragment there and reloads it on every route change. Empty = this appliance owns the host ports")
 	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e, no public DNS/ACME)")
 	_ = command.Flags().MarkHidden("route-tls")
 	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a dashboard-created Cloudflare tunnel routing the hostname to http://localhost:8080 (cloudflare ingress)")

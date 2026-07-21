@@ -3,6 +3,8 @@ package authapp
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +16,10 @@ type fakeRouteBackend struct {
 	devices  map[string]fakeDevice
 	ensured  int
 	removed  int
+	// fronted records every hostname list published to the shared front, and
+	// frontErr scripts a front that is unreachable.
+	fronted  [][]string
+	frontErr error
 }
 
 type fakeDevice struct {
@@ -36,6 +42,11 @@ func (f *fakeRouteBackend) RemoveProxyDevice(ctx context.Context, name string) e
 	f.removed++
 	delete(f.devices, name)
 	return nil
+}
+
+func (f *fakeRouteBackend) UpdateFrontRoutes(ctx context.Context, hostnames []string) error {
+	f.fronted = append(f.fronted, append([]string(nil), hostnames...))
+	return f.frontErr
 }
 
 func (f *fakeRouteBackend) MachineState(ctx context.Context, tenant, project, machine string) (MachineState, error) {
@@ -193,6 +204,27 @@ func TestStatus_LiveVsUnhealthy(t *testing.T) {
 	}
 }
 
+// `sc route list` names the backend by its Machine Private Hostname, so Status
+// must carry the FQDN the backend reports — including for a stopped Machine,
+// where the row is unhealthy but still has to say which Machine it points at.
+func TestStatus_CarriesMachineFQDN(t *testing.T) {
+	ctx := context.Background()
+	m, backend, _ := newManager(t)
+	live := running("10.248.3.42")
+	live.FQDN = "web.default.acme.sc2.thieso2.dev"
+	backend.states["acme/default/web"] = live
+	route, _ := m.Publish(ctx, PublishRequest{Hostname: "web.acme.sc2.thieso2.dev", Tenant: "acme", Project: "default", Machine: "web", BackendPort: 3000})
+
+	if got := m.Status(ctx, route); got.MachineFQDN != "web.default.acme.sc2.thieso2.dev" {
+		t.Fatalf("live route MachineFQDN = %q", got.MachineFQDN)
+	}
+	backend.states["acme/default/web"] = MachineState{Present: true, Running: false, FQDN: "web.default.acme.sc2.thieso2.dev"}
+	got := m.Status(ctx, route)
+	if got.Status != RouteStatusUnhealthy || got.MachineFQDN != "web.default.acme.sc2.thieso2.dev" {
+		t.Fatalf("stopped route = %q / %q", got.Status, got.MachineFQDN)
+	}
+}
+
 func TestStatus_CustomHostnameAwaitingDNS(t *testing.T) {
 	ctx := context.Background()
 	m, backend, _ := newManager(t)
@@ -220,5 +252,82 @@ func TestStatus_AutoSubdomainNeverAwaitingDNS(t *testing.T) {
 	route, _ := m.Publish(ctx, PublishRequest{Hostname: "web.acme.sc2.thieso2.dev", Tenant: "acme", Project: "default", Machine: "web", BackendPort: 3000})
 	if got := m.Status(ctx, route); got.Status != RouteStatusLive {
 		t.Fatalf("auto-subdomain should be live, got %q", got.Status)
+	}
+}
+
+// The shared front learns the hostname list from the Auth App, so every
+// Caddyfile regeneration must publish it — that is what makes a custom hostname
+// work with no edit on the front.
+func TestPublishSendsHostnamesToFront(t *testing.T) {
+	manager, backend, _ := newManager(t)
+	backend.states["acme/web/api"] = MachineState{Present: true, Running: true, IPv4: "10.1.0.5"}
+	ctx := context.Background()
+	if _, err := manager.Publish(ctx, PublishRequest{
+		Hostname: "app.customer.com", Tenant: "acme", Project: "web", Machine: "api", BackendPort: 3000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.fronted) == 0 {
+		t.Fatal("publish must push the hostname list to the front")
+	}
+	last := backend.fronted[len(backend.fronted)-1]
+	if len(last) != 1 || last[0] != "app.customer.com" {
+		t.Errorf("front received %v, want [app.customer.com]", last)
+	}
+}
+
+// A front that cannot be reached must not fail the publish: the Route is
+// already live on this appliance and the reconcile pass retries the front.
+func TestPublishSucceedsWhenFrontIsUnreachable(t *testing.T) {
+	manager, backend, _ := newManager(t)
+	backend.states["acme/web/api"] = MachineState{Present: true, Running: true, IPv4: "10.1.0.5"}
+	backend.frontErr = errors.New("front is down")
+	var logged []string
+	manager.Logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	route, err := manager.Publish(context.Background(), PublishRequest{
+		Hostname: "app.customer.com", Tenant: "acme", Project: "web", Machine: "api", BackendPort: 3000,
+	})
+	if err != nil {
+		t.Fatalf("a down front must not fail the publish: %v", err)
+	}
+	if route.Hostname != "app.customer.com" {
+		t.Errorf("route = %+v, want it published anyway", route)
+	}
+	if len(logged) == 0 || !strings.Contains(logged[0], "front") {
+		t.Errorf("the failure must be logged, got %v", logged)
+	}
+}
+
+func TestRenderFrontSNIFragment(t *testing.T) {
+	out := RenderFrontSNIFragment("sandcastle_obelix", "10.239.150.87:443",
+		[]string{"b.example.dev", "a.example.dev", "b.example.dev", ""})
+	if !strings.Contains(out, "@sandcastle_obelix tls sni a.example.dev b.example.dev\n") {
+		t.Errorf("hosts must be sorted and de-duplicated:\n%s", out)
+	}
+	if !strings.Contains(out, "proxy tcp/10.239.150.87:443") {
+		t.Errorf("fragment must proxy to the appliance:\n%s", out)
+	}
+	// Same input renders byte-identical output, so an unchanged registry does
+	// not churn the front.
+	again := RenderFrontSNIFragment("sandcastle_obelix", "10.239.150.87:443",
+		[]string{"b.example.dev", "a.example.dev"})
+	if out != again {
+		t.Error("render must be deterministic")
+	}
+	empty := RenderFrontSNIFragment("sandcastle_obelix", "10.239.150.87:443", nil)
+	if strings.Contains(empty, "tls sni") {
+		t.Errorf("an install with no routes must forward nothing:\n%s", empty)
+	}
+}
+
+func TestFrontMatcherNameIsUniquePerInstall(t *testing.T) {
+	if got := FrontMatcherName("obelix"); got != "sandcastle_obelix" {
+		t.Errorf("FrontMatcherName(obelix) = %q", got)
+	}
+	if got := FrontMatcherName("sc-2 test"); got != "sandcastle_sc_2_test" {
+		t.Errorf("unsafe characters must be folded, got %q", got)
+	}
+	if got := FrontMatcherName(""); got != "sandcastle_routes" {
+		t.Errorf("empty prefix = %q", got)
 	}
 }

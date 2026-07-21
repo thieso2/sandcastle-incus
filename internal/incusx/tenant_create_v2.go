@@ -863,7 +863,7 @@ func parseTailscaleLoginURL(out string) string {
 // follows symlinks, and pushing through a dangling one fails with a spurious
 // "Not Found" — /etc/resolv.conf on a stock image links to systemd-resolved's
 // stub under /run, which does not exist until resolved has started.
-func writeInstanceDir(server TenantResourceServer, instance string, filePath string) error {
+func writeInstanceDir(server applianceExecServer, instance string, filePath string) error {
 	dir := filePath[:strings.LastIndex(filePath, "/")]
 	if dir == "" {
 		return nil
@@ -872,7 +872,7 @@ func writeInstanceDir(server TenantResourceServer, instance string, filePath str
 }
 
 // execSidecarCapture runs a script in the sidecar and returns its stdout.
-func execSidecarCapture(server TenantResourceServer, instance string, script string) (string, error) {
+func execSidecarCapture(server applianceExecServer, instance string, script string) (string, error) {
 	var stdout, stderr strings.Builder
 	dataDone := make(chan bool)
 	op, err := server.ExecInstance(instance, api.InstanceExecPost{
@@ -918,7 +918,7 @@ func execExitError(op incus.Operation, stderr string) error {
 	return fmt.Errorf("command exited with status %d (stderr: %s)", int(code), detail)
 }
 
-func execSidecar(server TenantResourceServer, instance string, script string) error {
+func execSidecar(server applianceExecServer, instance string, script string) error {
 	var stderr strings.Builder
 	dataDone := make(chan bool)
 	op, err := server.ExecInstance(instance, api.InstanceExecPost{

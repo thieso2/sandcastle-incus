@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -119,12 +120,18 @@ func TestRoutePublishCustomHostname(t *testing.T) {
 
 func TestRouteListFormatsTable(t *testing.T) {
 	out := formatRouteList([]authapp.RouteView{
-		{Hostname: "web.acme.sc2.dev", Machine: "web", BackendPort: 3000, Status: "live"},
+		{Hostname: "web.acme.sc2.dev", Machine: "web", MachineFQDN: "web.default.acme.sc2.dev", BackendPort: 3000, Status: "live"},
+		// No MachineFQDN (older appliance, or the suffix could not be read):
+		// the bare Machine name stands in.
+		{Hostname: "api.acme.sc2.dev", Machine: "api", BackendPort: 8080, Status: "unhealthy"},
 	})
-	for _, want := range []string{"HOSTNAME", "web.acme.sc2.dev", "3000", "live"} {
+	for _, want := range []string{"HOSTNAME", "web.acme.sc2.dev", "web.default.acme.sc2.dev", "3000", "live", "unhealthy"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list output missing %q:\n%s", want, out)
 		}
+	}
+	if !regexp.MustCompile(`(?m)^api\.acme\.sc2\.dev\s+api\s+8080\s`).MatchString(out) {
+		t.Errorf("route without a MachineFQDN should fall back to the machine name:\n%s", out)
 	}
 	if empty := formatRouteList(nil); !strings.Contains(empty, "No published routes") {
 		t.Errorf("empty list = %q", empty)
@@ -132,8 +139,8 @@ func TestRouteListFormatsTable(t *testing.T) {
 }
 
 func TestRouteStatusFormat(t *testing.T) {
-	out := formatRouteStatus(authapp.RouteView{Hostname: "web.acme.sc2.dev", URL: "https://web.acme.sc2.dev", Tenant: "acme", Machine: "web", BackendPort: 3000, Status: "live"})
-	for _, want := range []string{"web.acme.sc2.dev", "acme:web:3000", "live"} {
+	out := formatRouteStatus(authapp.RouteView{Hostname: "web.acme.sc2.dev", URL: "https://web.acme.sc2.dev", Tenant: "acme", Machine: "web", MachineFQDN: "web.default.acme.sc2.dev", BackendPort: 3000, Status: "live"})
+	for _, want := range []string{"web.acme.sc2.dev", "Tenant:    acme", "web.default.acme.sc2.dev:3000", "live"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)
 		}

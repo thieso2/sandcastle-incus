@@ -19,14 +19,14 @@ import (
 // it works both interactively and scripted (flags/pipe).
 func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	var (
-		project, instance, baseImage, binaryPath, bridge, storagePool string
-		hostname, githubClientID, githubClientSecret, adminUsers      string
-		defaultUnixUser, tailscaleAuthKey, debugDeviceUser            string
-		simulateGitHubToken                                           string
-		cidrPool, projectPrefix, infraProject, tlsMode                string
-		tenantBaseImage, tenantAIImage                                string
-		ingressMode, acmeEmail, tunnelToken                           string
-		routeIngress, routeBaseDomain, routeCNAMETarget, routeTLS     string
+		project, instance, baseImage, binaryPath, bridge, storagePool         string
+		hostname, githubClientID, githubClientSecret, adminUsers              string
+		defaultUnixUser, tailscaleAuthKey, debugDeviceUser                    string
+		simulateGitHubToken                                                   string
+		cidrPool, projectPrefix, infraProject, tlsMode                        string
+		tenantBaseImage, tenantAIImage                                        string
+		ingressMode, acmeEmail, tunnelToken                                   string
+		routeIngress, routeBaseDomain, routeCNAMETarget, routeFront, routeTLS string
 	)
 	command := &cobra.Command{
 		Use:   "deploy",
@@ -104,6 +104,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 				RouteIngress:        routeIngress,
 				RouteBaseDomain:     strings.TrimSpace(routeBaseDomain),
 				RouteCNAMETarget:    strings.TrimSpace(routeCNAMETarget),
+				RouteFront:          strings.TrimSpace(routeFront),
 				RouteTLS:            strings.TrimSpace(routeTLS),
 			}); err != nil {
 				return err
@@ -141,6 +142,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&routeIngress, "route-ingress", "", "public ingress for `sc route`: acme (host :80/:443 + Let's Encrypt) or acme-proxied (an upstream SNI proxy owns the host ports and forwards to the appliance), independent of --ingress; empty disables")
 	command.Flags().StringVar(&routeBaseDomain, "route-base-domain", "", "domain published routes live under (<label>.<tenant>.<base>); defaults to the Auth Hostname")
 	command.Flags().StringVar(&routeCNAMETarget, "route-cname-target", "", "public front door a tenant CNAMEs a custom route hostname onto (e.g. the SNI proxy's hostname); reported by `sc route`. Defaults to the Auth Hostname only when it is itself ACME-served here")
+	command.Flags().StringVar(&routeFront, "route-front", "", "shared front instance to publish the route SNI list to, as <project>/<instance> (e.g. infrastructure/sc-edge); the auth-app writes a caddy-l4 fragment there and reloads it on every route change. Empty = this appliance owns the host ports")
 	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e)")
 	_ = command.Flags().MarkHidden("route-tls")
 	return command

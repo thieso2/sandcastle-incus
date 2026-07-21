@@ -1212,7 +1212,10 @@ sc route publish web --port 3000
 # Custom FQDN (you CNAME it to your public IP yourself):
 sc route publish web --port 3000 --hostname app.example.com
 
-sc route list          # HOSTNAME · MACHINE · PORT · STATUS  → web…  web  3000  live
+# MACHINE is the Machine Private Hostname (the FQDN `sc ls` prints), not the
+# bare instance name:
+sc route list          # HOSTNAME · MACHINE · PORT · STATUS
+                       # → web.<tenant>.<base>  web.default.<suffix>  3000  live
 sc route status <hostname>
 sc route delete <hostname> --yes
 ```
@@ -1234,6 +1237,11 @@ sc route delete <hostname> --yes
   Let's Encrypt cert (`subject=gurke.thieso2.dev`).
 - The `/api/routes/ask` gate returns **403** for an unregistered hostname — no
   cert-issuance abuse under the wildcard.
+- `sc route list` / `status` name the backend by its **Machine Private Hostname**
+  (`<machine>.<project>.<Tenant DNS Suffix>` — the FQDN `sc ls` prints), so the
+  row says which Machine on which project a Hostname reaches. An appliance that
+  cannot resolve the suffix (or one older than this change) omits `machineFqdn`
+  and the CLI falls back to the bare Machine name.
 - `sc route delete <hostname> --yes` removes the site block, the proxy device, and
   the registry row; login stays up.
 - **Self-heal:** machine deleted → route auto-pruned (validated live on
@@ -1299,9 +1307,10 @@ lives in the appliance.
   `https` devices), writes the coexistence Caddyfile with the global
   `on_demand_tls { ask … }` block, and keeps login serving (`/` → 200 throughout).
 - `sc route` stops returning the 501 no-route-ingress error and lists routes.
-- With nginx `stream` + `ssl_preread` on `sc-edge` mapping
-  `~*\.obelix\.thieso2\.dev$` → `<appliance-ip>:443` (default → the local Caddy
-  moved to `8443`), and `:80` for the same names proxied to the appliance:
+- With a caddy-l4 **listener wrapper** on `sc-edge` importing the Auth App's
+  generated fragment (`import /etc/caddy/sandcastle/*.caddy` inside `layer4`,
+  the front still binding `:80`/`:443` itself), and `:80` catch-all proxied to
+  the appliance:
   `sc route publish work:test --port 8099 --hostname something.obelix.thieso2.dev`
   → `curl https://something.obelix.thieso2.dev/` returns the app body with a real
   **Let's Encrypt** cert (`CN=something.obelix.thieso2.dev`), `http://…` → **308**
@@ -1322,6 +1331,33 @@ lives in the appliance.
 - **Pin the appliance IP** (`incus config device set <instance> eth0 ipv4.address
   <ip>`) before pointing the front at it; the bridge lease is otherwise free to
   move on restart and the SNI upstream would go stale.
+
+### The front's SNI list is generated, not maintained (`--route-front`)
+A shared front must know which hostnames to forward, and only the Auth App knows
+— it is where Routes are published. Deploy with `--route-front <project>/<instance>`
+and every Caddyfile regeneration also renders `/etc/caddy/sandcastle/<prefix>.caddy`
+into that instance over the Incus admin socket the appliance already holds, then
+runs `caddy reload` there. The front imports the directory once; one file per
+install, named by install prefix, with a per-install matcher name
+(`sandcastle_<prefix>`) so several sandcastles can share one front.
+
+**PASS (✅ validated live on `big`/`obelix` 2026-07-21):**
+- `sc route publish work:test2 --port 8099 --name frontloop` → within seconds the
+  fragment on `sc-edge` gains `frontloop.thieso2.obelix.thieso2.dev`, and
+  `curl https://frontloop.thieso2.obelix.thieso2.dev/` returns the app body —
+  **no edit on the front**.
+- `sc route delete … --yes` → the hostname disappears from the fragment.
+- A **custom** hostname works the same way with no wildcard involved: a route on
+  `brain.moyn.dev` (tenant `skorfmann`) is forwarded by SNI and served with a
+  real Let's Encrypt cert issued inside the appliance.
+- The front's own vhosts are untouched throughout (`big.thieso2.dev` 200,
+  grafana 302, prometheus 401).
+- A front that is down must not fail a publish: the Route still serves from the
+  appliance, the failure is logged, and the 5-minute reconcile re-delivers.
+- **Don't** try to invert this into "forward everything except the front's own
+  vhosts": an empty caddy-l4 route (`route @edge_local { }`) does **not** hand
+  the connection back to the HTTP app — every local vhost broke with a TLS
+  handshake failure until the config was rolled back (caught live 2026-07-21).
 
 ### Non-interactive / hermetic variant (`scripts/e2e-route.sh`)
 The live check above needs public DNS + inbound `:80/:443` + real Let's Encrypt.
