@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"path"
 	"sort"
 	"strings"
 
 	incus "github.com/lxc/incus/v6/client"
+	"github.com/lxc/incus/v6/shared/api"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/naming"
@@ -69,7 +71,7 @@ func (c TenantCreator) SyncTenantPlatformPayload(_ context.Context, installPrefi
 		if err != nil {
 			return statuses, fmt.Errorf("get project %s: %w", name, err)
 		}
-		if project.Config[meta.KeyKind] != "project" || project.Config[meta.KeyTenant] != tenantName {
+		if !isV2AppProjectOfTenant(project.Config, tenantName) {
 			continue
 		}
 		resource := server.UseProject(name)
@@ -113,6 +115,62 @@ func (c TenantCreator) EnsureProjectPlatformPayload(_ context.Context, incusProj
 	if err != nil {
 		return SCPayloadProjectStatus{}, err
 	}
+	return ensureProjectPlatformPayload(server, incusProject, checkOnly)
+}
+
+// SyncVisiblePlatformPayload is the tenant self-service payload sync behind
+// `sc payload-sync`: it converges every app project of the tenant that the
+// caller's certificate can see. Unlike the admin path it needs no install
+// prefix — a restricted cert only ever lists its granted projects, so the
+// target set is the metadata filter alone (an unreadable listing entry on a
+// shared host is skipped, never fatal). One volume write per project; the
+// machines pick the payload up through their shared /.sc mount.
+func (c TenantCreator) SyncVisiblePlatformPayload(_ context.Context, tenantName string, checkOnly bool) ([]SCPayloadProjectStatus, error) {
+	if err := naming.ValidateTenantName(tenantName); err != nil {
+		return nil, err
+	}
+	server, err := c.resolveV2Server()
+	if err != nil {
+		return nil, err
+	}
+	names, err := server.GetProjectNames()
+	if err != nil {
+		return nil, fmt.Errorf("list Incus projects: %w", err)
+	}
+	statuses := make([]SCPayloadProjectStatus, 0, 2)
+	for _, name := range names {
+		project, _, err := server.GetProject(name)
+		if err != nil {
+			if api.StatusErrorCheck(err, http.StatusForbidden) {
+				continue
+			}
+			return statuses, fmt.Errorf("get project %s: %w", name, err)
+		}
+		if !isV2AppProjectOfTenant(project.Config, tenantName) {
+			continue
+		}
+		status, err := ensureProjectPlatformPayload(server, name, checkOnly)
+		if err != nil {
+			return statuses, err
+		}
+		statuses = append(statuses, status)
+	}
+	if len(statuses) == 0 {
+		return nil, fmt.Errorf("tenant %q has no app projects visible to this certificate", tenantName)
+	}
+	return statuses, nil
+}
+
+// isV2AppProjectOfTenant reports whether project metadata marks a Sandcastle
+// v2 app project of the tenant — the payload-sync target set for both the
+// admin (additionally name-scoped) and tenant (cert-scoped) sync paths.
+func isV2AppProjectOfTenant(config map[string]string, tenantName string) bool {
+	return config[meta.KeyKind] == meta.KindV2Project && config[meta.KeyTenant] == tenantName
+}
+
+// ensureProjectPlatformPayload converges ONE app project's sc-platform volume
+// onto this binary's payload; the per-project half of every sync path.
+func ensureProjectPlatformPayload(server TenantCreateServer, incusProject string, checkOnly bool) (SCPayloadProjectStatus, error) {
 	resource := server.UseProject(incusProject)
 	profile, _, err := resource.GetProfile("default")
 	if err != nil {

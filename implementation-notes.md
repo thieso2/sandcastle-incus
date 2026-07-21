@@ -2866,3 +2866,35 @@ devices from `ExpandedDevices`, in sorted device order.
   have devices available, so this only affects genuinely NIC-less instances.
 - `waitForV2InstanceIPv4` re-reads devices each poll pass — the instance may not
   exist on the first iteration, and a NIC can be hot-plugged mid-wait.
+
+## 2026-07-21 — `sc payload-sync`: tenant self-service /.sc payload convergence
+
+ADR-0022's payload sync existed only as `sc-adm tenant payload-sync <tenant>`,
+which needs an admin remote and the install prefix — so a tenant could not
+converge their own `/.sc/platform` after a CLI upgrade, even though the volume
+lives inside projects they own. `sc payload-sync` (`internal/cli/payload_sync.go`)
+adds the tenant-facing half; `TenantCreator.SyncVisiblePlatformPayload` is its
+backend.
+
+- **Certificate visibility as the target set, not a name prefix.** The admin
+  path enumerates projects by `<prefix>-<tenant>-…` naming; the tenant path
+  can't, because the tenant doesn't know (or have) the install prefix. A
+  restricted Incus certificate only ever *lists* the projects it was granted,
+  so `GetProjectNames()` is already scoped — the filter reduces to the metadata
+  predicate (`kind=project` + `tenant=<name>`), factored out as
+  `isV2AppProjectOfTenant` and now shared by both paths. Consequence: on a
+  shared daemon the tenant converges exactly the projects they can reach,
+  which is the correct blast radius.
+- **`403` on an individual project is skipped, not fatal.** A listing entry the
+  cert may name but not read is normal on a shared host; failing the whole sync
+  on it would make the command unusable there. Every other `GetProject` error
+  still aborts.
+- **Empty result is an error, not a silent success.** Zero matching projects
+  means a mistyped/misconfigured tenant far more often than "nothing to do", and
+  a silent no-op would read as "payload converged".
+- **No `--prefix` / `--remote` flags, deliberately.** Tenant and remote come
+  from the login config; adding the admin knobs here would invite tenants to
+  aim the command at projects their cert can't write anyway.
+- `ensureProjectPlatformPayload` was extracted from
+  `EnsureProjectPlatformPayload` so the admin sync, `sc fix`, and this share one
+  per-project convergence body.

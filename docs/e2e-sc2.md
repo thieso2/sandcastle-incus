@@ -862,8 +862,11 @@ devices include the shared **`home`** (→ `/home`), **`workspace`**
 > stable shims at `/usr/local/sbin/sandcastle-{generalize,caddy-setup}`) —
 > live in the **platform payload** on the shared `sc-platform` volume, written
 > at tenant/project provisioning and updatable centrally with
-> `sc-adm tenant payload-sync <tenant>` (once per project, never per machine;
-> running machines pick it up on next shell/SSH use). `/.sc/platform/VERSION`
+> `sc-adm tenant payload-sync <tenant>` — or, tenant self-service, with
+> `sc payload-sync` (no tenant argument, no install prefix: the restricted
+> certificate lists only the caller's own projects and may write the volume
+> inside them). Either way it is once per project, never per machine; running
+> machines pick it up on next shell/SSH use. `/.sc/platform/VERSION`
 > carries the content-derived payload version. **PASS:**
 > - `incus exec <m> -- cat /.sc/platform/VERSION` prints `sc-payload-…` and
 >   matches on every machine of the tenant;
@@ -878,7 +881,14 @@ devices include the shared **`home`** (→ `/home`), **`workspace`**
 >   `incus storage volume` (or run `payload-sync` from a binary with a changed
 >   payload) and observe the change on an already-running machine's next
 >   login; `sc-adm tenant payload-sync <t> --check` then reports the drifted
->   version, and a re-run restores (rollback = older binary's sync).
+>   version, and a re-run restores (rollback = older binary's sync);
+> - **the tenant can do it themselves:** logged in as a normal tenant user
+>   (restricted cert, no admin remote, no prefix env), `sc payload-sync
+>   --check` lists every app project of the current tenant with its payload
+>   version, and `sc payload-sync` converges them — same result as the admin
+>   command scoped to that tenant. With no tenant configured it fails asking
+>   for `SANDCASTLE_TENANT`; a tenant whose projects the certificate cannot
+>   see fails with "no app projects visible to this certificate".
 >
 > **Forwarded SSH agent survives multiplexers** — served from the payload:
 > `/.sc/platform/ssh/sshrc` republishes each session's forwarded agent at the
