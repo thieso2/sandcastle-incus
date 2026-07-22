@@ -5,6 +5,46 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-22 — An unreachable Incus remote fails in 5s and says which remote
+
+`sc incus ls` (and every other tenant-scoped command) blocked for ~20s with no
+output and then reported `Sandcastle tenant thieso2 not found` — while the
+tenant was fine and the tailnet path to the host was the thing that was gone.
+Two separate defects, both fixed.
+
+- **The masked error.** `v2TenantSummary` returned only `(Summary, bool)` and
+  discarded the lookup error, so "the remote said no such tenant" and "the
+  remote never answered" collapsed into one answer, and `requireV2Tenant`
+  rendered the collapsed value as a claim about the tenant. It now returns the
+  error too; `requireV2Tenant` surfaces it verbatim. The two best-effort callers
+  discard it explicitly — `sc info` because it is documented to degrade to local
+  config, and that is now visible at the call site rather than implied.
+- **A pre-flight TCP probe, because the SDK offers no other handle.**
+  `cliconfig.GetInstanceServer` takes no context and exposes no timeout knob, so
+  the ~20s is unreachable from the caller. Bounding the connect with a goroutine
+  + `select` would leak the goroutine and its socket for the full SDK timeout;
+  dialling the remote's `host:port` myself first costs one TCP handshake on the
+  healthy path and gives an error that can name the address it tried.
+- **5s, overridable, and failing open.** A remote that is up answers in
+  milliseconds direct or a few hundred over DERP, so 5s is generous — but a
+  pathological relayed path is exactly the case that must not be broken by a
+  latency guess, hence `SANDCASTLE_CONNECT_TIMEOUT`. An unparseable or zero
+  value *disables* the probe rather than erroring: the escape hatch must never
+  be the thing that breaks a connect.
+- **The probe only judges what it can dial.** Unix sockets, unknown remote
+  names and unparseable addresses are passed through untouched so the Incus
+  client keeps ownership of those errors — the probe adds a failure mode only
+  where it has actually proven one.
+- **One connect path (`connectConfiguredRemote`).** The identical
+  load-resolve-connect-wrap block was copied across `SharedRemote`,
+  `TenantStore` and `HostOverrideManager`; the probe would otherwise have to be
+  remembered three times, and the command that forgot it is the one that looks
+  hung.
+
+Not fixed here, because it is not code: the remote really was unreachable. The
+peer shows `Online: true` with `Relay: ""` and no handshake — the laptop has no
+netmap path to the sidecar and traffic must be initiated from the sidecar side.
+
 ## 2026-07-21 — `sc route list` names the backend by its Machine Private Hostname
 
 `sc route list` printed the bare Machine name (`test`), which does not say which

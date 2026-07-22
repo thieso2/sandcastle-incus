@@ -33,7 +33,7 @@ func newInfoCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			// Fetch the tenant's projects live so the user can see valid names.
 			// Degrade to config-only when offline/unresolved — `sc info` must not
 			// fail just because the tenant can't be reached.
-			if summary, ok := v2TenantSummary(cmd.Context(), config); ok {
+			if summary, ok, _ := v2TenantSummary(cmd.Context(), config); ok {
 				for _, p := range summary.Projects {
 					info.Projects = append(info.Projects, p.Name)
 				}

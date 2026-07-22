@@ -64,19 +64,9 @@ func (s TenantStore) WithVerbose(enabled bool, w io.Writer) TenantStore {
 func (s TenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, error) {
 	server := s.Server
 	if server == nil {
-		loaded, err := LoadCLIConfig(s.ConfigPath)
+		loadedServer, err := connectConfiguredRemote(s.Log, s.ConfigPath, s.Remote)
 		if err != nil {
-			return nil, fmt.Errorf("load Incus config: %w", err)
-		}
-		remote := s.Remote
-		if remote == "" {
-			remote = loaded.DefaultRemote
-		}
-		loadedServer, err := logIncusAPICall(s.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
-			return connectInstanceServer(loaded, remote)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+			return nil, err
 		}
 		server = loadedServer
 	}

@@ -35,19 +35,9 @@ func (r *SharedRemote) instanceServer() (incus.InstanceServer, error) {
 	if r.server != nil {
 		return r.server, nil
 	}
-	loaded, err := LoadCLIConfig(r.ConfigPath)
+	server, err := connectConfiguredRemote(r.Log, r.ConfigPath, r.Remote)
 	if err != nil {
-		return nil, fmt.Errorf("load Incus config: %w", err)
-	}
-	remote := r.Remote
-	if remote == "" {
-		remote = loaded.DefaultRemote
-	}
-	server, err := logIncusAPICall(r.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
-		return connectInstanceServer(loaded, remote)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+		return nil, err
 	}
 	r.server = server
 	return server, nil

@@ -132,19 +132,9 @@ func instanceGlobalIPv4(instance api.InstanceFull) string {
 func (m HostOverrideManager) resolveServer() (HostOverrideServer, error) {
 	server := m.Server
 	if server == nil {
-		loaded, err := LoadCLIConfig(m.ConfigPath)
+		instanceServer, err := connectConfiguredRemote(m.Log, m.ConfigPath, m.Remote)
 		if err != nil {
-			return nil, fmt.Errorf("load Incus config: %w", err)
-		}
-		remote := m.Remote
-		if remote == "" {
-			remote = loaded.DefaultRemote
-		}
-		instanceServer, err := logIncusAPICall(m.Log, "connect remote "+remote, func() (incus.InstanceServer, error) {
-			return connectInstanceServer(loaded, remote)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("connect to Incus remote %q: %w", remote, err)
+			return nil, err
 		}
 		server = sdkHostOverrideServer{inner: instanceServer, Log: m.Log}
 	}

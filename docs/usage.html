@@ -964,6 +964,7 @@ Publish a machine's port to the public Internet.
         <tr><td><code>SANDCASTLE_DENIED_DOMAIN_SUFFIXES</code></td><td><code>sc-adm tenant create</code></td><td>Comma-separated extra suffix deny list.</td></tr>
         <tr><td><code>SANDCASTLE_ADMIN_BIN</code></td><td><code>sc-adm install</code></td><td>Linux amd64 <code>sandcastle-admin</code> binary uploaded into infrastructure sidecars.</td></tr>
         <tr><td><code>SANDCASTLE_BIN</code></td><td><code>sc-adm install</code></td><td>Fallback binary path for infrastructure upload.</td></tr>
+        <tr><td><code>SANDCASTLE_CONNECT_TIMEOUT</code></td><td><code>sc</code></td><td>Budget for the pre-flight TCP reachability probe run before each connection to the Incus remote, default <code>5s</code>. Raise it (<code>30s</code>) on a slow relayed path; set <code>0</code> to disable the probe and fall back to the Incus client's own (~20s, silent) timeout.</td></tr>
         <tr><td><code>VERBOSE</code></td><td><code>sc</code>, <code>sc-adm</code></td><td>Set to <code>1</code> for diagnostic output, including Incus config directory, remote selection, a traced line per Incus REST call (method, path, status, duration), and executor step timings.</td></tr>
       </tbody>
     </table>

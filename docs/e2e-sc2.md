@@ -317,6 +317,15 @@ Unit-tested, but the connect resolution deserves a live pass on `home`:
     tenant unreachable it still prints the local config plus a
     `showing local config only` note and exits 0. `sc info --json` emits the same
     fields as JSON.
+11b. **An unreachable remote says so, fast.** With the remote's Incus endpoint
+    unreachable (drop the tailnet path to it, or point the remote at a blackholed
+    address), run any tenant-scoped command — `sc incus ls`, `sc ls`, `sc c dev`.
+    **PASS:** each fails within ~5s with
+    `connect to Incus remote "<name>": <host>:8443 is not reachable within 5s …`,
+    naming the remote and the address it dialled. **FAIL:** a ~20s silent block,
+    or the old misreport `Sandcastle tenant <name> not found` — which is a claim
+    about the tenant that the CLI never actually got an answer to. The probe
+    budget is `SANDCASTLE_CONNECT_TIMEOUT` (default `5s`, `0` disables it).
 12. **Multi-project selection.** Add a second project (`sc project create api`),
     then re-login. **PASS:** because the configured `project:` (`web`) is still
     valid, login keeps it and prints `Current project: "web".` (no prompt). Clear

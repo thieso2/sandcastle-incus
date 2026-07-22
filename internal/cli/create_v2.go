@@ -23,24 +23,30 @@ const v2DefaultMachineImage = "images:debian/13/cloud"
 
 // v2TenantSummary resolves the current tenant against the remote and reports
 // whether it is a v2 tenant (per-project Incus projects, freeform machines).
-func v2TenantSummary(ctx context.Context, config commandConfig) (tenant.Summary, bool) {
+//
+// The error is separate from the bool on purpose: "the remote said no such
+// tenant" and "the remote could not be reached" are different answers, and
+// collapsing them is how an unreachable host came to be reported as
+// `Sandcastle tenant <name> not found`. Callers that genuinely do not care
+// (best-effort decoration) discard it explicitly.
+func v2TenantSummary(ctx context.Context, config commandConfig) (tenant.Summary, bool, error) {
 	name := strings.TrimSpace(config.adminConfig.Tenant)
 	if name == "" || config.tenantStore == nil {
-		return tenant.Summary{}, false
+		return tenant.Summary{}, false, nil
 	}
 	// Several installs can share one Incus daemon (every sidecar's Incus Reach
 	// lands on the same host API), so a same-named tenant may exist once per
 	// install. Scope the lookup to the install the current remote belongs to.
 	tenants, err := tenant.ListForPrefix(ctx, config.tenantStore, installPrefixForRemote(config, name))
 	if err != nil {
-		return tenant.Summary{}, false
+		return tenant.Summary{}, false, err
 	}
 	for _, candidate := range tenants {
 		if candidate.Tenant == name {
-			return candidate, true
+			return candidate, true, nil
 		}
 	}
-	return tenant.Summary{}, false
+	return tenant.Summary{}, false, nil
 }
 
 // scopedListTenants lists tenant summaries scoped to the install the
@@ -492,7 +498,12 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 // tenant is v2 and a lookup miss simply means the tenant does not exist — there
 // is no other shape it could be.
 func requireV2Tenant(ctx context.Context, config commandConfig) (tenant.Summary, error) {
-	summary, ok := v2TenantSummary(ctx, config)
+	summary, ok, err := v2TenantSummary(ctx, config)
+	if err != nil {
+		// The lookup never got an answer — say so, instead of turning an
+		// unreachable remote into a claim about the tenant.
+		return tenant.Summary{}, err
+	}
 	if !ok {
 		name := strings.TrimSpace(config.adminConfig.Tenant)
 		if name == "" {

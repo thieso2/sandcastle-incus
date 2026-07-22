@@ -53,7 +53,10 @@ func newSSHKeyPurgeCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 // purgeTargetTenants resolves which tenants to reconcile. Host-key management
 // is a v2 mechanism; v1 machines keep their own per-tenant known_hosts file.
 func purgeTargetTenants(ctx context.Context, config commandConfig, allTenants bool) ([]tenant.Summary, error) {
-	summary, isV2 := v2TenantSummary(ctx, config)
+	summary, isV2, err := v2TenantSummary(ctx, config)
+	if err != nil {
+		return nil, err
+	}
 	if !allTenants {
 		if !isV2 {
 			return nil, fmt.Errorf("ssh-key purge requires a v2 tenant")
