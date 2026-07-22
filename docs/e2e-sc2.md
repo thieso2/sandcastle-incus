@@ -1090,6 +1090,10 @@ grep "^$M\." ~/.ssh/known_hosts                # one tagged line per key type
 
 # the reported bug: rebuild the machine, its host key changes
 sc delete $M --yes && sc c $M -- true          # must NOT warn; must reclaim the stale name
+
+# first boot: cloud-init deletes and regenerates every host key AFTER sshd is up
+sc delete $M --yes
+sc c $M -- true                                # create+connect in one shot; must NOT warn
 ssh -o BatchMode=yes $M.default.$SUFFIX true   # bare ssh works, by name
 ssh -o BatchMode=yes $M.$SUFFIX true           # short alias too (default project, ADR-0018)
 
@@ -1115,6 +1119,14 @@ sc ssh-key purge --yes                         # drops tagged orphans + recycled
   Entries for **other** tenants/installs, `@cert-authority`, `@revoked`, comments, and
   foreign hostnames are untouched.
 - The first destructive write of the day leaves `~/.ssh/known_hosts.sc-backup-<date>`.
+- **A `sc c` that creates the machine connects on the first try.** On a first boot
+  cloud-init deletes and regenerates every host key and restarts sshd — *after* port 22
+  is already answering — so `sc c` waits for cloud-init (`/var/lib/cloud/instance/boot-finished`,
+  printing `Waiting for cloud-init to finish on <m>...` if it has to) and then confirms
+  the keys it read match what port 22 serves before pinning them. No
+  `REMOTE HOST IDENTIFICATION HAS CHANGED`, and no second run needed. If the check has to
+  wait it says `waiting for <m> to settle its SSH host keys`; a machine that never agrees
+  warns instead of silently pinning a key the server does not have.
 - A VM whose `incus-agent` is not running is *live but unreadable*: `sc c` falls back to
   `ssh-keyscan` and tags the line ` tofu`; `sc ssh-key purge` leaves its entries alone
   rather than treating them as orphans. A later connect that can read it drops the marker.
@@ -1790,6 +1802,7 @@ stays truthful and self-healing.
 | Two LIVE sidecars (different hosts/runs) both hold `enabledRoutes` for the SAME `/24` (e.g. both auth-app stacks allocate `10.250.0.0/24` first) | Every deployment uses the same default CIDR pools, and prune-on-approve only removes *same-hostname* stragglers — a sibling environment's online router survives | Verify your sidecar owns `Self.PrimaryRoutes` after provisioning; for parallel test envs use distinct pools per host, ephemeral tailnet keys, or tear down the sibling before the run |
 | Client's ping to the tenant gateway succeeds (sub-ms!) yet login's routing check fails | ANOTHER deployment's bridge on the client's LAN path uses the same `/24` — the "reply" came from the local network, not the tenant (the check rejects non-tailnet egress by design) | Delete/renumber the colliding stale bridges (`incus network delete <sc2-…>` on the old host); the diagnosis now prints the answering local address |
 | **(2026-07-17 Phase 10 run)** `sc c` dialed `dev@` against machines whose login user is `sc` — SSH refused | An admin `tenant create` re-run without `--unix-user`/`--ssh-key` clobbered the tenant's stored user/key back to `dev`/empty (defaulting request + additive metadata converge) and re-rendered every default profile with them (#134) | `ProvisionReuseInputs` now returns the stored user + SSH key and `PlanCreateV2` reuses them when the request is blank (the Existing\*-fallback pattern the default project already had); explicit flags still replace. A hit tenant self-heals on the next `sc login` |
+| **(2026-07-22)** `sc c <project>:<m>` that CREATES the machine → `REMOTE HOST IDENTIFICATION HAS CHANGED`, and the identical command right after works | "Port 22 answers" was taken as "the host keys are final". On a first boot sshd starts with the keys the image left behind, then cloud-init's `ssh` module deletes and regenerates all of them and restarts sshd. `sc` pinned the pre-regeneration keys with `StrictHostKeyChecking=yes` (silently — adds are verbose-only), and the read even straddled the delete: it got ed25519 + ecdsa and no rsa | `sc c` waits for `/var/lib/cloud/instance/boot-finished` before reading, and cross-checks the Incus-API read against what port 22 serves (`hostKeyDisagreement`) before pinning; a mismatch re-reads until it settles |
 | Making a subnet-resident machine a tailnet node breaks its OLD inbound reachability | Asymmetric routing: callers still reach it via the other router's subnet route, but its replies now leave via its own `tailscale0` and the caller's tailscaled drops them (source not in that node's allowed IPs) | Don't dual-home test clients: a client VM is EITHER reached via someone's subnet route OR is a tailnet node. For the e2e use a dedicated client VM that is a node (see the two-VM note) |
 | `sc list`/`sc create`/`sc incus` on a v2 tenant → `Sandcastle tenant … not found` / `permission for project "sc-<tenant>"` | The v1 command family resolved tenants via `kind=tenant` projects and `sc-<tenant>` naming; v2 tenants have neither | **Fixed:** `tenant.List` surfaces v2 tenants from their `kind=project, version=2` Incus projects; `sc create` launches stock cloud images for v2 (`--image`/`--vm`); `sc incus*` scope to the v2 project names |
 | `sc login --force` on a v2 tenant WITH machines → `reconcile User SSH Public Key … Instance not found: default-dev3` | Making v2 tenants visible to `tenant.List` armed the auth-app's v1 per-machine key reconciler, which uses v1 `<project>-<machine>` instance naming | **Fixed:** v2 tenants skip the v1 reconcile/stamp (the key lives in the profile; rotation reaches machines via the shared /home) |

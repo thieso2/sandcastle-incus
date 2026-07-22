@@ -5,6 +5,48 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-22 — connect waits for cloud-init, and verifies host keys before pinning
+
+`sc c <project>:<machine>` that *created* the machine died with
+`REMOTE HOST IDENTIFICATION HAS CHANGED`; re-running the same command
+immediately after worked. Root cause: the connect path treated "port 22
+accepts a TCP connection" as "the machine's SSH host keys are final". On a
+first boot they are not — sshd comes up with the keys the image (or the ssh
+package's first-boot hook) left behind, and cloud-init's `ssh` module then
+DELETES every host key, regenerates them, and restarts sshd. `sc` read the
+pre-regeneration keys over the Incus API, wrote them to `~/.ssh/known_hosts`
+(as *adds*, which are verbose-only, hence the total silence) and pinned the
+session with `HostKeyAlias` + `StrictHostKeyChecking=yes`. Worse, the read
+straddled cloud-init's delete: ed25519 and ecdsa came back, the rsa file was
+already gone — which is why the successful second run reported exactly two
+`update … was …` lines and added the rsa line silently.
+
+Two changes, deliberately independent:
+
+- **Wait for the cause.** `TenantCreator.MachineCloudInitDoneV2` probes
+  `/var/lib/cloud/instance/boot-finished` over the same `GetInstanceFile`
+  channel the host-key read already uses (no `exec`, so no extra permission
+  surface), and `dialV2Machine` waits on it *before* probing port 22. An image
+  without cloud-init (`/var/lib/cloud` absent but the machine readable) counts
+  as done; an unreadable machine — a VM whose incus-agent is down — returns an
+  error and is not waited on. Both waits share the one existing ssh deadline,
+  so the worst case does not grow.
+- **Verify the effect.** `settledHostKeys` cross-checks the authoritative
+  Incus-API read against what `ssh-keyscan` sees on port 22 and only pins once
+  they agree, re-reading for up to 60s otherwise. The scan is *never* a key
+  source here (that is still only the TOFU fallback's job) — it answers "has
+  the on-disk truth stopped moving?". A key type the scan reports that the read
+  did not yield counts as disagreement: that is precisely what a
+  half-regenerated `/etc/ssh` looks like.
+
+Alternatives rejected: (a) *retry the ssh once on host-key failure* — hides a
+real MITM behind an automatic retry; (b) *drop back to `accept-new` on freshly
+created machines* — `accept-new` refuses a CHANGED key with the same scary
+banner, so it fixes nothing, and it gives up the ADR-0020 guarantee; (c) *exec
+`cloud-init status --wait` in the guest* — needs `exec` (VMs need the agent
+anyway) and a cloud-init binary on PATH, where the marker file is the same fact
+read through a channel we already depend on.
+
 ## 2026-07-22 — An unreachable Incus remote fails in 5s and says which remote
 
 `sc incus ls` (and every other tenant-scoped command) blocked for ~20s with no

@@ -378,6 +378,10 @@ func dialV2Machine(ctx context.Context, config commandConfig, summary tenant.Sum
 		sshWait = 240 * time.Second
 	}
 	sshDeadline := time.Now().Add(sshWait)
+	// cloud-init deletes and regenerates every SSH host key on a machine's first
+	// boot, and sshd is already listening before it does. Both waits share one
+	// deadline, so waiting for the keys to settle costs no extra worst case.
+	waitForCloudInitV2(ctx, config, summary.V2IncusProjectName(project), machineName, sshDeadline)
 	for !probeSSHPort(ensured.PrivateIP, 3*time.Second) {
 		if !time.Now().Before(sshDeadline) {
 			return dialedV2Machine{}, fmt.Errorf("machine %s (%s) did not open SSH within %s — cloud-init may still be running", machineName, ensured.PrivateIP, sshWait)
