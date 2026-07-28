@@ -1698,6 +1698,28 @@ trigger "costs one render" — it actually costs a full Incus API sweep
 (ListProjects + per-tenant GetInstancesFull + sidecar file reads), which is
 what made the feedback loop expensive.
 
+## 2026-07-28 — `scripts/e2e.sh`'s `incus` tier referenced two deleted tests
+
+`run_incus()`'s `-run` pattern named `TestDisposableTenantCreateAndPurge` and
+`TestDisposableInfrastructureCreateAndDelete`, both deleted by the v1-removal
+commits `733484d` ("Remove v1 e2e Go tests") and `aca3f70` ("Remove v1 infra")
+without updating this script. `go test -run` with a pattern matching zero test
+names is not an error — it just runs nothing for that name — so the `incus`
+tier has been silently exercising only `TestTenantListingSmoke` (a read-only
+listing) plus the two `ImageSync*AliasE2E` tests (which self-skip without
+image-source env vars) instead of the tenant/infrastructure mutation coverage
+its name promised. Fixed by dropping the two dead names from the pattern
+(`scripts/e2e.sh`). No replacement tests were added — the v2 e2e is the
+`docs/e2e-sc2.md` runbook per the v1-removal commit message, so there is
+nothing on the other side of this branch to restore.
+
+Also found: `docs/test_protocol.md` is a fully orphaned, unreferenced doc whose
+every named test (`TestCLIConnectCommandE2E`, `TestCLICreateDetachE2E`,
+`TestRouteBrokerAuthorizedMutationE2E`, etc.) was deleted by the same v1-removal
+commits; it predates and is superseded by `docs/e2e-sc2.md`. Left it in place —
+deleting a whole doc file is a bigger call than the mechanical script fix above
+— but flagging it here for a maintainer to confirm and remove.
+
 ## 2026-07-22 — connect waits for cloud-init, and verifies host keys before pinning
 
 `sc c <project>:<machine>` that *created* the machine died with
