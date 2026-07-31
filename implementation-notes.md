@@ -5,6 +5,36 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-07-31 — DNS/route reconcile triggers on a lifecycle-action whitelist, not `instance-*`
+
+The obelix auth-app burned a steady ~10.7% CPU (26 h over a 10-day uptime)
+while serving almost no requests. Profiling showed the ADR-0018 event-driven
+DNS reconcile loop running *continuously* instead of every 30s, for two
+compounding reasons:
+
+- `subscribeInstanceLifecycleEvents` triggered on **any** action prefixed
+  `instance-` across all projects. A monitoring agent exec-polling `ps` in the
+  container (~1/s, each emitting `instance-exec`) kept the trigger channel
+  permanently full.
+- The loop **fed itself**: every reconcile pass reads each tenant sidecar's
+  CoreDNS zone file via the Incus file API, which emits
+  `instance-file-retrieved` — itself an `instance-*` event — so each burst
+  re-armed the next one even with no external activity.
+
+Fix: trigger only on a whitelist of actions that can actually change what DNS
+resolves to (created/deleted/renamed/restarted/restored/resumed/shutdown/
+started/stopped). Alternatives considered: ignoring self-caused events
+(requestor matching — fragile, the SDK doesn't expose our own identity),
+debouncing (treats the symptom; the loop would still run far more than
+needed), and scoping the subscription to the install's project prefix
+(insufficient alone — the sidecar file reads happen *inside* our own
+projects). Excluded actions that could in principle matter (e.g. a NIC swap
+arrives as `instance-updated`) are covered by the periodic ticker, which is
+the documented convergence guarantee. The original comment claimed a spurious
+trigger "costs one render" — it actually costs a full Incus API sweep
+(ListProjects + per-tenant GetInstancesFull + sidecar file reads), which is
+what made the feedback loop expensive.
+
 ## 2026-07-22 — connect waits for cloud-init, and verifies host keys before pinning
 
 `sc c <project>:<machine>` that *created* the machine died with

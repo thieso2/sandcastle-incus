@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"sync"
 	"time"
 
@@ -29,12 +28,31 @@ func authAppDNSReconciler(server incus.InstanceServer, store tenant.IncusTenantS
 	return dnsReconciler
 }
 
+// dnsRelevantLifecycleActions are the only instance lifecycle actions that can
+// change what DNS (or a route) should resolve to: an instance appearing,
+// disappearing, changing run state, or changing name. Triggering on every
+// "instance-*" action is a proven feedback loop: the reconciler's own sidecar
+// zone-file reads emit instance-file-retrieved, and anything exec-polling a
+// container (monitoring) emits instance-exec, so the "reconcile within
+// seconds" path degenerated into reconciling continuously (~10% CPU on a busy
+// host). Anything DNS-relevant that hides behind an excluded action (e.g. a
+// NIC swap via instance-updated) is still converged by the periodic ticker.
+var dnsRelevantLifecycleActions = map[string]struct{}{
+	api.EventLifecycleInstanceCreated:   {},
+	api.EventLifecycleInstanceDeleted:   {},
+	api.EventLifecycleInstanceRenamed:   {},
+	api.EventLifecycleInstanceRestarted: {},
+	api.EventLifecycleInstanceRestored:  {},
+	api.EventLifecycleInstanceResumed:   {},
+	api.EventLifecycleInstanceShutdown:  {},
+	api.EventLifecycleInstanceStarted:   {},
+	api.EventLifecycleInstanceStopped:   {},
+}
+
 // subscribeInstanceLifecycleEvents watches Incus lifecycle events across all
-// projects and calls notify() on every instance event — the trigger half of
-// ADR-0018's event-driven DNS registration. It blocks until ctx is done,
-// reconnecting with backoff when the event socket drops. Filtering finer than
-// "instance-*" is not worth it: the reconciler skips unchanged zones, so a
-// spurious trigger costs one render.
+// projects and calls notify() on instance events that can affect DNS — the
+// trigger half of ADR-0018's event-driven DNS registration. It blocks until
+// ctx is done, reconnecting with backoff when the event socket drops.
 func subscribeInstanceLifecycleEvents(ctx context.Context, server incus.InstanceServer, notify func()) {
 	for ctx.Err() == nil {
 		listener, err := server.GetEventsAllProjects()
@@ -51,7 +69,7 @@ func subscribeInstanceLifecycleEvents(ctx context.Context, server incus.Instance
 			if json.Unmarshal(event.Metadata, &lifecycle) != nil {
 				return
 			}
-			if strings.HasPrefix(lifecycle.Action, "instance-") {
+			if _, ok := dnsRelevantLifecycleActions[lifecycle.Action]; ok {
 				notify()
 			}
 		})
