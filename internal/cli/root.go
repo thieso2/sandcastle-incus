@@ -259,9 +259,28 @@ func rebindForReference(base commandConfig, reference string) (commandConfig, st
 	if first == strings.TrimSpace(base.adminConfig.Remote) {
 		return base, rest, noop, nil
 	}
-	dir := scconfig.ResolveConfigPath(first)
+	bound, restore, err := bindConfigToRemote(base, first)
+	if err != nil {
+		return base, reference, noop, err
+	}
+	return bound, rest, restore, nil
+}
+
+// bindConfigToRemote rebuilds base bound to another enrolled install: it
+// re-points the process-wide INCUS_CONF at that remote's config dir (so the
+// incus client picks up its restricted certificate), re-pins the project to
+// that install's own, and rebuilds every store from the result. The returned
+// func unbinds INCUS_CONF and MUST be called — the env var is process-wide, so
+// only one install can be bound at a time.
+//
+// Shared by the "<remote>:" reference prefix (rebindForReference) and the
+// remote-glob fan-out (remoteFanout.forEachRemoteScope).
+func bindConfigToRemote(base commandConfig, remote string) (commandConfig, func(), error) {
+	noop := func() {}
+	remote = strings.TrimSpace(remote)
+	dir := scconfig.ResolveConfigPath(remote)
 	if dir == "" {
-		return base, reference, noop, fmt.Errorf("no incus config for remote %q", first)
+		return base, noop, fmt.Errorf("no incus config for remote %q", remote)
 	}
 	prev, had := os.LookupEnv("INCUS_CONF")
 	os.Setenv("INCUS_CONF", dir)
@@ -273,11 +292,11 @@ func rebindForReference(base commandConfig, reference string) (commandConfig, st
 		}
 	}
 	adminConfig := base.adminConfig
-	adminConfig.Remote = first
-	if short := shortProjectName(scconfig.SharedIncusRemoteProject(first), adminConfig.Tenant); short != "" {
+	adminConfig.Remote = remote
+	if short := shortProjectName(scconfig.SharedIncusRemoteProject(remote), adminConfig.Tenant); short != "" {
 		adminConfig.Project = short
 	}
-	return newUserCommandConfig(base.name, base.stdin, base.stdout, base.stderr, adminConfig), rest, restore, nil
+	return newUserCommandConfig(base.name, base.stdin, base.stdout, base.stderr, adminConfig), restore, nil
 }
 
 // NewRootCommand builds the Sandcastle command tree.

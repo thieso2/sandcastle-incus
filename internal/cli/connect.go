@@ -15,6 +15,13 @@ import (
 // cross-install DNS-suffix switch (ADR-0020). It is shared by `sc connect` and
 // `sc fix` so both resolve `[[remote:]project:]machine` identically.
 func withResolvedV2Machine(cmd *cobra.Command, config commandConfig, ref string, action func(ctx context.Context, config commandConfig, summary tenant.Summary, reference string) error) error {
+	// A globbed install part is narrowed to a concrete remote name FIRST —
+	// rebindForReference needs a literal one, and this command runs against a
+	// single install. References that do not glob it pass through untouched.
+	ref, err := narrowRemoteGlob(cmd.Context(), config, defaultRemoteFanout(), ref)
+	if err != nil {
+		return err
+	}
 	// Universal [[remote:]project:]machine: a leading enrolled-remote prefix
 	// rebinds the whole command to that install (all stores); the reference
 	// then continues as project:machine below.

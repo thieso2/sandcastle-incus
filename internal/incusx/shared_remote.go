@@ -1,7 +1,6 @@
 package incusx
 
 import (
-	"fmt"
 	"io"
 	"sync"
 
@@ -24,7 +23,7 @@ func NewSharedRemote(remote string) *SharedRemote {
 
 func (r *SharedRemote) WithVerbose(enabled bool, w io.Writer) *SharedRemote {
 	if enabled {
-		r.Log = func(msg string) { fmt.Fprint(w, msg) }
+		r.Log = verboseLogger(w)
 	}
 	return r
 }

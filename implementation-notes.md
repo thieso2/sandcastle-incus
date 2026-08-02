@@ -5,6 +5,187 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-02 — A project GLOB is pushed into the store too, not just a literal
+
+Follow-up to the two entries below, from a `VERBOSE=1` trace of
+`sc ls -a 'i*:w*:w*'`: it issued a `GetInstancesFull` against
+`idefix-thieso2-home` even though the project glob `w*` could never match
+`home`. I had reasoned that "a glob has to see every project to know which ones
+match", and pushed only a *literal* project into the store. That was wrong —
+the tenant summary already carries the project list, locally, with no Incus
+call. Matching a glob against it needs nothing from the daemon.
+
+`listV2Machines` now filters `summary.Projects` with `naming.MatchName`
+(equality for a literal, so one branch serves both) and the CLI passes the
+project part through whether or not it globs. On the 7-project obelix tenant
+`sc ls -a 'g*:d*'` drops from 7 `GetInstancesFull` calls to 1, and a glob
+matching no project — the case in the trace — costs zero.
+
+## 2026-08-02 — Wildcards in the INSTALL part too (`*:*:dev`)
+
+Extends the entry below to the leading part of `[[remote:]project:]machine`, so
+a reference can sweep enrolled installs. Decisions that were not in the ask:
+
+- **Only the THREE-part form carries an install glob.** `a:b` was already
+  ambiguous (remote:project for `sc ls`, remote:machine elsewhere), resolved by
+  "is `a` an enrolled remote". Extending that to patterns would make `g*:d*`
+  mean project:machine today and remote:machine the day someone enrols an
+  install called `gizmo` — a reference whose meaning depends on unrelated
+  state. So globbing installs is spelled out: `sc ls '*:*:dev'`. Two-part
+  behaviour is untouched.
+
+- **Patterns match enrolled remote NAMES, not install DNS suffixes.** The
+  names are `sc remote list`'s set — project-pinned or Auth-Hostname-carrying
+  incus remotes — so `*` never wanders into `images:`/`local:`. DNS suffixes
+  would have to be discovered by connecting to each install first, which is
+  what the pattern is supposed to decide.
+
+- **Installs are swept sequentially, on purpose.** Binding to an install
+  re-points the process-wide `INCUS_CONF` (that is how the incus client finds
+  the right restricted certificate), so two cannot be in scope at once.
+  Parallelising would have meant threading an explicit `ConfigPath` through
+  every store constructor — a large refactor for a set that is realistically
+  2–5 installs, when the round trips that actually cost are the per-project and
+  per-machine ones, which stay concurrent. `forEachRemoteScope` enforces the
+  bind/run/unbind unit structurally so a failing sweep cannot leave INCUS_CONF
+  pointing at the wrong install. The binder and the install list are injected
+  (`remoteFanout`) so all of this is testable without enrolled installs.
+
+- **Different project sets across installs are normal, not an error.** The
+  "literal project must exist" rule from the entry below would have made
+  `sc stop '*:web:api'` fail whole the moment one install has no `web`. A new
+  `unknownProject` sentinel lets a cross-install sweep treat it as "nothing to
+  match here", while a project that NO swept install has is still the typo it
+  is. On a single install nothing changes.
+
+- **A partial sweep is fatal for lifecycle verbs, a warning for `sc ls`.** If
+  an install is unreachable, acting on "every dev machine" minus the ones we
+  could not see is not what was asked — and for `delete` it is unrecoverable.
+  A listing has the opposite duty: one broken install should not blind you to
+  the rest, so it prints `warning: <install>: …` and shows what answered.
+
+- **`machineMatch.Remote` is set only for a cross-install sweep**, and output
+  names the install whenever it is set. The earlier "qualify only when the set
+  spans installs" rule was wrong: a sweep that matched on exactly one install —
+  which may not be the one you are sitting on — would have printed a bare
+  `work:api`.
+
+- **`sc ls` gets a separate multi-install payload** (`{remotePattern, remotes[],
+  warnings[]}`, each entry a normal listing) rather than a flattened one. Each
+  section keeps its OWN tenant summary, which the FQDN column needs — installs
+  have different DNS suffixes, and one shared summary mislabels every row.
+
+- **Single-target commands narrow before binding.** `narrowRemoteGlob` runs
+  ahead of `rebindForReference` (which needs a literal remote name) and turns
+  the glob into a concrete `remote:project:machine`. `sc route publish` is the
+  exception: it never rebinds, so a globbed install there is refused with an
+  explicit message rather than silently acting on the current install.
+
+## 2026-08-02 — Wildcards in machine references
+
+`sc ls -a 'g*:d*'` and `sc delete 'gbrain:*'` now work; globs are accepted
+wherever a machine reference is. Decisions that were not in the ask:
+
+- **`path.Match`, not a new matcher.** Sandcastle names are single labels with
+  no separators, so shell globbing is exactly `path.Match` on one path element —
+  `*` cannot escape a segment because there is nothing to escape into. The
+  reference is split on `:` by us and each part matched on its own.
+  `naming.MatchName` on a *literal* is an equality check, which is what lets
+  every reference run through the selector without changing how unqualified
+  references behave.
+
+- **A pattern-aware validator, kept separate from the strict one.**
+  `naming.ValidateNamePattern` drops the two-character floor of
+  `ValidateProjectName`/`ValidateMachineName` (`*` is a legal pattern but not a
+  legal name) and admits the metacharacters. `parseV2MachineReference` stays
+  strict and is still what `sc create` uses — creating a machine called `*` is
+  not a thing. The colon grammar was extracted into `splitMachineReference` so
+  the strict and glob parsers cannot drift apart.
+
+- **`sc ls`'s two-part argument was ambiguous and is now resolved by
+  enrollment.** `sc ls a:b` was `remote:project`; the ask needs it to also be
+  `project:machine`. Resolved the way `rebindForReference` already resolves the
+  same ambiguity for every other command: the leading part is a remote only if
+  it names an ENROLLED one. So `sc ls obelix:home` is unchanged and
+  `sc ls 'g*:d*'` filters projects and machines. `splitListReference` takes the
+  "is this enrolled" predicate as a parameter so it stays a pure function.
+  Behaviour change: `sc ls foo:bar` where `foo` is *not* enrolled used to fail
+  with "no enrolled Sandcastle remote"; it now reads as project `foo`,
+  machine `bar`. Alternative considered: a distinct separator for the machine
+  part (`/`), rejected — it would make `sc ls` the one command with its own
+  reference syntax.
+
+- **A glob that matches nothing means different things to different verbs.**
+  For `sc ls` it is an empty listing (exit 0) — the question "which machines
+  match?" has an answer, and it is none. For a lifecycle verb it is an error:
+  the user asked for machines to be acted on and none were. Orthogonally, a
+  *literal* project that does not exist is always an error, so a typo does not
+  read as "no machines".
+
+- **One-target commands take globs as a selector, not a fan-out.** `connect`,
+  `fix`, `route add`, `image save` narrow through
+  `resolveSingleMachineReference`: exactly one match proceeds, several prompt
+  (tty) or error listing candidates, none errors. It passes literals through
+  *unresolved* because `sc connect` legitimately names machines that do not
+  exist yet and creates them — a glob can only ever pick from what is there.
+
+- **The lifecycle JSON payload stays scalar for literal references.** A
+  wildcard returns `{action, tenant, selector, results[]}`; a literal keeps the
+  historical `{action, tenant, project, machine}`. Always emitting the array
+  would have been tidier but breaks anything parsing `sc stop web --json`
+  today, and the shape now keys off something the caller controls explicitly.
+
+- **Fan-out is concurrent and does not stop at the first failure.** A ten-
+  machine `sc stop` should not cost ten times one, and a partial failure should
+  say which machines are fine. Results stay in target order regardless of
+  completion order; the command exits non-zero with `… failed on N of M`.
+  `applyMachineAction` takes the per-machine action as a function so it is
+  testable without an Incus daemon (`tenantCreator` is a concrete struct, not
+  an interface).
+
+- **The install part was left literal at first**; it globs as of the entry
+  above.
+
+## 2026-08-02 — Machine listing fans out per project, and scopes down when the caller has one project
+
+`listV2Machines` walked the tenant's app projects in a `for` loop, one blocking
+`GetInstancesFull` per project. On obelix (7 projects, loaded host) a verbose
+trace showed the individual calls taking 2–10s each and the command paying the
+**sum** — ~33s of wall clock to answer a listing.
+
+Two changes, both in `internal/incusx/machine_store.go`:
+
+- **Fan out.** The per-project calls now run in goroutines and the results are
+  reassembled in project order (so output ordering does not depend on which
+  project answered first, and neither does which error surfaces on a
+  multi-project failure). Wall clock drops to the slowest single project.
+  `resolveServer()` already established the connection before the loop, so the
+  goroutines share an already-connected HTTP client and nothing races on
+  connect. Alternatives considered: `errgroup` (would add
+  `golang.org/x/sync` as a direct dependency for a `WaitGroup` plus an error
+  slice — not worth it) and a bounded worker pool (a tenant has a handful of
+  projects; the daemon is not at risk from that many concurrent GETs).
+
+- **Push the project scope into the store.** `sc list` already computed a
+  `projectFilter` — including implicitly, from the pinned `config.project` —
+  but applied it to the *results*, after querying every project. Added
+  `ListMachinesInProject` / `ListMachinesAndUnmanagedInProject`, surfaced as the
+  optional `machine.ProjectScopedStore` / `ProjectScopedCombinedStore`
+  interfaces so the CLI can type-assert for them without every `machine.Store`
+  implementation having to grow the method. The caller-side filter stays as a
+  cheap safety net. `FindMachine` uses the scoped form too — it always knew its
+  project. Deliberately left whole-tenant: `v2MachineProjects` (cross-project
+  unique-search is the point), SSH-key and share reconciles, and the auth-app's
+  machine listings.
+
+Also made the verbose Incus API logger serialised (`verboseLogger` in
+`api_log.go`): concurrent calls now write to that sink, and it is a
+`bytes.Buffer` under test, so unserialised `fmt.Fprint` was a genuine data race.
+
+Not touched: the auth-app's `reconcileOneV2TenantDNS` has the same serial
+per-project loop, but it is a background reconciler on a different blast
+radius — out of scope here.
+
 ## 2026-07-31 — DNS/route reconcile triggers on a lifecycle-action whitelist, not `instance-*`
 
 The obelix auth-app burned a steady ~10.7% CPU (26 h over a 10-day uptime)

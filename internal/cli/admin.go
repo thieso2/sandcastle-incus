@@ -98,7 +98,7 @@ func newAdminTenantListCommand(config commandConfig, opts *rootOptions) *cobra.C
 			if config.machineStore == nil {
 				return fmt.Errorf("machine metadata store is not configured")
 			}
-			machines, unmanaged, err := listMachinesAndUnmanaged(cmd.Context(), config.machineStore, summary)
+			machines, unmanaged, err := listMachinesAndUnmanaged(cmd.Context(), config.machineStore, summary, "")
 			if err != nil {
 				return err
 			}

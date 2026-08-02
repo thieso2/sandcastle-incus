@@ -2,8 +2,23 @@ package incusx
 
 import (
 	"fmt"
+	"io"
+	"sync"
 	"time"
 )
+
+// verboseLogger returns the `[verbose] incus api: …` sink for w. Incus calls are
+// fanned out across goroutines (see listV2Machines), so the sink is serialised:
+// without the lock two concurrent calls race on the writer, which is a real data
+// race whenever w is a buffer rather than os.Stderr.
+func verboseLogger(w io.Writer) func(string) {
+	var mu sync.Mutex
+	return func(msg string) {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprint(w, msg)
+	}
+}
 
 func logIncusAPICall[T any](log func(string), label string, fn func() (T, error)) (T, error) {
 	if log == nil {

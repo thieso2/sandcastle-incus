@@ -39,6 +39,15 @@ type Store interface {
 	ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error)
 }
 
+// ProjectScopedStore is the scoped form of Store: a store that can answer for a
+// subset of a tenant's projects — projectFilter is a project name or a
+// shell-style glob — without querying the rest. A whole-tenant listing costs one
+// Incus round trip per project, so callers that can narrow at all should
+// type-assert for this and use it.
+type ProjectScopedStore interface {
+	ListMachinesInProject(ctx context.Context, summary tenant.Summary, projectFilter string) ([]meta.Machine, error)
+}
+
 type UnmanagedMachine struct {
 	Tenant       string `json:"tenant"`
 	Name         string `json:"name"`
@@ -56,6 +65,12 @@ type UnmanagedStore interface {
 
 type CombinedStore interface {
 	ListMachinesAndUnmanaged(ctx context.Context, summary tenant.Summary) ([]meta.Machine, []UnmanagedMachine, error)
+}
+
+// ProjectScopedCombinedStore is CombinedStore scoped to one Sandcastle project.
+// See ProjectScopedStore.
+type ProjectScopedCombinedStore interface {
+	ListMachinesAndUnmanagedInProject(ctx context.Context, summary tenant.Summary, projectFilter string) ([]meta.Machine, []UnmanagedMachine, error)
 }
 
 func IssueCertificateFiles(machineName string, projectName string, suffix string, caCertPEM []byte, caKeyPEM []byte) ([]File, error) {

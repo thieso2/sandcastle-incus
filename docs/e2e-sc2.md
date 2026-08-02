@@ -1076,6 +1076,115 @@ sc list                                        # lc1 gone
   tenant for the current remote it fails with a clear error instead of targeting a
   guessed project.
 
+#### Phase 7c-glob — wildcard machine references
+
+The project and machine parts of a reference are globs, on both the listing and
+the lifecycle commands. Quote the patterns so the shell does not expand them.
+
+```bash
+sc c lc1 -- true && sc c lc2 -- true && sc c web-a -- true   # three machines in the current project
+
+sc ls ':lc*'                    # machine glob within the current project
+sc ls -a '*:lc*'                # …across every project
+sc ls -a 'zz*:*'                # project glob matching nothing → empty listing, exit 0
+sc ls 'zzznope:*'               # literal project that does not exist → error, exit 1
+
+sc stop 'lc*'                   # acts on lc1 AND lc2, one report line each
+sc ls -a '*:lc*'                # both stopped
+sc start 'lc?'                  # ? matches exactly one character
+sc restart '[lw]*'              # character class: lc1, lc2, web-a
+
+sc delete 'lc*' --yes           # deletes both; without --yes the prompt NAMES both
+sc delete 'zz*'                 # no match → error, exit 1
+sc delete web-a --yes
+```
+
+**PASS:**
+- `sc ls` filters on both parts: `-a 'g*:d*'` lists the `d*` machines of every
+  project matching `g*`, and the header echoes the filter
+  (`projects matching "g*", machines matching "d*"`).
+- A leading part is read as a **remote** only when it names an enrolled one, so
+  `sc ls 'g*:d*'` filters projects/machines and `sc ls obelix:home` still
+  addresses the other install. `sc ls obelix:` still means that install's
+  default project.
+- A **project glob** matching nothing lists nothing and exits 0; a **literal**
+  project that does not exist is an error naming the tenant's projects.
+- The project filter is resolved against the tenant summary **before** any Incus
+  call, so only the matching projects are queried. Check with `VERBOSE=1`:
+  `sc ls -a 'g*:d*'` on a 7-project tenant must emit **one**
+  `GetInstancesFull`, and a glob matching no project must emit **none**.
+- Lifecycle commands act on **every** match, concurrently, reporting one line
+  per machine (`stop gbrain:dev`). A failure on one machine does not stop the
+  others; the command exits non-zero with `… failed on N of M machines`, and the
+  successful machines are still reported as done.
+- A wildcard that matches nothing is an **error** (`no machines match "lc*" …`),
+  never a silent no-op. A wildcard never creates a machine — only `sc c <name>`
+  with a literal name does.
+- `sc delete '<pattern>'` interactively prompts once, naming every machine
+  (`Delete 2 machines (default:lc1, default:lc2)?`); non-interactively it still
+  refuses without `--yes`.
+- `--json` keeps the historical `{action, tenant, project, machine}` object for a
+  literal reference and returns `{action, tenant, selector, results[]}` for a
+  wildcard.
+- Single-target commands (`sc c`, `sc fix`, `sc route add`, `sc image save`)
+  accept a glob that narrows to exactly one machine; an ambiguous glob asks
+  which one (tty) or errors listing the candidates.
+- A malformed pattern is rejected up front (`sc ls 'gbrain:[abc'` →
+  `invalid machine pattern "[abc": syntax error in pattern`) rather than
+  silently matching nothing.
+#### Phase 7c-glob-installs — wildcards across enrolled installs
+
+Requires **two enrolled installs** (see *Multi-install coexistence*). The
+install part of `[[remote:]project:]machine` globs too, and then the command
+sweeps every enrolled install whose name matches.
+
+```bash
+sc remote list                  # both installs enrolled; note their names
+
+sc ls -a '*:*:*'                # every machine on every install
+sc ls -a '*:*:dev'              # the dev machine of every project of every install
+sc ls -a 'i*:*:*'               # only the installs matching i*
+sc ls -a 'zz*:*:*'              # no install matches → error naming the enrolled ones
+
+sc stop '*:*:dev'               # …acts on all of them, one report line each
+sc c '*:*:dev'                  # ambiguous across installs → asks / errors with candidates
+
+# Installs legitimately have different project sets:
+sc ls -a '*:<project-only-on-one-install>:*'   # lists it, no error for the other install
+sc stop '*:nosuchproject:api'                  # no install has it → project-not-found error
+```
+
+**PASS:**
+- `sc ls -a '*:*:*'` sweeps **both** installs, gains a `REMOTE` column, and
+  each row's FQDN carries **its own install's DNS suffix**
+  (`wildschwein.home.idefix` vs `wildschwein.work.obelix`) — a shared summary
+  would mislabel them.
+- Globbing installs requires **all three parts**. `sc ls 'g*:d*'` still filters
+  projects and machines, and `sc ls obelix:home` still addresses the install.
+- An install pattern matches only the names `sc remote list` shows, so `*`
+  never reaches system incus remotes (`images`, `local`).
+- A pattern matching no install errors with
+  `no enrolled Sandcastle remote matches "zz*"; enrolled remotes: …`.
+- **Different project sets are normal.** `'*:<project>:<machine>'` skips an
+  install that has no such project instead of failing the run; a project that
+  NO install has is still a project-not-found error.
+- **Unreachable install:** a lifecycle verb refuses the whole run naming the
+  install (`idefix: connection refused`) rather than acting on a partial sweep
+  — for `delete` that is unrecoverable. `sc ls` does the opposite: it prints
+  `warning: idefix: …` and still shows the installs that answered.
+- Installs are swept **sequentially** (INCUS_CONF picks the restricted
+  certificate and is process-wide); the per-project and per-machine work inside
+  each install is still concurrent.
+- Cross-install results name their install everywhere: `stop obelix:work:dev`,
+  the delete confirmation, the ambiguity candidates, and a `remote` field on
+  each JSON result.
+- A same-install reference never grows a remote prefix in its output, and the
+  `--json` scalar payload for a literal reference is unchanged.
+
+To verify no scope leaks: after any cross-install command, `sc ls` with no
+argument must still list the **original** current install (the INCUS_CONF
+binding is undone per scope).
+
 ### Phase 7e — SSH host keys are authoritative, marked, and self-healing (ADR-0020) ✅
 `sc c` reads each machine's host keys **over the Incus API** (`GetInstanceFile`),
 records them in `~/.ssh/known_hosts` keyed by the Machine Private Hostname (via

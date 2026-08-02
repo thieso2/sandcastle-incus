@@ -91,8 +91,11 @@ func newRoutePublishCommand(config commandConfig, opts *rootOptions) *cobra.Comm
 					return err
 				}
 				tenantName = summary.Tenant
-				var resolveErr error
-				project, machine, resolveErr = resolveV2MachineReference(summary, args[0], config.adminConfig.Project)
+				reference, resolveErr := resolveSingleMachineReference(cmd.Context(), config, summary, args[0])
+				if resolveErr != nil {
+					return resolveErr
+				}
+				project, machine, resolveErr = resolveV2MachineReference(summary, reference, config.adminConfig.Project)
 				if resolveErr != nil {
 					return resolveErr
 				}

@@ -126,18 +126,20 @@ func installPrefixFromRemoteName(remote string, tenantName string) string {
 	return ""
 }
 
-// parseV2MachineReference splits "[[dns-suffix:]project:]machine" (ADR-0020)
-// into its parts. Colon count selects scope: 0 colons = machine only,
-// 1 = project:machine, 2 = dns-suffix:project:machine (the leftmost part names
-// the install by its DNS suffix). The project defaults to the configured
-// Current Project, then to "default". A returned dnsSuffix of "" means "the
-// current install". currentTenant is unused now that the legacy "tenant/"
-// prefix is dropped (ADR-0020); it is retained in the signature for callers.
-func parseV2MachineReference(reference string, currentTenant string, currentProject string) (dnsSuffix string, project string, machine string, err error) {
-	_ = currentTenant
+// splitMachineReference splits "[[dns-suffix:]project:]machine" (ADR-0020) into
+// its parts WITHOUT validating them. Colon count selects scope: 0 colons =
+// machine only, 1 = project:machine, 2 = dns-suffix:project:machine (the
+// leftmost part names the install by its DNS suffix). The project defaults to
+// the configured Current Project, then to "default". A returned dnsSuffix of ""
+// means "the current install".
+//
+// Validation is the caller's, because the two callers want different rules:
+// parseV2MachineReference demands literal names, parseMachineSelector admits
+// globs. Everything else about the grammar has to stay identical between them,
+// which is why the split lives here rather than being written twice.
+func splitMachineReference(reference string, currentProject string) (dnsSuffix string, project string, machine string, err error) {
 	reference = strings.TrimSpace(reference)
 	project = strings.TrimSpace(currentProject)
-	// Split the colon-separated tail into [dns-suffix :] [project :] machine.
 	parts := strings.Split(reference, ":")
 	switch len(parts) {
 	case 1:
@@ -158,6 +160,20 @@ func parseV2MachineReference(reference string, currentTenant string, currentProj
 	machine = strings.TrimSpace(machine)
 	if machine == "" {
 		return "", "", "", fmt.Errorf("machine name is required")
+	}
+	return dnsSuffix, project, machine, nil
+}
+
+// parseV2MachineReference is splitMachineReference plus strict validation: it
+// resolves a reference that must name exactly one machine. Use
+// parseMachineSelector where a wildcard is allowed. currentTenant is unused now
+// that the legacy "tenant/" prefix is dropped (ADR-0020); it is retained in the
+// signature for callers.
+func parseV2MachineReference(reference string, currentTenant string, currentProject string) (dnsSuffix string, project string, machine string, err error) {
+	_ = currentTenant
+	dnsSuffix, project, machine, err = splitMachineReference(reference, currentProject)
+	if err != nil {
+		return "", "", "", err
 	}
 	if dnsSuffix != "" {
 		if err := naming.ValidateInstallSuffix(dnsSuffix); err != nil {
@@ -193,21 +209,9 @@ func resolveV2MachineReference(summary tenant.Summary, reference string, current
 			reference, dnsSuffix, currentInstall)
 	}
 	if _, ok := findProject(summary, project); !ok {
-		names := make([]string, 0, len(summary.Projects))
-		for _, candidate := range summary.Projects {
-			names = append(names, candidate.Name)
-		}
-		hint := ""
-		if _, swapped := findProject(summary, machine); swapped {
-			hint = fmt.Sprintf("\nThe reference is [[dns-suffix:]project:]machine — did you mean %q?", machine+":"+project)
-		}
-		if hint == "" && localRemoteExists(project) {
-			// e.g. `sc c obelix-sc:dev` — `obelix-sc` is a remote name, not a
-			// project. Address another install as dns-suffix:project:machine.
-			hint = fmt.Sprintf("\n%q is an incus remote, not a project — reach another install with dns-suffix:project:machine.", project)
-		}
-		return "", "", fmt.Errorf("project %q not found in tenant %s (projects: %s).%s\nCreate it with: sc project create %s",
-			project, summary.Tenant, strings.Join(names, ", "), hint, project)
+		// e.g. `sc c obelix-sc:dev` — `obelix-sc` is a remote name, not a
+		// project. Address another install as dns-suffix:project:machine.
+		return "", "", unknownProjectError(summary, project, machine)
 	}
 	return project, machine, nil
 }
@@ -349,6 +353,12 @@ type dialedV2Machine struct {
 // ssh argv with strict host-key checking. Callers append their own remote
 // command (or feed one on stdin). Shared by `sc connect` and `sc fix`.
 func dialV2Machine(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, vm bool) (dialedV2Machine, error) {
+	// A wildcard selects among machines that already exist; it must land on
+	// exactly one before the ensure-and-create path below can run.
+	reference, err := resolveSingleMachineReference(ctx, config, summary, reference)
+	if err != nil {
+		return dialedV2Machine{}, err
+	}
 	project, machineName, err := resolveV2MachineReference(summary, reference, config.adminConfig.Project)
 	if err != nil {
 		return dialedV2Machine{}, err

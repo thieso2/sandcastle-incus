@@ -34,12 +34,20 @@ func newImageSaveCommand(config commandConfig, opts *rootOptions) *cobra.Command
 			"  sc create <new-machine> --image <name>",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			config, reference, restore, err := rebindForReference(config, args[0])
+			ref, err := narrowRemoteGlob(cmd.Context(), config, defaultRemoteFanout(), args[0])
+			if err != nil {
+				return err
+			}
+			config, reference, restore, err := rebindForReference(config, ref)
 			if err != nil {
 				return err
 			}
 			defer restore()
 			summary, err := requireV2Tenant(cmd.Context(), config)
+			if err != nil {
+				return err
+			}
+			reference, err = resolveSingleMachineReference(cmd.Context(), config, summary, reference)
 			if err != nil {
 				return err
 			}

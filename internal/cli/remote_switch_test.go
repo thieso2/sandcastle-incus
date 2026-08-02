@@ -137,20 +137,30 @@ func TestRebindForReferenceLeavesNonRemoteReferences(t *testing.T) {
 	}
 }
 
-// TestSplitRemotePrefix covers `sc ls` addressing: a leading "<remote>:" targets
-// another install, the rest is the project.
-func TestSplitRemotePrefix(t *testing.T) {
-	cases := []struct{ in, remote, rest string }{
-		{"obelix:home", "obelix", "home"},
-		{"obelix:", "obelix", ""},
-		{"home", "", "home"},
-		{"", "", ""},
-		{" obelix : home ", "obelix", "home"},
+// TestSplitListReference covers `sc ls` addressing: "[remote:]project[:machine]".
+// The two-part form is ambiguous, so a leading part counts as a remote only
+// when it names an enrolled one — the same rule rebindForReference applies
+// everywhere else. Here "obelix" is enrolled and "gbrain"/"g*" are not.
+func TestSplitListReference(t *testing.T) {
+	enrolled := func(name string) bool { return name == "obelix" }
+	cases := []struct{ in, remote, project, machine string }{
+		{"obelix:home", "obelix", "home", ""},
+		{"obelix:", "obelix", "", ""},
+		{"home", "", "home", ""},
+		{"", "", "", ""},
+		{" obelix : home ", "obelix", "home", ""},
+		// Not an enrolled remote → project:machine.
+		{"gbrain:web", "", "gbrain", "web"},
+		{"gbrain:*", "", "gbrain", "*"},
+		{"g*:d*", "", "g*", "d*"},
+		// Three parts are unambiguously remote:project:machine.
+		{"obelix:gbrain:d*", "obelix", "gbrain", "d*"},
 	}
 	for _, c := range cases {
-		remote, rest := splitRemotePrefix(c.in)
-		if remote != c.remote || rest != c.rest {
-			t.Fatalf("splitRemotePrefix(%q) = (%q,%q), want (%q,%q)", c.in, remote, rest, c.remote, c.rest)
+		remote, project, machine := splitListReference(c.in, enrolled)
+		if remote != c.remote || project != c.project || machine != c.machine {
+			t.Fatalf("splitListReference(%q) = (%q,%q,%q), want (%q,%q,%q)",
+				c.in, remote, project, machine, c.remote, c.project, c.machine)
 		}
 	}
 }

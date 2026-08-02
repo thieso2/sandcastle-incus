@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -50,18 +51,18 @@ func NewHostOverrideManagerForSharedRemote(remote *SharedRemote) HostOverrideMan
 
 func (m HostOverrideManager) WithVerbose(enabled bool, w io.Writer) HostOverrideManager {
 	if enabled {
-		m.Log = func(msg string) { fmt.Fprint(w, msg) }
+		m.Log = verboseLogger(w)
 	}
 	return m
 }
 
 func (m HostOverrideManager) FindMachine(ctx context.Context, summary tenant.Summary, projectName string, machineName string) (meta.Machine, error) {
-	machines, err := m.ListMachines(ctx, summary)
+	machines, err := m.ListMachinesInProject(ctx, summary, projectName)
 	if err != nil {
 		return meta.Machine{}, err
 	}
 	for _, machine := range machines {
-		if machine.Project == projectName && machine.Name == machineName {
+		if machine.Name == machineName {
 			return machine, nil
 		}
 	}
@@ -69,20 +70,50 @@ func (m HostOverrideManager) FindMachine(ctx context.Context, summary tenant.Sum
 }
 
 func (m HostOverrideManager) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
-	return m.listV2Machines(summary)
+	return m.listV2Machines(ctx, summary, "")
+}
+
+// ListMachinesInProject is the scoped form of ListMachines: it queries only the
+// Incus projects whose Sandcastle project name matches projectFilter — a literal
+// name, or a shell-style glob. Callers that know which projects they mean
+// (`sc list` under a pinned project, a machine lookup, any globbing reference)
+// must prefer it: the whole-tenant listing costs one Incus round trip per
+// project, and on a tenant with a handful of projects that is most of the
+// command's wall clock.
+//
+// A glob is answered from the tenant summary, which already carries the project
+// list — so `sc ls '*:w*:*'` skips an install with no matching project without
+// talking to it at all.
+func (m HostOverrideManager) ListMachinesInProject(ctx context.Context, summary tenant.Summary, projectFilter string) ([]meta.Machine, error) {
+	return m.listV2Machines(ctx, summary, projectFilter)
 }
 
 // ListMachinesAndUnmanaged: v2 machines are freeform instances, so every
 // instance is a first-class machine and the "unmanaged" bucket is always empty.
 func (m HostOverrideManager) ListMachinesAndUnmanaged(ctx context.Context, summary tenant.Summary) ([]meta.Machine, []machine.UnmanagedMachine, error) {
-	machines, err := m.listV2Machines(summary)
+	machines, err := m.listV2Machines(ctx, summary, "")
 	return machines, nil, err
 }
 
-// listV2Machines lists every instance across a v2 tenant's app projects. In v2
+// ListMachinesAndUnmanagedInProject is ListMachinesAndUnmanaged scoped to the
+// Sandcastle projects matching projectFilter. See ListMachinesInProject.
+func (m HostOverrideManager) ListMachinesAndUnmanagedInProject(ctx context.Context, summary tenant.Summary, projectFilter string) ([]meta.Machine, []machine.UnmanagedMachine, error) {
+	machines, err := m.listV2Machines(ctx, summary, projectFilter)
+	return machines, nil, err
+}
+
+// listV2Machines lists every instance across a v2 tenant's app projects, or
+// across the projects matching projectFilter (a literal name or a glob). In v2
 // machines are freeform incus instances (CTs and VMs, no Sandcastle metadata),
 // so all of them are first-class machines — there is no unmanaged bucket.
-func (m HostOverrideManager) listV2Machines(summary tenant.Summary) ([]meta.Machine, error) {
+//
+// The per-project GetInstancesFull calls are issued CONCURRENTLY. Each one is an
+// independent round trip to the Incus daemon that takes seconds on a loaded
+// host, so serialising them made every listing cost the sum of the projects
+// instead of the slowest one. The connection is established once up front
+// (resolveServer → ensureConnected) so the goroutines only share the already
+// connected, HTTP-backed client.
+func (m HostOverrideManager) listV2Machines(ctx context.Context, summary tenant.Summary, projectFilter string) ([]meta.Machine, error) {
 	server, err := m.resolveServer()
 	if err != nil {
 		return nil, err
@@ -91,27 +122,64 @@ func (m HostOverrideManager) listV2Machines(summary tenant.Summary) ([]meta.Mach
 	if len(projects) == 0 {
 		projects = []meta.Project{{Name: naming.DefaultProjectName}}
 	}
-	machines := []meta.Machine{}
-	for _, project := range projects {
-		projectServer := server.UseProject(summary.V2IncusProjectName(project.Name))
-		instances, err := projectServer.GetInstancesFull(api.InstanceTypeAny)
-		if err != nil {
-			return nil, fmt.Errorf("list project %s instances: %w", project.Name, err)
-		}
-		for _, instance := range instances {
-			if meta.IsManaged(instance.Config) && instance.Config[meta.KeyKind] == meta.KindSidecar {
-				continue
+	if projectFilter = strings.TrimSpace(projectFilter); projectFilter != "" {
+		scoped := []meta.Project{}
+		for _, project := range projects {
+			// MatchName on a literal is an equality check, so one branch
+			// serves both a named project and a glob.
+			if naming.MatchName(projectFilter, project.Name) {
+				scoped = append(scoped, project)
 			}
-			machines = append(machines, meta.Machine{
-				Tenant:    summary.Tenant,
-				Project:   project.Name,
-				Name:      instance.Name,
-				Type:      string(instance.Type),
-				PrivateIP: instanceGlobalIPv4(instance),
-				CreatedAt: formatInstanceCreatedAt(instance.CreatedAt),
-				Running:   instance.IsActive(),
-			})
 		}
+		// No project matches: no machines, and — the point — no Incus calls.
+		projects = scoped
+	}
+	perProject := make([][]meta.Machine, len(projects))
+	errors := make([]error, len(projects))
+	var group sync.WaitGroup
+	for index, project := range projects {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if err := ctx.Err(); err != nil {
+				errors[index] = err
+				return
+			}
+			projectServer := server.UseProject(summary.V2IncusProjectName(project.Name))
+			instances, err := projectServer.GetInstancesFull(api.InstanceTypeAny)
+			if err != nil {
+				errors[index] = fmt.Errorf("list project %s instances: %w", project.Name, err)
+				return
+			}
+			found := make([]meta.Machine, 0, len(instances))
+			for _, instance := range instances {
+				if meta.IsManaged(instance.Config) && instance.Config[meta.KeyKind] == meta.KindSidecar {
+					continue
+				}
+				found = append(found, meta.Machine{
+					Tenant:    summary.Tenant,
+					Project:   project.Name,
+					Name:      instance.Name,
+					Type:      string(instance.Type),
+					PrivateIP: instanceGlobalIPv4(instance),
+					CreatedAt: formatInstanceCreatedAt(instance.CreatedAt),
+					Running:   instance.IsActive(),
+				})
+			}
+			perProject[index] = found
+		}()
+	}
+	group.Wait()
+	// Report the first project's failure in project order, so a flaky project
+	// does not make the error message depend on goroutine scheduling.
+	for _, err := range errors {
+		if err != nil {
+			return nil, err
+		}
+	}
+	machines := []meta.Machine{}
+	for _, found := range perProject {
+		machines = append(machines, found...)
 	}
 	return machines, nil
 }

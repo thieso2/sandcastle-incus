@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"testing"
 
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
@@ -73,5 +75,90 @@ func TestListMachinesScopedToCurrentInstall(t *testing.T) {
 				t.Fatalf("got %d machines, want %d: %+v", len(result.Machines), tt.wantMachines, result.Machines)
 			}
 		})
+	}
+}
+
+// listV2Projects builds the tenant-store projects backing a v2 tenant summary.
+func listV2Projects(tenantName string, projects ...string) []tenant.IncusProject {
+	built := make([]tenant.IncusProject, 0, len(projects))
+	for _, project := range projects {
+		built = append(built, tenant.IncusProject{
+			Name: "sc2-" + tenantName + "-" + project,
+			Config: map[string]string{
+				meta.KeyKind:    meta.KindV2Project,
+				meta.KeyVersion: "2",
+				meta.KeyTenant:  tenantName,
+			},
+		})
+	}
+	return built
+}
+
+// `sc ls` filters on both reference parts, so "g*:d*" is the d* machines of
+// every project matching g*.
+func TestListMachinesWildcardFilters(t *testing.T) {
+	store := tenant.MemoryStore{Projects: listV2Projects("acme", "gbrain", "gadget", "work")}
+	machines := fakeInstallMachineStore{byInfraProject: map[string][]meta.Machine{
+		"sc2-acme": {
+			{Name: "docker", Project: "gbrain"},
+			{Name: "dev", Project: "gbrain"},
+			{Name: "web", Project: "gbrain"},
+			{Name: "dyno", Project: "gadget"},
+			{Name: "web", Project: "work"},
+		},
+	}}
+	config := commandConfig{
+		adminConfig:  scconfig.Admin{Tenant: "acme", Remote: "sc-acme"},
+		tenantStore:  store,
+		machineStore: machines,
+	}
+
+	tests := []struct {
+		name    string
+		request listMachinesRequest
+		want    []string
+	}{
+		{"project and machine globs", listMachinesRequest{Project: "g*", Machine: "d*", AllProjects: true},
+			[]string{"gadget:dyno", "gbrain:dev", "gbrain:docker"}},
+		{"every machine of one project", listMachinesRequest{Project: "gbrain", Machine: "*"},
+			[]string{"gbrain:dev", "gbrain:docker", "gbrain:web"}},
+		{"one machine name across all projects", listMachinesRequest{Project: "*", Machine: "web", AllProjects: true},
+			[]string{"gbrain:web", "work:web"}},
+		{"a glob matching nothing lists nothing", listMachinesRequest{Project: "gbrain", Machine: "zzz*"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := listMachines(context.Background(), config, tt.request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(result.Machines))
+			for _, m := range result.Machines {
+				got = append(got, m.Project+":"+m.Name)
+			}
+			sort.Strings(got)
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("machines = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// A project GLOB that matches nothing is an empty listing; a literal project
+// that does not exist is still an error, so a typo does not read as "no
+// machines".
+func TestListMachinesProjectGlobVersusTypo(t *testing.T) {
+	store := tenant.MemoryStore{Projects: listV2Projects("acme", "gbrain")}
+	config := commandConfig{
+		adminConfig:  scconfig.Admin{Tenant: "acme", Remote: "sc-acme"},
+		tenantStore:  store,
+		machineStore: fakeInstallMachineStore{byInfraProject: map[string][]meta.Machine{"sc2-acme": {}}},
+	}
+	if _, err := listMachines(context.Background(), config, listMachinesRequest{Project: "zzz*"}); err != nil {
+		t.Fatalf("project glob matching nothing: %v, want an empty listing", err)
+	}
+	_, err := listMachines(context.Background(), config, listMachinesRequest{Project: "gbrian"})
+	if err == nil || !strings.Contains(err.Error(), "not found in tenant") {
+		t.Fatalf("literal typo error = %v, want a project-not-found error", err)
 	}
 }
