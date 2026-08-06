@@ -98,3 +98,4 @@ tiers run automatically in GitHub Actions; real environment gates are available
 through the manual `Destructive e2e gates` workflow. Non-cleanup destructive
 tiers use one generated `SANDCASTLE_E2E_RUN_ID` per runner invocation when no
 explicit run id is provided; cleanup requires an explicit run id.
+# klabauter-demo
