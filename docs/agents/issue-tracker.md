@@ -2,6 +2,8 @@
 
 Issues and PRDs for this repo live as GitHub issues in `thieso2/sandcastle-incus`. Use the `gh` CLI for all operations.
 
+> **Hand-edited — do not regenerate.** This file started from the `setup-matt-pocock-skills` template but has since been extended with repo-specific detail that the template does not produce: the `gh api` workaround for `authorAssociation` (which `gh pr list --json` cannot return), and the whole "Wayfinding operations" section (map issue, sub-issues, native issue dependencies). Re-running that skill and letting it rewrite this file from the template would lose all of it. Edit in place instead.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
