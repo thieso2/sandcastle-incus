@@ -298,6 +298,10 @@ type createV2Options struct {
 	VM        bool
 	DryRun    bool
 	HomeShare bool
+	// Bare replaces the project profile's cloud-init with the bare document
+	// (hostname + Caddy leaf only). Create-time only, like the profile choice:
+	// cloud-init has already run by the time anything else could change it.
+	Bare bool
 }
 
 func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOptions, summary tenant.Summary, reference string, options createV2Options) error {
@@ -315,9 +319,10 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 		Image:        image,
 		VM:           options.VM,
 		HomeShare:    options.HomeShare,
+		Bare:         options.Bare,
 	}
 	if options.DryRun {
-		payload := incusx.CreateMachineV2Result{Name: machine, Type: machineTypeLabel(options.VM), Project: request.IncusProject, Image: image, HomeShare: options.HomeShare}
+		payload := incusx.CreateMachineV2Result{Name: machine, Type: machineTypeLabel(options.VM), Project: request.IncusProject, Image: image, HomeShare: options.HomeShare, Bare: options.Bare}
 		return writeOutput(config.stdout, opts.output, formatCreateMachineV2(summary, project, payload, true), payload)
 	}
 	result, err := config.tenantCreator.CreateMachineV2(ctx, request)
@@ -508,12 +513,29 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 	}
 	// Canonical Machine Private Hostname; the default project also answers at
 	// the short alias (ADR-0018).
-	fqdn := result.Name + "." + project + "." + summary.DNSSuffix
+	canonical := result.Name + "." + project + "." + summary.DNSSuffix
+	fqdn := canonical
 	if project == naming.DefaultProjectName {
 		fqdn += " (also: " + result.Name + "." + summary.DNSSuffix + ")"
 	}
 	if dryRun {
 		fmt.Fprintf(&builder, "DNS: %s (auto-registers after boot)", fqdn)
+		if result.Bare {
+			fmt.Fprintf(&builder, "\nBare: no login user, no SSH key, no sshd — HTTPS only.")
+		}
+		return builder.String()
+	}
+	if result.PrivateIP != "" {
+		fmt.Fprintf(&builder, "IP: %s   DNS: %s (auto-registers within seconds)\n", result.PrivateIP, fqdn)
+	} else {
+		fmt.Fprintf(&builder, "Still booting — no IP leased yet. Watch it with: sc list\n")
+		fmt.Fprintf(&builder, "DNS: %s (auto-registers after boot)\n", fqdn)
+	}
+	// A bare machine has no user to ssh as, so the usual SSH advice would be a
+	// dead end. Point at the two things it does offer instead.
+	if result.Bare {
+		fmt.Fprintf(&builder, "HTTPS: https://%s   (Caddy with the tenant-CA leaf, proxying to localhost:3000)\n", canonical)
+		fmt.Fprintf(&builder, "Bare: no login user, no sshd — `sc connect` will not work; get a shell with: sc incus exec %s -- /bin/sh", result.Name)
 		return builder.String()
 	}
 	loginUser := result.LoginUser
@@ -521,13 +543,10 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 		loginUser = tenant.DefaultV2UnixUser
 	}
 	if result.PrivateIP != "" {
-		fmt.Fprintf(&builder, "IP: %s   DNS: %s (auto-registers within seconds)\n", result.PrivateIP, fqdn)
 		fmt.Fprintf(&builder, "SSH: ssh %s@%s   (cloud-init may still be installing sshd)", loginUser, result.PrivateIP)
-	} else {
-		fmt.Fprintf(&builder, "Still booting — no IP leased yet. Watch it with: sc list\n")
-		fmt.Fprintf(&builder, "DNS: %s (auto-registers after boot)", fqdn)
 	}
-	return builder.String()
+	// writeOutput adds the final newline, so never hand it one.
+	return strings.TrimRight(builder.String(), "\n")
 }
 
 // requireV2Tenant resolves the current tenant. v1 is gone, so every Sandcastle

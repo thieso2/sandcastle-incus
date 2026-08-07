@@ -10,6 +10,7 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var image string
 	var vm bool
 	var homeShare bool
+	var bare bool
 	command := &cobra.Command{
 		Use:   "create [[remote:]project:]machine",
 		Short: "Create a Sandcastle container machine",
@@ -29,6 +30,7 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				VM:        vm,
 				DryRun:    dryRun,
 				HomeShare: homeShare,
+				Bare:      bare,
 			})
 		},
 	}
@@ -42,5 +44,8 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	// Profiles are only applied at create time, so this is a create-time
 	// decision: /workspace is shared for every machine, /home only on request.
 	command.Flags().BoolVar(&homeShare, "home-share", false, "mount the project's shared /home (adds the homeshare profile); without it the machine gets a local /home")
+	// A bare machine has no way in, by design — say so on the flag itself,
+	// because `sc connect` to one can only ever time out waiting for sshd.
+	command.Flags().BoolVar(&bare, "bare", false, "no login user, no SSH key, no sshd — just the machine's hostname and a Caddy serving its tenant-CA leaf (sc connect will not work)")
 	return command
 }

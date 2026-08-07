@@ -91,6 +91,60 @@ runcmd:
 `
 }
 
+// BareMachineHome is the $HOME a bare machine hands to the caddy-setup script.
+// The Caddyfile serves $HOME at /_h, and a bare machine has no login user whose
+// home could go there. /srv exists on every Debian-family image and is empty, so
+// the handler answers 404 rather than the Caddyfile failing to load.
+const BareMachineHome = "/srv"
+
+// V2BareUserData renders the cloud-init user-data of a BARE machine
+// (`sc create --bare`): one that boots with its canonical Machine Private
+// Hostname and serves HTTPS with a tenant-CA leaf, and nothing else — no login
+// user, no SSH key, no sshd, no shell shims.
+//
+// It is deliberately V2DefaultProfileUserData minus the interactive half, and
+// reuses the very same boot shims, so a bare machine tracks /.sc platform
+// payload updates like every other machine (ADR-0022). It is applied as
+// INSTANCE config, overriding the project default profile's user-data, which is
+// why it must re-state the identity: domain is "<project>.<suffix>" and
+// signerURL the sidecar leaf signer, both read back off that same profile so a
+// bare machine can never disagree with its project about who it is.
+func V2BareUserData(domain string, signerURL string) string {
+	generalize := base64.StdEncoding.EncodeToString([]byte(SCGeneralizeShim))
+	caddy := base64.StdEncoding.EncodeToString([]byte(SCCaddySetupShim))
+	return fmt.Sprintf(`## template: jinja
+#cloud-config
+fqdn: {{ v1.local_hostname }}.%s
+prefer_fqdn_over_hostname: true
+# An ABSENT users: key makes cloud-init create the distro default user; an empty
+# list creates none. That distinction is the whole of --bare's "no user".
+users: []
+# caddy-setup apt-installs Caddy, so the package cache must be warm before it runs.
+package_update: true
+write_files:
+  - path: /etc/sandcastle/machine.env
+    permissions: '0644'
+    content: |
+      FQDN={{ v1.local_hostname }}.%s
+      SIGNER=%s
+      HOME=%s
+  - path: /usr/local/sbin/sandcastle-generalize
+    permissions: '0755'
+    encoding: b64
+    content: %s
+  - path: /usr/local/sbin/sandcastle-caddy-setup
+    permissions: '0755'
+    encoding: b64
+    content: %s
+runcmd:
+  - [/usr/local/sbin/sandcastle-generalize]
+  # Belt and braces: nothing here installs sshd, but an image that ships one
+  # enabled would quietly make "no ssh" untrue.
+  - [sh, -c, "systemctl disable --now ssh 2>/dev/null || true"]
+  - [/usr/local/sbin/sandcastle-caddy-setup]
+`, domain, domain, signerURL, BareMachineHome, generalize, caddy)
+}
+
 // The forwarded-agent indirection. Two guards must be exactly this way — the
 // obvious alternatives silently break multiplexer panes:
 //

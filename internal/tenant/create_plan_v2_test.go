@@ -203,6 +203,94 @@ func TestV2DefaultProfileUserDataGeneralizesBeforeSSH(t *testing.T) {
 	}
 }
 
+// `sc create --bare`: the machine gets its canonical hostname and a Caddy
+// serving the tenant-CA leaf, and NOTHING that lets anyone log in. Each absence
+// below is a promise of the flag, so each is asserted separately.
+func TestV2BareUserDataHasNoWayIn(t *testing.T) {
+	data := V2BareUserData("default.acme", "http://10.0.0.3:9443")
+
+	// An ABSENT users: key would make cloud-init create the distro default
+	// user — the empty list is what makes "no user" true.
+	if !strings.Contains(data, "\nusers: []\n") {
+		t.Fatalf("bare user-data must pin users to the empty list:\n%s", data)
+	}
+	for _, forbidden := range []string{"ssh_authorized_keys", "openssh-server", "sudo", "systemctl, enable, --now, ssh"} {
+		if strings.Contains(data, forbidden) {
+			t.Fatalf("bare user-data must not carry %q:\n%s", forbidden, data)
+		}
+	}
+	// The shell shims exist to serve interactive sessions there are none of.
+	if strings.Contains(data, "/etc/ssh/sshrc") || strings.Contains(data, "/etc/bash.bashrc") {
+		t.Fatalf("bare user-data must not bake the shell shims:\n%s", data)
+	}
+
+	// Identity + certificates, the two things it does promise.
+	for _, want := range []string{
+		"## template: jinja",
+		"fqdn: {{ v1.local_hostname }}.default.acme",
+		"prefer_fqdn_over_hostname: true",
+		"FQDN={{ v1.local_hostname }}.default.acme",
+		"SIGNER=http://10.0.0.3:9443",
+		"HOME=" + BareMachineHome,
+		"- [/usr/local/sbin/sandcastle-caddy-setup]",
+	} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("bare user-data missing %q:\n%s", want, data)
+		}
+	}
+
+	// caddy-setup apt-installs Caddy; without a warm cache its first
+	// apt-get install fails and the machine serves no HTTPS at all.
+	if !strings.Contains(data, "package_update: true") {
+		t.Fatalf("bare user-data must refresh the package cache before caddy-setup:\n%s", data)
+	}
+
+	genRun := strings.Index(data, "- [/usr/local/sbin/sandcastle-generalize]")
+	caddyRun := strings.Index(data, "- [/usr/local/sbin/sandcastle-caddy-setup]")
+	if genRun < 0 || genRun > caddyRun {
+		t.Fatalf("generalize must run before caddy-setup (it drops the stale leaf): gen=%d caddy=%d", genRun, caddyRun)
+	}
+
+	// The document is hand-rolled YAML; a syntax slip would only surface as a
+	// machine that boots with nothing configured. Parse it, and read `users`
+	// back as a list rather than trusting the string match above.
+	rendered := strings.ReplaceAll(data, "{{ v1.local_hostname }}", "machine")
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(rendered), &doc); err != nil {
+		t.Fatalf("bare user-data is not valid YAML: %v\n%s", err, data)
+	}
+	users, ok := doc["users"]
+	if !ok {
+		t.Fatalf("bare user-data has no users key — cloud-init would create the default user:\n%s", data)
+	}
+	if list, isList := users.([]any); !isList || len(list) != 0 {
+		t.Fatalf("users must parse as an empty list, got %#v", users)
+	}
+}
+
+// A bare machine bakes the same stable boot shims as every other machine, so a
+// /.sc platform payload update reaches it too (ADR-0022) — never inline bodies.
+func TestV2BareUserDataBakesBootShims(t *testing.T) {
+	data := V2BareUserData("default.acme", "http://10.0.0.3:9443")
+
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{"/usr/local/sbin/sandcastle-generalize", SCGeneralizeShim},
+		{"/usr/local/sbin/sandcastle-caddy-setup", SCCaddySetupShim},
+	} {
+		encoded := base64.StdEncoding.EncodeToString([]byte(tc.want))
+		if !strings.Contains(data, "content: "+encoded) {
+			t.Fatalf("bare user-data does not bake the %s shim:\n%s", tc.path, data)
+		}
+	}
+	// The script bodies live in the payload, not in cloud-init.
+	if strings.Contains(data, "apt-get install") || strings.Contains(data, "tls/leaf") {
+		t.Fatalf("bare user-data must not inline the caddy-setup body:\n%s", data)
+	}
+}
+
 // Without a signer URL (identity unknown) there is no Caddy/generalize wiring —
 // just ssh — so the fallback path stays minimal.
 func TestV2DefaultProfileUserDataNoSignerIsMinimal(t *testing.T) {

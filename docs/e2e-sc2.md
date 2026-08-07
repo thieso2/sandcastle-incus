@@ -1677,6 +1677,58 @@ the CA (no `-k`), 308-redirected HTTP→HTTPS, proxied to `:3000`, vhosted
 `/workspace`. The file routes were later scoped to `/_h`→`$HOME` (+ `/_w`), which
 also dropped the `/`-root bind-mount workaround.
 
+### Phase 8c-bare — `sc create --bare`: HTTPS and hostname, nothing else 🚧
+
+> Implemented (CLI + incusx + profile-derived identity) but **not yet run against
+> a live tenant** — the criteria below are the target, unverified.
+
+`sc create --bare <machine>` creates a machine that boots with its canonical
+Machine Private Hostname and a Caddy serving its tenant-CA leaf, and with **no
+login user, no SSH key and no sshd**, and joining **none of the project's shared
+storage**. Mechanically it keeps the project's `default` profile (bridge NIC,
+root disk, the `/.sc` layers) and overrides two things at the **instance** level:
+`cloud-init.user-data`, and the `home`/`workspace` disks, masked with Incus's
+device-inhibit type (`type: none`) so they are not mounted whatever the profiles
+say. `/.sc/platform` is deliberately NOT masked — the boot shims source
+caddy-setup from it. The masks also make the homeshare migration a no-op on bare
+machines: an appended `homeshare` profile loses to the instance-level mask. The FQDN domain
+and signer URL are read back off that same default profile, so a bare machine can
+never disagree with its project about the tenant's zone. It bakes the same
+`sandcastle-generalize` / `sandcastle-caddy-setup` boot shims as every other
+machine, so `/.sc` platform-payload updates reach it too (ADR-0022).
+
+```bash
+sc create --bare web
+# → Machine web created (container, project default, image images:debian/13/cloud).
+#   HTTPS: https://web.default.<suffix>   (Caddy with the tenant-CA leaf, …)
+#   Bare: no login user, no sshd — `sc connect` will not work; …
+
+# HTTPS works exactly as in Phase 8c (no -k: chains to the tenant CA)
+curl -so /dev/null -w '%{http_code}\n' https://web.default.<suffix>/     # 502 until :3000 listens
+incus exec web --project <default> -- openssl x509 -in /etc/sandcastle/tls/cert.pem -noout -ext subjectAltName
+#   → DNS:web.default.<suffix>, DNS:*.web.default.<suffix>
+
+# …and nothing else is there
+sc incus exec web -- sh -c 'getent passwd | grep -c :2000:; systemctl is-active ssh'
+#   → 0 UID-2000 users; ssh inactive (or no such unit)
+sc incus exec web -- hostname -f            # → web.default.<suffix>
+
+# no shared storage: the only volume mount left is the read-only /.sc/platform
+sc incus exec web -- df --output=target | grep -E '^/(home|workspace)$'   # → no match
+sc incus config device show web
+#   → home: {type: none}, workspace: {type: none}   (masks, not mounts)
+```
+
+**PASS criteria:** the machine leases an IP and registers DNS like any other
+machine (the reconciler reads Incus state, not machine contents); `hostname -f` is
+the canonical FQDN; Caddy serves a leaf with the machine + wildcard SANs; `df`
+shows neither `/home` nor `/workspace` (but still `/.sc/platform`); there is
+no UID-2000 user, no `~/.ssh`, and nothing listening on `:22`; `sc connect web`
+fails with the sshd timeout rather than hanging forever; and `sc list` shows it as
+a normal `CT`. A project whose default profile carries no FQDN/signer must
+**refuse** the create (naming `sc project create <name>` as the fix), not launch a
+machine with no certificate and no way in.
+
 ---
 
 ## Phase 9 — Unattended login without GitHub ✅

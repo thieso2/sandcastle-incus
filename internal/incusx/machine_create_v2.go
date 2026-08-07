@@ -29,6 +29,12 @@ type CreateMachineV2Request struct {
 	// Profiles are applied at create time only — an existing machine keeps the
 	// profiles it was created with.
 	HomeShare bool
+	// Bare overrides the profile's cloud-init user-data at the INSTANCE level
+	// with tenant.V2BareUserData: correct hostname and a Caddy serving the
+	// tenant-CA leaf, but no login user, no SSH key and no sshd. The profile
+	// still applies, so the machine keeps its NIC, root disk, /workspace and
+	// /.sc — only the cloud-init half is replaced.
+	Bare bool
 }
 
 // v2MachineProfiles returns the profile list a machine is created with:
@@ -54,6 +60,9 @@ type CreateMachineV2Result struct {
 	// HomeShare reports whether the machine was created with the homeshare
 	// profile (shared /home) — /workspace is shared either way.
 	HomeShare bool `json:"homeShare,omitempty"`
+	// Bare reports whether the machine was created with the bare cloud-init
+	// (no login user, no sshd). Callers use it to skip the SSH advice.
+	Bare bool `json:"bare,omitempty"`
 }
 
 // CreateMachineV2 launches the instance and waits (bounded) for it to lease an
@@ -79,8 +88,21 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 		Type:      string(instanceType),
 		Project:   request.IncusProject,
 		Image:     request.Image,
-		LoginUser: v2ProfileLoginUser(project),
 		HomeShare: request.HomeShare,
+		Bare:      request.Bare,
+	}
+	// A bare machine has no login user to report — and the profile read that
+	// would find one is spent on its cloud-init override instead.
+	var instanceConfig api.ConfigMap
+	var instanceDevices api.DevicesMap
+	if request.Bare {
+		instanceConfig, err = v2BareInstanceConfig(project, request.IncusProject)
+		if err != nil {
+			return CreateMachineV2Result{}, err
+		}
+		instanceDevices = v2BareInstanceDevices()
+	} else {
+		result.LoginUser = v2ProfileLoginUser(project)
 	}
 	c.log("launching " + result.Type + " " + request.Name + " from " + request.Image + " into " + request.IncusProject)
 	op, err := project.CreateInstance(api.InstancesPost{
@@ -90,6 +112,8 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 		Source: imageInstanceSource(request.Image),
 		InstancePut: api.InstancePut{
 			Profiles: v2MachineProfiles(request.HomeShare),
+			Config:   instanceConfig,
+			Devices:  instanceDevices,
 		},
 	})
 	if err != nil {
@@ -169,6 +193,77 @@ func v2ProfileLoginUser(project TenantResourceServer) string {
 }
 
 var v2ProfileUserPattern = regexp.MustCompile(`(?m)^\s*-\s*name:\s*(\S+)`)
+
+// A bare machine's identity is read BACK off the project's default profile
+// rather than derived from the tenant summary: a restricted tenant certificate
+// cannot see the kind=infra project, so summary.DNSAddress (the leaf signer) is
+// empty for exactly the callers that run `sc create`. The profile is the one
+// source both the CLI and the broker can always reach, and reusing it means a
+// bare machine and its siblings can never disagree about the tenant's zone.
+var (
+	v2ProfileFQDNPattern   = regexp.MustCompile(`(?m)^fqdn:\s*\{\{\s*v1\.local_hostname\s*\}\}\.(\S+?)\s*$`)
+	v2ProfileSignerPattern = regexp.MustCompile(`(?m)^\s*SIGNER=(\S+)\s*$`)
+)
+
+// v2BareInstanceConfig builds the instance-level config of a `--bare` machine:
+// the bare cloud-init, rendered from the identity its project's default profile
+// already carries.
+//
+// A profile without that identity is a hard error rather than a boot without
+// certificates: --bare promises exactly two things, and a machine that silently
+// came up with neither a leaf nor a way to log in and fix it is worse than one
+// that was never created.
+func v2BareInstanceConfig(project TenantResourceServer, incusProject string) (api.ConfigMap, error) {
+	profile, _, err := project.GetProfile("default")
+	if err != nil {
+		return nil, fmt.Errorf("read the default profile of %s for --bare: %w", incusProject, err)
+	}
+	userData := profile.Config["cloud-init.user-data"]
+	domain := firstSubmatch(v2ProfileFQDNPattern, userData)
+	signer := firstSubmatch(v2ProfileSignerPattern, userData)
+	if domain == "" || signer == "" {
+		return nil, fmt.Errorf("project %s cannot host a --bare machine: its default profile carries no machine FQDN and TLS signer, "+
+			"so the machine would boot with no certificate and no way in — re-provision the project (sc project create %s) to re-render it",
+			incusProject, shortProjectName(incusProject))
+	}
+	return api.ConfigMap{"cloud-init.user-data": tenant.V2BareUserData(domain, signer)}, nil
+}
+
+// v2BareInstanceDevices masks the project's SHARED filesystems on a bare
+// machine. `type: none` is Incus's device-inhibit type: an instance device of
+// that name shadows the profile's, so the mount never happens — the same
+// instance-beats-profile rule that carries the bare cloud-init, rather than a
+// third profile the project would have to be re-provisioned to gain.
+//
+// Masked by name, not by category, and deliberately NOT sc-platform: the bare
+// machine's boot shims source /.sc/platform/sbin/caddy-setup, so masking that
+// one would leave it with no Caddy at all. A device added to the default
+// profile later is inherited by bare machines until it is named here.
+//
+// This also settles the homeshare migration: appending the `homeshare` profile
+// to a bare machine is a no-op, because the instance-level mask outranks it.
+func v2BareInstanceDevices() api.DevicesMap {
+	return api.DevicesMap{
+		"home":      {"type": "none"},
+		"workspace": {"type": "none"},
+	}
+}
+
+func firstSubmatch(pattern *regexp.Regexp, value string) string {
+	if match := pattern.FindStringSubmatch(value); match != nil {
+		return strings.TrimSpace(match[1])
+	}
+	return ""
+}
+
+// shortProjectName is the trailing segment of <prefix>-<tenant>-<project>: what
+// the tenant calls the project, for use in advice they can paste back.
+func shortProjectName(incusProject string) string {
+	if idx := strings.LastIndex(incusProject, "-"); idx >= 0 {
+		return incusProject[idx+1:]
+	}
+	return incusProject
+}
 
 // MachineLifecycleV2 applies start/stop/restart/delete to a freeform v2
 // machine. Delete force-stops a running instance first; state changes go

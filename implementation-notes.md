@@ -5,6 +5,85 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-07 — `sc create --bare`: a machine with a hostname and a leaf, and nothing else
+
+The ask: create a machine that boots, has the correct hostname, and runs Caddy
+with the right certs — no ssh, no user. Decisions that were not in the ask:
+
+- **Instance-level cloud-init override, not a second profile.** The obvious
+  alternative was a `bare` profile beside `default`/`homeshare`. It loses:
+  profiles compose by *union* per key, so a bare profile could not un-set the
+  default profile's `cloud-init.user-data` — it would have to replace `default`
+  wholesale and therefore restate the NIC, root disk, `/workspace` and both
+  `/.sc` devices, which then drift every time the default profile's devices
+  change. Instance config wins over profile config for the same key, so setting
+  `cloud-init.user-data` on the instance replaces exactly the half we want and
+  inherits the devices. Cost: the override is only applied at create time, which
+  is fine — cloud-init has already run by the time anything could change it.
+
+- **The bare machine's identity is read BACK off the project's default profile.**
+  Rendering the bare document needs `<project>.<suffix>` and the sidecar signer
+  URL. The tenant summary looks like the natural source, but `Summary.DNSAddress`
+  is derived from the `kind=infra` project, which a *restricted tenant
+  certificate cannot see* — i.e. it is empty for exactly the callers that run
+  `sc create`. The default profile's user-data carries both (that is where the
+  machine's own `machine.env` comes from) and is always readable, so
+  `v2BareInstanceConfig` greps them out of it. Bonus: a bare machine and its
+  siblings physically cannot disagree about the tenant's zone. The coupling is
+  pinned by a round-trip test against the real renderer rather than a sample.
+
+- **A profile with no identity is a hard error.** `V2DefaultProfileUserData` has
+  a minimal branch (no jinja, no signer) for projects provisioned without a
+  suffix. Launching `--bare` there would produce a machine with no certificate
+  *and* no way to log in and fix it — strictly worse than not creating it. So it
+  refuses, and names `sc project create <name>` as the repair.
+
+- **Reuse the caddy-setup shim rather than inlining the setup.** The bare
+  user-data bakes the same `sandcastle-generalize` + `sandcastle-caddy-setup`
+  boot shims as the default profile, so the actual bodies stay in the `/.sc`
+  platform payload and update centrally (ADR-0022). Duplicating the install +
+  fetch logic into a second cloud-init document would have been the first thing
+  to drift.
+
+- **Shared storage is masked per instance, not avoided by a new profile.** A
+  bare machine should join none of the project's shared filesystems, and the
+  obvious route — a third profile without the `home`/`workspace` disks — would
+  need every project *re-provisioned* to gain it, and would have to restate the
+  NIC, root disk and both `/.sc` devices (drifting from `default` the moment
+  those change). Incus has a device type for exactly this: `type: none` inhibits
+  an inherited device. So `--bare` sets `home`/`workspace` to `type: none` on the
+  instance, which is the same instance-beats-profile rule the cloud-init
+  override already rides on. It works on projects provisioned by ANY past
+  version (the live `obelix-thieso2-builder` has no `homeshare` profile at all),
+  needs no server-side reconcile, and makes the homeshare migration a no-op on
+  bare machines — an appended `homeshare` profile loses to the mask.
+  `/.sc/platform` is pointedly NOT masked: the boot shims source caddy-setup
+  from it, so masking it would cost the machine the one thing `--bare` promises.
+  The cost of masking by name is that a device added to `default` later is
+  inherited until it is named here; a test asserts each mask still corresponds
+  to a real profile device, so a rename shows up as a failure rather than as
+  silent dead config.
+
+- **`HOME=/srv` on a bare machine.** caddy-setup's Caddyfile serves `$HOME` at
+  `/_h`, and a bare machine has no login user. `/srv` exists on every
+  Debian-family image and is empty, so the handler answers 404 instead of the
+  Caddyfile failing to load. Pointing it at `/workspace` would have made `/_h`
+  and `/_w` silently the same tree.
+
+- **`users: []`, plus an explicit sshd disable.** An *absent* `users:` key makes
+  cloud-init create the distro default user, so the empty list is what makes
+  "no user" true — subtle enough that the test asserts on the parsed YAML rather
+  than a string match. Nothing in the document installs sshd, but a
+  `--image` that ships one enabled would quietly make "no ssh" untrue, so the
+  runcmd disables it defensively.
+
+- **The output tells the truth about being unreachable.** `sc create --bare`
+  prints the HTTPS URL instead of the SSH hint, and says outright that
+  `sc connect` will not work, pointing at `sc incus exec` instead. `--bare` was
+  deliberately *not* wired into `sc connect`/`sc fix`'s create-if-missing path:
+  those exist to open a shell, and creating a machine there is a means to that
+  end.
+
 ## 2026-08-06 — Splitting `/home` out of the default profile into `homeshare`
 
 The ask: keep `/workspace` shared on every new machine, stop sharing `/home`,
