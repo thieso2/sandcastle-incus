@@ -164,6 +164,9 @@ func (m HostOverrideManager) listV2Machines(ctx context.Context, summary tenant.
 					PrivateIP: instanceGlobalIPv4(instance),
 					CreatedAt: formatInstanceCreatedAt(instance.CreatedAt),
 					Running:   instance.IsActive(),
+					// Read from the instance's OWN config, so a project-wide
+					// profile key could never mark every machine bare.
+					Bare: instanceIsBareV2(instance.Config),
 				})
 			}
 			perProject[index] = found

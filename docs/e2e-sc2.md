@@ -1677,10 +1677,7 @@ the CA (no `-k`), 308-redirected HTTP→HTTPS, proxied to `:3000`, vhosted
 `/workspace`. The file routes were later scoped to `/_h`→`$HOME` (+ `/_w`), which
 also dropped the `/`-root bind-mount workaround.
 
-### Phase 8c-bare — `sc create --bare`: HTTPS and hostname, nothing else 🚧
-
-> Implemented (CLI + incusx + profile-derived identity) but **not yet run against
-> a live tenant** — the criteria below are the target, unverified.
+### Phase 8c-bare — `sc create --bare`: HTTPS and hostname, nothing else ✅
 
 `sc create --bare <machine>` creates a machine that boots with its canonical
 Machine Private Hostname and a Caddy serving its tenant-CA leaf, and with **no
@@ -1708,6 +1705,14 @@ curl -so /dev/null -w '%{http_code}\n' https://web.default.<suffix>/     # 502 u
 incus exec web --project <default> -- openssl x509 -in /etc/sandcastle/tls/cert.pem -noout -ext subjectAltName
 #   → DNS:web.default.<suffix>, DNS:*.web.default.<suffix>
 
+# sc connect works — it detects the bare machine and execs a shell as root
+sc c web -- 'hostname -f; id -un'
+#   → Connecting: incus exec web as root (bare machine — no user, no sshd)
+#     web.default.<suffix>
+#     root
+sc ls                                       # → TYPE column reads "CT (bare)"
+sc fix web                                  # → refuses: nothing interactive to fix
+
 # …and nothing else is there
 sc incus exec web -- sh -c 'getent passwd | grep -c :2000:; systemctl is-active ssh'
 #   → 0 UID-2000 users; ssh inactive (or no such unit)
@@ -1724,10 +1729,21 @@ machine (the reconciler reads Incus state, not machine contents); `hostname -f` 
 the canonical FQDN; Caddy serves a leaf with the machine + wildcard SANs; `df`
 shows neither `/home` nor `/workspace` (but still `/.sc/platform`); there is
 no UID-2000 user, no `~/.ssh`, and nothing listening on `:22`; `sc connect web`
-fails with the sshd timeout rather than hanging forever; and `sc list` shows it as
-a normal `CT`. A project whose default profile carries no FQDN/signer must
+opens an Incus exec session as root (never an SSH attempt, never a timeout) and
+still forwards a trailing `-- command`; `sc fix web` refuses with a reason; and
+`sc list` marks the row `CT (bare)` with `"bare": true` in the JSON. A project whose default profile carries no FQDN/signer must
 **refuse** the create (naming `sc project create <name>` as the fix), not launch a
 machine with no certificate and no way in.
+
+**PASS (validated 2026-08-07 on obelix `builder:tubu6`):** `home` and `workspace`
+came up as `type: none` and `df` showed neither, with `/.sc/platform` and
+`/.sc/local` still mounted; Caddy served a leaf with SANs
+`[tubu6.builder.obelix, *.tubu6.builder.obelix]` — 502 over HTTPS with no `-k`
+(nothing on `:3000` yet) and 308 on HTTP; `getent passwd` had no UID-2000 user
+and `ssh` was inactive; `hostname -f` was `tubu6.builder.obelix`; and
+`sc c tubu6 -- '…'` opened an Incus exec session as root, printing
+`Connecting: incus exec tubu6 (bare machine — no sshd)`. Detection also caught
+`tubu`, created before the marker key existed, via its userless cloud-init.
 
 ---
 

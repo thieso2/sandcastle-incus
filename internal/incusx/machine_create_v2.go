@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lxc/incus/v6/shared/api"
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -226,8 +227,50 @@ func v2BareInstanceConfig(project TenantResourceServer, incusProject string) (ap
 			"so the machine would boot with no certificate and no way in — re-provision the project (sc project create %s) to re-render it",
 			incusProject, shortProjectName(incusProject))
 	}
-	return api.ConfigMap{"cloud-init.user-data": tenant.V2BareUserData(domain, signer)}, nil
+	return api.ConfigMap{
+		"cloud-init.user-data": tenant.V2BareUserData(domain, signer),
+		// The durable "this machine has no way in" marker. `sc connect` reads it
+		// to exec a shell over the Incus API instead of waiting out an sshd that
+		// is never coming.
+		meta.KeyV2Bare: "true",
+	}, nil
 }
+
+// MachineIsBareV2 reports whether a machine was created with `--bare`.
+//
+// The marker is read from the INSTANCE config, never the expanded config: a
+// profile could carry the key for every machine in the project, which is the
+// opposite of what it means. Machines created before the marker existed fall
+// back to their own cloud-init — an instance-level document that creates no
+// users is bare whether or not Sandcastle made it, and `incus exec` is the
+// right way into it either way.
+func (c TenantCreator) MachineIsBareV2(ctx context.Context, incusProject string, name string) (bool, error) {
+	server, err := c.resolveV2Server()
+	if err != nil {
+		return false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	instance, _, err := server.UseProject(incusProject).GetInstance(name)
+	if err != nil {
+		return false, fmt.Errorf("get machine %s: %w", name, err)
+	}
+	return instanceIsBareV2(instance.Config), nil
+}
+
+// instanceIsBareV2 is the pure half of MachineIsBareV2, over an instance's own
+// config map.
+func instanceIsBareV2(config map[string]string) bool {
+	if strings.TrimSpace(config[meta.KeyV2Bare]) == "true" {
+		return true
+	}
+	return v2BareUserDataPattern.MatchString(config["cloud-init.user-data"])
+}
+
+// `users: []` is what makes a bare machine userless, so it is also the most
+// honest thing to recognise one by.
+var v2BareUserDataPattern = regexp.MustCompile(`(?m)^users:\s*\[\s*\]\s*$`)
 
 // v2BareInstanceDevices masks the project's SHARED filesystems on a bare
 // machine. `type: none` is Incus's device-inhibit type: an instance device of

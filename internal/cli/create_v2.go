@@ -335,10 +335,16 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 // runConnectV2 implements `sc connect` (alias `c`) for v2 tenants: create the
 // machine if it doesn't exist, start it if it is stopped, wait for sshd, then
 // open an SSH session as the profile login user with the login SSH key.
+//
+// A bare machine (`sc create --bare`) has neither user nor sshd, so it is
+// reached with an Incus exec session instead — same command, different door.
 func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, command []string, launch launchV2Options) error {
 	dialed, err := dialV2Machine(ctx, config, summary, reference, launch)
 	if err != nil {
 		return err
+	}
+	if dialed.bare {
+		return connectV2Bare(ctx, config, summary, dialed, command)
 	}
 	sshArgs := dialed.sshArgs
 	// ssh joins its trailing arguments with spaces into ONE remote command
@@ -355,6 +361,46 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 	return sshCmd.Run()
 }
 
+// connectV2Bare opens a session on a machine that has no sshd: `incus exec`
+// over the tenant's own restricted certificate, as root, since a bare machine
+// has no login user to be.
+//
+// It shells out to the incus CLI rather than driving the exec websocket
+// directly — that is what gives an interactive PTY, window resizing and signal
+// handling for free, and it is the same path `sc incus` already takes.
+//
+// The shell is chosen in the machine: bash when it is there, sh otherwise. A
+// bare machine is whatever image the tenant pointed --image at, and assuming
+// bash on a busybox-ish one would turn a working session into "no such file".
+func connectV2Bare(ctx context.Context, config commandConfig, summary tenant.Summary, dialed dialedV2Machine, command []string) error {
+	runner := config.incusRunner
+	if runner == nil {
+		runner = runIncusCLI
+	}
+	incusDir := resolveIncusDir(config.adminConfig.Remote)
+	if incusDir == "" {
+		return fmt.Errorf("no Sandcastle-managed Incus config found for remote %q; add one with: sc remote add", config.adminConfig.Remote)
+	}
+	// No -t/-T: incus allocates a PTY exactly when stdin AND stdout are
+	// terminals, which is the right answer for both `sc c web` at a prompt and
+	// `sc c web -- cmd` in a pipeline. Forcing either would break the other.
+	remote := []string{"exec", dialed.machine, "--"}
+	if line := remoteCommandLine(command); line != "" {
+		remote = append(remote, "/bin/sh", "-c", line)
+		fmt.Fprintf(config.stdout, "Connecting: incus exec %s (bare machine — no sshd)\n", dialed.machine)
+	} else {
+		remote = append(remote, "/bin/sh", "-c", bareLoginShellCommand)
+		fmt.Fprintf(config.stdout, "Connecting: incus exec %s as root (bare machine — no user, no sshd)\n", dialed.machine)
+	}
+	incusProject := summary.V2IncusProjectName(dialed.project)
+	env := append(os.Environ(), "INCUS_CONF="+incusDir, "INCUS_PROJECT="+incusProject)
+	return runner(ctx, remote, env, osStdinFor(config), config.stdout, config.stderr)
+}
+
+// bareLoginShellCommand prefers bash and falls back to sh, in the machine. exec
+// replaces the wrapper either way, so no extra process survives the session.
+const bareLoginShellCommand = "if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi"
+
 // dialedV2Machine carries everything needed to run ssh against a resolved,
 // running machine: the base ssh argv (options + login target, no remote command
 // yet) plus the login user and IP for messaging.
@@ -364,6 +410,9 @@ type dialedV2Machine struct {
 	privateIP string
 	project   string
 	machine   string
+	// bare means the machine has no sshd to dial: sshArgs, loginUser and
+	// privateIP are unset and only project/machine are populated.
+	bare bool
 }
 
 // dialV2Machine resolves a machine reference, ensures the machine exists and is
@@ -397,6 +446,22 @@ func dialV2Machine(ctx context.Context, config commandConfig, summary tenant.Sum
 		fmt.Fprintf(config.stdout, "Machine %s created (project %s).\n", machineName, project)
 	case ensured.Started:
 		fmt.Fprintf(config.stdout, "Machine %s started.\n", machineName)
+	}
+	// A bare machine has no sshd and no user, so everything below this point —
+	// the cloud-init wait, the port probe, the host-key pinning — could only
+	// ever end in a timeout. Report it instead and let the caller decide:
+	// `sc connect` execs a shell over the Incus API, `sc fix` gives up.
+	// Checked AFTER the ensure so a stopped bare machine is started first, and
+	// only for machines that already existed: a just-created one is never bare
+	// (this path always creates from the default profile).
+	if !ensured.Created {
+		bare, err := config.tenantCreator.MachineIsBareV2(ctx, summary.V2IncusProjectName(project), machineName)
+		if err != nil {
+			return dialedV2Machine{}, err
+		}
+		if bare {
+			return dialedV2Machine{bare: true, project: project, machine: machineName}, nil
+		}
 	}
 	if ensured.PrivateIP == "" {
 		return dialedV2Machine{}, fmt.Errorf("machine %s has no IP yet — still booting; retry in a few seconds (watch with: sc list)", machineName)

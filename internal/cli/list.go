@@ -474,7 +474,7 @@ func formatMultiMachineList(payload multiListPayload) string {
 				section.Remote,
 				machine.Project,
 				machine.Name,
-				machineTypeShort(machine.Type),
+				machineTypeCell(machine),
 				machineFQDN(section.Tenant, machine),
 				machine.PrivateIP,
 				formatListCreatedAt(machine.CreatedAt),
@@ -527,7 +527,7 @@ func formatMachineList(result listPayload) string {
 			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			machine.Project,
 			machine.Name,
-			machineTypeShort(machine.Type),
+			machineTypeCell(machine),
 			machineFQDN(result.Tenant, machine),
 			machine.PrivateIP,
 			formatListCreatedAt(machine.CreatedAt),
@@ -569,6 +569,17 @@ func displayValue(value string) string {
 
 // machineTypeShort renders an Incus instance type as the compact table label:
 // CT for containers, VM for virtual machines.
+// machineTypeCell renders the listing's TYPE column. A bare machine is marked
+// there rather than in a column of its own: it is a property of what the
+// machine IS, and the mark is what tells a reader why `sc connect` opens an
+// Incus exec session on that row and an SSH session on the others.
+func machineTypeCell(m meta.Machine) string {
+	if m.Bare {
+		return machineTypeShort(m.Type) + " (bare)"
+	}
+	return machineTypeShort(m.Type)
+}
+
 func machineTypeShort(instanceType string) string {
 	switch instanceType {
 	case "virtual-machine":
@@ -642,7 +653,7 @@ func formatTenantResources(result tenantResourcesPayload) string {
 			state = "running"
 		}
 		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			m.Project, m.Name, machineTypeShort(m.Type), machineFQDN(t, m), m.PrivateIP, formatListCreatedAt(m.CreatedAt), state)
+			m.Project, m.Name, machineTypeCell(m), machineFQDN(t, m), m.PrivateIP, formatListCreatedAt(m.CreatedAt), state)
 	}
 	for _, u := range result.Unmanaged {
 		state := u.Status

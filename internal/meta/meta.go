@@ -48,6 +48,10 @@ const (
 	// ever read back, so `sc project set-cloud-identity` was a no-op.
 	KeyV2CloudIdentity   = Prefix + "v2.cloud-identity"
 	KeyV2DockerAutostart = Prefix + "v2.docker-autostart"
+	// KeyV2Bare marks an INSTANCE created with `sc create --bare`: no login
+	// user, no SSH key, no sshd. `sc connect` reads it to pick an Incus exec
+	// session over SSH, which on such a machine could only ever time out.
+	KeyV2Bare = Prefix + "v2.bare"
 	// KeyBinaryVersion records the release version (vX.Y.Z) of the sandcastle
 	// binary last pushed into an instance (#124 §7) — auth-app, broker, tenant
 	// sidecars. Written on every binary push; missing means "unknown" and is
@@ -144,6 +148,10 @@ type Machine struct {
 	CreatedBy       string   `json:"createdBy,omitempty"`
 	CreatedAt       string   `json:"createdAt,omitempty"`
 	Running         bool     `json:"running,omitempty"`
+	// Bare marks a machine created with `sc create --bare`: no login user, no
+	// sshd, no shared storage. It changes how the machine is reached, so a
+	// listing says so rather than leaving `sc connect` to time out.
+	Bare bool `json:"bare,omitempty"`
 }
 
 type Route struct {

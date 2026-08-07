@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
@@ -339,5 +340,71 @@ func TestRemoteCommandLineRoundTripsThroughAShell(t *testing.T) {
 				t.Fatalf("sh -c %q produced %q, want %q", line, output, testCase.want)
 			}
 		})
+	}
+}
+
+// `sc connect` to a bare machine opens an Incus exec session instead of SSH:
+// there is no user to be and no sshd to answer, so the ssh path could only
+// ever end in the cloud-init timeout.
+func TestConnectV2BareExecsAShellInsteadOfSSH(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	incusDir := scconfig.RemoteIncusDir("sandcastle-alice")
+	if err := os.MkdirAll(incusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// ResolveConfigPath only accepts a per-remote dir that holds a config.yml.
+	if err := os.WriteFile(filepath.Join(incusDir, "config.yml"), []byte("remotes: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotArgs, gotEnv []string
+	config := commandConfig{
+		name:        "sandcastle",
+		adminConfig: scconfig.Admin{Remote: "sandcastle-alice", Tenant: "acme"},
+		stdout:      io.Discard,
+		stderr:      io.Discard,
+		incusRunner: func(ctx context.Context, args []string, env []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+			gotArgs = append([]string{}, args...)
+			gotEnv = append([]string{}, env...)
+			return nil
+		},
+	}
+	summary := tenant.Summary{Tenant: "acme", InfraProject: "sc2-acme", DNSSuffix: "acme"}
+	dialed := dialedV2Machine{bare: true, project: "default", machine: "web"}
+
+	if err := connectV2Bare(context.Background(), config, summary, dialed, nil); err != nil {
+		t.Fatal(err)
+	}
+	// No -t/-T: incus picks the mode from whether stdin/stdout are terminals,
+	// which is right for both an interactive prompt and a pipeline.
+	want := []string{"exec", "web", "--", "/bin/sh", "-c", bareLoginShellCommand}
+	if strings.Join(gotArgs, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("args = %#v, want %#v", gotArgs, want)
+	}
+	if !envContains(gotEnv, "INCUS_CONF="+incusDir) {
+		t.Fatalf("env missing INCUS_CONF=%s: %#v", incusDir, gotEnv)
+	}
+	// The machine lives in the tenant's app project, not the infra one.
+	if !envContains(gotEnv, "INCUS_PROJECT=sc2-acme-default") {
+		t.Fatalf("env missing INCUS_PROJECT=sc2-acme-default: %#v", gotEnv)
+	}
+
+	// A trailing command runs instead of the shell, shell-quoted into one line
+	// so `sc c web -- ls -l /tmp` does not lose its arguments.
+	if err := connectV2Bare(context.Background(), config, summary, dialed, []string{"ls", "-l"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(gotArgs, " "); got != `exec web -- /bin/sh -c 'ls' '-l'` {
+		t.Fatalf("args with a command = %q", got)
+	}
+}
+
+// The fallback shell choice is made IN the machine: a bare machine is whatever
+// image the tenant pointed --image at, and bash is not guaranteed.
+func TestBareLoginShellCommandFallsBackToSh(t *testing.T) {
+	for _, want := range []string{"command -v bash", "exec bash -l", "exec sh -l"} {
+		if !strings.Contains(bareLoginShellCommand, want) {
+			t.Fatalf("bare login shell command missing %q: %q", want, bareLoginShellCommand)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thieso2/sandcastle-incus/internal/meta"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -95,6 +96,52 @@ func TestV2BareInstanceDevicesMaskSharedDisksButNotThePayload(t *testing.T) {
 	}
 	if _, present := v2HomeShareProfileDevices(devicesTestPlan())["home"]; !present {
 		t.Fatalf("masking \"home\" is dead config: the homeshare profile has no such device")
+	}
+}
+
+// How a bare machine is recognised later, when nothing but its Incus record is
+// left to go on: the marker `--bare` writes at create time, and — for machines
+// that predate the marker — its own cloud-init creating no users.
+func TestInstanceIsBareV2(t *testing.T) {
+	bareUserData := tenant.V2BareUserData("default.acme", "http://10.0.0.3:9443")
+	normalUserData := tenant.V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "default", "acme", "http://10.0.0.3:9443")
+
+	for _, tc := range []struct {
+		name   string
+		config map[string]string
+		want   bool
+	}{
+		{"marker", map[string]string{meta.KeyV2Bare: "true"}, true},
+		{"marker wins without user-data", map[string]string{meta.KeyV2Bare: "true", "cloud-init.user-data": normalUserData}, true},
+		// Machines created by the first --bare release carry no marker.
+		{"legacy bare, no marker", map[string]string{"cloud-init.user-data": bareUserData}, true},
+		{"a normal machine", map[string]string{"cloud-init.user-data": normalUserData}, false},
+		// The common case by far: no instance-level cloud-init at all, the
+		// project profile supplies it.
+		{"profile-supplied cloud-init", map[string]string{}, false},
+		{"marker explicitly false", map[string]string{meta.KeyV2Bare: "false"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := instanceIsBareV2(tc.config); got != tc.want {
+				t.Fatalf("instanceIsBareV2 = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The marker has to survive a round trip through the config --bare actually
+// writes, or every machine falls back to the cloud-init heuristic.
+func TestBareInstanceConfigCarriesTheMarker(t *testing.T) {
+	userData := tenant.V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "backend", "acme.example", "http://10.249.7.3:9443")
+	config := map[string]string{
+		"cloud-init.user-data": tenant.V2BareUserData(
+			firstSubmatch(v2ProfileFQDNPattern, userData),
+			firstSubmatch(v2ProfileSignerPattern, userData),
+		),
+		meta.KeyV2Bare: "true",
+	}
+	if !instanceIsBareV2(config) {
+		t.Fatalf("a machine created with --bare must read back as bare: %v", config)
 	}
 }
 

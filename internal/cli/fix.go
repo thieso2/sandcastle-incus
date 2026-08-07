@@ -118,6 +118,12 @@ func runFixV2(ctx context.Context, config commandConfig, summary tenant.Summary,
 	if err != nil {
 		return err
 	}
+	// Every fixup here is about the interactive half of a machine — the /.sc
+	// shell shims, the forwarded agent, sshd. A bare machine has none of it by
+	// design, so there is nothing to fix rather than something broken.
+	if dialed.bare {
+		return fmt.Errorf("machine %s was created with --bare: it has no login user, no sshd and no shell setup, so there is nothing for `sc fix` to install", dialed.machine)
+	}
 	verb := "Fixing"
 	if checkOnly {
 		verb = "Checking"

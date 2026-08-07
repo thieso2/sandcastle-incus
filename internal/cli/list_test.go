@@ -162,3 +162,25 @@ func TestListMachinesProjectGlobVersusTypo(t *testing.T) {
 		t.Fatalf("literal typo error = %v, want a project-not-found error", err)
 	}
 }
+
+// A listing marks bare machines in the TYPE column: it is the column that says
+// what the machine IS, and the mark is what explains why `sc connect` opens an
+// Incus exec session on that row and an SSH session on the others.
+func TestMachineTypeCellMarksBareMachines(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		m    meta.Machine
+		want string
+	}{
+		{"container", meta.Machine{Type: meta.MachineTypeContainer}, "CT"},
+		{"vm", meta.Machine{Type: "virtual-machine"}, "VM"},
+		{"bare container", meta.Machine{Type: meta.MachineTypeContainer, Bare: true}, "CT (bare)"},
+		{"bare vm", meta.Machine{Type: "virtual-machine", Bare: true}, "VM (bare)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := machineTypeCell(tc.m); got != tc.want {
+				t.Fatalf("machineTypeCell = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

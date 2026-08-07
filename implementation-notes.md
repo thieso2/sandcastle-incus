@@ -5,6 +5,45 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-07 — Reaching a bare machine: `sc connect` execs, `sc ls` says so
+
+`sc connect` to a bare machine could only ever spend two minutes waiting for an
+sshd that is never coming. It now detects one and opens an Incus exec session
+instead. Decisions that were not in the ask:
+
+- **Two-tier detection, off the INSTANCE config.** `--bare` writes a
+  `user.sandcastle.v2.bare=true` marker at create time; the fallback is the
+  instance's own cloud-init matching `^users: []$`. The marker alone would miss
+  every machine created by the first `--bare` release (there were already six on
+  obelix by the time this was written); the heuristic alone would be guesswork.
+  Read from `instance.Config`, never `ExpandedConfig` — a profile could carry the
+  key for every machine in the project, which is the opposite of what it means.
+  The heuristic's false positive is a hand-launched machine whose user-data
+  creates no users, and for that machine exec is the right door anyway.
+
+- **Shell out to `incus exec`, don't drive the websocket.** The Incus client
+  exposes exec directly, but then the PTY, window resizing and signal forwarding
+  are all ours to get right. `sc incus` already shells out to the CLI with
+  INCUS_CONF/INCUS_PROJECT set; reusing that path costs one process and buys all
+  of it. And no `-t`/`-T`: incus allocates a PTY exactly when stdin AND stdout
+  are terminals, which is already right for both `sc c web` and `sc c web -- cmd`.
+
+- **The shell is chosen inside the machine.** `if command -v bash; then exec
+  bash -l; else exec sh -l; fi`, because a bare machine is whatever image the
+  tenant pointed `--image` at, and hard-coding bash turns a working session into
+  "no such file" on anything busybox-ish.
+
+- **Marked in the TYPE column, not a new one.** `sc ls` renders `CT (bare)`.
+  Bareness is a property of what the machine IS, and TYPE is where a reader
+  looks to understand why one row is reached over exec and the others over SSH.
+  A fourth column would have had to be added to three separate tables and would
+  be empty for almost every row. JSON gets a `"bare": true` field.
+
+- **`sc fix` refuses rather than exec'ing.** It shares `dialV2Machine` with
+  connect, so it sees the same flag — but every fixup it installs (the /.sc
+  shell shims, the forwarded agent, sshd) is part of the interactive half a bare
+  machine deliberately does not have. Nothing to fix is not the same as broken.
+
 ## 2026-08-07 — `sc create --bare`: a machine with a hostname and a leaf, and nothing else
 
 The ask: create a machine that boots, has the correct hostname, and runs Caddy
