@@ -37,11 +37,17 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
   running machine. Resolves to the machine's bridge IP, reachable over the tenant
   tailnet's subnet route.
 - **Project profile** — Each project's Incus `default` profile bundles the shared
-  `/home` + `/workspace` volume pair, the shared-bridge NIC, and cloud-init login
+  `/workspace` volume, the shared-bridge NIC, and cloud-init login
   (user + SSH key + sshd). This is how a machine "in a project" gets its shared,
-  persistent home and workspace and is reachable over SSH for free. On hosts with
+  persistent workspace and is reachable over SSH for free. On hosts with
   idmapped-mount support the shared volumes are `security.shifted` so a CT and a
   VM see consistent ownership.
+- **`homeshare` profile** — The project's second profile, holding the shared
+  `/home` volume and nothing else. It is applied only to machines created with
+  `sc create --home-share` (or `sc connect --home-share`), so a shared home
+  directory across a project's machines is opt-in; every other machine keeps a
+  private `/home` from its image. Profiles apply at create time — an existing
+  machine keeps the profiles it was created with.
 - **Per-tenant CA** — The certificate authority for private machine TLS
   hostnames, scoped to the tenant. (Leaf issuance for the private HTTPS path is
   future work; the public ingress path needs no CA install.)

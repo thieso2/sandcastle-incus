@@ -24,6 +24,20 @@ type CreateMachineV2Request struct {
 	Name         string
 	Image        string
 	VM           bool
+	// HomeShare adds the project's `homeshare` profile beside default, so the
+	// machine mounts the shared /home volume instead of a machine-local /home.
+	// Profiles are applied at create time only — an existing machine keeps the
+	// profiles it was created with.
+	HomeShare bool
+}
+
+// v2MachineProfiles returns the profile list a machine is created with:
+// default always, plus the opt-in homeshare profile.
+func v2MachineProfiles(homeShare bool) []string {
+	if homeShare {
+		return []string{"default", tenant.V2HomeShareProfileName}
+	}
+	return []string{"default"}
 }
 
 type CreateMachineV2Result struct {
@@ -37,6 +51,9 @@ type CreateMachineV2Result struct {
 	// the tenant bridge's config, so this is the only authoritative source.
 	PrivateCIDR string `json:"privateCIDR,omitempty"`
 	LoginUser   string `json:"loginUser,omitempty"`
+	// HomeShare reports whether the machine was created with the homeshare
+	// profile (shared /home) — /workspace is shared either way.
+	HomeShare bool `json:"homeShare,omitempty"`
 }
 
 // CreateMachineV2 launches the instance and waits (bounded) for it to lease an
@@ -63,6 +80,7 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 		Project:   request.IncusProject,
 		Image:     request.Image,
 		LoginUser: v2ProfileLoginUser(project),
+		HomeShare: request.HomeShare,
 	}
 	c.log("launching " + result.Type + " " + request.Name + " from " + request.Image + " into " + request.IncusProject)
 	op, err := project.CreateInstance(api.InstancesPost{
@@ -70,6 +88,9 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 		Type:   instanceType,
 		Start:  true,
 		Source: imageInstanceSource(request.Image),
+		InstancePut: api.InstancePut{
+			Profiles: v2MachineProfiles(request.HomeShare),
+		},
 	})
 	if err != nil {
 		return CreateMachineV2Result{}, fmt.Errorf("create machine %s: %w", request.Name, err)

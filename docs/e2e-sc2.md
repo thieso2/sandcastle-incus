@@ -461,21 +461,33 @@ sc list                                      # FQDN column shows canonical names
 #       "Instance DNS name \"web\" already used on network". Their FQDNs stay
 #       distinct: web.default.castle vs web.backend.castle.
 
-# 2b. shared $HOME + /workspace across the project (CT ↔ VM)
+# 2b. shared /workspace across the project (CT ↔ VM), and opt-in shared $HOME
 sc create vm1 --vm --detach                  # a VM next to the CTs in default
 #    wait for both to be RUNNING (sc list), then:
 # NB: `sc incus exec` runs as ROOT inside the machine, so $USER expands to "root"
 # and /home/root does not exist. Use the login user's home explicitly (default: sc).
 # NB: `sc c <machine> -- sh -c '<script>'` does NOT work — see the appendix
 # (`sc c` does not shell-quote its argv, so the remote shell re-splits it).
-sc incus exec web -- sh -c 'echo from-ct > /workspace/marker; echo home-ct > /home/sc/hmarker'
-sc incus exec vm1 -- sh -c 'cat /workspace/marker; cat /home/sc/hmarker'   # → from-ct / home-ct
+sc incus exec web -- sh -c 'echo from-ct > /workspace/marker'
+sc incus exec vm1 -- sh -c 'cat /workspace/marker'   # → from-ct
 sc incus exec vm1 -- sh -c 'echo from-vm >> /workspace/marker'
 sc incus exec web -- cat /workspace/marker   # → from-ct then from-vm
-# PASS: the VM reads what the CT wrote on BOTH volumes and vice-versa (one
-#       shared home+workspace volume pair per project, security.shifted);
-#       the login user can write /workspace; ~/.ssh/authorized_keys lives on
-#       the shared /home
+# PASS: the VM reads what the CT wrote on /workspace and vice-versa (one shared
+#       workspace volume per project, security.shifted); the login user can
+#       write /workspace. /home is NOT shared here: web and vm1 were created
+#       without --home-share, so each has its own machine-local /home.
+
+# 2c. --home-share: the opt-in shared /home (homeshare profile)
+sc create hs1 --home-share --detach
+sc create hs2 --home-share --vm --detach
+#    wait for both, then:
+sc incus exec hs1 -- sh -c 'echo home-ct > /home/sc/hmarker'
+sc incus exec hs2 -- sh -c 'cat /home/sc/hmarker'          # → home-ct
+sc incus exec web  -- sh -c 'cat /home/sc/hmarker'          # PASS: No such file
+sc incus profile show homeshare                             # only a `home` disk device
+# PASS: hs1/hs2 list profiles `default,homeshare` (`sc incus config show hs1`)
+#       and share one /home across CT + VM; `web` (default only) does not see it.
+#       `sc c <new-machine> --home-share` does the same when connect creates it.
 
 # 3. the ADR-0018 DNS battery (sidecar CoreDNS = tenant CIDR .3)
 DNS=10.254.0.3
@@ -675,9 +687,11 @@ for p in sc2-$TENANT-default sc2-$TENANT; do
     [ -n "$n" ] && incus delete -f big:$n --project $p 2>/dev/null; done
   incus image list big: --project $p --format csv -c f 2>/dev/null | while read -r fp; do
     [ -n "$fp" ] && incus image delete big:$fp --project $p 2>/dev/null; done
-  # shared home/workspace volumes: detach from the default profile FIRST, then delete
+  # shared home/workspace volumes: detach from the profiles FIRST, then delete.
+  # `workspace` hangs off `default`, `home` off the opt-in `homeshare` profile.
+  incus profile device remove big:default workspace --project $p 2>/dev/null
+  incus profile device remove big:homeshare home --project $p 2>/dev/null
   for v in home workspace; do
-    incus profile device remove big:default $v --project $p 2>/dev/null
     incus storage volume delete big:default $v --project $p 2>/dev/null
   done
   incus profile list big: --project $p --format csv -c n 2>/dev/null | while read -r pr; do
@@ -857,9 +871,12 @@ incus profile show big:default --project sc2-$TENANT-default
 **PASS (✅ validated):** `cloud-init.user-data` contains the login user with
 `shell: /bin/zsh` and `ssh_authorized_keys: [ <your key> ]`, installs
 `openssh-server` and `zsh`, and `runcmd: [systemctl, enable, --now, ssh]`;
-devices include the shared **`home`** (→ `/home`), **`workspace`**
-(→ `/workspace`), **`sc-platform`** (→ `/.sc/platform`, `readonly: "true"`) and
-**`sc-local`** (→ `/.sc/local`) volumes.
+devices include the shared **`workspace`** (→ `/workspace`), **`sc-platform`**
+(→ `/.sc/platform`, `readonly: "true"`) and **`sc-local`** (→ `/.sc/local`)
+volumes — and **no `home` device**: the shared `/home` moved to the separate
+opt-in profile. `incus profile show big:homeshare --project sc2-$TENANT-default`
+carries exactly one device, `home` (→ `/home`), attached only to machines
+created with `--home-share`.
 
 > **`/.sc` shared-scripts volume (ADR-0022, spec #127).** Machines carry only
 > *stable shims*: the profile writes `/etc/ssh/sshrc` and appends a block to
@@ -976,13 +993,14 @@ ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[ct1]} 'echo OK $(whoami)@$(hostname) $
 ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[vm1]} 'echo OK $(whoami)@$(hostname) $(uname -r)'   # OK dev@vm1 6.12.x (VM kernel)
 ```
 
-**Shared `$HOME` + `/workspace` across the project (CT ↔ VM) ✅** — machines in the
-same project share `$HOME` and `/workspace` **by default** (per-project storage
-volumes), so a file written on the CT is visible on the VM and vice-versa:
+**Shared `/workspace` across the project (CT ↔ VM) ✅** — machines in the same
+project share `/workspace` **by default** (a per-project storage volume), so a
+file written on the CT is visible on the VM and vice-versa. `$HOME` is **not**
+shared unless the machine was created with `--home-share`:
 ```bash
 # write on the CT, read on the VM (and the reverse) — same project, shared volume
-incus exec big:ct1 $Pd -- sh -c 'echo from-ct > /workspace/marker; echo from-ct-home > /home/dev/hmarker'
-incus exec big:vm1 $Pd -- sh -c 'cat /workspace/marker; cat /home/dev/hmarker'   # → from-ct / from-ct-home
+incus exec big:ct1 $Pd -- sh -c 'echo from-ct > /workspace/marker'
+incus exec big:vm1 $Pd -- sh -c 'cat /workspace/marker'                          # → from-ct
 ssh -i ~/.ssh/sandcastle_ed25519 dev@${IP[vm1]} 'echo from-vm >> /workspace/marker'
 incus exec big:ct1 $Pd -- cat /workspace/marker                                   # → from-ct then from-vm
 ```
@@ -991,15 +1009,20 @@ CT sees the VM's append — `/workspace` is one shared volume per project.
 ✅ **Built:** `CreateTenantV2` (and `CreateProjectV2` for later app projects) creates
 per-project custom **filesystem** volumes — `workspace` (→ `/workspace`), `home`
 (→ `/home`), plus the `/.sc` script layers `sc-platform` (→ `/.sc/platform`,
-read-only in machines) and `sc-local` (→ `/.sc/local`) — and the `default`
-profile attaches them as `disk` devices. The
+read-only in machines) and `sc-local` (→ `/.sc/local`) — and attaches them as
+`disk` devices: everything except `home` on the `default` profile, `home` alone
+on the opt-in **`homeshare`** profile. The
 same fs volume attaches to a CT **and** a VM simultaneously (incus shares it via
 virtiofs to the VM), so files written on any machine in the project are visible on the
-others — including the login user's whole home directory (cloud-init creates it with
-the authorized key on the first machine; every later machine sees the same `$HOME`).
-Validated 2026-07-04 on `igel` (tenant `hometest`): a CT-written `/home/dev/marker`
-read+appended on a VM and back, `authorized_keys` living on the shared volume, `ssh`
-active on both.
+others. With `--home-share` that extends to the login user's whole home directory
+(cloud-init creates it with the authorized key on the first such machine; every later
+one sees the same `$HOME`); without it each machine keeps a private `/home` from its
+own image, which is the default because one shared home means one dotfile/state tree
+for the whole project.
+Validated 2026-07-04 on `igel` (tenant `hometest`, when `/home` was still on the
+default profile): a CT-written `/home/dev/marker` read+appended on a VM and back,
+`authorized_keys` living on the shared volume, `ssh` active on both — the same check
+now applies to a pair created with `--home-share`.
 
 > ✅ **Auto-registration is now automatic.** A background reconciler in the auth-app
 > registers every running machine (incl. freeform `incus launch`) into the sidecar
@@ -1056,7 +1079,7 @@ sc c lc1 -- hostname                           # connect CREATES a missing machi
 sc list                                        # lc1 with flat FQDN lc1.<suffix> + live IP
 sc incus exec lc1 -- sh -c '
   su - $LOGIN_USER -c "touch /workspace/ok"    # /workspace writable by the login user
-  ls /home/$LOGIN_USER/.ssh/authorized_keys'   # $HOME on the shared volume with the key
+  ls /home/$LOGIN_USER/.ssh/authorized_keys'   # $HOME (machine-local unless --home-share) with the key
 sc stop lc1
 sc c lc1 -- hostname                           # connect STARTS a stopped machine, then SSHes
 sc delete lc1 --yes
@@ -1066,7 +1089,8 @@ sc list                                        # lc1 gone
 - `sc list` resolves the v2 tenant (no `Sandcastle tenant … not found`) and shows
   machines with `<name>.<suffix>` FQDNs and live IPs.
 - The profile's login user (your client Unix username) exists in the machine, can
-  **write `/workspace`**, and `~/.ssh/authorized_keys` lives on the shared `/home`.
+  **write `/workspace`**, and has `~/.ssh/authorized_keys` (on the machine's own
+  `/home`; on the shared `/home` volume when created with `--home-share`).
 - `sc c <machine>` creates a missing machine, starts a stopped one, waits for
   sshd, and lands an SSH session as the profile login user.
 - `sc delete <machine> --yes` deletes the freeform instance (force-stops first);
@@ -1917,7 +1941,7 @@ stays truthful and self-healing.
 | `sc login --force` on a v2 tenant WITH machines → `reconcile User SSH Public Key … Instance not found: default-dev3` | Making v2 tenants visible to `tenant.List` armed the auth-app's v1 per-machine key reconciler, which uses v1 `<project>-<machine>` instance naming | **Fixed:** v2 tenants skip the v1 reconcile/stamp (the key lives in the profile; rotation reaches machines via the shared /home) |
 | `sc delete <machine>` on a v2 tenant → `Sandcastle tenant … not found` even though `sc list` works | `filterTenantProjects` (tenant-filtered store used by lifecycle/plan paths) dropped every non-`kind=tenant` project, so v2 tenants vanished before the v2 branch could run | **Fixed:** the filter keeps `kind=project`/`kind=infra` projects whose `user.sandcastle.tenant` matches; `sc delete/start/stop/restart` now act on v2 freeform instances (Phase 7c) |
 | Login user cannot write `/workspace` (`drwx--x--x root root`) | The shared volume was created with default root ownership; nothing chowned it | **Fixed:** volumes are created with `initial.uid/gid=2000, initial.mode=0775`; pre-existing tenants: one-time `chown 2000:2000 /workspace && chmod 0775 /workspace` from any machine (shared volume → fixes all) |
-| On a host WITHOUT idmapped mounts (e.g. a `dir` storage pool), a **VM** cannot SSH when a CT wrote the shared `/home` first — the VM sees it owned by the CT idmap (`1002000`) and sshd StrictModes rejects it | idmapped mounts (needed for `security.shifted`) are absent, so a shared `/home` cannot show consistent ownership to both a CT and a VM | **Fixed:** on such hosts the shared `/home` device is omitted from the default profile (machines get a normal local `/home`, so SSH always works); `/workspace` stays shared. Enable idmapped mounts (a zfs/btrfs pool) for a shared `/home` across CT + VM. |
+| On a host WITHOUT idmapped mounts (e.g. a `dir` storage pool), a **VM** cannot SSH when a CT wrote the shared `/home` first — the VM sees it owned by the CT idmap (`1002000`) and sshd StrictModes rejects it | idmapped mounts (needed for `security.shifted`) are absent, so a shared `/home` cannot show consistent ownership to both a CT and a VM | **Fixed:** the shared `/home` is opt-in — machines get a local `/home` unless created with `--home-share` (the `homeshare` profile), so SSH always works; `/workspace` stays shared. On a host without idmapped mounts, `--home-share` still hits this: provisioning logs a WARNING and the volume is unshifted. Enable idmapped mounts (a zfs/btrfs pool) for a shared `/home` across CT + VM. |
 | SSH into a **VM** fails `Permission denied (publickey)` while the CT works; VM sees `/home/dev` owned by `1002000` | CT writes to the shared volume through its idmap; without `security.shifted` a VM (virtiofs, no shift) sees raw shifted owners → sshd StrictModes rejects the foreign-owned `~` | **Fixed:** shared volumes are created with `security.shifted=true`; pre-existing tenants: stop machines, `incus storage volume set default home security.shifted=true` (and `workspace`), start, then `chown -R 2000:2000 /home/<user>` once from a VM (raw view) |
 | `sc list`/`sc c` on a enroll-enrolled client → `tenant is required` | `enroll` never persisted `tenant`/`remote` into `~/.config/sandcastle/config.yml` (only the login path did) | **Fixed:** `enroll` saves the tenant + base remote as local defaults |
 | Second `sc login` re-runs the whole device flow instead of `Already logged in` | `/api/tenants` filtered accessibility through the v1 `ListTenantUsers` metadata, which v2 tenants don't have — the saved-token check concluded the tenant was "no longer accessible" | **Fixed:** a v2 personal tenant is accessible to the user whose key names it; also fixes `sc tenant list` for v2 |
@@ -1934,7 +1958,7 @@ stays truthful and self-healing.
 | **(fixed 2026-07-09, [#61](https://github.com/thieso2/sandcastle-incus/issues/61))** `sc trust uninstall <tenant>` reports success but removes nothing on a v2 tenant | The install path names the file after the CA's CN fetched from the sidecar signer (`sandcastle-<suffix>-tenant-ca.crt`); `localtrust.PlanUninstall` derives the trust name the v1 way, so the computed filename never matches and `os.Remove` hits `ErrNotExist` (treated as "already absent") | **Fixed:** the plan names a v2 trust entry after the tenant's DNS **suffix** (`Sandcastle <suffix> tenant CA`), which is the signer's CN — so uninstall targets exactly what install wrote. An uninstall that finds nothing now says `No trusted CA named "…" was installed; nothing to remove.` instead of reporting success |
 | **(obsolete — #52 removed the `sc route` command family)** Public routes were unusable under Cloudflare-tunnel ingress | `--ingress cloudflare` deliberately deploys **no broker appliance**, and public-route DNS proof needed a public-IP infrastructure host | Public routes and the whole `sc route` command family were **removed** with tenant v1 (see the #52 row below); there is no longer any command to run here |
 | `sc create dev` succeeds but the machine does NOT show in `sc list` (two installs, same tenant name on one daemon) | `sc list` (also `sc project`, `sc dns/trust`, `sc status`) resolved the tenant by NAME only over the unscoped `tenant.List` — the other install's same-named tenant sorts first and shadows this one; only create/connect/lifecycle/incus were install-scoped | **Fixed:** those commands resolve via `scopedListTenants` (`tenant.ListForPrefix` keyed on the current remote's install prefix); regression test `TestListMachinesScopedToCurrentInstall` |
-| Shared `/home` silently NOT shared (VM can't see the CT's `/home` writes); `home` volume exists but is attached to no profile | `SupportsIdmappedMounts` keyed on `kernel_features["idmapped_mounts"] == "true"`, and **Incus 7.x stopped populating `kernel_features`** (always `{}`) — so every 7.x host looked idmapped-less and provisioning omitted the shared `/home` (and created both volumes unshifted) | **Fixed:** an ABSENT `idmapped_mounts` entry now means supported (the Incus 7.x kernel floor ≥ 5.15 includes it); only an explicit `"false"` disables the shared `/home`. Regression test `TestKernelFeaturesSupportIdmappedMounts`. **e2e check:** after provisioning, `incus profile show default --project <prefix>-<tenant>-default` lists BOTH `home` and `workspace` devices and both volumes have `security.shifted=true` |
+| Shared `/home` silently NOT shared (VM can't see the CT's `/home` writes); `home` volume exists but is attached to no profile | `SupportsIdmappedMounts` keyed on `kernel_features["idmapped_mounts"] == "true"`, and **Incus 7.x stopped populating `kernel_features`** (always `{}`) — so every 7.x host looked idmapped-less and provisioning omitted the shared `/home` (and created both volumes unshifted) | **Fixed:** an ABSENT `idmapped_mounts` entry now means supported (the Incus 7.x kernel floor ≥ 5.15 includes it); only an explicit `"false"` disables the shared `/home`. Regression test `TestKernelFeaturesSupportIdmappedMounts`. **e2e check:** after provisioning, `incus profile show default --project <prefix>-<tenant>-default` lists the `workspace` device and `incus profile show homeshare …` the `home` device (they were on one profile until the 2026-08-06 split), and both volumes have `security.shifted=true` |
 | `sc login --force --dns-suffix other` prints the immutable-suffix error, then hangs polling for ~10 min ("device login polling timed out") while the server re-attempts provisioning every poll | A provisioning failure always left the device login `pending` (correct for transient bring-up errors, wrong for deterministic user-input errors) | **Fixed:** terminal errors (`tenant.TerminalProvisionError`: immutable-suffix conflict, rejected suffix) DENY the device login; the client fails fast with `device login denied: <message>` and exit 1. Regression test `TestDevicePollDeniesLoginOnTerminalProvisioningError` |
 | Two installs on one client (Linux): only ONE suffix ever resolves via `getent` — direct `dig @<sidecar>` works for both, and which zone dies varies | Per-domain DNS routing in systemd-resolved only works ACROSS link scopes; the global resolved.conf.d drop-ins merged both tenant servers + public upstreams into ONE flat list where only the rotating "current server" is asked — an authoritative NXDOMAIN from the wrong server ends the lookup (and the tenant servers' REFUSED responses rotate the current server onto the public upstream, killing both zones) | **Fixed:** per-suffix link scopes — `sandcastle-dns-<suffix>.service` creates a dummy link (`scdns-<hash>`, 169.254/16 addr — no address = no active scope) pinned to `DNS=<CoreDNS> Domains=~<suffix>`, `PartOf=systemd-resolved.service` so a resolved restart re-applies it; login removes any legacy drop-in. The sidecar CoreDNS also now REFUSES tailnet (100.64/10) sources outside its zone instead of forwarding them upstream (`acl` block) — machines on the bridge keep recursion. Tests: `TestSystemdResolvedUnitCreatesPerSuffixLinkScope`, `TestRenderInitial` |
 | `sc-adm tenant delete <v2-tenant> --yes` prints "Deleted runtime resources … durable state preserved" but deletes NOTHING (all v2 projects, machines, sidecar, bridge survive) | `PlanDelete` is v1-shaped: it computes `sc-<tenant>` resource names that don't exist for a v2 tenant, and every per-resource delete is ignore-not-found — a silent no-op reported as success | **Fixed:** `tenant delete` detects a v2 tenant (install-prefix-scoped, `PlanDeleteV2`) and tears down app projects (machines, images, shared volumes, profiles), infra project (sidecar), and bridge via `DeleteTenantV2`; without `--purge` it REFUSES (v2 deletion is all-or-nothing — the shared volumes live in the app projects). Validated live on the `id` install with the `sc2` install's same-named tenant untouched. Tests: `TestPlanDeleteV2` |

@@ -5,6 +5,47 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-06 — Splitting `/home` out of the default profile into `homeshare`
+
+The ask: keep `/workspace` shared on every new machine, stop sharing `/home`,
+and add a second profile that can be requested at machine creation. Decisions
+that were not in the ask:
+
+- **Existing machines are migrated, not stranded.** Removing the `home` device
+  from `default` reaches *running* machines the next time any reconcile
+  re-renders that profile (tenant create, project create, `sc login --force`).
+  Those machines' home directories — including the login user's
+  `~/.ssh/authorized_keys`, written there by cloud-init — live on the shared
+  volume, so a silent detach would swap `$HOME` for the image's empty one and
+  break key auth fleet-wide. `migrateV2MachinesToHomeShare` therefore runs in
+  between: when the *live* `default` profile still carries the device, every
+  instance using `default` gets `homeshare` appended first. It is self-limiting
+  (once the device is gone from `default` there is nothing to migrate) and
+  per-instance failures are logged, not fatal — one machine that cannot hotplug
+  the disk is not a reason to abort a tenant reconcile.
+- **`ensureV2AppProfiles` is the single entry point.** The ordering above
+  (homeshare → migrate → default) is load-bearing, so the three call sites
+  (tenant create, project create, SSH-key re-render) call one function instead
+  of composing it themselves. The SSH-key path doubles as the backfill for
+  projects created before `homeshare` existed.
+- **`--home-share` on `sc connect` too, not just `sc create`.** `connect`
+  creates the machine when it is missing, and its `--vm` flag already has the
+  same "only when it has to be created first" semantics. Both flags are
+  create-time only — Incus applies profiles at instance create, and an existing
+  machine keeps what it was created with; the flag help says so.
+- **Teardown had to learn about the second profile.** `deleteV2AppProject`
+  detached the shared volumes from `default` only; with `/home` on `homeshare`
+  the volume delete would have failed ("in use") and taken the project delete
+  with it. The sweep now runs over every profile in the project (the same fix
+  applied to the manual teardown loop in `docs/e2e-sc2.md`).
+- **The profile is created even on hosts without idmapped mounts.** There the
+  shared volume cannot show consistent ownership to a CT and a VM (VM sshd
+  StrictModes rejects the foreign-owned `~`), which is exactly why `/home` used
+  to be dropped from `default` on such hosts. Now that sharing is opt-in, the
+  provisioning WARNING is the right place to say it — refusing to create the
+  profile would only turn an informed choice into a confusing "profile not
+  found" at create time.
+
 ## 2026-08-02 — A project GLOB is pushed into the store too, not just a literal
 
 Follow-up to the two entries below, from a `VERBOSE=1` trace of

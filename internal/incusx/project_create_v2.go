@@ -96,8 +96,8 @@ func (c TenantCreator) CreateProjectV2(ctx context.Context, installPrefix string
 	if _, err := ensureV2PlatformPayload(server.UseProject(incusProject), profilePlan.StoragePool); err != nil {
 		return CreateProjectV2Result{}, err
 	}
-	c.log("ensure app default profile " + incusProject)
-	if err := ensureV2AppProfile(server.UseProject(incusProject), profilePlan, server.SupportsIdmappedMounts(), project); err != nil {
+	c.log("ensure default + homeshare profiles " + incusProject)
+	if err := ensureV2AppProfiles(server.UseProject(incusProject), profilePlan, project, c.log); err != nil {
 		return CreateProjectV2Result{}, err
 	}
 	return CreateProjectV2Result{

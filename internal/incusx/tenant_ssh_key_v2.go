@@ -91,9 +91,12 @@ func (c TenantCreator) SetTenantSSHKeyV2(_ context.Context, installPrefix string
 		if plan.DefaultProfileUser == "" {
 			plan.DefaultProfileUser = tenant.DefaultV2UnixUser
 		}
-		c.log("re-render default profile of " + incusProject)
-		if err := ensureV2AppProfile(server.UseProject(incusProject), plan, server.SupportsIdmappedMounts(), project); err != nil {
-			return fmt.Errorf("update default profile of %s: %w", incusProject, err)
+		// Re-render both profiles: the same pass backfills the opt-in homeshare
+		// profile into projects created before it existed (it carries no key
+		// material of its own).
+		c.log("re-render default + homeshare profiles of " + incusProject)
+		if err := ensureV2AppProfiles(server.UseProject(incusProject), plan, project, c.log); err != nil {
+			return fmt.Errorf("update profiles of %s: %w", incusProject, err)
 		}
 	}
 	return nil

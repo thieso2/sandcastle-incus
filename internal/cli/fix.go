@@ -114,7 +114,7 @@ func knownFixupNames() string {
 // runFixV2 dials the machine and runs each selected fixup's script as root via
 // `sudo sh -s`, feeding the script on stdin so there is nothing to shell-quote.
 func runFixV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, fixups []machineFixup, checkOnly bool) error {
-	dialed, err := dialV2Machine(ctx, config, summary, reference, false)
+	dialed, err := dialV2Machine(ctx, config, summary, reference, launchV2Options{})
 	if err != nil {
 		return err
 	}

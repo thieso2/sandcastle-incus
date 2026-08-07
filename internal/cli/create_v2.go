@@ -282,10 +282,22 @@ func v2MachineProjects(ctx context.Context, config commandConfig, summary tenant
 	return projects, nil
 }
 
+// launchV2Options are the create-time knobs shared by every command that can
+// bring a machine into existence (`sc create`, and `sc connect`/`sc fix` when
+// the machine is missing). They only apply on creation: an existing machine
+// keeps the instance type and profiles it was created with.
+type launchV2Options struct {
+	VM bool
+	// HomeShare adds the project's homeshare profile, mounting the shared
+	// /home volume; without it the machine gets a machine-local /home.
+	HomeShare bool
+}
+
 type createV2Options struct {
-	Image  string
-	VM     bool
-	DryRun bool
+	Image     string
+	VM        bool
+	DryRun    bool
+	HomeShare bool
 }
 
 func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOptions, summary tenant.Summary, reference string, options createV2Options) error {
@@ -302,9 +314,10 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 		Name:         machine,
 		Image:        image,
 		VM:           options.VM,
+		HomeShare:    options.HomeShare,
 	}
 	if options.DryRun {
-		payload := incusx.CreateMachineV2Result{Name: machine, Type: machineTypeLabel(options.VM), Project: request.IncusProject, Image: image}
+		payload := incusx.CreateMachineV2Result{Name: machine, Type: machineTypeLabel(options.VM), Project: request.IncusProject, Image: image, HomeShare: options.HomeShare}
 		return writeOutput(config.stdout, opts.output, formatCreateMachineV2(summary, project, payload, true), payload)
 	}
 	result, err := config.tenantCreator.CreateMachineV2(ctx, request)
@@ -317,8 +330,8 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 // runConnectV2 implements `sc connect` (alias `c`) for v2 tenants: create the
 // machine if it doesn't exist, start it if it is stopped, wait for sshd, then
 // open an SSH session as the profile login user with the login SSH key.
-func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, command []string, vm bool) error {
-	dialed, err := dialV2Machine(ctx, config, summary, reference, vm)
+func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, command []string, launch launchV2Options) error {
+	dialed, err := dialV2Machine(ctx, config, summary, reference, launch)
 	if err != nil {
 		return err
 	}
@@ -352,7 +365,8 @@ type dialedV2Machine struct {
 // up (creating it if absent, like `sc connect`), waits for sshd, and builds the
 // ssh argv with strict host-key checking. Callers append their own remote
 // command (or feed one on stdin). Shared by `sc connect` and `sc fix`.
-func dialV2Machine(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, vm bool) (dialedV2Machine, error) {
+func dialV2Machine(ctx context.Context, config commandConfig, summary tenant.Summary, reference string, launch launchV2Options) (dialedV2Machine, error) {
+	vm := launch.VM
 	// A wildcard selects among machines that already exist; it must land on
 	// exactly one before the ensure-and-create path below can run.
 	reference, err := resolveSingleMachineReference(ctx, config, summary, reference)
@@ -368,6 +382,7 @@ func dialV2Machine(ctx context.Context, config commandConfig, summary tenant.Sum
 		Name:         machineName,
 		Image:        v2DefaultMachineImage,
 		VM:           vm,
+		HomeShare:    launch.HomeShare,
 	})
 	if err != nil {
 		return dialedV2Machine{}, err
@@ -484,6 +499,13 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 		verb = "would be created"
 	}
 	fmt.Fprintf(&builder, "Machine %s %s (%s, project %s, image %s).\n", result.Name, verb, result.Type, project, result.Image)
+	// /workspace is always shared; /home only with --home-share, so say which
+	// of the two shapes this machine got.
+	if result.HomeShare {
+		fmt.Fprintf(&builder, "Storage: shared /workspace + shared /home (homeshare profile).\n")
+	} else {
+		fmt.Fprintf(&builder, "Storage: shared /workspace, machine-local /home (add --home-share for a shared /home).\n")
+	}
 	// Canonical Machine Private Hostname; the default project also answers at
 	// the short alias (ADR-0018).
 	fqdn := result.Name + "." + project + "." + summary.DNSSuffix

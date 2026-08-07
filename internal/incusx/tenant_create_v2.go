@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -71,7 +72,8 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	shifted := server.SupportsIdmappedMounts()
 	if !shifted {
 		c.log("WARNING: this host's kernel offers no idmapped mounts (container-hosted incus?) — " +
-			"shared /home is disabled (machines get a local /home so VM sshd works); /workspace stays shared. " +
+			"the opt-in `homeshare` profile will not work across CT + VM (a VM sees the CT's shifted " +
+			"owners on /home/<user> and sshd's StrictModes refuses key auth); /workspace stays shared. " +
 			"Enable idmapped mounts (e.g. a zfs/btrfs storage pool) for a shared /home across CT + VM.")
 	}
 	c.log("ensure shared /workspace + /home volumes in " + plan.DefaultProject)
@@ -82,8 +84,8 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	if _, err := ensureV2PlatformPayload(server.UseProject(plan.DefaultProject), plan.StoragePool); err != nil {
 		return err
 	}
-	c.log("ensure app default profile " + plan.DefaultProject)
-	if err := ensureV2AppProfile(server.UseProject(plan.DefaultProject), plan, shifted, plan.DefaultProjectShort); err != nil {
+	c.log("ensure default + homeshare profiles " + plan.DefaultProject)
+	if err := ensureV2AppProfiles(server.UseProject(plan.DefaultProject), plan, plan.DefaultProjectShort, c.log); err != nil {
 		return err
 	}
 	c.log("ensure sidecar profile")
@@ -398,7 +400,67 @@ func ensureV2SharedVolume(server TenantResourceServer, pool string, name string,
 	})
 }
 
-func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, shifted bool, projectShort string) error {
+// ensureV2AppProfiles installs an app project's profile pair: `homeshare`
+// first, then `default`. The order matters — default no longer carries the
+// /home device, so machines that relied on it are migrated onto homeshare in
+// between, while the profile still exists to migrate from.
+func ensureV2AppProfiles(server TenantResourceServer, plan tenant.CreatePlanV2, projectShort string, log func(string)) error {
+	if err := ensureV2HomeShareProfile(server, plan); err != nil {
+		return err
+	}
+	if err := migrateV2MachinesToHomeShare(server, log); err != nil {
+		return err
+	}
+	return ensureV2AppProfile(server, plan, projectShort)
+}
+
+// migrateV2MachinesToHomeShare keeps the /home of machines created before the
+// profile split. Those machines mounted the shared volume through `default`;
+// re-rendering default without the device would silently swap their home
+// directory for the image's empty one (and with it the login user's ~/.ssh,
+// breaking key auth). So when the live default profile still has the device,
+// every instance using default is moved onto the homeshare profile first.
+// Per-instance failures are logged, not fatal: a machine that cannot hotplug
+// the device is not a reason to abort a tenant/project reconcile.
+func migrateV2MachinesToHomeShare(server TenantResourceServer, log func(string)) error {
+	current, _, err := server.GetProfile("default")
+	if err != nil {
+		if api.StatusErrorCheck(err, http.StatusNotFound) {
+			return nil // fresh project: no machines, nothing to migrate
+		}
+		return fmt.Errorf("get default profile: %w", err)
+	}
+	if _, shared := current.Devices["home"]; !shared {
+		return nil
+	}
+	names, err := server.GetInstanceNames(api.InstanceTypeAny)
+	if err != nil {
+		return fmt.Errorf("list machines for the homeshare migration: %w", err)
+	}
+	for _, name := range names {
+		instance, etag, err := server.GetInstance(name)
+		if err != nil || instance == nil {
+			continue
+		}
+		if !slices.Contains(instance.Profiles, "default") || slices.Contains(instance.Profiles, tenant.V2HomeShareProfileName) {
+			continue
+		}
+		put := instance.Writable()
+		put.Profiles = append(append([]string{}, instance.Profiles...), tenant.V2HomeShareProfileName)
+		log("migrate " + name + " onto the homeshare profile (it had a shared /home)")
+		op, err := server.UpdateInstance(name, put, etag)
+		if err == nil {
+			err = op.Wait()
+		}
+		if err != nil {
+			log("WARNING: could not add the homeshare profile to " + name + ": " + err.Error() +
+				" — its /home will fall back to machine-local storage")
+		}
+	}
+	return nil
+}
+
+func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, projectShort string) error {
 	// The profile's cloud-init embeds http://<DNSAddress>:<port> as the machine
 	// Caddy's TLS signer. An empty address renders "http://:9443" and the machine
 	// serves no HTTPS — fail here instead of writing a profile that cannot work.
@@ -413,27 +475,47 @@ func ensureV2AppProfile(server TenantResourceServer, plan tenant.CreatePlanV2, s
 			meta.KeyTenant:         plan.Tenant,
 			meta.KeyVersion:        "2",
 		},
-		Devices: v2AppProfileDevices(plan, shifted),
+		Devices: v2AppProfileDevices(plan),
 	}
 	return ensureExactProfile(server, "default", desired)
 }
 
+// ensureV2HomeShareProfile installs the opt-in `homeshare` profile: the shared
+// /home volume and nothing else, so it composes with default. Machines created
+// with it (`sc create --home-share`) share the project's home directory; the
+// default profile shares /workspace only. Split out of default because a
+// shared /home makes every machine in a project see one dotfile/state tree —
+// fine when that is what you want, surprising when it is not (and on hosts
+// without idmapped mounts it breaks VM sshd, see ensureV2ProjectVolumes).
+func ensureV2HomeShareProfile(server TenantResourceServer, plan tenant.CreatePlanV2) error {
+	desired := api.ProfilePut{
+		Description: "Sandcastle v2 shared /home profile for " + plan.Tenant,
+		Config: api.ConfigMap{
+			meta.KeyKind:    "profile",
+			meta.KeyTenant:  plan.Tenant,
+			meta.KeyVersion: "2",
+		},
+		Devices: v2HomeShareProfileDevices(plan),
+	}
+	return ensureExactProfile(server, tenant.V2HomeShareProfileName, desired)
+}
+
+// v2HomeShareProfileDevices builds the homeshare profile's device map.
+func v2HomeShareProfileDevices(plan tenant.CreatePlanV2) api.DevicesMap {
+	return api.DevicesMap{
+		"home": {"type": "disk", "pool": plan.StoragePool, "source": v2HomeVolumeName, "path": "/home"},
+	}
+}
+
 // v2AppProfileDevices builds the default profile's device map — pure, so the
 // volume attachments (and the /.sc layers' per-device writability) are unit
-// testable without a fake server.
-func v2AppProfileDevices(plan tenant.CreatePlanV2, shifted bool) api.DevicesMap {
+// testable without a fake server. /home is deliberately absent: it lives in
+// the opt-in `homeshare` profile (v2HomeShareProfileDevices).
+func v2AppProfileDevices(plan tenant.CreatePlanV2) api.DevicesMap {
 	devices := api.DevicesMap{
 		"root":      {"type": "disk", "pool": plan.StoragePool, "path": "/"},
 		"eth0":      {"type": "nic", "nictype": "bridged", "parent": plan.Bridge},
 		"workspace": {"type": "disk", "pool": plan.StoragePool, "source": v2WorkspaceVolumeName, "path": "/workspace"},
-	}
-	// A shared /home only works across CT + VM when the volume is
-	// security.shifted, which needs kernel idmapped-mount support. Without it a
-	// VM sees the CT's shifted owners on /home/<user> and sshd's StrictModes
-	// refuses key auth — so on such hosts machines get a normal local /home
-	// (login/SSH always works) and only /workspace is shared.
-	if shifted {
-		devices["home"] = map[string]string{"type": "disk", "pool": plan.StoragePool, "source": v2HomeVolumeName, "path": "/home"}
 	}
 	// The /.sc shared-scripts layers (spec #127). readonly on the platform
 	// device is the tenant-facing writability contract: machines (CT and VM)

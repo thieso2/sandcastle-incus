@@ -593,12 +593,19 @@
     <li><strong>Shared volumes</strong> <code>workspace</code> + <code>home</code> in the app project —
       <code>initial.uid/gid=2000</code>, mode 0775, <code>security.shifted=true</code> when the host supports
       idmapped mounts (Incus 7.x reports an empty <code>kernel_features</code> map, which counts as
-      supported); without idmapped mounts the shared <code>/home</code> is omitted so VM sshd keeps working.</li>
+      supported); without idmapped mounts a shared <code>/home</code> cannot show consistent ownership to
+      a CT and a VM, so provisioning warns and <code>--home-share</code> is best avoided there.</li>
     <li><strong>Default profile</strong> in the app project — root disk, <code>eth0</code> on the tenant
-      bridge, both volume disks, and <code>cloud-init.user-data</code> creating the login user (UID 2000,
+      bridge, the <code>workspace</code> + <code>/.sc</code> volume disks, and <code>cloud-init.user-data</code> creating the login user (UID 2000,
       sudo, the User SSH Public Key, <code>openssh-server</code>) with
       <code>fqdn: {{hostname}}.&lt;project&gt;.&lt;suffix&gt;</code>. The key is re-baked on every login —
       key rotation is just <code>sc login --force</code>.</li>
+    <li><strong><code>homeshare</code> profile</strong> in the app project — the shared <code>home</code>
+      volume disk and nothing else, so it composes with <code>default</code>. Applied only to machines
+      created with <code>--home-share</code>; every other machine gets a private <code>/home</code> from
+      its image. Machines created before the split (when <code>default</code> still carried the device)
+      are moved onto this profile by the same reconcile that removes it from <code>default</code>, so
+      their home directory — and the login user's <code>~/.ssh</code> — survives.</li>
     <li><strong>Sidecar profile + instance</strong> <code>&lt;prefix&gt;-&lt;tenant&gt;</code> in the infra
       project — stock <code>images:debian/13</code> pulled on demand, NIC pinned to <code>.3</code>; an
       existing stopped sidecar is started, then waited to RUNNING.</li>

@@ -131,7 +131,7 @@ func (d TenantDeleter) deleteV2AppProject(server TenantDeleteServer, projectName
 			return err
 		}
 	}
-	if err := d.clearVolumeDevicesFromDefaultProfile(projectServer, projectName, volumes); err != nil {
+	if err := d.clearVolumeDevicesFromProfiles(projectServer, projectName, volumes); err != nil {
 		return err
 	}
 	for _, volume := range volumes {
@@ -143,30 +143,49 @@ func (d TenantDeleter) deleteV2AppProject(server TenantDeleteServer, projectName
 	return d.deleteProjectCompletely(server, projectName)
 }
 
-func (d TenantDeleter) clearVolumeDevicesFromDefaultProfile(server TenantDeleteResourceServer, projectName string, volumes []string) error {
-	profile, etag, err := server.GetProfile("default")
-	if err != nil {
-		if api.StatusErrorCheck(err, http.StatusNotFound) {
-			return nil
-		}
-		return err
-	}
+// clearVolumeDevicesFromProfiles detaches the shared volumes from EVERY
+// profile in the project, not just `default`: /home hangs off the opt-in
+// `homeshare` profile, and a volume cannot be deleted while any profile
+// references it — a default-only sweep left the home volume in use and the
+// project undeletable.
+func (d TenantDeleter) clearVolumeDevicesFromProfiles(server TenantDeleteResourceServer, projectName string, volumes []string) error {
 	named := map[string]bool{}
 	for _, volume := range volumes {
 		named[volume] = true
 	}
-	changed := false
-	for key, device := range profile.Devices {
-		if device["type"] == "disk" && named[device["source"]] {
-			delete(profile.Devices, key)
-			changed = true
+	profiles, err := server.GetProfiles()
+	if err != nil {
+		if api.StatusErrorCheck(err, http.StatusNotFound) {
+			return nil
+		}
+		return fmt.Errorf("list profiles in project %s: %w", projectName, err)
+	}
+	for _, listed := range profiles {
+		// Re-read for the ETag: GetProfiles carries none, and an unconditional
+		// update would race a concurrent profile write.
+		profile, etag, err := server.GetProfile(listed.Name)
+		if err != nil {
+			if api.StatusErrorCheck(err, http.StatusNotFound) {
+				continue
+			}
+			return err
+		}
+		changed := false
+		for key, device := range profile.Devices {
+			if device["type"] == "disk" && named[device["source"]] {
+				delete(profile.Devices, key)
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		d.log("detach shared volumes from " + listed.Name + " profile in " + projectName)
+		if err := server.UpdateProfile(listed.Name, profile.Writable(), etag); err != nil {
+			return err
 		}
 	}
-	if !changed {
-		return nil
-	}
-	d.log("detach shared volumes from default profile in " + projectName)
-	return server.UpdateProfile("default", profile.Writable(), etag)
+	return nil
 }
 
 // DeleteProjectV2 deletes ONE app project of a v2 tenant: its instances, images,

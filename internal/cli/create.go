@@ -9,6 +9,7 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var detach bool
 	var image string
 	var vm bool
+	var homeShare bool
 	command := &cobra.Command{
 		Use:   "create [[remote:]project:]machine",
 		Short: "Create a Sandcastle container machine",
@@ -24,9 +25,10 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			return runCreateMachineV2(cmd.Context(), config, opts, summary, reference, createV2Options{
-				Image:  image,
-				VM:     vm,
-				DryRun: dryRun,
+				Image:     image,
+				VM:        vm,
+				DryRun:    dryRun,
+				HomeShare: homeShare,
 			})
 		},
 	}
@@ -37,5 +39,8 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().BoolVar(&detach, "background", false, "deprecated no-op; machine creation never attaches")
 	command.Flags().StringVar(&image, "image", "", "image to launch (default "+v2DefaultMachineImage+")")
 	command.Flags().BoolVar(&vm, "vm", false, "launch a virtual machine instead of a container")
+	// Profiles are only applied at create time, so this is a create-time
+	// decision: /workspace is shared for every machine, /home only on request.
+	command.Flags().BoolVar(&homeShare, "home-share", false, "mount the project's shared /home (adds the homeshare profile); without it the machine gets a local /home")
 	return command
 }

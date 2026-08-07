@@ -56,6 +56,7 @@ func withResolvedV2Machine(cmd *cobra.Command, config commandConfig, ref string,
 
 func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var useVM bool
+	var homeShare bool
 	command := &cobra.Command{
 		Use:     "connect [[remote:]project:]machine [-- command...]",
 		Aliases: []string{"c"},
@@ -63,11 +64,12 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withResolvedV2Machine(cmd, config, args[0], func(ctx context.Context, config commandConfig, summary tenant.Summary, reference string) error {
-				return runConnectV2(ctx, config, summary, reference, args[1:], useVM)
+				return runConnectV2(ctx, config, summary, reference, args[1:], launchV2Options{VM: useVM, HomeShare: homeShare})
 			})
 		},
 	}
 	command.Flags().BoolVar(&useVM, "vm", false, "when the machine has to be created first, launch a virtual machine instead of a container")
+	command.Flags().BoolVar(&homeShare, "home-share", false, "when the machine has to be created first, mount the project's shared /home (homeshare profile)")
 	return command
 }
 

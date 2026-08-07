@@ -27,7 +27,8 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
  │                           network for all the tenant's projects (10.x.y.0/24)
  │
  ├── sc2-<tenant>-default    Incus project (features.networks=false → shared bridge)
- │     ├── default profile = shared /home + /workspace volumes + cloud-init login
+ │     ├── default profile   = shared /workspace volume + cloud-init login
+ │     ├── homeshare profile = shared /home volume (opt-in: sc create --home-share)
  │     └── machines: dev, web, …   → resolve flat as  dev.<tenant> , web.<tenant>
  │
  └── sc2-<tenant>-<project>  Incus project   (a second project; same shape)
@@ -39,7 +40,8 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
 - **Project = its own Incus project** (`sc2-<tenant>-<project>`). Machines are
   freeform `incus` instances with native names — `dev` in two projects coexist.
   Each project carries its own shared `/home` + `/workspace` volumes and the
-  tenant's login profile.
+  tenant's login profile — `/workspace` on every machine, `/home` only on
+  machines created with `--home-share` (the `homeshare` profile).
 - **One shared network per tenant** (`sc2-<tenant>` bridge in `default`);
   projects are not network-isolated from each other (single owner).
 - **Per-tenant tailnet, subnet-router sidecar.** Machines are **not** tailnet

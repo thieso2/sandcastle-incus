@@ -27,6 +27,12 @@ const (
 	// local is tenant-writable from any machine, like /workspace.
 	V2SCPlatformVolumeName = "sc-platform"
 	V2SCLocalVolumeName    = "sc-local"
+
+	// V2HomeShareProfileName is the opt-in profile that attaches the project's
+	// shared /home volume. The default profile shares /workspace only; a
+	// machine gets the shared home directory by being created with this
+	// profile alongside default (`sc create --home-share`).
+	V2HomeShareProfileName = "homeshare"
 )
 
 // TailscaleInstanceName returns the Incus instance name for the tenant's Tailscale sidecar.
