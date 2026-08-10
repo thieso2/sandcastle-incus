@@ -137,6 +137,18 @@ type HTTPRunner struct {
 	Version string
 	// Sidecars serves the token-authenticated tenant sidecar update (#124 §5).
 	Sidecars projectbroker.SidecarUpdater
+	// ResourceCacheEnabled is the admin-server config toggle (default on) for
+	// the event-bus-fed Incus resource cache (docs/shape/admin-server-config-
+	// toggled-event-bus-ca8marg.md). When false, or when ResourceCacheServer is
+	// nil (no mounted host socket — not the serving appliance), the cache is
+	// never started and every consumer must fall back to live per-project
+	// queries.
+	ResourceCacheEnabled bool
+	// ResourceCacheServer, when set, is the Incus source RunResourceCache reads
+	// from: one full read on startup, then per-project refreshes driven by the
+	// event bus. Set alongside DNSEvents/RouteEvents, from the same mounted
+	// socket.
+	ResourceCacheServer ResourceCacheServer
 }
 
 func PlanServe(request ServeRequest) (ServePlan, error) {
@@ -227,6 +239,12 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	}
 	if r.DNSReconcile != nil {
 		go r.runDNSReconcileLoop(ctx, logger)
+	}
+	if r.ResourceCacheEnabled && r.ResourceCacheServer != nil {
+		cache := NewResourceCache(DefaultResourceCacheStaleAfter)
+		go RunResourceCache(ctx, cache, r.ResourceCacheServer, func(format string, args ...any) {
+			logger.Message(ctx, "WARN", format, args...)
+		})
 	}
 	if r.Tenants != nil {
 		// Garbage-collect DNS-suffix claims orphaned by tenants deleted out-of-band

@@ -95,6 +95,11 @@ func ExecuteAdmin(name string, args []string) int {
 	adminShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, incusx.NewHostOverrideManagerForSharedRemote(sharedRemote))
 	adminShareReconciler.Admin = adminConfig
 	var authAppSocketServer incus.InstanceServer
+	// Declared as the authapp interface (not incusx.ResourceCacheServer) and
+	// left nil outside the branch below: a zero-value incusx.ResourceCacheServer{}
+	// assigned unconditionally would box into a non-nil interface even with a
+	// nil inner server, defeating HTTPRunner's `ResourceCacheServer != nil` gate.
+	var authAppResourceCache authapp.ResourceCacheServer
 	if authAppServeArgs(args) {
 		if socketServer, err := adminSocketServer(); err == nil && socketServer != nil {
 			authAppSocketServer = socketServer
@@ -107,6 +112,7 @@ func ExecuteAdmin(name string, args []string) int {
 			authAppShareReconciler = incusx.NewShareReconcilerForServer(socketServer, authAppMachines, authAppMetadataUpdater, adminConfig)
 			adminShareStore = authAppMetadataUpdater
 			adminShareReconciler = incusx.NewShareReconcilerForServer(socketServer, incusx.NewHostOverrideManagerForServer(socketServer), adminShareStore, adminConfig)
+			authAppResourceCache = incusx.NewResourceCacheServer(socketServer).WithVerbose(verbose, os.Stderr)
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)
 		}
@@ -215,6 +221,8 @@ func ExecuteAdmin(name string, args []string) int {
 				// has it, like the broker).
 				V2Create: authAppV2Create(adminConfig, authAppCreator),
 			},
+			ResourceCacheEnabled: resourceCacheEnabled(os.Getenv("SANDCASTLE_RESOURCE_CACHE")),
+			ResourceCacheServer:  authAppResourceCache,
 		},
 		shareStore:      adminShareStore,
 		shareReconciler: adminShareReconciler,
@@ -237,6 +245,22 @@ func ExecuteAdmin(name string, args []string) int {
 func routeIngressEnabled(value string) bool {
 	mode := strings.TrimSpace(value)
 	return strings.EqualFold(mode, incusx.IngressACME) || strings.EqualFold(mode, incusx.IngressACMEProxied)
+}
+
+// resourceCacheEnabled reports whether the Auth App's event-bus-fed Incus
+// resource cache (docs/shape/admin-server-config-toggled-event-bus-ca8marg.md)
+// should start. It defaults to ON — opt-out, not opt-in — matching the shape
+// doc's decision: once a deployment upgrades to a binary with the cache, `sc
+// ls` is meant to benefit from it automatically. An operator sets
+// SANDCASTLE_RESOURCE_CACHE to one of the disabling values below to fall back
+// to today's live per-project-query behavior everywhere.
+func resourceCacheEnabled(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "0", "false", "off", "disable", "disabled":
+		return false
+	default:
+		return true
+	}
 }
 
 func authAppServeArgs(args []string) bool {

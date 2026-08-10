@@ -5,6 +5,94 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-10 — Auth App resource cache engine (event-bus fed, t1 of the `sc ls` cache wish)
+
+First slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`:
+the in-memory `authapp.ResourceCache` that will eventually back a cache-first
+`sc ls` (t2 adds the HTTP endpoint, t3 wires the CLI). This slice only builds
+and wires up the engine — no HTTP surface yet.
+
+- **Staleness/heartbeat detection: last-event-received timestamp vs. a fixed
+  timeout, reset on (re)connect.** The Incus event bus has no built-in
+  liveness ping, so `ResourceCache` tracks `lastEventAt` and treats the stream
+  as gone stale if `now() - lastEventAt` exceeds `DefaultResourceCacheStaleAfter`
+  (2 minutes). Two design choices worth flagging: (1) the heartbeat is reset by
+  *any* event received on the listener, not just ones the cache acts on — a
+  handler registered with `nil` types (matches every event type) exists solely
+  to prove the socket is alive, separate from the lifecycle-only handler that
+  actually mutates the cache; a chatty-but-cache-irrelevant event still counts
+  as proof of life. (2) `markStreamConnected` resets the heartbeat clock too,
+  so a fresh reconnect gets a full timeout window rather than immediately
+  reading as stale from whatever `lastEventAt` was before the drop. Accepted
+  tradeoff: a genuinely idle install with zero Incus activity for over 2
+  minutes will report not-ready and `sc ls` (once t3 lands) will fall back to
+  live — judged acceptable since the fallback is exactly today's behavior, not
+  an error.
+- **On any relevant lifecycle event, refresh the whole (kind, project) bucket
+  — never try to patch a single named resource from the event payload.**
+  `api.EventLifecycle.Name`/`.Project` (the `event_lifecycle_name_and_project`
+  extension) are not documented well enough to know, for a `*-renamed` action,
+  whether `Name` is the old or new name across Incus versions. Rather than
+  guess, the event handler ignores the event's own name entirely and just
+  re-reads that project's full list for that resource kind via the same
+  `UseProject(...).GetXFull()` pattern `listMachines()` already uses per
+  project today. This makes create/update/delete/rename all reduce to the same
+  code path and makes the cache correct regardless of exactly what a given
+  Incus version puts in the event payload, at the cost of one wider per-project
+  read instead of a single-item patch — cheap relative to the multi-second
+  per-project reads this wish exists to avoid, since it only fires on actual
+  lifecycle events, not on every `sc ls` invocation.
+- **Subscribed action set: DNS reconciler's set (`admin_dns_events.go`) plus
+  `instance-updated`/`instance-migrated`, plus the equivalent create/update/
+  delete/rename(/refresh) actions for networks, storage volumes, storage pools,
+  profiles, and images — but still short of "every event".** The shape doc
+  explicitly warns not to copy the DNS reconciler's trimmed set (it excludes
+  `instance-updated`, which this cache needs for IP/state changes, precisely
+  because the DNS reconciler has a periodic-ticker backstop this cache
+  deliberately does not). But "broadly enough" isn't "everything": actions
+  that touch a resource without changing any field `sc ls` could ever display —
+  `instance-exec`, `instance-console*`, `instance-file-*`, `instance-log-*`,
+  `instance-metadata-*`, `image-retrieved`, snapshot/backup events — are still
+  excluded, same rationale the DNS reconciler used, just without the ticker as
+  a fallback for anything misclassified. `image-alias-*` events ARE included
+  despite not being an `image-*` action, because aliases live inside
+  `api.Image.Aliases` with no separate `image-updated` firing alongside them.
+- **Storage pools vs. storage volumes are two different cache buckets.** Incus
+  storage pools are server-scoped (not per-project); storage volumes are
+  per-project. The wish's "storage" resource type maps to volumes for the
+  per-project index (`ResourceCache.StorageVolumes`, keyed like the other four
+  types), with pools kept as a small separate global list
+  (`ResourceCache.StoragePools`) used only to know which pools to ask about
+  when refreshing a project's volumes — not exposed as its own `sc ls` filter
+  dimension (that's t3's call to make, once it exists).
+- **Toggle defaults to on; env var `SANDCASTLE_RESOURCE_CACHE`.** Per the shape
+  doc's decision, the cache engine starts unless an operator explicitly opts
+  out (`SANDCASTLE_RESOURCE_CACHE=off`/`disable`/`disabled`/`0`/`false`, case-
+  insensitive) — read once at `auth-app serve` startup in `admin_root.go`,
+  following the exact `os.Getenv` + trim pattern already used for
+  `SANDCASTLE_ROUTE_INGRESS`/`SANDCASTLE_AUTH_INGRESS_MODE`. When off, or when
+  there's no mounted host socket (not the serving appliance — same gate
+  `DNSEvents`/`RouteEvents` already use), `HTTPRunner.Serve` never constructs
+  or starts a `ResourceCache` at all: no wasted initial read, no event
+  subscription.
+- **Interface defined in `authapp`, live-Incus adapter in `incusx` — mirrors
+  the existing `authapp.RouteBackend` / `incusx.RouteBackend` split.**
+  `authapp.ResourceCacheServer`/`ResourceCacheProjectServer` are the narrow
+  Incus surfaces the cache engine needs (an all-projects read per type, a
+  per-project re-read via `UseProject`, `GetEventsAllProjects`); `incusx`
+  already imports `authapp` for exactly this kind of interface (see
+  `routebackend.go`), so `incusx.ResourceCacheServer` wraps a live
+  `incus.InstanceServer` the same way. This keeps `internal/authapp` free of a
+  direct Incus client SDK dependency for the parts of the cache that don't
+  need one, while still letting `admin_root.go` wire a real server in with one
+  constructor call, same as every other `NewXForServer(socketServer)` already
+  there.
+- Not done in this slice, by design (see the plan's t2/t3): no HTTP endpoint,
+  no `sc ls` wiring, no new `sc ls` flags/columns for the newly-cached resource
+  types. `ResourceCache.Snapshot()` exists as the one read seam those slices
+  are expected to build on, but its exact shape is intentionally not yet
+  contorted to match a not-yet-designed HTTP response contract.
+
 ## 2026-08-07 — Reaching a bare machine: `sc connect` execs, `sc ls` says so
 
 `sc connect` to a bare machine could only ever spend two minutes waiting for an
