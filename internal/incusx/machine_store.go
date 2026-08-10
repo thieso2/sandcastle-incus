@@ -153,21 +153,9 @@ func (m HostOverrideManager) listV2Machines(ctx context.Context, summary tenant.
 			}
 			found := make([]meta.Machine, 0, len(instances))
 			for _, instance := range instances {
-				if meta.IsManaged(instance.Config) && instance.Config[meta.KeyKind] == meta.KindSidecar {
-					continue
+				if converted, ok := MachineFromInstance(summary.Tenant, project.Name, instance); ok {
+					found = append(found, converted)
 				}
-				found = append(found, meta.Machine{
-					Tenant:    summary.Tenant,
-					Project:   project.Name,
-					Name:      instance.Name,
-					Type:      string(instance.Type),
-					PrivateIP: instanceGlobalIPv4(instance),
-					CreatedAt: formatInstanceCreatedAt(instance.CreatedAt),
-					Running:   instance.IsActive(),
-					// Read from the instance's OWN config, so a project-wide
-					// profile key could never mark every machine bare.
-					Bare: instanceIsBareV2(instance.Config),
-				})
 			}
 			perProject[index] = found
 		}()
@@ -185,6 +173,33 @@ func (m HostOverrideManager) listV2Machines(ctx context.Context, summary tenant.
 		machines = append(machines, found...)
 	}
 	return machines, nil
+}
+
+// MachineFromInstance converts a raw Incus instance into the CLI-facing
+// meta.Machine shape. It is the one conversion every listing path funnels
+// through — the live per-project sweep above (listV2Machines) and the
+// event-bus-fed resource cache's `sc ls` endpoint
+// (authapp.ResourceCacheMachineRenderer, docs/shape/admin-server-config-
+// toggled-event-bus-ca8marg.md) — so the two paths cannot drift on what
+// counts as a machine or how its fields are derived. ok is false for
+// Sandcastle-managed infrastructure (e.g. a tenant's DNS/route sidecar) that
+// must never appear in a machine listing.
+func MachineFromInstance(tenantName string, project string, instance api.InstanceFull) (result meta.Machine, ok bool) {
+	if meta.IsManaged(instance.Config) && instance.Config[meta.KeyKind] == meta.KindSidecar {
+		return meta.Machine{}, false
+	}
+	return meta.Machine{
+		Tenant:    tenantName,
+		Project:   project,
+		Name:      instance.Name,
+		Type:      string(instance.Type),
+		PrivateIP: instanceGlobalIPv4(instance),
+		CreatedAt: formatInstanceCreatedAt(instance.CreatedAt),
+		Running:   instance.IsActive(),
+		// Read from the instance's OWN config, so a project-wide profile key
+		// could never mark every machine bare.
+		Bare: instanceIsBareV2(instance.Config),
+	}, true
 }
 
 // instanceGlobalIPv4 returns the global IPv4 of the instance's Incus-managed

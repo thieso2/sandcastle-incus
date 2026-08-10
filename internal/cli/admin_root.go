@@ -221,8 +221,9 @@ func ExecuteAdmin(name string, args []string) int {
 				// has it, like the broker).
 				V2Create: authAppV2Create(adminConfig, authAppCreator),
 			},
-			ResourceCacheEnabled: resourceCacheEnabled(os.Getenv("SANDCASTLE_RESOURCE_CACHE")),
-			ResourceCacheServer:  authAppResourceCache,
+			ResourceCacheEnabled:         resourceCacheEnabled(os.Getenv("SANDCASTLE_RESOURCE_CACHE")),
+			ResourceCacheServer:          authAppResourceCache,
+			ResourceCacheMachineRenderer: incusx.MachineFromInstance,
 		},
 		shareStore:      adminShareStore,
 		shareReconciler: adminShareReconciler,

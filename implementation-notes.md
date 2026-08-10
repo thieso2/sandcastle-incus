@@ -5,6 +5,119 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-10 — `GET /api/resources`: the cache-backed listing endpoint (t2 of the `sc ls` cache wish)
+
+Second slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`:
+a bearer-authenticated endpoint answering from the t1 `ResourceCache` instead
+of a live per-project Incus sweep. t3 (CLI wiring, new flags/columns) is not
+built here — this slice only adds the HTTP surface and the request/response
+contract it exposes.
+
+- **Response/error contract for the "non-answer" cases (this is the load-
+  bearing decision t3 depends on).** `GET /api/resources` returns exactly one
+  of: **200** with a fully-populated, correctly-filtered `ResourceListResult`
+  (cache toggle on, ready, request valid, tenant authorized); **503** with a
+  plain-text body when the cache is not a safe source of truth — toggle off
+  (`ResourceCache` is nil, since `HTTPRunner.Serve` never constructs one when
+  `ResourceCacheEnabled` is false) or not-ready (`Snapshot().Ready == false`:
+  initial read incomplete, event stream disconnected, or stale). Both
+  toggle-off and not-ready collapse to the same 503 — deliberately: t3 is
+  specified to fall back identically for either ("any non-answer... falls
+  through transparently"), so the CLI needs one signal, not two. **401** (no/
+  invalid bearer token), **403** (tenant query param not in the caller's own
+  `accessibleTenantSummaries` — cross-tenant attempt), **404** (a literal,
+  non-glob project filter that does not name one of the tenant's own
+  projects — mirrors `listMachines()`'s "a typo should say so, not read as
+  empty" rule), and **400** (a project/machine filter that fails
+  `naming.ValidateNamePattern`/`ValidateProjectName`/`ValidateMachineName`)
+  are all genuine request errors, not cache-unavailability — t3 must **not**
+  fall back to live on these (that would just reproduce the identical error
+  from the live path, but silently, after the fallback round trip). Only 503
+  means "try live instead." This distinction (503 = fall back; everything
+  else = surface the error) is the one thing this note exists to pin down for
+  whoever builds t3.
+- **`tenant` is a required-ish query param, not implicit.** The server has no
+  visibility into the CLI's local `~/.config/sandcastle/config.yml` pin, so
+  it cannot resolve "the caller's tenant" the way `listMachines()` resolves
+  it from `config.adminConfig.Tenant`. When the param is empty AND the
+  caller's bearer token grants exactly one accessible tenant (the common
+  case — a v2 personal tenant's `accessibleTenantSummaries` is always
+  exactly `[self]`), that one tenant is used; otherwise the request is
+  rejected with 403 rather than guessed. `project`/`machine` accept the same
+  literal-or-glob values `sc ls` already does (`naming.MatchName`/
+  `naming.IsPattern`, the identical package the CLI's own filtering uses —
+  no duplicated matching logic), and an empty `project` means "all
+  projects" (`AllProjects` in the response mirrors `listPayload.AllProjects`
+  exactly: `project filter == ""`). There is no `-a`/`--all-projects` or
+  `-u`/`--include-unmanaged` request field: `-a` is just "call with
+  `project` unset" from the client side, and `-u` does not exist anywhere in
+  the current CLI (`internal/cli/list.go` has no such flag) — v2 machines
+  are freeform instances with no "unmanaged" bucket at all
+  (`HostOverrideManager.ListMachinesAndUnmanaged` always returns `nil`
+  unmanaged), so `ResourceListResult` has no Unmanaged field either; the
+  plan doc's mention of it describes a flag that does not exist in this
+  codebase.
+- **Authorization is `accessibleTenantSummaries`, not
+  `authorizeWorkloadTenant`.** The plan explicitly says "same scoping as
+  tenantsAPI/projectsAPI," and `tenantsAPI` uses
+  `accessibleTenantSummaries(user)` (tenant name == caller's own normalized
+  username) rather than the broader grant-based
+  `authorizeWorkloadTenant`/`authorizeRouteTenant` used by the route/
+  workload APIs (which also honor `TenantAccessManager` collaborator
+  grants). Picking the narrower one on purpose: a cache-backed answer must
+  never show a caller *more* than tenantsAPI already would, and mixing in
+  the broader grant check here — which nothing in the plan asked for — would
+  have done exactly that.
+- **Per-resource-type project scoping is enforced by intersecting the
+  snapshot against the caller's OWN raw Incus project names, not by trusting
+  the request.** `tenantProjectNames(summary)` inverts
+  `tenant.Summary.V2IncusProjectName` to map every raw cached project key
+  (e.g. `sc2-alice-docker`) back to its short name for exactly the
+  authorized tenant; every resource type (instances, networks, volumes,
+  profiles) is filtered through that map before anything else, so a cache
+  that (correctly) holds every tenant's data server-wide can never leak
+  another tenant's rows through this endpoint regardless of what the
+  `project`/`machine` query params say. Storage pools are the one
+  exception — Incus storage pools are server-scoped, not per-project, and
+  no existing live `sc ls` path ever gated them per tenant either, so
+  `ResourceListResult.StoragePools` is the full cache list, unfiltered.
+- **`Machines` reuses `meta.Machine` (and, transitively,
+  `incusx.MachineFromInstance`); the other four resource types are exposed
+  in their raw `api.Network`/`api.StorageVolumeFull`/`api.Profile`/
+  `api.Image` shapes.** `sc ls` has an existing, tested contract for what a
+  machine listing looks like (sidecar filtering, NIC-address resolution,
+  bare-machine detection) — reusing it outright, instead of re-deriving a
+  parallel shape, is what keeps this endpoint from drifting from
+  `listMachines()`. The other four have no such contract yet (t3 gets to
+  invent `sc ls`'s columns/flags for them), so passing the Incus API shapes
+  through as-is avoids designing a rendering contract twice.
+- **The instance→`meta.Machine` conversion lives in `incusx`
+  (`MachineFromInstance`, extracted from `machine_store.go`'s
+  `listV2Machines` loop, which now calls it too) and is injected into
+  `authapp` as a function-typed field
+  (`HTTPRunner.ResourceCacheMachineRenderer` →
+  `HandlerOptions.ResourceCacheMachineRenderer`), wired in `admin_root.go`
+  as `incusx.MachineFromInstance` — mirroring the existing
+  `RouteBackend`/`CaddyController`/`ResourceCacheServer` pattern (interface
+  or function surface defined in `authapp`, implementation in `incusx`,
+  because `incusx` already imports `authapp` for the ResourceCacheServer
+  adapter and the reverse import would cycle).** The alternative —
+  duplicating NIC-address resolution (MAC-vs-name interface matching,
+  `docker0` exclusion) and bare-machine detection inside `authapp` — was
+  rejected outright: that logic is exactly the kind of subtle, already-
+  tested code CLAUDE.md says not to re-derive, and package-boundary
+  necessity is not a reason to fork it.
+- **`HTTPRunner.Serve` now constructs the `*ResourceCache` before building
+  `HandlerOptions`** (previously it was a local variable used only by the
+  `RunResourceCache` goroutine): the handler needs the same instance to
+  answer `GET /api/resources`, and a nil `HandlerOptions.ResourceCache` is
+  exactly the toggle-off/no-socket signal the endpoint keys its 503 off of —
+  no separate `ResourceCacheEnabled` plumbing needed on the handler side.
+- Not done in this slice, by design (t3): no `sc ls` wiring to this
+  endpoint, no live-vs-cache fallback logic, no new `sc ls` flags/columns
+  for networks/storage/profiles/images. `docs/usage.html` is not touched
+  here — there is no new CLI-facing surface yet, only a server endpoint.
+
 ## 2026-08-10 — Auth App resource cache engine (event-bus fed, t1 of the `sc ls` cache wish)
 
 First slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`:
