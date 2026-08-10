@@ -193,3 +193,83 @@ func TestFormatMachineList_NoMachinesFoundUnchanged(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+// poisonTenantStore and poisonMachineStore fail the test the instant either is
+// touched — the live per-project Incus path (listMachines) is the only caller
+// of either interface, so wiring these into `sc ls` end to end is how t4
+// proves acceptance criterion 1 ("verify it's not hitting live Incus calls"),
+// not just that listMachinesViaCache was invoked (list_cache_test.go's other
+// tests already show that at the function level, one layer short of the real
+// `sc ls`/RunE dispatch this test goes through instead).
+type poisonTenantStore struct{ t *testing.T }
+
+func (p poisonTenantStore) ListProjects(ctx context.Context) ([]tenant.IncusProject, error) {
+	p.t.Helper()
+	p.t.Fatal("live tenant store touched despite a ready cache-backed answer")
+	return nil, nil
+}
+
+type poisonMachineStore struct{ t *testing.T }
+
+func (p poisonMachineStore) ListMachines(ctx context.Context, summary tenant.Summary) ([]meta.Machine, error) {
+	p.t.Helper()
+	p.t.Fatal("live machine store touched despite a ready cache-backed answer")
+	return nil, nil
+}
+
+// TestListCommand_ToggleOnReadyAnswersFromCacheWithoutLiveIncusCall runs `sc
+// ls -a` through the real command dispatch (NewRootCommand/RunE), the same
+// path an operator invokes, with tenantStore/machineStore wired to fail the
+// test if the live per-project path is ever reached. Only a ready cache
+// answer (config.authResources returning 200) can make this test pass —
+// t4's end-to-end verification of acceptance criterion 1.
+func TestListCommand_ToggleOnReadyAnswersFromCacheWithoutLiveIncusCall(t *testing.T) {
+	fake := &fakeResourceClient{result: authapp.ResourceListResult{
+		Tenant:      tenant.Summary{Tenant: "acme", DNSSuffix: "acme.sandcastle.dev"},
+		AllProjects: true,
+		Machines:    []meta.Machine{{Project: "gbrain", Name: "web", Running: true}},
+	}}
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:          "sandcastle",
+		tenantStore:   poisonTenantStore{t: t},
+		machineStore:  poisonMachineStore{t: t},
+		authResources: fake,
+	}, "ls", "-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.calls != 1 {
+		t.Fatalf("cache endpoint called %d times, want exactly 1", fake.calls)
+	}
+	if !strings.Contains(stdout, "gbrain") || !strings.Contains(stdout, "web") {
+		t.Fatalf("stdout = %q, want the cache-backed machine listed", stdout)
+	}
+}
+
+// TestListCommand_FallsBackToLiveWhenCacheUnavailable is the mirror of the
+// above at the same full-command layer: with the cache-backed endpoint
+// answering as not-ready/toggle-off (the two collapse to the same client-side
+// signal — see implementation-notes.md), `sc ls` must fall through to
+// tenantStore/machineStore and produce exactly what the pre-wish live path
+// would have shown.
+func TestListCommand_FallsBackToLiveWhenCacheUnavailable(t *testing.T) {
+	fake := &fakeResourceClient{err: errors.New(fakeResourceCacheUnavailableErr)}
+	projects := v2TenantProjects("acme", "10.248.0.0/24", "default")
+	stdout, err := executeForTestWithConfig(t, commandConfig{
+		name:        "sandcastle",
+		tenantStore: tenant.MemoryStore{Projects: projects},
+		machineStore: fakeMachineStatusStore{machines: []meta.Machine{{
+			Tenant: "acme", Project: "default", Name: "codex", Running: true,
+		}}},
+		authResources: fake,
+	}, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.calls != 1 {
+		t.Fatalf("cache endpoint called %d times, want exactly 1 (attempted, then fell back)", fake.calls)
+	}
+	if !strings.Contains(stdout, "default") || !strings.Contains(stdout, "codex") {
+		t.Fatalf("stdout = %q, want the live-path machine listed after fallback", stdout)
+	}
+}

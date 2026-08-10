@@ -5,6 +5,84 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-10 — t4: ADR + end-to-end verification for the `sc ls` cache wish
+
+Final slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`.
+Added `docs/adr/0023-event-bus-fed-resource-cache-for-sc-ls.md` (the
+larger, harder-to-reverse decisions from t1–t3: why the cache lives in Auth
+App, the single all-resource-type readiness gate, event-bus-only with no
+periodic resync, the opt-out-by-default toggle, `sc-adm list` staying out of
+scope) and did a holistic verification pass across the four combinations in
+the wish's acceptance criteria. No live Incus is available in this
+environment, so verification is via the existing `internal/authapp` +
+`internal/cli` unit/integration test layers, per the plan's own fallback
+clause ("targeted `internal/authapp` + `internal/cli` tests if a live Incus
+isn't available").
+
+- **What t1–t3 already covered, confirmed by reading and re-running the
+  suites, not just trusting their own notes:** `internal/authapp/resource_cache_test.go`
+  exercises the readiness state machine directly (not-ready before seed,
+  not-ready after seed until the stream connects, ready once connected,
+  stays ready across a heartbeat within the staleness window, goes not-ready
+  past it, recovers on a fresh heartbeat, goes not-ready immediately on
+  disconnect, recovers on reconnect) — combinations 2 and 3 from the wish's
+  acceptance criteria, at the cache-engine layer.
+  `internal/authapp/resource_cache_api_test.go` confirms the endpoint itself
+  answers 503 for both toggle-off (nil cache) and not-ready (seeded but
+  stream never connected) — the same signal `sc ls` keys its fallback off —
+  plus tenant-scoping and project/machine filtering when ready.
+  `internal/cli/list_cache_test.go` confirms `listMachinesViaCache` answers
+  from a ready cache with exactly one call to the endpoint and falls back
+  (returning `ok=false`) on every trigger the plan lists (no stored
+  `AuthToken`, unreachable, not-ready, toggle-off — the last two are
+  indistinguishable to the client on purpose, see the t3 note below).
+- **Gap found and fixed: no test exercised the actual `sc ls`/`RunE`
+  dispatch proving the live Incus stores are never touched on a cache hit.**
+  Every existing test called `listMachinesViaCache` or the HTTP handler
+  directly — real coverage, but one layer short of "run `sc ls -a` the way an
+  operator does and prove it didn't reach Incus," which is what acceptance
+  criterion 1 actually asks for ("verify it's not hitting live Incus
+  calls"). Added `TestListCommand_ToggleOnReadyAnswersFromCacheWithoutLiveIncusCall`
+  in `internal/cli/list_cache_test.go`: it runs `sc ls -a` through
+  `NewRootCommand`/`cmd.Execute()` (the same path `main()` takes) with
+  `tenantStore`/`machineStore` wired to a `poisonTenantStore`/
+  `poisonMachineStore` pair that call `t.Fatal` the instant either method is
+  invoked. Only a ready cache answer can make the test pass, since any
+  fallback would immediately touch the poisoned stores and fail it. Paired
+  it with `TestListCommand_FallsBackToLiveWhenCacheUnavailable`, the mirror
+  case at the same layer (real `tenant.MemoryStore`/`fakeMachineStatusStore`
+  behind a client returning the endpoint's actual 503 message), to make sure
+  the poison test's absence of failure is meaningful and not an artifact of
+  the command never reaching the fallback branch at all.
+- **Toggle-off byte-for-byte compatibility (combination 4) was already
+  covered, just not labeled as such.** `TestListJSONStartsEmpty`,
+  `TestListTextShowsManagedMachines`, `TestListUsesProjectFromEnv`, and
+  siblings in `root_test.go` all run the full `sc ls`/`list` command with no
+  `authResources` client and no `AuthToken` configured — which is exactly
+  "toggle off" from the client's point of view (`listMachinesViaCache`
+  cannot tell "server toggle is off" apart from "I have nothing to try
+  with"; see the t3 note on this file). Those tests predate this wish and
+  assert output that must still match today, so their continuing to pass
+  after t1–t3 landed is itself the toggle-off regression check the plan
+  asked for — no gap here, just cross-referencing it explicitly for whoever
+  reads this file next.
+- **Docs cross-checked against shipped code, not just against the plan.**
+  Verified `docs/usage.html`'s cache-backed-listing section
+  (`SANDCASTLE_RESOURCE_CACHE`, `--networks`/`--storage-pools`/
+  `--storage-volumes`/`--profiles`/`--images`, the on-by-default framing) and
+  `docs/e2e-sc2.md`'s §2d (the exact verbose fallback message text, the flag
+  list, the `sc-adm list` out-of-scope note) against the actual strings in
+  `internal/cli/admin_root.go`'s `resourceCacheEnabled`, `internal/cli/list.go`'s
+  flag definitions and `logListCacheFallback`, and
+  `internal/authapp/resource_cache_api.go`'s `resourceCacheUnavailableMessage`.
+  All matched what t1–t3 actually shipped — no drift found, no doc edits
+  needed beyond the new ADR.
+- `go build ./...`, `go vet ./...`, and `go test ./...` all pass except four
+  pre-existing `TestLogin*` failures in `internal/cli` caused by no `incus`
+  binary being on `PATH` in this environment — confirmed pre-existing (same
+  failures on the unmodified branch before this slice's changes) and
+  unrelated to this wish.
+
 ## 2026-08-10 — `GET /api/resources`: the cache-backed listing endpoint (t2 of the `sc ls` cache wish)
 
 Second slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`:
