@@ -3738,3 +3738,50 @@ so you had to already know the URL to find them.
   the landing page.
 - Access control is unchanged — `/admin/*` still enforces `requireAdmin` on
   every request. The section is discoverability, not authorization.
+
+## 2026-08-10 — t3: `sc ls` cache-first with live fallback (event-bus cache wish)
+
+Wired the `sc ls` path of `listMachines()` (`internal/cli/list.go`) to try the
+t2 `GET /api/resources` endpoint first, via a new `authapp.DeviceClient.ListResources`
+and a `config.authResources` injection seam (mirroring `authTenants`), falling
+back to exactly the existing live per-project path on any failure. Only
+`newListCommand`'s `RunE` was rewired — `sc-adm list`/`sc admin list`
+(`admin_machine.go`) and the internal `currentTenantMachines` helper
+(`project.go`) call `listMachines()` directly, unchanged, per the plan's
+explicit scope boundary.
+
+- **Any client-side error collapses to "fall back," no status-code branching.**
+  `ListResources` returns a plain `error` for a dial failure, a timeout, or any
+  non-200 (including the 503 the endpoint answers for both "toggle off" and
+  "cache not ready" — see t2's `resourceCacheUnavailableMessage`). `sc ls`
+  never distinguishes these; it just retries live. This matches the plan's "ANY
+  non-answer" wording and means the CLI does not need to know the server's
+  toggle state at all.
+- **A short (3s), request-scoped timeout, not `DeviceClient`'s default.** The
+  default client timeout (5 minutes, sized for the device-login poll) would
+  make an unreachable admin server hang `sc ls` far longer than "falls back
+  near-instantly" implies. `listMachinesViaCache` wraps the caller's context
+  with its own `resourceCacheRequestTimeout` instead of changing
+  `DeviceClient`'s shared default, so other callers (`sc tenant list`, `sc
+  project create`, …) are unaffected.
+- **`listMachines()` itself is untouched.** Rather than refactor its
+  tenant/project resolution to share code with the new cache path, the cache
+  wiring duplicates just the ~6 lines it needs
+  (`splitListTenantAndProject`) as a separate function. `listMachines()`
+  already has direct test coverage asserting its exact behavior (wildcard
+  filters, typo-vs-glob project errors, cross-install scoping); the duplication
+  cost is small and it removes any risk of the byte-for-byte toggle-off
+  acceptance criterion regressing from a shared-code refactor.
+- **New resource-type flags are opt-in and irrelevant to fallback.**
+  `--networks`/`--storage-pools`/`--storage-volumes`/`--profiles`/`--images`
+  only control which extra sections `formatMachineList` renders; the live path
+  never populates those `listPayload` fields, so on any fallback the flags are
+  silent no-ops rather than an error — matching "behaves exactly as it does
+  today (instances only)" from the plan. Table columns are a first pass
+  (Project/Name/Type/Managed for networks, etc.) — not exhaustive, since the
+  plan calls flag/column naming an implementation detail.
+- Multi-remote glob sweeps (`sc ls 'o*:gbrain:d*'`, `listMachinesAcrossRemotes`)
+  were left on the plain live `listMachines()` call — the wish's motivating
+  trace and acceptance criteria are single-install, and threading the cache
+  path through the fanout would need its own request/response shape decision
+  the plan doesn't make.
