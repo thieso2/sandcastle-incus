@@ -5,6 +5,285 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-10 — t4: ADR + end-to-end verification for the `sc ls` cache wish
+
+Final slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`.
+Added `docs/adr/0023-event-bus-fed-resource-cache-for-sc-ls.md` (the
+larger, harder-to-reverse decisions from t1–t3: why the cache lives in Auth
+App, the single all-resource-type readiness gate, event-bus-only with no
+periodic resync, the opt-out-by-default toggle, `sc-adm list` staying out of
+scope) and did a holistic verification pass across the four combinations in
+the wish's acceptance criteria. No live Incus is available in this
+environment, so verification is via the existing `internal/authapp` +
+`internal/cli` unit/integration test layers, per the plan's own fallback
+clause ("targeted `internal/authapp` + `internal/cli` tests if a live Incus
+isn't available").
+
+- **What t1–t3 already covered, confirmed by reading and re-running the
+  suites, not just trusting their own notes:** `internal/authapp/resource_cache_test.go`
+  exercises the readiness state machine directly (not-ready before seed,
+  not-ready after seed until the stream connects, ready once connected,
+  stays ready across a heartbeat within the staleness window, goes not-ready
+  past it, recovers on a fresh heartbeat, goes not-ready immediately on
+  disconnect, recovers on reconnect) — combinations 2 and 3 from the wish's
+  acceptance criteria, at the cache-engine layer.
+  `internal/authapp/resource_cache_api_test.go` confirms the endpoint itself
+  answers 503 for both toggle-off (nil cache) and not-ready (seeded but
+  stream never connected) — the same signal `sc ls` keys its fallback off —
+  plus tenant-scoping and project/machine filtering when ready.
+  `internal/cli/list_cache_test.go` confirms `listMachinesViaCache` answers
+  from a ready cache with exactly one call to the endpoint and falls back
+  (returning `ok=false`) on every trigger the plan lists (no stored
+  `AuthToken`, unreachable, not-ready, toggle-off — the last two are
+  indistinguishable to the client on purpose, see the t3 note below).
+- **Gap found and fixed: no test exercised the actual `sc ls`/`RunE`
+  dispatch proving the live Incus stores are never touched on a cache hit.**
+  Every existing test called `listMachinesViaCache` or the HTTP handler
+  directly — real coverage, but one layer short of "run `sc ls -a` the way an
+  operator does and prove it didn't reach Incus," which is what acceptance
+  criterion 1 actually asks for ("verify it's not hitting live Incus
+  calls"). Added `TestListCommand_ToggleOnReadyAnswersFromCacheWithoutLiveIncusCall`
+  in `internal/cli/list_cache_test.go`: it runs `sc ls -a` through
+  `NewRootCommand`/`cmd.Execute()` (the same path `main()` takes) with
+  `tenantStore`/`machineStore` wired to a `poisonTenantStore`/
+  `poisonMachineStore` pair that call `t.Fatal` the instant either method is
+  invoked. Only a ready cache answer can make the test pass, since any
+  fallback would immediately touch the poisoned stores and fail it. Paired
+  it with `TestListCommand_FallsBackToLiveWhenCacheUnavailable`, the mirror
+  case at the same layer (real `tenant.MemoryStore`/`fakeMachineStatusStore`
+  behind a client returning the endpoint's actual 503 message), to make sure
+  the poison test's absence of failure is meaningful and not an artifact of
+  the command never reaching the fallback branch at all.
+- **Toggle-off byte-for-byte compatibility (combination 4) was already
+  covered, just not labeled as such.** `TestListJSONStartsEmpty`,
+  `TestListTextShowsManagedMachines`, `TestListUsesProjectFromEnv`, and
+  siblings in `root_test.go` all run the full `sc ls`/`list` command with no
+  `authResources` client and no `AuthToken` configured — which is exactly
+  "toggle off" from the client's point of view (`listMachinesViaCache`
+  cannot tell "server toggle is off" apart from "I have nothing to try
+  with"; see the t3 note on this file). Those tests predate this wish and
+  assert output that must still match today, so their continuing to pass
+  after t1–t3 landed is itself the toggle-off regression check the plan
+  asked for — no gap here, just cross-referencing it explicitly for whoever
+  reads this file next.
+- **Docs cross-checked against shipped code, not just against the plan.**
+  Verified `docs/usage.html`'s cache-backed-listing section
+  (`SANDCASTLE_RESOURCE_CACHE`, `--networks`/`--storage-pools`/
+  `--storage-volumes`/`--profiles`/`--images`, the on-by-default framing) and
+  `docs/e2e-sc2.md`'s §2d (the exact verbose fallback message text, the flag
+  list, the `sc-adm list` out-of-scope note) against the actual strings in
+  `internal/cli/admin_root.go`'s `resourceCacheEnabled`, `internal/cli/list.go`'s
+  flag definitions and `logListCacheFallback`, and
+  `internal/authapp/resource_cache_api.go`'s `resourceCacheUnavailableMessage`.
+  All matched what t1–t3 actually shipped — no drift found, no doc edits
+  needed beyond the new ADR.
+- `go build ./...`, `go vet ./...`, and `go test ./...` all pass except four
+  pre-existing `TestLogin*` failures in `internal/cli` caused by no `incus`
+  binary being on `PATH` in this environment — confirmed pre-existing (same
+  failures on the unmodified branch before this slice's changes) and
+  unrelated to this wish.
+
+## 2026-08-10 — `GET /api/resources`: the cache-backed listing endpoint (t2 of the `sc ls` cache wish)
+
+Second slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`:
+a bearer-authenticated endpoint answering from the t1 `ResourceCache` instead
+of a live per-project Incus sweep. t3 (CLI wiring, new flags/columns) is not
+built here — this slice only adds the HTTP surface and the request/response
+contract it exposes.
+
+- **Response/error contract for the "non-answer" cases (this is the load-
+  bearing decision t3 depends on).** `GET /api/resources` returns exactly one
+  of: **200** with a fully-populated, correctly-filtered `ResourceListResult`
+  (cache toggle on, ready, request valid, tenant authorized); **503** with a
+  plain-text body when the cache is not a safe source of truth — toggle off
+  (`ResourceCache` is nil, since `HTTPRunner.Serve` never constructs one when
+  `ResourceCacheEnabled` is false) or not-ready (`Snapshot().Ready == false`:
+  initial read incomplete, event stream disconnected, or stale). Both
+  toggle-off and not-ready collapse to the same 503 — deliberately: t3 is
+  specified to fall back identically for either ("any non-answer... falls
+  through transparently"), so the CLI needs one signal, not two. **401** (no/
+  invalid bearer token), **403** (tenant query param not in the caller's own
+  `accessibleTenantSummaries` — cross-tenant attempt), **404** (a literal,
+  non-glob project filter that does not name one of the tenant's own
+  projects — mirrors `listMachines()`'s "a typo should say so, not read as
+  empty" rule), and **400** (a project/machine filter that fails
+  `naming.ValidateNamePattern`/`ValidateProjectName`/`ValidateMachineName`)
+  are all genuine request errors, not cache-unavailability — t3 must **not**
+  fall back to live on these (that would just reproduce the identical error
+  from the live path, but silently, after the fallback round trip). Only 503
+  means "try live instead." This distinction (503 = fall back; everything
+  else = surface the error) is the one thing this note exists to pin down for
+  whoever builds t3.
+- **`tenant` is a required-ish query param, not implicit.** The server has no
+  visibility into the CLI's local `~/.config/sandcastle/config.yml` pin, so
+  it cannot resolve "the caller's tenant" the way `listMachines()` resolves
+  it from `config.adminConfig.Tenant`. When the param is empty AND the
+  caller's bearer token grants exactly one accessible tenant (the common
+  case — a v2 personal tenant's `accessibleTenantSummaries` is always
+  exactly `[self]`), that one tenant is used; otherwise the request is
+  rejected with 403 rather than guessed. `project`/`machine` accept the same
+  literal-or-glob values `sc ls` already does (`naming.MatchName`/
+  `naming.IsPattern`, the identical package the CLI's own filtering uses —
+  no duplicated matching logic), and an empty `project` means "all
+  projects" (`AllProjects` in the response mirrors `listPayload.AllProjects`
+  exactly: `project filter == ""`). There is no `-a`/`--all-projects` or
+  `-u`/`--include-unmanaged` request field: `-a` is just "call with
+  `project` unset" from the client side, and `-u` does not exist anywhere in
+  the current CLI (`internal/cli/list.go` has no such flag) — v2 machines
+  are freeform instances with no "unmanaged" bucket at all
+  (`HostOverrideManager.ListMachinesAndUnmanaged` always returns `nil`
+  unmanaged), so `ResourceListResult` has no Unmanaged field either; the
+  plan doc's mention of it describes a flag that does not exist in this
+  codebase.
+- **Authorization is `accessibleTenantSummaries`, not
+  `authorizeWorkloadTenant`.** The plan explicitly says "same scoping as
+  tenantsAPI/projectsAPI," and `tenantsAPI` uses
+  `accessibleTenantSummaries(user)` (tenant name == caller's own normalized
+  username) rather than the broader grant-based
+  `authorizeWorkloadTenant`/`authorizeRouteTenant` used by the route/
+  workload APIs (which also honor `TenantAccessManager` collaborator
+  grants). Picking the narrower one on purpose: a cache-backed answer must
+  never show a caller *more* than tenantsAPI already would, and mixing in
+  the broader grant check here — which nothing in the plan asked for — would
+  have done exactly that.
+- **Per-resource-type project scoping is enforced by intersecting the
+  snapshot against the caller's OWN raw Incus project names, not by trusting
+  the request.** `tenantProjectNames(summary)` inverts
+  `tenant.Summary.V2IncusProjectName` to map every raw cached project key
+  (e.g. `sc2-alice-docker`) back to its short name for exactly the
+  authorized tenant; every resource type (instances, networks, volumes,
+  profiles) is filtered through that map before anything else, so a cache
+  that (correctly) holds every tenant's data server-wide can never leak
+  another tenant's rows through this endpoint regardless of what the
+  `project`/`machine` query params say. Storage pools are the one
+  exception — Incus storage pools are server-scoped, not per-project, and
+  no existing live `sc ls` path ever gated them per tenant either, so
+  `ResourceListResult.StoragePools` is the full cache list, unfiltered.
+- **`Machines` reuses `meta.Machine` (and, transitively,
+  `incusx.MachineFromInstance`); the other four resource types are exposed
+  in their raw `api.Network`/`api.StorageVolumeFull`/`api.Profile`/
+  `api.Image` shapes.** `sc ls` has an existing, tested contract for what a
+  machine listing looks like (sidecar filtering, NIC-address resolution,
+  bare-machine detection) — reusing it outright, instead of re-deriving a
+  parallel shape, is what keeps this endpoint from drifting from
+  `listMachines()`. The other four have no such contract yet (t3 gets to
+  invent `sc ls`'s columns/flags for them), so passing the Incus API shapes
+  through as-is avoids designing a rendering contract twice.
+- **The instance→`meta.Machine` conversion lives in `incusx`
+  (`MachineFromInstance`, extracted from `machine_store.go`'s
+  `listV2Machines` loop, which now calls it too) and is injected into
+  `authapp` as a function-typed field
+  (`HTTPRunner.ResourceCacheMachineRenderer` →
+  `HandlerOptions.ResourceCacheMachineRenderer`), wired in `admin_root.go`
+  as `incusx.MachineFromInstance` — mirroring the existing
+  `RouteBackend`/`CaddyController`/`ResourceCacheServer` pattern (interface
+  or function surface defined in `authapp`, implementation in `incusx`,
+  because `incusx` already imports `authapp` for the ResourceCacheServer
+  adapter and the reverse import would cycle).** The alternative —
+  duplicating NIC-address resolution (MAC-vs-name interface matching,
+  `docker0` exclusion) and bare-machine detection inside `authapp` — was
+  rejected outright: that logic is exactly the kind of subtle, already-
+  tested code CLAUDE.md says not to re-derive, and package-boundary
+  necessity is not a reason to fork it.
+- **`HTTPRunner.Serve` now constructs the `*ResourceCache` before building
+  `HandlerOptions`** (previously it was a local variable used only by the
+  `RunResourceCache` goroutine): the handler needs the same instance to
+  answer `GET /api/resources`, and a nil `HandlerOptions.ResourceCache` is
+  exactly the toggle-off/no-socket signal the endpoint keys its 503 off of —
+  no separate `ResourceCacheEnabled` plumbing needed on the handler side.
+- Not done in this slice, by design (t3): no `sc ls` wiring to this
+  endpoint, no live-vs-cache fallback logic, no new `sc ls` flags/columns
+  for networks/storage/profiles/images. `docs/usage.html` is not touched
+  here — there is no new CLI-facing surface yet, only a server endpoint.
+
+## 2026-08-10 — Auth App resource cache engine (event-bus fed, t1 of the `sc ls` cache wish)
+
+First slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`:
+the in-memory `authapp.ResourceCache` that will eventually back a cache-first
+`sc ls` (t2 adds the HTTP endpoint, t3 wires the CLI). This slice only builds
+and wires up the engine — no HTTP surface yet.
+
+- **Staleness/heartbeat detection: last-event-received timestamp vs. a fixed
+  timeout, reset on (re)connect.** The Incus event bus has no built-in
+  liveness ping, so `ResourceCache` tracks `lastEventAt` and treats the stream
+  as gone stale if `now() - lastEventAt` exceeds `DefaultResourceCacheStaleAfter`
+  (2 minutes). Two design choices worth flagging: (1) the heartbeat is reset by
+  *any* event received on the listener, not just ones the cache acts on — a
+  handler registered with `nil` types (matches every event type) exists solely
+  to prove the socket is alive, separate from the lifecycle-only handler that
+  actually mutates the cache; a chatty-but-cache-irrelevant event still counts
+  as proof of life. (2) `markStreamConnected` resets the heartbeat clock too,
+  so a fresh reconnect gets a full timeout window rather than immediately
+  reading as stale from whatever `lastEventAt` was before the drop. Accepted
+  tradeoff: a genuinely idle install with zero Incus activity for over 2
+  minutes will report not-ready and `sc ls` (once t3 lands) will fall back to
+  live — judged acceptable since the fallback is exactly today's behavior, not
+  an error.
+- **On any relevant lifecycle event, refresh the whole (kind, project) bucket
+  — never try to patch a single named resource from the event payload.**
+  `api.EventLifecycle.Name`/`.Project` (the `event_lifecycle_name_and_project`
+  extension) are not documented well enough to know, for a `*-renamed` action,
+  whether `Name` is the old or new name across Incus versions. Rather than
+  guess, the event handler ignores the event's own name entirely and just
+  re-reads that project's full list for that resource kind via the same
+  `UseProject(...).GetXFull()` pattern `listMachines()` already uses per
+  project today. This makes create/update/delete/rename all reduce to the same
+  code path and makes the cache correct regardless of exactly what a given
+  Incus version puts in the event payload, at the cost of one wider per-project
+  read instead of a single-item patch — cheap relative to the multi-second
+  per-project reads this wish exists to avoid, since it only fires on actual
+  lifecycle events, not on every `sc ls` invocation.
+- **Subscribed action set: DNS reconciler's set (`admin_dns_events.go`) plus
+  `instance-updated`/`instance-migrated`, plus the equivalent create/update/
+  delete/rename(/refresh) actions for networks, storage volumes, storage pools,
+  profiles, and images — but still short of "every event".** The shape doc
+  explicitly warns not to copy the DNS reconciler's trimmed set (it excludes
+  `instance-updated`, which this cache needs for IP/state changes, precisely
+  because the DNS reconciler has a periodic-ticker backstop this cache
+  deliberately does not). But "broadly enough" isn't "everything": actions
+  that touch a resource without changing any field `sc ls` could ever display —
+  `instance-exec`, `instance-console*`, `instance-file-*`, `instance-log-*`,
+  `instance-metadata-*`, `image-retrieved`, snapshot/backup events — are still
+  excluded, same rationale the DNS reconciler used, just without the ticker as
+  a fallback for anything misclassified. `image-alias-*` events ARE included
+  despite not being an `image-*` action, because aliases live inside
+  `api.Image.Aliases` with no separate `image-updated` firing alongside them.
+- **Storage pools vs. storage volumes are two different cache buckets.** Incus
+  storage pools are server-scoped (not per-project); storage volumes are
+  per-project. The wish's "storage" resource type maps to volumes for the
+  per-project index (`ResourceCache.StorageVolumes`, keyed like the other four
+  types), with pools kept as a small separate global list
+  (`ResourceCache.StoragePools`) used only to know which pools to ask about
+  when refreshing a project's volumes — not exposed as its own `sc ls` filter
+  dimension (that's t3's call to make, once it exists).
+- **Toggle defaults to on; env var `SANDCASTLE_RESOURCE_CACHE`.** Per the shape
+  doc's decision, the cache engine starts unless an operator explicitly opts
+  out (`SANDCASTLE_RESOURCE_CACHE=off`/`disable`/`disabled`/`0`/`false`, case-
+  insensitive) — read once at `auth-app serve` startup in `admin_root.go`,
+  following the exact `os.Getenv` + trim pattern already used for
+  `SANDCASTLE_ROUTE_INGRESS`/`SANDCASTLE_AUTH_INGRESS_MODE`. When off, or when
+  there's no mounted host socket (not the serving appliance — same gate
+  `DNSEvents`/`RouteEvents` already use), `HTTPRunner.Serve` never constructs
+  or starts a `ResourceCache` at all: no wasted initial read, no event
+  subscription.
+- **Interface defined in `authapp`, live-Incus adapter in `incusx` — mirrors
+  the existing `authapp.RouteBackend` / `incusx.RouteBackend` split.**
+  `authapp.ResourceCacheServer`/`ResourceCacheProjectServer` are the narrow
+  Incus surfaces the cache engine needs (an all-projects read per type, a
+  per-project re-read via `UseProject`, `GetEventsAllProjects`); `incusx`
+  already imports `authapp` for exactly this kind of interface (see
+  `routebackend.go`), so `incusx.ResourceCacheServer` wraps a live
+  `incus.InstanceServer` the same way. This keeps `internal/authapp` free of a
+  direct Incus client SDK dependency for the parts of the cache that don't
+  need one, while still letting `admin_root.go` wire a real server in with one
+  constructor call, same as every other `NewXForServer(socketServer)` already
+  there.
+- Not done in this slice, by design (see the plan's t2/t3): no HTTP endpoint,
+  no `sc ls` wiring, no new `sc ls` flags/columns for the newly-cached resource
+  types. `ResourceCache.Snapshot()` exists as the one read seam those slices
+  are expected to build on, but its exact shape is intentionally not yet
+  contorted to match a not-yet-designed HTTP response contract.
+
 ## 2026-08-07 — Reaching a bare machine: `sc connect` execs, `sc ls` says so
 
 `sc connect` to a bare machine could only ever spend two minutes waiting for an
@@ -3537,3 +3816,50 @@ so you had to already know the URL to find them.
   the landing page.
 - Access control is unchanged — `/admin/*` still enforces `requireAdmin` on
   every request. The section is discoverability, not authorization.
+
+## 2026-08-10 — t3: `sc ls` cache-first with live fallback (event-bus cache wish)
+
+Wired the `sc ls` path of `listMachines()` (`internal/cli/list.go`) to try the
+t2 `GET /api/resources` endpoint first, via a new `authapp.DeviceClient.ListResources`
+and a `config.authResources` injection seam (mirroring `authTenants`), falling
+back to exactly the existing live per-project path on any failure. Only
+`newListCommand`'s `RunE` was rewired — `sc-adm list`/`sc admin list`
+(`admin_machine.go`) and the internal `currentTenantMachines` helper
+(`project.go`) call `listMachines()` directly, unchanged, per the plan's
+explicit scope boundary.
+
+- **Any client-side error collapses to "fall back," no status-code branching.**
+  `ListResources` returns a plain `error` for a dial failure, a timeout, or any
+  non-200 (including the 503 the endpoint answers for both "toggle off" and
+  "cache not ready" — see t2's `resourceCacheUnavailableMessage`). `sc ls`
+  never distinguishes these; it just retries live. This matches the plan's "ANY
+  non-answer" wording and means the CLI does not need to know the server's
+  toggle state at all.
+- **A short (3s), request-scoped timeout, not `DeviceClient`'s default.** The
+  default client timeout (5 minutes, sized for the device-login poll) would
+  make an unreachable admin server hang `sc ls` far longer than "falls back
+  near-instantly" implies. `listMachinesViaCache` wraps the caller's context
+  with its own `resourceCacheRequestTimeout` instead of changing
+  `DeviceClient`'s shared default, so other callers (`sc tenant list`, `sc
+  project create`, …) are unaffected.
+- **`listMachines()` itself is untouched.** Rather than refactor its
+  tenant/project resolution to share code with the new cache path, the cache
+  wiring duplicates just the ~6 lines it needs
+  (`splitListTenantAndProject`) as a separate function. `listMachines()`
+  already has direct test coverage asserting its exact behavior (wildcard
+  filters, typo-vs-glob project errors, cross-install scoping); the duplication
+  cost is small and it removes any risk of the byte-for-byte toggle-off
+  acceptance criterion regressing from a shared-code refactor.
+- **New resource-type flags are opt-in and irrelevant to fallback.**
+  `--networks`/`--storage-pools`/`--storage-volumes`/`--profiles`/`--images`
+  only control which extra sections `formatMachineList` renders; the live path
+  never populates those `listPayload` fields, so on any fallback the flags are
+  silent no-ops rather than an error — matching "behaves exactly as it does
+  today (instances only)" from the plan. Table columns are a first pass
+  (Project/Name/Type/Managed for networks, etc.) — not exhaustive, since the
+  plan calls flag/column naming an implementation detail.
+- Multi-remote glob sweeps (`sc ls 'o*:gbrain:d*'`, `listMachinesAcrossRemotes`)
+  were left on the plain live `listMachines()` call — the wish's motivating
+  trace and acceptance criteria are single-install, and threading the cache
+  path through the fanout would need its own request/response shape decision
+  the plan doesn't make.

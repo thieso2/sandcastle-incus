@@ -436,6 +436,63 @@ func (c DeviceClient) ListTenants(ctx context.Context) ([]TenantAccessSummary, e
 	return payload.Tenants, nil
 }
 
+// ResourceListRequest is the query for GET /api/resources — the cache-backed
+// counterpart of listMachinesRequest (internal/cli/list.go). Tenant is
+// optional (see selectAccessibleTenant in resource_cache_api.go); Project and
+// Machine carry the same literal-or-glob values `sc ls` already accepts.
+type ResourceListRequest struct {
+	Tenant  string
+	Project string
+	Machine string
+}
+
+// ListResources calls the t2 cache-backed GET /api/resources endpoint. `sc
+// ls` (t3, internal/cli/list.go) treats ANY error return — network failure,
+// timeout, or non-200 status (including the 503 the endpoint answers when the
+// toggle is off or the cache is not ready) — as a signal to fall back to the
+// live per-project Incus path; it never inspects the error string.
+func (c DeviceClient) ListResources(ctx context.Context, request ResourceListRequest) (ResourceListResult, error) {
+	query := url.Values{}
+	if v := strings.TrimSpace(request.Tenant); v != "" {
+		query.Set("tenant", v)
+	}
+	if v := strings.TrimSpace(request.Project); v != "" {
+		query.Set("project", v)
+	}
+	if v := strings.TrimSpace(request.Machine); v != "" {
+		query.Set("machine", v)
+	}
+	path := "/api/resources"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(path), nil)
+	if err != nil {
+		return ResourceListResult{}, err
+	}
+	if strings.TrimSpace(c.AuthToken) != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.AuthToken))
+	}
+	response, err := c.client().Do(httpRequest)
+	if err != nil {
+		return ResourceListResult{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = response.Status
+		}
+		return ResourceListResult{}, fmt.Errorf("auth app resource list: %s", msg)
+	}
+	var payload ResourceListResult
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return ResourceListResult{}, err
+	}
+	return payload, nil
+}
+
 func (c DeviceClient) CreateShare(ctx context.Context, request ShareCreateRequest) (share.Result, error) {
 	body, _ := json.Marshal(request)
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/shares"), bytes.NewReader(body))

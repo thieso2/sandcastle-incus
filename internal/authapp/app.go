@@ -137,6 +137,25 @@ type HTTPRunner struct {
 	Version string
 	// Sidecars serves the token-authenticated tenant sidecar update (#124 §5).
 	Sidecars projectbroker.SidecarUpdater
+	// ResourceCacheEnabled is the admin-server config toggle (default on) for
+	// the event-bus-fed Incus resource cache (docs/shape/admin-server-config-
+	// toggled-event-bus-ca8marg.md). When false, or when ResourceCacheServer is
+	// nil (no mounted host socket — not the serving appliance), the cache is
+	// never started and every consumer must fall back to live per-project
+	// queries.
+	ResourceCacheEnabled bool
+	// ResourceCacheServer, when set, is the Incus source RunResourceCache reads
+	// from: one full read on startup, then per-project refreshes driven by the
+	// event bus. Set alongside DNSEvents/RouteEvents, from the same mounted
+	// socket.
+	ResourceCacheServer ResourceCacheServer
+	// ResourceCacheMachineRenderer converts one cached Incus instance into the
+	// CLI-facing meta.Machine shape for GET /api/resources (t2 of the same
+	// wish) — set alongside ResourceCacheServer, from
+	// incusx.MachineFromInstance, so authapp (which incusx imports, not the
+	// other way around) never has to duplicate NIC-address resolution or the
+	// sidecar-instance filter.
+	ResourceCacheMachineRenderer ResourceCacheMachineRenderer
 }
 
 func PlanServe(request ServeRequest) (ServePlan, error) {
@@ -191,42 +210,58 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 		return err
 	}
 	provisioner := injectServeDependencies(r.Provisioner, db, plan.DefaultUnixUser)
+	// Built before the handler (rather than started alongside DNSReconcile
+	// below) so GET /api/resources can be wired to it: a nil cache here is
+	// exactly "toggle off, or no mounted host socket" — the same condition
+	// that keeps RunResourceCache from ever starting — and the endpoint
+	// answers 503 for both without a separate flag.
+	var resourceCache *ResourceCache
+	if r.ResourceCacheEnabled && r.ResourceCacheServer != nil {
+		resourceCache = NewResourceCache(DefaultResourceCacheStaleAfter)
+	}
 	server := &http.Server{
 		Addr: plan.Address,
 		Handler: logger.HTTP(NewHandler(db, HandlerOptions{
-			AuthHostname:        plan.AuthHostname,
-			GitHubClientID:      plan.GitHubClientID,
-			GitHubClientSecret:  plan.GitHubClientSecret,
-			RestrictedUsers:     r.RestrictedUsers,
-			Provisioner:         provisioner,
-			Admin:               r.Admin,
-			Tenants:             r.Tenants,
-			TenantAccess:        r.TenantAccess,
-			Machines:            r.Machines,
-			MachineSSHKeys:      r.MachineSSHKeys,
-			TenantSSHKeys:       r.TenantSSHKeys,
-			MachineSSHAccess:    r.MachineSSHAccess,
-			ShareStore:          r.ShareStore,
-			ShareReconciler:     r.ShareReconciler,
-			Projects:            r.Projects,
-			DebugDeviceUser:     plan.DebugDeviceUser,
-			SimulateGitHubToken: plan.SimulateGitHubToken,
-			TailscaleAuthKey:    plan.TailscaleAuthKey,
-			Routes:              r.Routes,
-			RouteCaddy:          r.RouteCaddy,
-			ACMEEmail:           r.ACMEEmail,
-			AuthIngressMode:     r.AuthIngressMode,
-			RouteBaseDomain:     r.RouteBaseDomain,
-			RouteIngress:        r.RouteIngress,
-			RouteCNAMETarget:    r.RouteCNAMETarget,
-			RouteTLS:            r.RouteTLS,
-			Version:             r.Version,
-			Sidecars:            r.Sidecars,
+			AuthHostname:                 plan.AuthHostname,
+			GitHubClientID:               plan.GitHubClientID,
+			GitHubClientSecret:           plan.GitHubClientSecret,
+			RestrictedUsers:              r.RestrictedUsers,
+			Provisioner:                  provisioner,
+			Admin:                        r.Admin,
+			Tenants:                      r.Tenants,
+			TenantAccess:                 r.TenantAccess,
+			Machines:                     r.Machines,
+			MachineSSHKeys:               r.MachineSSHKeys,
+			TenantSSHKeys:                r.TenantSSHKeys,
+			MachineSSHAccess:             r.MachineSSHAccess,
+			ShareStore:                   r.ShareStore,
+			ShareReconciler:              r.ShareReconciler,
+			Projects:                     r.Projects,
+			DebugDeviceUser:              plan.DebugDeviceUser,
+			SimulateGitHubToken:          plan.SimulateGitHubToken,
+			TailscaleAuthKey:             plan.TailscaleAuthKey,
+			Routes:                       r.Routes,
+			RouteCaddy:                   r.RouteCaddy,
+			ACMEEmail:                    r.ACMEEmail,
+			AuthIngressMode:              r.AuthIngressMode,
+			RouteBaseDomain:              r.RouteBaseDomain,
+			RouteIngress:                 r.RouteIngress,
+			RouteCNAMETarget:             r.RouteCNAMETarget,
+			RouteTLS:                     r.RouteTLS,
+			Version:                      r.Version,
+			Sidecars:                     r.Sidecars,
+			ResourceCache:                resourceCache,
+			ResourceCacheMachineRenderer: r.ResourceCacheMachineRenderer,
 		})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	if r.DNSReconcile != nil {
 		go r.runDNSReconcileLoop(ctx, logger)
+	}
+	if resourceCache != nil {
+		go RunResourceCache(ctx, resourceCache, r.ResourceCacheServer, func(format string, args ...any) {
+			logger.Message(ctx, "WARN", format, args...)
+		})
 	}
 	if r.Tenants != nil {
 		// Garbage-collect DNS-suffix claims orphaned by tenants deleted out-of-band
@@ -758,6 +793,14 @@ type HandlerOptions struct {
 	// ReleaseResolver overrides the version card's GitHub lookup. Injected in
 	// tests; nil uses the daily-cached releases/latest check.
 	ReleaseResolver func(ctx context.Context) (update.Release, error)
+	// ResourceCache backs GET /api/resources (t2 of the event-bus-cache wish).
+	// nil means the cache never started (toggle off, or not ready yet at
+	// construction time) — the endpoint always answers 503 so `sc ls` falls
+	// back to its live per-project path.
+	ResourceCache *ResourceCache
+	// ResourceCacheMachineRenderer converts a cached instance into a
+	// meta.Machine; required whenever ResourceCache is set.
+	ResourceCacheMachineRenderer ResourceCacheMachineRenderer
 }
 
 // TenantProjectCreator creates an app project for a tenant and extends the
@@ -774,38 +817,40 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux := http.NewServeMux()
 	handlerOptions := normalizeHandlerOptions(options)
 	app := handler{
-		db:               db,
-		authHostname:     strings.Trim(strings.TrimSpace(handlerOptions.AuthHostname), "."),
-		githubClient:     handlerOptions.GitHub,
-		githubOAuth:      GitHubOAuth{ClientID: handlerOptions.GitHubClientID, ClientSecret: handlerOptions.GitHubClientSecret},
-		restricted:       handlerOptions.RestrictedUsers,
-		provisioner:      handlerOptions.Provisioner,
-		admin:            handlerOptions.Admin,
-		tenants:          handlerOptions.Tenants,
-		tenantAccess:     handlerOptions.TenantAccess,
-		machines:         handlerOptions.Machines,
-		machineSSHKeys:   handlerOptions.MachineSSHKeys,
-		tenantSSHKeys:    handlerOptions.TenantSSHKeys,
-		machineSSHAccess: handlerOptions.MachineSSHAccess,
-		shareStore:       handlerOptions.ShareStore,
-		shareReconciler:  handlerOptions.ShareReconciler,
-		projects:         handlerOptions.Projects,
-		debugDeviceUser:  NormalizeGitHubUsername(handlerOptions.DebugDeviceUser),
-		simulateToken:    strings.TrimSpace(handlerOptions.SimulateGitHubToken),
-		tailscaleAuthKey: strings.TrimSpace(handlerOptions.TailscaleAuthKey),
-		sessionCookie:    "sandcastle_session",
-		routes:           handlerOptions.Routes,
-		routeCaddy:       handlerOptions.RouteCaddy,
-		acmeEmail:        strings.TrimSpace(handlerOptions.ACMEEmail),
-		authIngressMode:  strings.TrimSpace(handlerOptions.AuthIngressMode),
-		routeBaseDomain:  strings.Trim(strings.TrimSpace(handlerOptions.RouteBaseDomain), "."),
-		routeIngress:     strings.TrimSpace(handlerOptions.RouteIngress),
-		routeCNAME:       strings.Trim(strings.TrimSpace(handlerOptions.RouteCNAMETarget), "."),
-		routeTLS:         strings.TrimSpace(handlerOptions.RouteTLS),
-		routeResolveHost: handlerOptions.RouteResolveHost,
-		version:          strings.TrimSpace(handlerOptions.Version),
-		sidecars:         handlerOptions.Sidecars,
-		releases:         &releaseCache{resolve: handlerOptions.ReleaseResolver},
+		db:                    db,
+		authHostname:          strings.Trim(strings.TrimSpace(handlerOptions.AuthHostname), "."),
+		githubClient:          handlerOptions.GitHub,
+		githubOAuth:           GitHubOAuth{ClientID: handlerOptions.GitHubClientID, ClientSecret: handlerOptions.GitHubClientSecret},
+		restricted:            handlerOptions.RestrictedUsers,
+		provisioner:           handlerOptions.Provisioner,
+		admin:                 handlerOptions.Admin,
+		tenants:               handlerOptions.Tenants,
+		tenantAccess:          handlerOptions.TenantAccess,
+		machines:              handlerOptions.Machines,
+		machineSSHKeys:        handlerOptions.MachineSSHKeys,
+		tenantSSHKeys:         handlerOptions.TenantSSHKeys,
+		machineSSHAccess:      handlerOptions.MachineSSHAccess,
+		shareStore:            handlerOptions.ShareStore,
+		shareReconciler:       handlerOptions.ShareReconciler,
+		projects:              handlerOptions.Projects,
+		debugDeviceUser:       NormalizeGitHubUsername(handlerOptions.DebugDeviceUser),
+		simulateToken:         strings.TrimSpace(handlerOptions.SimulateGitHubToken),
+		tailscaleAuthKey:      strings.TrimSpace(handlerOptions.TailscaleAuthKey),
+		sessionCookie:         "sandcastle_session",
+		routes:                handlerOptions.Routes,
+		routeCaddy:            handlerOptions.RouteCaddy,
+		acmeEmail:             strings.TrimSpace(handlerOptions.ACMEEmail),
+		authIngressMode:       strings.TrimSpace(handlerOptions.AuthIngressMode),
+		routeBaseDomain:       strings.Trim(strings.TrimSpace(handlerOptions.RouteBaseDomain), "."),
+		routeIngress:          strings.TrimSpace(handlerOptions.RouteIngress),
+		routeCNAME:            strings.Trim(strings.TrimSpace(handlerOptions.RouteCNAMETarget), "."),
+		routeTLS:              strings.TrimSpace(handlerOptions.RouteTLS),
+		routeResolveHost:      handlerOptions.RouteResolveHost,
+		version:               strings.TrimSpace(handlerOptions.Version),
+		sidecars:              handlerOptions.Sidecars,
+		releases:              &releaseCache{resolve: handlerOptions.ReleaseResolver},
+		resourceCache:         handlerOptions.ResourceCache,
+		resourceCacheRenderer: handlerOptions.ResourceCacheMachineRenderer,
 	}
 	if app.githubClient == nil {
 		if app.simulateToken != "" {
@@ -832,6 +877,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/api/cloud-identities", app.cloudIdentitiesAPI)
 	mux.HandleFunc("/api/tenants", app.tenantsAPI)
 	mux.HandleFunc("/api/projects", app.projectsAPI)
+	mux.HandleFunc("/api/resources", app.resourcesAPI)
 	// Tenant Storage Shares are not yet supported on v2 (#70): the registry lives
 	// in a user-writable /workspace file a tenant can forge, so every share
 	// endpoint is gated off. The handlers (app.sharesAPI, app.shareAcceptAPI, …)
@@ -893,38 +939,40 @@ func normalizeHandlerOptions(value any) HandlerOptions {
 }
 
 type handler struct {
-	db               *sql.DB
-	authHostname     string
-	githubClient     GitHubClient
-	githubOAuth      GitHubOAuth
-	restricted       RestrictedUserRevoker
-	provisioner      PersonalTenantProvisioner
-	admin            config.Admin
-	tenants          tenant.IncusTenantStore
-	tenantAccess     TenantAccessManager
-	machines         machine.Store
-	machineSSHKeys   MachineSSHKeyReconciler
-	tenantSSHKeys    TenantSSHKeyUpdater
-	machineSSHAccess MachineSSHAccessRevoker
-	shareStore       share.Store
-	shareReconciler  ShareReconciler
-	projects         TenantProjectCreator
-	debugDeviceUser  string
-	simulateToken    string
-	tailscaleAuthKey string
-	sessionCookie    string
-	routes           RouteBackend
-	routeCaddy       CaddyController
-	acmeEmail        string
-	authIngressMode  string
-	routeBaseDomain  string
-	routeIngress     string
-	routeCNAME       string
-	routeTLS         string
-	routeResolveHost func(ctx context.Context, host string) bool
-	version          string
-	sidecars         projectbroker.SidecarUpdater
-	releases         *releaseCache
+	db                    *sql.DB
+	authHostname          string
+	githubClient          GitHubClient
+	githubOAuth           GitHubOAuth
+	restricted            RestrictedUserRevoker
+	provisioner           PersonalTenantProvisioner
+	admin                 config.Admin
+	tenants               tenant.IncusTenantStore
+	tenantAccess          TenantAccessManager
+	machines              machine.Store
+	machineSSHKeys        MachineSSHKeyReconciler
+	tenantSSHKeys         TenantSSHKeyUpdater
+	machineSSHAccess      MachineSSHAccessRevoker
+	shareStore            share.Store
+	shareReconciler       ShareReconciler
+	projects              TenantProjectCreator
+	debugDeviceUser       string
+	simulateToken         string
+	tailscaleAuthKey      string
+	sessionCookie         string
+	routes                RouteBackend
+	routeCaddy            CaddyController
+	acmeEmail             string
+	authIngressMode       string
+	routeBaseDomain       string
+	routeIngress          string
+	routeCNAME            string
+	routeTLS              string
+	routeResolveHost      func(ctx context.Context, host string) bool
+	version               string
+	sidecars              projectbroker.SidecarUpdater
+	releases              *releaseCache
+	resourceCache         *ResourceCache
+	resourceCacheRenderer ResourceCacheMachineRenderer
 }
 
 // projectsAPI is the tunnel-friendly tenant plane for project creation

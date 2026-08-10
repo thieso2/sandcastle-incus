@@ -489,6 +489,34 @@ sc incus profile show homeshare                             # only a `home` disk
 #       and share one /home across CT + VM; `web` (default only) does not see it.
 #       `sc c <new-machine> --home-share` does the same when connect creates it.
 
+# 2d. cache-backed `sc ls` (event-bus resource cache, admin-server config toggle)
+# The admin server's Incus resource cache is on by default (opt-out toggle —
+# see the auth-app admin docs for the env var). Right after `auth-app serve`
+# starts, the cache has not finished its initial sync yet.
+sc ls -a                                     # PASS: identical machine list/columns
+#       to a pre-cache `sc ls -a`, whether or not the cache is ready — the
+#       fallback (still-syncing cache, dropped event-bus connection, or the
+#       toggle explicitly disabled) is silent, with no error and no visible
+#       difference in output. Run with VERBOSE=1 to see which path was used:
+VERBOSE=1 sc ls -a 2>&1 | grep -i 'cache-backed\|incus api'
+# PASS (cache not ready / toggle off): a "[verbose] incus api: sc ls
+#       cache-backed endpoint unavailable (…), falling back to live
+#       per-project query" line, followed by the same "[verbose] incus api:
+#       GetInstancesFull project=… " trace as before this wish, one call per
+#       project.
+# PASS (cache ready): no live per-project GetInstancesFull calls at all —
+#       `sc ls -a` returns near-instantly instead of the multi-second
+#       sequential pattern a many-project tenant showed before this wish.
+sc ls -a --networks --storage-pools --storage-volumes --profiles --images
+# PASS (cache ready): additional NETWORKS / STORAGE POOLS / STORAGE VOLUMES /
+#       PROFILES / IMAGES sections appear, scoped to the same tenant/project
+#       filters as the machine table.
+# PASS (cache not ready, or toggle off): the same flags are silent no-ops —
+#       output is machines-only, exactly like plain `sc ls -a` before this
+#       wish; the extra resource types only ever come from the cache path.
+# NOTE: `sc-adm list` / `sc admin list` are explicitly out of scope for this
+#       cache — they keep querying Incus live, unaffected by the toggle.
+
 # 3. the ADR-0018 DNS battery (sidecar CoreDNS = tenant CIDR .3)
 DNS=10.254.0.3
 dig +short web.default.castle      @$DNS     # canonical            → machine IP

@@ -24,7 +24,7 @@ func newAdminMachineListCommand(config commandConfig, opts *rootOptions) *cobra.
 			if err != nil {
 				return err
 			}
-			return writeOutput(cfg.stdout, opts.output, formatMachineList(result), result)
+			return writeOutput(cfg.stdout, opts.output, formatMachineList(result, listRenderOptions{}), result)
 		},
 	}
 	return command

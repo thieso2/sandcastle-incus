@@ -9,7 +9,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/lxc/incus/v6/shared/api"
 	"github.com/spf13/cobra"
+	"github.com/thieso2/sandcastle-incus/internal/authapp"
 	scconfig "github.com/thieso2/sandcastle-incus/internal/config"
 	"github.com/thieso2/sandcastle-incus/internal/incusx"
 	machine "github.com/thieso2/sandcastle-incus/internal/machine"
@@ -17,6 +19,13 @@ import (
 	"github.com/thieso2/sandcastle-incus/internal/naming"
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
+
+// resourceCacheRequestTimeout bounds the GET /api/resources round trip `sc
+// ls` makes before falling back to the live per-project Incus path. It is far
+// shorter than DeviceClient's default (5 minutes, sized for the device-login
+// poll) because an unreachable or slow cache endpoint should fall back near-
+// instantly rather than stall the listing — see implementation-notes.md.
+const resourceCacheRequestTimeout = 3 * time.Second
 
 type listPayload struct {
 	Tenant         tenant.Summary             `json:"tenant"`
@@ -27,6 +36,29 @@ type listPayload struct {
 	Machines       []meta.Machine             `json:"machines"`
 	Unmanaged      []machine.UnmanagedMachine `json:"unmanaged,omitempty"`
 	UnmanagedCount int                        `json:"unmanagedCount"`
+	// Networks, StoragePools, StorageVolumes, Profiles, and Images are only
+	// ever populated by the cache-backed path (listMachinesViaCache) — the
+	// live per-project path never fetched these resource types and leaves
+	// them empty, which is what keeps toggle-off/fallback output byte-for-byte
+	// identical to pre-wish `sc ls`.
+	Networks       []api.Network           `json:"networks,omitempty"`
+	StoragePools   []api.StoragePool       `json:"storagePools,omitempty"`
+	StorageVolumes []api.StorageVolumeFull `json:"storageVolumes,omitempty"`
+	Profiles       []api.Profile           `json:"profiles,omitempty"`
+	Images         []api.Image             `json:"images,omitempty"`
+}
+
+// listRenderOptions selects which cache-only resource-type sections `sc ls`
+// prints, driven by its --networks/--storage-pools/--storage-volumes/
+// --profiles/--images flags. The zero value renders exactly today's
+// instances-only table — required for byte-for-byte toggle-off/fallback
+// compatibility regardless of what a cache-backed result happens to carry.
+type listRenderOptions struct {
+	ShowNetworks       bool
+	ShowStoragePools   bool
+	ShowStorageVolumes bool
+	ShowProfiles       bool
+	ShowImages         bool
 }
 
 // multiListPayload is what a `sc ls` whose install part globs returns: one
@@ -53,6 +85,7 @@ type tenantResourcesPayload struct {
 
 func newListCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var allProjects bool
+	var showNetworks, showStoragePools, showStorageVolumes, showProfiles, showImages bool
 	command := &cobra.Command{
 		Use:     "list [[remote:]project[:machine]]",
 		Aliases: []string{"ls"},
@@ -100,15 +133,114 @@ expand it first.`,
 				defer restore()
 				runCfg = scoped
 			}
-			result, err := listMachines(cmd.Context(), runCfg, request)
-			if err != nil {
-				return err
+			result, ok := listMachinesViaCache(cmd.Context(), runCfg, request)
+			if !ok {
+				var err error
+				result, err = listMachines(cmd.Context(), runCfg, request)
+				if err != nil {
+					return err
+				}
 			}
-			return writeOutput(config.stdout, opts.output, formatMachineList(result), result)
+			renderOpts := listRenderOptions{
+				ShowNetworks:       showNetworks,
+				ShowStoragePools:   showStoragePools,
+				ShowStorageVolumes: showStorageVolumes,
+				ShowProfiles:       showProfiles,
+				ShowImages:         showImages,
+			}
+			return writeOutput(config.stdout, opts.output, formatMachineList(result, renderOpts), result)
 		},
 	}
 	command.Flags().BoolVarP(&allProjects, "all-projects", "a", false, "list machines across all projects")
+	command.Flags().BoolVar(&showNetworks, "networks", false, "also list networks (cache-backed only; no effect when falling back to the live query)")
+	command.Flags().BoolVar(&showStoragePools, "storage-pools", false, "also list storage pools (cache-backed only; no effect when falling back to the live query)")
+	command.Flags().BoolVar(&showStorageVolumes, "storage-volumes", false, "also list storage volumes (cache-backed only; no effect when falling back to the live query)")
+	command.Flags().BoolVar(&showProfiles, "profiles", false, "also list profiles (cache-backed only; no effect when falling back to the live query)")
+	command.Flags().BoolVar(&showImages, "images", false, "also list images (cache-backed only; no effect when falling back to the live query)")
 	return command
+}
+
+// listMachinesViaCache attempts `sc ls`'s cache-first path: the t2
+// GET /api/resources endpoint, scoped and filtered the same way the live path
+// (listMachines) scopes and filters, before any Incus round trip. ok is false
+// on ANY non-answer — no stored AuthToken, no configured Auth Hostname,
+// endpoint unreachable, non-200/not-ready response, or request timeout — and
+// the caller must fall through to listMachines unchanged. The fallback reason
+// is logged only under VERBOSE=1, matching the existing
+// "[verbose] incus api: …" trace style (see incusx's logIncusAPICall).
+func listMachinesViaCache(ctx context.Context, config commandConfig, request listMachinesRequest) (listPayload, bool) {
+	client := config.authResources
+	if client == nil {
+		token := strings.TrimSpace(config.adminConfig.AuthToken)
+		if token == "" {
+			logListCacheFallback(config, "no stored AuthToken")
+			return listPayload{}, false
+		}
+		baseURL := commandAuthHostname(config, "")
+		if baseURL == "" {
+			logListCacheFallback(config, "no configured Auth Hostname")
+			return listPayload{}, false
+		}
+		client = authapp.DeviceClient{BaseURL: baseURL, AuthToken: token}
+	}
+	tenantName, projectFilter := splitListTenantAndProject(config, request)
+	cacheCtx, cancel := context.WithTimeout(ctx, resourceCacheRequestTimeout)
+	defer cancel()
+	result, err := client.ListResources(cacheCtx, authapp.ResourceListRequest{
+		Tenant:  tenantName,
+		Project: projectFilter,
+		Machine: strings.TrimSpace(request.Machine),
+	})
+	if err != nil {
+		logListCacheFallback(config, err.Error())
+		return listPayload{}, false
+	}
+	return listPayload{
+		Tenant:         result.Tenant,
+		Remote:         strings.TrimSpace(config.adminConfig.Remote),
+		Project:        result.Project,
+		Machine:        result.Machine,
+		AllProjects:    result.AllProjects,
+		Machines:       result.Machines,
+		Networks:       result.Networks,
+		StoragePools:   result.StoragePools,
+		StorageVolumes: result.StorageVolumes,
+		Profiles:       result.Profiles,
+		Images:         result.Images,
+	}, true
+}
+
+// splitListTenantAndProject mirrors the tenant/project resolution at the top
+// of listMachines() — the "tenant/project" scoped-project cut and the
+// fall-back to the locally pinned project when the request carries none —
+// so the cache request is scoped identically to what the live path would
+// have queried. It intentionally does NOT replicate listMachines()'s
+// project-existence validation: the cache endpoint does that itself
+// server-side (404 on an unknown literal project), and any such error already
+// falls back to the live path, which performs the real validation and
+// produces the real user-facing error.
+func splitListTenantAndProject(config commandConfig, request listMachinesRequest) (tenantName, projectFilter string) {
+	tenantName = strings.TrimSpace(config.adminConfig.Tenant)
+	projectFilter = strings.TrimSpace(request.Project)
+	if scopedTenant, scopedProject, ok := strings.Cut(projectFilter, "/"); ok {
+		tenantName = strings.TrimSpace(scopedTenant)
+		projectFilter = strings.TrimSpace(scopedProject)
+	}
+	if projectFilter == "" && strings.TrimSpace(config.adminConfig.Project) != "" && !request.AllProjects {
+		projectFilter = strings.TrimSpace(config.adminConfig.Project)
+	}
+	return tenantName, projectFilter
+}
+
+func logListCacheFallback(config commandConfig, reason string) {
+	if os.Getenv("VERBOSE") != "1" {
+		return
+	}
+	stderr := config.stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+	fmt.Fprintf(stderr, "[verbose] incus api: sc ls cache-backed endpoint unavailable (%s), falling back to live per-project query\n", reason)
 }
 
 func listTenants(ctx context.Context, store tenant.IncusTenantStore) ([]tenant.Summary, error) {
@@ -508,55 +640,160 @@ func formatMultiMachineList(payload multiListPayload) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-func formatMachineList(result listPayload) string {
-	if len(result.Machines) == 0 && len(result.Unmanaged) == 0 {
+func formatMachineList(result listPayload, opts listRenderOptions) string {
+	hasExtras := (opts.ShowNetworks && len(result.Networks) > 0) ||
+		(opts.ShowStoragePools && len(result.StoragePools) > 0) ||
+		(opts.ShowStorageVolumes && len(result.StorageVolumes) > 0) ||
+		(opts.ShowProfiles && len(result.Profiles) > 0) ||
+		(opts.ShowImages && len(result.Images) > 0)
+	if len(result.Machines) == 0 && len(result.Unmanaged) == 0 && !hasExtras {
 		return "No Sandcastle machines found in " + listContext(result) + "."
 	}
 
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "%s\n", listContext(result))
-	table := tabwriter.NewWriter(&builder, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "PROJECT\tMACHINE\tTYPE\tFQDN\tIP\tCREATED\tSTATE")
-	for _, machine := range result.Machines {
-		state := "stopped"
-		if machine.Running {
-			state = "running"
-		}
-		fmt.Fprintf(
-			table,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			machine.Project,
-			machine.Name,
-			machineTypeCell(machine),
-			machineFQDN(result.Tenant, machine),
-			machine.PrivateIP,
-			formatListCreatedAt(machine.CreatedAt),
-			state,
-		)
-	}
-	for _, unmanaged := range result.Unmanaged {
-		state := unmanaged.Status
-		if state == "" {
-			if unmanaged.Running {
+	if len(result.Machines) > 0 || len(result.Unmanaged) > 0 {
+		table := tabwriter.NewWriter(&builder, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(table, "PROJECT\tMACHINE\tTYPE\tFQDN\tIP\tCREATED\tSTATE")
+		for _, machine := range result.Machines {
+			state := "stopped"
+			if machine.Running {
 				state = "running"
-			} else {
-				state = "stopped"
 			}
+			fmt.Fprintf(
+				table,
+				"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				machine.Project,
+				machine.Name,
+				machineTypeCell(machine),
+				machineFQDN(result.Tenant, machine),
+				machine.PrivateIP,
+				formatListCreatedAt(machine.CreatedAt),
+				state,
+			)
 		}
-		fmt.Fprintf(
-			table,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			"-",
-			unmanaged.Name,
-			machineTypeShort(unmanaged.Type),
-			"-",
-			displayValue(unmanaged.PrivateIP),
-			formatListCreatedAt(unmanaged.CreatedAt),
-			"unmanaged:"+state,
-		)
+		for _, unmanaged := range result.Unmanaged {
+			state := unmanaged.Status
+			if state == "" {
+				if unmanaged.Running {
+					state = "running"
+				} else {
+					state = "stopped"
+				}
+			}
+			fmt.Fprintf(
+				table,
+				"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				"-",
+				unmanaged.Name,
+				machineTypeShort(unmanaged.Type),
+				"-",
+				displayValue(unmanaged.PrivateIP),
+				formatListCreatedAt(unmanaged.CreatedAt),
+				"unmanaged:"+state,
+			)
+		}
+		_ = table.Flush()
+	}
+	if opts.ShowNetworks {
+		formatNetworksSection(&builder, result.Networks)
+	}
+	if opts.ShowStoragePools {
+		formatStoragePoolsSection(&builder, result.StoragePools)
+	}
+	if opts.ShowStorageVolumes {
+		formatStorageVolumesSection(&builder, result.StorageVolumes)
+	}
+	if opts.ShowProfiles {
+		formatProfilesSection(&builder, result.Profiles)
+	}
+	if opts.ShowImages {
+		formatImagesSection(&builder, result.Images)
+	}
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+// The resource-type sections below are appended only when their flag was
+// passed AND the cache-backed path actually returned data for it — the live
+// per-project path never populates these fields (see listPayload), so on
+// fallback the flags are silently no-ops, matching the "instances only on
+// fallback, no user-visible error" behavior the plan calls for.
+
+func formatNetworksSection(builder *strings.Builder, networks []api.Network) {
+	if len(networks) == 0 {
+		return
+	}
+	fmt.Fprintln(builder, "\nNETWORKS")
+	table := tabwriter.NewWriter(builder, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "PROJECT\tNETWORK\tTYPE\tMANAGED")
+	for _, n := range networks {
+		fmt.Fprintf(table, "%s\t%s\t%s\t%v\n", n.Project, n.Name, n.Type, n.Managed)
 	}
 	_ = table.Flush()
-	return strings.TrimRight(builder.String(), "\n")
+}
+
+func formatStoragePoolsSection(builder *strings.Builder, pools []api.StoragePool) {
+	if len(pools) == 0 {
+		return
+	}
+	fmt.Fprintln(builder, "\nSTORAGE POOLS")
+	table := tabwriter.NewWriter(builder, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "STORAGE POOL\tDRIVER\tSTATUS")
+	for _, p := range pools {
+		fmt.Fprintf(table, "%s\t%s\t%s\n", p.Name, p.Driver, displayValue(p.Status))
+	}
+	_ = table.Flush()
+}
+
+func formatStorageVolumesSection(builder *strings.Builder, volumes []api.StorageVolumeFull) {
+	if len(volumes) == 0 {
+		return
+	}
+	fmt.Fprintln(builder, "\nSTORAGE VOLUMES")
+	table := tabwriter.NewWriter(builder, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "PROJECT\tVOLUME\tTYPE\tCONTENT")
+	for _, v := range volumes {
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", v.Project, v.Name, v.Type, displayValue(v.ContentType))
+	}
+	_ = table.Flush()
+}
+
+func formatProfilesSection(builder *strings.Builder, profiles []api.Profile) {
+	if len(profiles) == 0 {
+		return
+	}
+	fmt.Fprintln(builder, "\nPROFILES")
+	table := tabwriter.NewWriter(builder, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "PROJECT\tPROFILE\tUSED BY")
+	for _, p := range profiles {
+		fmt.Fprintf(table, "%s\t%s\t%d\n", p.Project, p.Name, len(p.UsedBy))
+	}
+	_ = table.Flush()
+}
+
+func formatImagesSection(builder *strings.Builder, images []api.Image) {
+	if len(images) == 0 {
+		return
+	}
+	fmt.Fprintln(builder, "\nIMAGES")
+	table := tabwriter.NewWriter(builder, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "PROJECT\tFINGERPRINT\tALIAS\tARCH\tTYPE")
+	for _, img := range images {
+		fingerprint := img.Fingerprint
+		if len(fingerprint) > 12 {
+			fingerprint = fingerprint[:12]
+		}
+		alias := "-"
+		if len(img.Aliases) > 0 {
+			names := make([]string, 0, len(img.Aliases))
+			for _, a := range img.Aliases {
+				names = append(names, a.Name)
+			}
+			alias = strings.Join(names, ", ")
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", img.Project, fingerprint, alias, displayValue(img.Architecture), displayValue(img.Type))
+	}
+	_ = table.Flush()
 }
 
 func displayValue(value string) string {

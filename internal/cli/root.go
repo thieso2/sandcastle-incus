@@ -74,6 +74,7 @@ type commandConfig struct {
 	authProjects       authProjectClient
 	authShares         authShareClient
 	authRoutes         authRouteClient
+	authResources      authResourceClient
 	// routeHostResolver overrides the DNS probe `sc route` uses to warn about a
 	// missing wildcard. nil = a real lookup; injected in tests so they never
 	// touch the network. Mirrors authapp's RouteResolveHost seam.
@@ -128,6 +129,15 @@ type authCloudIdentityClient interface {
 
 type authTenantClient interface {
 	ListTenants(context.Context) ([]authapp.TenantAccessSummary, error)
+}
+
+// authResourceClient is the t2 cache-backed GET /api/resources caller `sc ls`
+// tries before its live per-project Incus path (internal/cli/list.go). An
+// error here — for any reason, network or non-200 — means the caller falls
+// back; the interface exists (rather than calling authapp.DeviceClient
+// directly) purely so tests can inject a fake without a real HTTP server.
+type authResourceClient interface {
+	ListResources(context.Context, authapp.ResourceListRequest) (authapp.ResourceListResult, error)
 }
 
 type authProjectClient interface {
