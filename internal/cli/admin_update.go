@@ -157,6 +157,21 @@ func resolveUpdatePrefix(flagVal string, config commandConfig, components []incu
 		return naming.NormalizeV2Prefix(config.adminConfig.IncusProjectPrefix), nil
 	}
 	installs := discoverInstallPrefixes(components)
+	// The install the user CLI is on wins over "the only one here" when this
+	// remote hosts it: `sc admin update` must act on the same deployment
+	// `sc ls` lists, even on a remote that carries several.
+	// Normalize only a non-empty value: NormalizeV2Prefix("") answers with the
+	// default prefix, which would silently match an install actually named
+	// that whenever no user CLI install is active.
+	if raw := strings.TrimSpace(config.adminConfig.ActiveInstall); raw != "" {
+		active := naming.NormalizeV2Prefix(raw)
+		for _, install := range installs {
+			if install == active {
+				fmt.Fprintf(config.stderr, "targeting install %q (the one `sc ls` is on)\n", install)
+				return install, nil
+			}
+		}
+	}
 	switch len(installs) {
 	case 1:
 		fmt.Fprintf(config.stderr, "targeting install %q (the only one on this remote)\n", installs[0])

@@ -5,6 +5,66 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-11 — `sc admin` follows the install `sc ls` is on
+
+Reported from the field: `sc admin update`, run with `sc remote list` showing
+`*obelix`, offered to update **idefix** — a different deployment on a
+different host — and said `targeting install "idefix" (the only one on this
+remote)`, which reads like confirmation. Four things stacked up:
+
+1. `detectAdminRemote` scanned a hardcoded `~/.config/incus/servercerts`,
+   ignoring the `INCUS_CONF` that `ExecuteAdmin` had *just* set to the real
+   per-OS dir for exactly this reason. On macOS `~/.config/incus` does not
+   exist, so detection died on its first step.
+2. That `ReadDir` failure returned `""` instead of falling back to
+   `detectAdminRemoteByAddr`, unlike the function's two other failure paths.
+3. Even repaired, neither strategy can resolve a v2 install. A user's Incus
+   remote points at their own tenant **sidecar** on the tailnet (ADR-0017,
+   `obelix` → `https://100.97.217.39:8443`), not at the Incus host
+   (`big.thieso2.dev` → `65.21.132.31`). Certificate and address matching
+   both assume the two planes share a server; since v2 they never do.
+4. The final fallback — "use the global incus default remote" — was silent
+   unless `VERBOSE=1`.
+
+**Decision:** resolve the install the way `sc ls` does and make the admin
+plane follow it. `ExecuteAdmin` now records `activeInstall` from
+`scconfig.LoadUser()` (the same call `sc ls` makes, so the shared incus dir's
+current remote wins over `config.yml`), and when cert/address matching comes
+up empty, `incusx.FindRemoteHostingInstall` asks each enrolled admin remote
+which installs it hosts and picks the one carrying `<install>-infra`.
+`resolveUpdatePrefix` then prefers that install over "the only one on this
+remote", so a remote hosting several is still updated on the right one.
+Explicit `SANDCASTLE_REMOTE`/`admin_remote` short-circuits all of it.
+
+Alternatives considered:
+
+- **Record the mapping in `config.yml`** (`remote_admin_remotes: {obelix:
+  big}`), written at enrollment. Cheaper at run time and fully explicit, but
+  it needs a backfill for every already-enrolled remote and goes stale when a
+  deployment moves — the failure mode being, again, "acts on the wrong
+  sandcastle."
+- **Fix the two bugs and refuse when detection fails.** Safest, but leaves
+  this setup permanently manual: cert/address matching cannot succeed for a
+  v2 install, so refusing would be the *normal* outcome, not the exception.
+- **Match on the remote name alone** (remote `obelix` ⇒ prefix `obelix`).
+  True here and under ADR-0020, but it is a coincidence of naming, not a
+  guarantee; asking the remote what it actually hosts is barely more work and
+  cannot be wrong.
+
+Notes for later:
+
+- The install scan dials remotes. It runs only on the fallback path, tries
+  the default remote first, skips public/image servers, and inherits
+  `remoteDialTimeout`, so an unreachable remote costs one bounded dial.
+- The last-resort global-default fallback now prints an unconditional warning
+  naming the install, because everything downstream reports what it found in
+  a tone that reads like agreement.
+- `resolveUpdatePrefix` must test the *raw* active-install string before
+  normalizing: `naming.NormalizeV2Prefix("")` answers with the default
+  prefix, which would have matched an install genuinely named that whenever
+  no user install was active. The existing "multiple installs error" test
+  caught this.
+
 ## 2026-08-10 — `GET /api/resources` omits storage-volume snapshots and backups
 
 Found in the field on the `idefix` install, right after it was updated to
