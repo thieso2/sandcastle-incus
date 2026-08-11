@@ -4020,3 +4020,74 @@ refactored `images/ai/Dockerfile` per the plan's B6 step.
   packages at the same versions (read-diff verified, not built); the
   Codex findings above are sourced from `openai/codex@main`'s own code,
   not a live session.
+
+## 2026-08-11 — tenant creation: Dev Image alias sync + ingress-skip mechanism
+
+- **Where the "image resolves to admin.Images.Dev" detection actually
+  lives: the CLI, not `incusx`.** Traced `V2BareUserData`'s one call site
+  (`v2BareInstanceConfig` in `internal/incusx/machine_create_v2.go`,
+  invoked from `CreateMachineV2` when `request.Bare`) back through
+  `CreateMachineV2Request` to where it's built —
+  `runCreateMachineV2` in `internal/cli/create_v2.go`, which already has
+  `config.adminConfig` (the resolved `config.Admin`, including
+  `Images.Dev`) in scope. `TenantCreator`/`CreateMachineV2Request` itself
+  carries no admin config, so the comparison can't happen at the point
+  instance user-data is assembled — it has to happen one layer up, at the
+  point the `--image` value is resolved, and be threaded down as a plain
+  bool. Added `CreateMachineV2Request.DevImage`, set in
+  `runCreateMachineV2` as `image == strings.TrimSpace(config.adminConfig.Images.Dev)`
+  (exact string match against the configured alias — the only signal
+  available, as the ticket predicted). `--bare` wins if both would apply
+  (`DevImage: request.DevImage && !request.Bare` in `CreateMachineV2`) —
+  an explicit `--bare` on a Dev Image image still yields the bare
+  document; not spec'd either way, but bare's "no way in" promise reads as
+  the more explicit ask when both are in play.
+- **`V2DevUserData(user, sshKey, domain string)` signature mirrors
+  `V2BareUserData(domain, signerURL string)`, not
+  `V2DefaultProfileUserData`'s.** It's applied as INSTANCE config the same
+  way bare is, so identity has to be read back off the project's default
+  profile rather than threaded fresh — same reasoning as the existing
+  `v2BareInstanceConfig` doc comment (a restricted tenant certificate
+  can't see the infra project). Added `v2ProfileSSHKeyPattern` (matches
+  the line right after `ssh_authorized_keys:`) alongside the existing
+  `v2ProfileFQDNPattern`; login user reuses the existing
+  `v2ProfileUserPattern` extraction (with the same
+  `tenant.DefaultV2UnixUser` fallback `v2ProfileLoginUser` uses) rather
+  than a second profile fetch.
+- **Confirmed "drop the Caddy branch" means dropping generalize too, not
+  just caddy-setup.** The ticket's own phrasing ("it only drops the Caddy
+  branch (lines 64-87 of `V2DefaultProfileUserData`)") and the test
+  spec's explicit "Caddy/generalize write_files/runcmd entries are
+  ABSENT" agree: those two lines are one unit in the source (generalize
+  exists only to prep a machine for the leaf fetch caddy-setup then
+  does), so `V2DevUserData`'s body is exactly
+  `V2DefaultProfileUserData`'s `jinja && signerURL == ""` fallback shape
+  (identity + users + shims + `enable --now ssh`, no generalize, no
+  caddy-setup) but rendered from a single already-joined `domain` string
+  like `V2BareUserData` rather than separate `project`/`suffix` args.
+- **`uniqueImageAliases` change is one word.** `admin.Images.Dev` slots
+  into the existing variadic call
+  (`uniqueImageAliases(admin.Images.Base, admin.Images.AI, admin.Images.Dev)`)
+  — the function was already generic over any number of aliases, so
+  there was no design choice here beyond confirming that and adding the
+  dedup test (`TestPlanCreateV2ImageAliasesDeduplicated`, aliasing
+  `Images.Dev` to `Images.Base` and asserting the result collapses to
+  two entries).
+- **`CreateMachineV2Result.DevImage` + CLI messaging** ("Dev Image: no
+  Caddy/TLS ingress — SSH only.") added for parity with the existing
+  `Bare` result field/messaging — not required by the ticket's "Done
+  when", but leaving a Dev Image machine's `sc create` output identical
+  to a normal machine's would silently under-report the one thing this
+  ticket exists to guarantee (no ingress), which seemed worse than the
+  small addition.
+- **Not run against a real Incus deployment** (none available in this
+  sandbox): the "create a Dev-Image machine end-to-end, confirm no Caddy
+  process / no TLS leaf / no answer on :443 / private hostname still
+  resolves / `sc c`/`incus exec` still reach it" manual check the ticket
+  asks for. Verified instead: `go build ./...`, `go vet ./...`, and
+  `go test ./internal/tenant/... ./internal/incusx/...` (including the
+  new `TestV2DevUserData*`/`TestV2ProfileSSHKeyPattern*`/
+  `TestV2DevUserDataFollowsTheProfileIdentity` tests) all pass; the
+  pre-existing `internal/cli` `TestLogin*` failures in this sandbox are
+  unrelated (no `incus` binary on PATH here — reproduced on the
+  pre-change tree via `git stash` to confirm).

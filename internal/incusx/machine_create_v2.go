@@ -36,6 +36,13 @@ type CreateMachineV2Request struct {
 	// still applies, so the machine keeps its NIC, root disk, /workspace and
 	// /.sc — only the cloud-init half is replaced.
 	Bare bool
+	// DevImage overrides the profile's cloud-init user-data at the INSTANCE
+	// level with tenant.V2DevUserData: the project's login user, SSH key and
+	// sshd stay, but the Caddy/TLS ingress branch is dropped — a Dev Image
+	// machine is reached over SSH/Tailscale, not HTTPS. Set by the caller when
+	// the requested image resolves to admin.Images.Dev. Ignored when Bare is
+	// also set — an explicit --bare wins.
+	DevImage bool
 }
 
 // v2MachineProfiles returns the profile list a machine is created with:
@@ -64,6 +71,10 @@ type CreateMachineV2Result struct {
 	// Bare reports whether the machine was created with the bare cloud-init
 	// (no login user, no sshd). Callers use it to skip the SSH advice.
 	Bare bool `json:"bare,omitempty"`
+	// DevImage reports whether the machine was created with the Dev Image
+	// cloud-init (login + sshd, no Caddy/TLS ingress). Callers use it to skip
+	// the HTTPS advice.
+	DevImage bool `json:"devImage,omitempty"`
 }
 
 // CreateMachineV2 launches the instance and waits (bounded) for it to lease an
@@ -91,18 +102,26 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 		Image:     request.Image,
 		HomeShare: request.HomeShare,
 		Bare:      request.Bare,
+		DevImage:  request.DevImage && !request.Bare,
 	}
 	// A bare machine has no login user to report — and the profile read that
 	// would find one is spent on its cloud-init override instead.
 	var instanceConfig api.ConfigMap
 	var instanceDevices api.DevicesMap
-	if request.Bare {
+	switch {
+	case request.Bare:
 		instanceConfig, err = v2BareInstanceConfig(project, request.IncusProject)
 		if err != nil {
 			return CreateMachineV2Result{}, err
 		}
 		instanceDevices = v2BareInstanceDevices()
-	} else {
+	case request.DevImage:
+		instanceConfig, err = v2DevInstanceConfig(project, request.IncusProject)
+		if err != nil {
+			return CreateMachineV2Result{}, err
+		}
+		result.LoginUser = v2ProfileLoginUser(project)
+	default:
 		result.LoginUser = v2ProfileLoginUser(project)
 	}
 	c.log("launching " + result.Type + " " + request.Name + " from " + request.Image + " into " + request.IncusProject)
@@ -233,6 +252,46 @@ func v2BareInstanceConfig(project TenantResourceServer, incusProject string) (ap
 		// to exec a shell over the Incus API instead of waiting out an sshd that
 		// is never coming.
 		meta.KeyV2Bare: "true",
+	}, nil
+}
+
+// v2ProfileSSHKeyPattern reads the login SSH key back off a rendered
+// cloud-init document (the line right after `ssh_authorized_keys:`) — the
+// same profile-is-the-one-source-of-truth reasoning as v2ProfileFQDNPattern
+// and v2ProfileSignerPattern above.
+var v2ProfileSSHKeyPattern = regexp.MustCompile(`(?m)^\s*ssh_authorized_keys:\s*$\n^\s*-\s*(\S.*)$`)
+
+// v2DevInstanceConfig builds the instance-level config of a Dev Image
+// machine: tenant.V2DevUserData, rendered from the identity, login user and
+// SSH key its project's default profile already carries. Unlike --bare, the
+// machine keeps its login user, SSH key and sshd — it only drops the
+// Caddy/TLS ingress the default profile would otherwise apply, which is why
+// this reads the SAME profile fields --bare does (domain) plus the ones a
+// login needs (user, SSH key) rather than dropping them.
+//
+// A profile without that identity is a hard error rather than a boot without
+// a way in, for the same reason v2BareInstanceConfig hard-errors: a machine
+// that silently came up with no SSH key baked in is worse than one that was
+// never created.
+func v2DevInstanceConfig(project TenantResourceServer, incusProject string) (api.ConfigMap, error) {
+	profile, _, err := project.GetProfile("default")
+	if err != nil {
+		return nil, fmt.Errorf("read the default profile of %s for the Dev Image: %w", incusProject, err)
+	}
+	userData := profile.Config["cloud-init.user-data"]
+	domain := firstSubmatch(v2ProfileFQDNPattern, userData)
+	sshKey := firstSubmatch(v2ProfileSSHKeyPattern, userData)
+	if domain == "" || sshKey == "" {
+		return nil, fmt.Errorf("project %s cannot host a Dev Image machine: its default profile carries no machine FQDN and SSH key, "+
+			"so the machine would boot with no way to log in — re-provision the project (sc project create %s) to re-render it",
+			incusProject, shortProjectName(incusProject))
+	}
+	user := firstSubmatch(v2ProfileUserPattern, userData)
+	if user == "" {
+		user = tenant.DefaultV2UnixUser
+	}
+	return api.ConfigMap{
+		"cloud-init.user-data": tenant.V2DevUserData(user, sshKey, domain),
 	}, nil
 }
 

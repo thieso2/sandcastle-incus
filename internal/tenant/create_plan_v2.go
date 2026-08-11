@@ -145,6 +145,46 @@ runcmd:
 `, domain, domain, signerURL, BareMachineHome, generalize, caddy)
 }
 
+// V2DevUserData renders the cloud-init user-data of a Dev Image machine: one
+// launched from admin.Images.Dev, the full interactive dev environment image
+// (Ubuntu 26.04, zsh/mise/starship/Claude Code — see images/dev/Dockerfile).
+//
+// Unlike V2BareUserData, a Dev Image machine keeps everything that makes it
+// reachable and usable over SSH: the login user, its SSH key, and an enabled
+// sshd. What it drops is the Caddy branch V2DefaultProfileUserData applies to
+// every other image (lines 64-87 there) — Dev Image machines have no public
+// HTTPS ingress, so there is nothing for Caddy to serve and no leaf to fetch;
+// the generalize step exists only to prep a machine for that leaf fetch, so it
+// drops with it.
+//
+// It is applied as INSTANCE config, overriding the project default profile's
+// user-data — same lever as V2BareUserData, and for the same reason: identity
+// is read back off that same profile (domain, the already-joined
+// "<project>.<suffix>") so a Dev Image machine can never disagree with its
+// project about who it is.
+func V2DevUserData(user string, sshKey string, domain string) string {
+	body := fmt.Sprintf(`## template: jinja
+#cloud-config
+fqdn: {{ v1.local_hostname }}.%s
+prefer_fqdn_over_hostname: true
+users:
+  - name: %s
+    uid: 2000
+    groups: [sudo]
+    shell: /bin/zsh
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - %s
+packages:
+  - openssh-server
+  - zsh
+write_files:
+`, domain, user, sshKey)
+	return body + scShimWriteFiles + `runcmd:
+  - [systemctl, enable, --now, ssh]
+`
+}
+
 // The forwarded-agent indirection. Two guards must be exactly this way — the
 // obvious alternatives silently break multiplexer panes:
 //
@@ -556,7 +596,7 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 		SidecarImage:        admin.Images.Base,
 		DefaultProfileUser:  unixUser,
 		SSHPublicKey:        sshPublicKey,
-		ImageAliases:        uniqueImageAliases(admin.Images.Base, admin.Images.AI),
+		ImageAliases:        uniqueImageAliases(admin.Images.Base, admin.Images.AI, admin.Images.Dev),
 		DNSFiles:            dnsFiles,
 		TenantCA: TenantCA{
 			CertificatePath: TenantCACertPath,

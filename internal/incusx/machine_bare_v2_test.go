@@ -45,6 +45,49 @@ func TestV2BareUserDataFollowsTheProfileIdentity(t *testing.T) {
 	}
 }
 
+// THE CONTRACT for the Dev Image (--image <dev-alias>): unlike --bare, its
+// instance-level cloud-init must also carry the login user and SSH key, not
+// just the identity — so v2ProfileSSHKeyPattern must keep matching whatever
+// V2DefaultProfileUserData renders, round-tripped against the real renderer.
+func TestV2ProfileSSHKeyPatternRoundTripsDefaultUserData(t *testing.T) {
+	userData := tenant.V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "backend", "acme.example", "http://10.249.7.3:9443")
+
+	if got := firstSubmatch(v2ProfileSSHKeyPattern, userData); got != "ssh-ed25519 AAAA" {
+		t.Fatalf("ssh key: got %q, want %q\n%s", got, "ssh-ed25519 AAAA", userData)
+	}
+	if got := firstSubmatch(v2ProfileUserPattern, userData); got != "dev" {
+		t.Fatalf("login user: got %q, want %q\n%s", got, "dev", userData)
+	}
+}
+
+// The Dev Image document the round-tripped identity produces must name the
+// SAME machine, login user and SSH key — the same never-disagree-with-its-
+// project guarantee --bare gets from v2ProfileFQDNPattern/v2ProfileSignerPattern.
+func TestV2DevUserDataFollowsTheProfileIdentity(t *testing.T) {
+	userData := tenant.V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "backend", "acme.example", "http://10.249.7.3:9443")
+
+	dev := tenant.V2DevUserData(
+		firstSubmatch(v2ProfileUserPattern, userData),
+		firstSubmatch(v2ProfileSSHKeyPattern, userData),
+		firstSubmatch(v2ProfileFQDNPattern, userData),
+	)
+	for _, want := range []string{
+		"fqdn: {{ v1.local_hostname }}.backend.acme.example",
+		"- name: dev",
+		"ssh_authorized_keys:\n      - ssh-ed25519 AAAA",
+	} {
+		if !strings.Contains(dev, want) {
+			t.Fatalf("dev user-data missing %q:\n%s", want, dev)
+		}
+	}
+	// The one thing it must NOT follow the profile into: Caddy/TLS ingress.
+	for _, forbidden := range []string{"sandcastle-caddy-setup", "sandcastle-generalize", "SIGNER="} {
+		if strings.Contains(dev, forbidden) {
+			t.Fatalf("dev user-data must not carry %q:\n%s", forbidden, dev)
+		}
+	}
+}
+
 // A profile rendered WITHOUT identity (no signer: the minimal fallback branch)
 // yields no match, which is what makes v2BareInstanceConfig refuse rather than
 // launch a machine with no certificate and no way in.
