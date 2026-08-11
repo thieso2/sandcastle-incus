@@ -154,7 +154,7 @@ func (h handler) resourcesAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, volume := range snapshot.StorageVolumes {
 		if _, ok := matched[volume.Project]; ok {
-			result.StorageVolumes = append(result.StorageVolumes, volume)
+			result.StorageVolumes = append(result.StorageVolumes, trimStorageVolume(volume))
 		}
 	}
 	for _, profile := range snapshot.Profiles {
@@ -168,6 +168,24 @@ func (h handler) resourcesAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// trimStorageVolume drops the per-volume snapshot and backup lists from a
+// cache-backed answer. `sc ls --storage-volumes` renders only project, name,
+// type, and content type (formatStorageVolumesSection in
+// internal/cli/list.go), but a volume carrying Sandcastle's hourly autosnaps
+// serializes every one of them with its full config: on a one-machine tenant
+// four volumes came to 167 KB of JSON, ~95% of it snapshots, which alone
+// exceeded `sc ls`'s 3s cache-request budget over a tunnelled Auth Hostname
+// and sent every call to the live per-project path — the exact fallback the
+// cache exists to avoid. The cache keeps the full objects (it stores what
+// Incus returned); only the wire response is trimmed, so a future consumer
+// that needs snapshots can expose them behind an explicit query param rather
+// than making every `sc ls` pay for them.
+func trimStorageVolume(volume api.StorageVolumeFull) api.StorageVolumeFull {
+	volume.Snapshots = nil
+	volume.Backups = nil
+	return volume
 }
 
 // selectAccessibleTenant resolves the request's tenant query param against
