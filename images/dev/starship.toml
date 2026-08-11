@@ -1,0 +1,53 @@
+# One-line prompt:
+#   left:  user@fqdn:>   (> colored by last exit code)
+#   right: dir  git-branch
+add_newline = false       # no blank line above the prompt
+format = "$username$hostname$character"
+right_format = "$directory $git_branch$git_status"
+
+# ── line 1: directory ──────────────────────────────────────
+[directory]
+truncation_length = 0     # full path; set to e.g. 3 to shorten
+truncate_to_repo = false
+style = "bold blue"       # dir is the focal point → the only bold part
+format = "[$path]($style)"
+
+# ── line 2: user@fqdn: ─────────────────────────────────────
+# Restrained palette: one accent per part, dim separators.
+[username]
+show_always = true
+style_user = "cyan"
+style_root = "bold red"
+format = "[$user]($style)[@](dimmed white)"
+
+[hostname]
+ssh_only = false          # always show the host
+trim_at = ""              # keep the full FQDN (don't cut at first ".")
+style = "green"           # not bold — host stays quiet
+format = "[$hostname]($style)[:](dimmed white)"
+
+# ── git branch, colored by dirty state ─────────────────────
+[git_branch]
+symbol = " "
+style = "green"
+format = "[$symbol$branch]($style)"
+
+[git_status]
+# any change → yellow, conflicts → red
+style = "yellow"
+format = "[$all_status$ahead_behind]($style)"
+conflicted = "="
+ahead = "⇡${count}"
+behind = "⇣${count}"
+diverged = "⇕⇡${ahead_count}⇣${behind_count}"
+untracked = "?"
+stashed = "\$"
+modified = "!"
+staged = "+"
+renamed = "»"
+deleted = "✘"
+
+# ── line 2: the prompt char ────────────────────────────────
+[character]
+success_symbol = "[>](bold green)"
+error_symbol = "[>](bold red)"

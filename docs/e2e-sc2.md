@@ -953,7 +953,10 @@ created with `--home-share`.
 > load-bearing: sshrc re-points on **every** session (heals a link left
 > dangling by a closed one), and the shell consumes via `-h` (symlink
 > present), **not** `-S` (live socket), so a pane opened while the link
-> dangles still follows it and heals in place.
+> dangles still follows it and heals in place. This mechanism is
+> image-agnostic (the shim lands via the profile/payload, not the image) and
+> so also covers the Dev Image (Phase 8e) — same PASS criterion, no separate
+> mechanism.
 >
 > **Onboarding older machines.** cloud-init runs only at first boot, so a
 > machine built before /.sc shipped still has the old inline scripts (or
@@ -1877,6 +1880,116 @@ files contain the `Sandcastle /.sc shim` marker (not the script bodies), and
 `sc create probe --image mybase` launched in ~11 s. `probe` carried the marker,
 got a fresh SSH host key + its own `probe.default.obelix` FQDN and `probe.*` TLS
 leaf; the corrected machine-id reset was validated live (old→new random id).
+
+---
+
+## Phase 8e — Dev Image: `sc create --image <dev-alias>` provisioning ⚠️
+
+Validates the third Machine Template (`images/dev/Dockerfile`, `FROM
+ubuntu:26.04` — a distinct OS lineage from `base`/`ai`'s Debian) end to end: a
+batteries-included interactive shell, no public HTTPS ingress. `<dev-alias>`
+is whatever alias the operator built/uploaded to (by convention
+`sandcastle/dev:latest`, `SANDCASTLE_DEV_IMAGE`) — `--image dev` only works
+verbatim if an operator happens to publish under the literal alias `dev`.
+`DefaultDevImageAlias` (`images:ubuntu/26.04`) is the zero-build fallback, the
+same pattern `base`/`ai` use, **but whether Incus's public `images:` remote
+actually publishes that alias is unverified in this repo** — confirm with
+`incus image list images: ubuntu` before relying on it.
+
+```bash
+sc create devbox --image <dev-alias>
+sc c devbox
+```
+
+**PASS — shell/toolchain (spec B2/B4/B5):**
+- `echo $SHELL` / `getent passwd $(whoami)` → `/bin/zsh` (also the image's own
+  root/system default, belt-and-braces alongside the profile's independent
+  `shell: /bin/zsh`).
+- Prompt is one line: `user@fqdn:` left-aligned, `>` green on success / red
+  after a failing command; directory + git branch right-aligned, branch
+  colored by dirty/clean state (the wish's verbatim `starship.toml`).
+- `fd`, `rg`, `gh`, `make`, `git` all resolve on `$PATH`.
+- `mise ls` shows `go`/`node`/`herdr`/`starship` already installed (pre-resolved
+  at build time — no first-boot network fetch).
+
+**PASS — AI CLI tooling (spec B6):**
+- `claude --version` and `codex --version` resolve; `~/.claude/skills`
+  is populated from `mattpocock/skills`.
+- `gemini` does **not** resolve — confirms the intentional non-parity with
+  `ai` (the dev image installs Claude Code + Codex only).
+
+**PASS — both status-line artifacts render/exist (spec B7/B8):**
+- Claude Code: the wish's synthetic-payload command against
+  `~/.claude/statusline-command.sh` produces the documented one-line output
+  (model name, 10-segment context bar colored green/yellow/red, `~`-relative
+  cwd, git branch, both rate-limit segments with the reset clock in local
+  `HH:MM`). Requires a Nerd Font in the terminal for the folder (U+F07C) and
+  branch (U+E0A0) glyphs — without one they render as placeholder boxes, not
+  an error.
+  ```sh
+  echo '{
+    "model": {"display_name": "Opus 5"},
+    "context_window": {"used_percentage": 42.3},
+    "workspace": {"current_dir": "'"$HOME"'"},
+    "rate_limits": {
+      "five_hour": {"used_percentage": 18, "resets_at": 1786000000},
+      "seven_day": {"used_percentage": 73}
+    }
+  }' | ~/.claude/statusline-command.sh
+  ```
+- Codex: `~/.codex/config.toml` exists and its `[tui] status_line` stanza
+  lists `model-with-reasoning`, `context-used`, `current-dir`, `git-branch`,
+  `five-hour-limit`, `weekly-limit` — Codex has no command-hook status line
+  (no config key runs an external script), so this is a static config
+  selection, not a script to invoke. **Capability gaps, verified from
+  Codex source, not faked:** `context-used` is percentage-only (no bar, no
+  color ramp); `five-hour-limit`/`weekly-limit` are documented as
+  **remaining**, not used; neither has a reset-time field.
+
+**PASS — git identity self-populates (spec B9):**
+- Fresh machine, before any `gh auth login`: `git config --global
+  user.email` is empty; `git config --global --get-regexp 'alias\.'` already
+  lists the baseline (`co`, `br`, `st`, `last`, `unstage`, `amend`).
+- `gh auth login` (interactive; credential goes to `gh`'s own storage — OS
+  keyring where available, 0600 file fallback — never a plaintext token file,
+  never co-located with `~/.ssh/`), then a new shell: `git config --global
+  user.name`/`user.email` populated from `gh api user`.
+- Change `user.email` by hand, run `gh auth login` again: unchanged
+  (idempotent — the hook only fires when *both* values are unset).
+
+**PASS — no ingress, no tailnet, no SMB surface (spec B8/§Ground truth,
+acceptance scenarios 6-7):**
+- No Caddy process on the machine, no TLS leaf fetched, no answer on `:443`
+  for its private hostname — `sc create`'s own output says so
+  (`CreateMachineV2Result.DevImage` messaging: "Dev Image: no Caddy/TLS
+  ingress — SSH only."). The machine keeps its login user, SSH key, and sshd
+  (unlike `--bare`); its private hostname still resolves in DNS and `sc c`/
+  `incus exec` still reach it.
+- Not visible in `tailscale status` from another tenant machine; `smbclient
+  -L` against its IP fails to connect (dev never installs Tailscale/Samba —
+  satisfied by omission from the Dockerfile, no dedicated check needed beyond
+  confirming the packages are absent).
+
+**PASS — agent forwarding (spec B1) is the same PASS criterion as Phase 6's
+"Forwarded SSH agent survives multiplexers"** (no new mechanism — the shim
+ships via the profile/payload, image-agnostic): `ssh -A` in, `herdr pane
+split`, `ssh-add -l` in the new pane, `herdr pane close`, close the original
+SSH connection, reconnect fresh, `herdr attach`, confirm `ssh-add -l` (and an
+agent-dependent op, e.g. `git fetch` over SSH) still works in the reattached
+pane.
+
+**Not validated live in this repo's sandbox** (no Docker daemon, no live
+Incus, no authenticated Codex/gh session available where this doc was
+written): an actual image build, the herdr/agent-forwarding reattach
+protocol on a real Dev Image machine, and live rendering of both status
+lines. Verified instead, at the source level: `go build ./...`/`go vet
+./...`/`go test ./...` (including `images/dev/statusline_test.go` and
+`images/dev/install_ai_cli_tools_test.go`) pass; the Codex `status_line`
+identifiers and remaining-vs-used rate-limit semantics were confirmed
+against `openai/codex@main`'s own source
+(`codex-rs/core/config.schema.json`,
+`codex-rs/tui/src/bottom_pane/status_line_setup.rs`), not a live Codex
+session — see `implementation-notes.md`.
 
 ---
 

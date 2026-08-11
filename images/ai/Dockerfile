@@ -30,11 +30,16 @@ RUN test -n "${CODEX_CLI_VERSION}" \
     && test -n "${CLAUDE_CODE_VERSION}" \
     && test -n "${GEMINI_CLI_VERSION}"
 
+# Shared with images/dev/Dockerfile (images/dev/install-ai-cli-tools.sh is a
+# byte-identical copy of this script, enforced by
+# images/dev/install_ai_cli_tools_test.go) so the two templates never drift
+# on how the AI CLI toolchain / skills bundle gets installed.
+COPY install-ai-cli-tools.sh /usr/local/sbin/install-ai-cli-tools.sh
+RUN chmod 0755 /usr/local/sbin/install-ai-cli-tools.sh
+
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-    npm install -g \
-        "@openai/codex@${CODEX_CLI_VERSION}" \
-        "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-        "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+    /usr/local/sbin/install-ai-cli-tools.sh cli \
+        "${CODEX_CLI_VERSION}" "${CLAUDE_CODE_VERSION}" "${GEMINI_CLI_VERSION}"
 
 # Install Matt Pocock's agent skills into /etc/skel so every tenant user created
 # by `useradd --create-home` (see sandcastle-bootstrap) inherits them under
@@ -43,7 +48,7 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 ARG SKILLS_VERSION=latest
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     install -d /etc/skel \
-    && HOME=/etc/skel npx -y "skills@${SKILLS_VERSION}" add mattpocock/skills -a claude-code -g -y
+    && HOME=/etc/skel /usr/local/sbin/install-ai-cli-tools.sh skills "${SKILLS_VERSION}"
 
 ARG SANDCASTLE_IMAGE_TEMPLATE=ai
 ARG SANDCASTLE_IMAGE_TAG=sandcastle/ai:latest

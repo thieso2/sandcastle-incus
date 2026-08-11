@@ -313,6 +313,10 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 	if image == "" {
 		image = v2DefaultMachineImage
 	}
+	// The Dev Image gets no Caddy/TLS ingress (it is reached over SSH, not
+	// HTTPS) — detected by the --image the machine launches from matching the
+	// admin-configured Dev Image alias, the only signal available here.
+	devImage := image == strings.TrimSpace(config.adminConfig.Images.Dev)
 	request := incusx.CreateMachineV2Request{
 		IncusProject: summary.V2IncusProjectName(project),
 		Name:         machine,
@@ -320,9 +324,10 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 		VM:           options.VM,
 		HomeShare:    options.HomeShare,
 		Bare:         options.Bare,
+		DevImage:     devImage,
 	}
 	if options.DryRun {
-		payload := incusx.CreateMachineV2Result{Name: machine, Type: machineTypeLabel(options.VM), Project: request.IncusProject, Image: image, HomeShare: options.HomeShare, Bare: options.Bare}
+		payload := incusx.CreateMachineV2Result{Name: machine, Type: machineTypeLabel(options.VM), Project: request.IncusProject, Image: image, HomeShare: options.HomeShare, Bare: options.Bare, DevImage: request.DevImage}
 		return writeOutput(config.stdout, opts.output, formatCreateMachineV2(summary, project, payload, true), payload)
 	}
 	result, err := config.tenantCreator.CreateMachineV2(ctx, request)
@@ -588,6 +593,9 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 		if result.Bare {
 			fmt.Fprintf(&builder, "\nBare: no login user, no SSH key, no sshd — HTTPS only.")
 		}
+		if result.DevImage {
+			fmt.Fprintf(&builder, "\nDev Image: no Caddy/TLS ingress — SSH only.")
+		}
 		return builder.String()
 	}
 	if result.PrivateIP != "" {
@@ -602,6 +610,9 @@ func formatCreateMachineV2(summary tenant.Summary, project string, result incusx
 		fmt.Fprintf(&builder, "HTTPS: https://%s   (Caddy with the tenant-CA leaf, proxying to localhost:3000)\n", canonical)
 		fmt.Fprintf(&builder, "Bare: no login user, no sshd — `sc connect` will not work; get a shell with: sc incus exec %s -- /bin/sh", result.Name)
 		return builder.String()
+	}
+	if result.DevImage {
+		fmt.Fprintf(&builder, "Dev Image: no Caddy/TLS ingress — SSH only.\n")
 	}
 	loginUser := result.LoginUser
 	if loginUser == "" {

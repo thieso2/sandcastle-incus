@@ -1,0 +1,9 @@
+[init]
+	defaultBranch = main
+[alias]
+	co = checkout
+	br = branch
+	st = status -sb
+	last = log -1 HEAD
+	unstage = reset HEAD --
+	amend = commit --amend

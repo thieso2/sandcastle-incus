@@ -34,6 +34,43 @@ func TestLoadAdminFromEnvDefaults(t *testing.T) {
 	if config.Images.AI != DefaultAIImageAlias {
 		t.Fatalf("AI image = %q, want %q", config.Images.AI, DefaultAIImageAlias)
 	}
+	if config.Images.Dev != DefaultDevImageAlias {
+		t.Fatalf("Dev image = %q, want %q", config.Images.Dev, DefaultDevImageAlias)
+	}
+}
+
+func TestLoadAdminFromEnvDevImageOverride(t *testing.T) {
+	clearAdminEnvForTest(t)
+
+	t.Setenv("SANDCASTLE_DEV_IMAGE", " sandcastle/dev:test ")
+
+	config := LoadAdminFromEnv()
+	if config.Images.Dev != "sandcastle/dev:test" {
+		t.Fatalf("Dev image = %q, want sandcastle/dev:test", config.Images.Dev)
+	}
+}
+
+func TestAdminValidateRejectsMissingDevImage(t *testing.T) {
+	clearAdminEnvForTest(t)
+
+	config := LoadAdminFromEnv()
+	config.Images.Dev = ""
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// TestAdminValidateAcceptsNoDevSpecificEnv proves §Acceptance scenario 8's
+// backward-compatibility claim: Validate() on an Admin built with no
+// SANDCASTLE_DEV_IMAGE set (the pre-this-wish shape) still passes, because
+// AdminDefaults() already supplies DefaultDevImageAlias.
+func TestAdminValidateAcceptsNoDevSpecificEnv(t *testing.T) {
+	clearAdminEnvForTest(t)
+
+	config := LoadAdminFromEnv()
+	if err := config.Validate(); err != nil {
+		t.Fatalf("Validate() with no dev-specific env set: %v", err)
+	}
 }
 
 func TestLoadAdminFromEnvOverridesTrimScalars(t *testing.T) {
@@ -265,6 +302,7 @@ func clearAdminEnvForTest(t *testing.T) {
 		"SANDCASTLE_DENIED_DOMAIN_SUFFIXES",
 		"SANDCASTLE_BASE_IMAGE",
 		"SANDCASTLE_AI_IMAGE",
+		"SANDCASTLE_DEV_IMAGE",
 	} {
 		t.Setenv(key, "")
 	}

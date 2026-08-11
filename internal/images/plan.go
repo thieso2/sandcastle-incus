@@ -187,6 +187,17 @@ func PlanBuild(admin config.Admin, request BuildRequest) (BuildPlan, error) {
 			"CLAUDE_CODE_VERSION="+plan.ClaudeVersion,
 			"GEMINI_CLI_VERSION="+plan.GeminiVersion,
 		)
+	case "dev":
+		plan.Tag = firstNonEmpty(request.Tag, admin.Images.Dev)
+		plan.CodexVersion = strings.TrimSpace(request.CodexVersion)
+		plan.ClaudeVersion = strings.TrimSpace(request.ClaudeVersion)
+		if plan.CodexVersion == "" || plan.ClaudeVersion == "" {
+			return BuildPlan{}, fmt.Errorf("dev image build requires --codex-version and --claude-version")
+		}
+		plan.BuildArgs = append(plan.BuildArgs,
+			"CODEX_CLI_VERSION="+plan.CodexVersion,
+			"CLAUDE_CODE_VERSION="+plan.ClaudeVersion,
+		)
 	default:
 		return BuildPlan{}, fmt.Errorf("unknown image template %q", request.Template)
 	}
@@ -421,6 +432,8 @@ func aliasForTemplate(admin config.Admin, template string) (string, error) {
 		return strings.TrimSpace(admin.Images.Base), nil
 	case "ai":
 		return strings.TrimSpace(admin.Images.AI), nil
+	case "dev":
+		return strings.TrimSpace(admin.Images.Dev), nil
 	default:
 		return "", fmt.Errorf("unknown image template %q", template)
 	}
@@ -439,14 +452,17 @@ func firstNonEmpty(values ...string) string {
 func templateAlias(admin config.Admin, source string) (string, string, error) {
 	baseStem := aliasStem(admin.Images.Base)
 	aiStem := aliasStem(admin.Images.AI)
+	devStem := aliasStem(admin.Images.Dev)
 	sourceStem := aliasStem(source)
 	switch sourceStem {
 	case baseStem:
 		return "base", strings.TrimSpace(admin.Images.Base), nil
 	case aiStem:
 		return "ai", strings.TrimSpace(admin.Images.AI), nil
+	case devStem:
+		return "dev", strings.TrimSpace(admin.Images.Dev), nil
 	default:
-		return "", "", fmt.Errorf("image source %q does not match configured Sandcastle base or AI image names", source)
+		return "", "", fmt.Errorf("image source %q does not match configured Sandcastle base or AI or dev image names", source)
 	}
 }
 

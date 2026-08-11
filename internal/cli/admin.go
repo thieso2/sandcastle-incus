@@ -652,7 +652,7 @@ func newAdminImageBuildRemoteCommand(config commandConfig, opts *rootOptions) *c
 		dryRun         bool
 	)
 	command := &cobra.Command{
-		Use:   "build-remote base|ai|all",
+		Use:   "build-remote base|ai|dev|all",
 		Short: "Build Sandcastle Images in the Image Builder appliance and publish to GHCR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -719,10 +719,12 @@ func remoteBuildTemplates(arg string) ([]string, error) {
 		return []string{"base"}, nil
 	case "ai":
 		return []string{"ai"}, nil
+	case "dev":
+		return []string{"dev"}, nil
 	case "all":
-		return []string{"base", "ai"}, nil
+		return []string{"base", "ai", "dev"}, nil
 	default:
-		return nil, fmt.Errorf("unknown image template %q (want base, ai, or all)", arg)
+		return nil, fmt.Errorf("unknown image template %q (want base, ai, dev, or all)", arg)
 	}
 }
 
@@ -845,7 +847,7 @@ func newAdminImageBuildCommand(config commandConfig, opts *rootOptions) *cobra.C
 	var geminiVersion string
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "build base|ai",
+		Use:   "build base|ai|dev",
 		Short: "Build a Sandcastle OCI image",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -916,7 +918,7 @@ func newAdminImageImportCommand(config commandConfig, opts *rootOptions) *cobra.
 	var tool string
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "import base|ai source-ref",
+		Use:   "import base|ai|dev source-ref",
 		Short: "Import an OCI image into Incus and set the Sandcastle alias",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

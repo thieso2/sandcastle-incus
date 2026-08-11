@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"encoding/base64"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ func v2TestAdmin() config.Admin {
 		CIDRPool:              "10.249.0.0/16",
 		IncusProjectPrefix:    "sc2",
 		InfrastructureProject: "sc-infra",
-		Images:                config.Images{Base: "base", AI: "ai"},
+		Images:                config.Images{Base: "base", AI: "ai", Dev: "dev"},
 	}
 }
 
@@ -46,6 +47,26 @@ func TestPlanCreateV2Names(t *testing.T) {
 	}
 	if plan.StoragePool != "default" {
 		t.Fatalf("StoragePool = %q, want default", plan.StoragePool)
+	}
+	// The Dev Image alias must sync into the project's local Incus image
+	// aliases alongside Base and AI, so `--image <dev-alias>` resolves without
+	// a fully-qualified <remote>:<fingerprint> reference.
+	if want := []string{"base", "ai", "dev"}; !reflect.DeepEqual(plan.ImageAliases, want) {
+		t.Fatalf("ImageAliases = %v, want %v", plan.ImageAliases, want)
+	}
+}
+
+// A Dev Image alias that happens to match Base or AI's must not appear twice
+// in the synced set — uniqueImageAliases dedupes the same way it always has.
+func TestPlanCreateV2ImageAliasesDeduplicated(t *testing.T) {
+	admin := v2TestAdmin()
+	admin.Images.Dev = admin.Images.Base
+	plan, err := PlanCreateV2(admin, CreateRequest{Reference: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"base", "ai"}; !reflect.DeepEqual(plan.ImageAliases, want) {
+		t.Fatalf("ImageAliases = %v, want %v (deduplicated)", plan.ImageAliases, want)
 	}
 }
 
@@ -288,6 +309,63 @@ func TestV2BareUserDataBakesBootShims(t *testing.T) {
 	// The script bodies live in the payload, not in cloud-init.
 	if strings.Contains(data, "apt-get install") || strings.Contains(data, "tls/leaf") {
 		t.Fatalf("bare user-data must not inline the caddy-setup body:\n%s", data)
+	}
+}
+
+// `sc create --image <dev-alias>`: unlike --bare, a Dev Image machine keeps
+// its login user, SSH key and sshd — it is a full interactive dev
+// environment reached over SSH — but (also unlike the default profile) has no
+// HTTPS ingress at all.
+func TestV2DevUserDataKeepsLoginDropsCaddy(t *testing.T) {
+	data := V2DevUserData("dev", "ssh-ed25519 AAAA", "default.acme")
+
+	// The login promise --bare withholds: a real user, its key, and sshd.
+	for _, want := range []string{
+		"- name: dev",
+		"ssh_authorized_keys:\n      - ssh-ed25519 AAAA",
+		"openssh-server",
+		"- [systemctl, enable, --now, ssh]",
+		"## template: jinja",
+		"fqdn: {{ v1.local_hostname }}.default.acme",
+		"prefer_fqdn_over_hostname: true",
+	} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("dev user-data missing %q:\n%s", want, data)
+		}
+	}
+
+	// The Caddy/TLS ingress promise the Dev Image withholds: no leaf fetch, no
+	// reverse proxy, and — since generalize exists only to prep for that leaf
+	// fetch — no generalize either (lines 64-87 of V2DefaultProfileUserData
+	// drop as one unit).
+	for _, forbidden := range []string{
+		"sandcastle-caddy-setup",
+		"sandcastle-generalize",
+		"SIGNER=",
+		"package_update: true",
+	} {
+		if strings.Contains(data, forbidden) {
+			t.Fatalf("dev user-data must not carry %q:\n%s", forbidden, data)
+		}
+	}
+
+	assertCloudConfigYAML(t, data)
+}
+
+// A Dev Image machine bakes the same stable /.sc boot shims as every other
+// machine, so a platform payload update reaches it too (ADR-0022).
+func TestV2DevUserDataBakesSCShims(t *testing.T) {
+	data := V2DevUserData("dev", "ssh-ed25519 AAAA", "default.acme")
+
+	for _, want := range []string{
+		"path: /etc/ssh/sshrc",
+		"path: /etc/zsh/zshrc",
+		"path: /etc/bash.bashrc",
+		SCShimMarker,
+	} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("dev user-data missing %q:\n%s", want, data)
+		}
 	}
 }
 

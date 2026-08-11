@@ -140,7 +140,7 @@ func PlanRemoteBuild(admin config.Admin, request RemoteBuildRequest) (RemoteBuil
 		return RemoteBuildPlan{}, err
 	}
 	template := strings.ToLower(strings.TrimSpace(request.Template))
-	if template != "base" && template != "ai" {
+	if template != "base" && template != "ai" && template != "dev" {
 		return RemoteBuildPlan{}, fmt.Errorf("unknown image template %q", request.Template)
 	}
 
@@ -233,6 +233,20 @@ func PlanRemoteBuild(admin config.Admin, request RemoteBuildRequest) (RemoteBuil
 			"CODEX_CLI_VERSION=" + codex,
 			"CLAUDE_CODE_VERSION=" + claude,
 			"GEMINI_CLI_VERSION=" + gemini,
+		}, plan.BuildArgs...)
+	}
+
+	if template == "dev" {
+		// Unlike ai, dev is FROM ubuntu:26.04 directly (not the Sandcastle base
+		// image), so there is no BaseRef/SANDCASTLE_BASE_IMAGE build-arg here.
+		codex := strings.TrimSpace(request.CodexVersion)
+		claude := strings.TrimSpace(request.ClaudeVersion)
+		if codex == "" || claude == "" {
+			return RemoteBuildPlan{}, fmt.Errorf("dev image build requires --codex-version and --claude-version")
+		}
+		plan.BuildArgs = append([]string{
+			"CODEX_CLI_VERSION=" + codex,
+			"CLAUDE_CODE_VERSION=" + claude,
 		}, plan.BuildArgs...)
 	}
 

@@ -98,6 +98,61 @@ run = [
   "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} ${SANDCASTLE_BASE_IMAGE:-sandcastle/base:latest} \"$SANDCASTLE_REMOTE\"",
 ]
 
+[tasks."image:dev:build"]
+description = "Resolve latest Codex/Claude Code versions and build the Sandcastle dev OCI image"
+env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
+run = """
+set -euo pipefail
+
+npm_latest() { curl -sf "https://registry.npmjs.org/$1/latest" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])"; }
+
+CODEX_VERSION="${SANDCASTLE_CODEX_VERSION:-$(npm_latest @openai/codex)}"
+CLAUDE_VERSION="${SANDCASTLE_CLAUDE_VERSION:-$(npm_latest @anthropic-ai/claude-code)}"
+DEV_TAG="${SANDCASTLE_DEV_IMAGE:-sandcastle/dev:latest}"
+
+make build
+
+./bin/sandcastle-admin image build dev \
+  --tag "${DEV_TAG}" \
+  --codex-version  "${CODEX_VERSION}" \
+  --claude-version "${CLAUDE_VERSION}"
+"""
+
+[tasks."image:dev:upload"]
+description = "Upload the locally built Sandcastle dev OCI image into Incus"
+env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
+run = [
+  "mise run image:deps",
+  "bash scripts/import-docker-image-to-incus.sh ${SANDCASTLE_DEV_IMAGE:-sandcastle/dev:latest} ${SANDCASTLE_DEV_IMAGE:-sandcastle/dev:latest} \"$SANDCASTLE_REMOTE\"",
+]
+
+[tasks."image:dev:build-upload"]
+description = "Resolve latest Codex/Claude Code versions, build the Sandcastle dev OCI image, and upload it into Incus"
+env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
+run = """
+set -euo pipefail
+
+npm_latest() { curl -sf "https://registry.npmjs.org/$1/latest" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])"; }
+
+CODEX_VERSION="${SANDCASTLE_CODEX_VERSION:-$(npm_latest @openai/codex)}"
+CLAUDE_VERSION="${SANDCASTLE_CLAUDE_VERSION:-$(npm_latest @anthropic-ai/claude-code)}"
+DEV_TAG="${SANDCASTLE_DEV_IMAGE:-sandcastle/dev:latest}"
+
+echo "codex   ${CODEX_VERSION}"
+echo "claude  ${CLAUDE_VERSION}"
+echo "tag     ${DEV_TAG}"
+
+mise run image:deps
+make build
+
+./bin/sandcastle-admin image build dev \
+  --tag "${DEV_TAG}" \
+  --codex-version  "${CODEX_VERSION}" \
+  --claude-version "${CLAUDE_VERSION}"
+
+bash scripts/import-docker-image-to-incus.sh "${DEV_TAG}" "${DEV_TAG}" "$SANDCASTLE_REMOTE"
+"""
+
 [tasks."image:tenant:sync"]
 description = "Sync published Sandcastle image aliases into image-enabled tenant projects"
 env = { SANDCASTLE_REMOTE = "big" }
@@ -109,6 +164,7 @@ env = { SANDCASTLE_REMOTE = "big", DOCKER_DEFAULT_PLATFORM = "linux/amd64" }
 run = [
   "mise run image:base:build-upload",
   "mise run image:ai:build-upload",
+  "mise run image:dev:build-upload",
   "mise run image:tenant:sync",
 ]
 
@@ -190,6 +246,24 @@ make build
   --gemini-version "${GEMINI_VERSION}"
 """
 
+[tasks."image:dev:build-remote"]
+description = "Resolve Codex/Claude Code versions, build the dev image in the sc-build appliance, and publish to GHCR (needs SANDCASTLE_GHCR_TOKEN)"
+env = { SANDCASTLE_REMOTE = "big" }
+run = """
+set -euo pipefail
+
+npm_latest() { curl -sf "https://registry.npmjs.org/$1/latest" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])"; }
+
+CODEX_VERSION="${SANDCASTLE_CODEX_VERSION:-$(npm_latest @openai/codex)}"
+CLAUDE_VERSION="${SANDCASTLE_CLAUDE_VERSION:-$(npm_latest @anthropic-ai/claude-code)}"
+
+make build
+
+./bin/sandcastle-admin image build-remote dev \
+  --codex-version  "${CODEX_VERSION}" \
+  --claude-version "${CLAUDE_VERSION}"
+"""
+
 [tasks."image:builder:provision"]
 description = "Create and provision the sc-build Image Builder appliance so build-remote runs skip provisioning"
 env = { SANDCASTLE_REMOTE = "big", VERBOSE = "1" }
@@ -199,7 +273,7 @@ run = [
 ]
 
 [tasks."image:all:build-remote"]
-description = "Build base then AI in the sc-build appliance and publish both to GHCR (needs SANDCASTLE_GHCR_TOKEN)"
+description = "Build base, AI, then dev in the sc-build appliance and publish all three to GHCR (needs SANDCASTLE_GHCR_TOKEN); a single `build-remote all` CLI call folds in dev automatically since remoteBuildTemplates(\"all\") now includes it"
 env = { SANDCASTLE_REMOTE = "big", VERBOSE = "1" }
 run = """
 set -euo pipefail

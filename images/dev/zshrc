@@ -1,0 +1,14 @@
+# --- zsh history (wish §3) ---
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt INC_APPEND_HISTORY
+setopt SHARE_HISTORY
+setopt HIST_IGNORE_ALL_DUPS
+
+# --- mise + starship (wish §4/§5) ---
+eval "$($HOME/.local/bin/mise activate zsh)"
+eval "$(starship init zsh)"
+
+# --- git identity self-population (wish §8) ---
+[ -r "$HOME/.config/dev/git-identity-hook.sh" ] && source "$HOME/.config/dev/git-identity-hook.sh"

@@ -258,7 +258,7 @@ The base image profile used to create a machine.
 _Avoid_: Project template
 
 **Sandcastle Image**:
-The OCI image that backs a Machine Template; the Base Image and the AI Image are its two variants.
+The OCI image that backs a Machine Template; the Base Image, the AI Image, and the Dev Image are its three variants.
 _Avoid_: Container image, docker image
 
 **Image Registry**:
