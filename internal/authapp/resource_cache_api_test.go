@@ -185,3 +185,51 @@ func TestResourcesAPI_RejectsCrossTenantRequest(t *testing.T) {
 		t.Fatalf("cross-tenant request = %d %q, want 403", res.Code, res.Body.String())
 	}
 }
+
+func TestResourcesAPI_OmitsVolumeSnapshotsAndBackups(t *testing.T) {
+	// A volume carrying Sandcastle's hourly autosnaps serializes every
+	// snapshot with its full config — on a real one-machine tenant that was
+	// 167 KB of JSON, ~95% snapshots, enough on its own to blow `sc ls`'s 3s
+	// cache-request budget and force the live-path fallback the cache exists
+	// to avoid. Nothing in `sc ls --storage-volumes` renders them.
+	cache := NewResourceCache(time.Minute)
+	cache.seed(nil, nil, nil, []api.StorageVolumeFull{{
+		StorageVolume: api.StorageVolume{
+			Project:     "sc2-alice-default",
+			Name:        "sc-local",
+			Type:        "custom",
+			ContentType: "filesystem",
+		},
+		Snapshots: []api.StorageVolumeSnapshot{{Name: "autosnap-1"}, {Name: "autosnap-2"}},
+		Backups:   []api.StorageVolumeBackup{{Name: "backup-1"}},
+	}}, nil, nil)
+	cache.markStreamConnected()
+
+	h, token := resourceAPITestHandler(t, cache)
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?tenant=alice", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("ready = %d %q, want 200", res.Code, res.Body.String())
+	}
+	var result ResourceListResult
+	if err := json.Unmarshal(res.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.StorageVolumes) != 1 {
+		t.Fatalf("storage volumes = %+v, want alice's one volume", result.StorageVolumes)
+	}
+	volume := result.StorageVolumes[0]
+	if len(volume.Snapshots) != 0 || len(volume.Backups) != 0 {
+		t.Fatalf("volume shipped snapshots=%d backups=%d, want both omitted", len(volume.Snapshots), len(volume.Backups))
+	}
+	// The fields `sc ls --storage-volumes` actually renders must survive.
+	if volume.Name != "sc-local" || volume.Type != "custom" || volume.ContentType != "filesystem" || volume.Project != "sc2-alice-default" {
+		t.Fatalf("trimmed away a rendered field: %+v", volume)
+	}
+	// The cache itself keeps the full objects — only the wire response is trimmed.
+	if snapshot := cache.Snapshot(); len(snapshot.StorageVolumes) != 1 || len(snapshot.StorageVolumes[0].Snapshots) != 2 {
+		t.Fatalf("cache lost its snapshots: %+v", snapshot.StorageVolumes)
+	}
+}

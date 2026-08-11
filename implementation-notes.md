@@ -5,6 +5,54 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-10 — `GET /api/resources` omits storage-volume snapshots and backups
+
+Found in the field on the `idefix` install, right after it was updated to
+v0.6.0: `VERBOSE=1 sc ls -a` still logged `cache-backed endpoint unavailable
+(context deadline exceeded), falling back to live per-project query` even
+though the auth-app was current, the cache was ready, and the endpoint
+answered 200 to a plain `curl`. The cause was payload size, not readiness —
+`/api/resources` returned **167 KB for a one-machine tenant**, of which
+~95% was storage-volume snapshots: Sandcastle's own hourly autosnaps
+(`snapshots.expiry=3d` on the `sc-local` shared-scripts volume, ADR-0022)
+serialize as ~72 snapshot objects per volume, each with its full config, at
+~43 KB per volume across four volumes. Over a Cloudflare-tunnelled Auth
+Hostname (~32 KB/s measured) the body transfer alone cost 1.1–1.6s on top of
+a 1.0–1.4s TLS handshake, tipping the round trip past `sc ls`'s 3s
+`resourceCacheRequestTimeout` — so a *working, ready* cache still fell back
+to the live path every time, which is precisely the outcome the cache
+exists to prevent, and the fallback is silent unless `VERBOSE=1`.
+
+**Decision:** trim `Snapshots` and `Backups` off each `api.StorageVolumeFull`
+in the response (`trimStorageVolume`, `internal/authapp/resource_cache_api.go`).
+`formatStorageVolumesSection` renders only project/name/type/content-type, so
+nothing user-visible is lost; the same tenant's payload drops from 167 KB to
+~9 KB.
+
+Alternatives considered:
+
+- **Raise `resourceCacheRequestTimeout` past 3s.** Rejected: it treats the
+  symptom and inverts the feature's purpose — waiting longer for a payload
+  that is 95% unread data is worse than the live path it was meant to beat.
+  The budget is not the thing that is wrong here.
+- **Only send the resource kinds the caller asked to display** (an `include=`
+  query param driven by `--storage-volumes`/`--images`/…). A real
+  improvement and probably the eventual shape, but it changes the endpoint's
+  request contract, and once snapshots are gone the whole payload is ~9 KB —
+  the remaining per-kind savings are noise on this link. Left for a
+  follow-up rather than bundled into a field fix.
+- **Stop caching snapshots at all** (trim at ingest, in `ResourceCache`).
+  Rejected: the cache should keep what Incus returned, so a future consumer
+  that genuinely needs snapshots can expose them behind an explicit param
+  instead of re-reading Incus. Only the wire response is trimmed; a test
+  asserts the cache still holds the full objects.
+
+Note for whoever tunes this next: even with a ~9 KB body, the measured
+round trip to a tunnelled Auth Hostname is ~1.8s, most of it TLS handshake
+and tunnel latency rather than Sandcastle. The 3s budget holds, but not by
+much on a slow link — a persistent/reused connection would buy far more
+headroom than trimming further.
+
 ## 2026-08-10 — t4: ADR + end-to-end verification for the `sc ls` cache wish
 
 Final slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`.
