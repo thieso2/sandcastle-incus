@@ -17,7 +17,7 @@ func v2TestAdmin() config.Admin {
 		CIDRPool:              "10.249.0.0/16",
 		IncusProjectPrefix:    "sc2",
 		InfrastructureProject: "sc-infra",
-		Images:                config.Images{Base: "base", AI: "ai"},
+		Images:                config.Images{Base: "base", AI: "ai", Dev: "dev"},
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 // feature is meant to build; the package defaults are stock upstream images.
 func customImageAdminForTest() config.Admin {
 	cfg := config.LoadAdminFromEnv()
-	cfg.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest"}
+	cfg.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest", Dev: "sandcastle/dev:latest"}
 	return cfg
 }
 

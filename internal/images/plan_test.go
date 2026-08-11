@@ -14,7 +14,7 @@ import (
 // these tests set the custom names explicitly.
 func customImageAdmin() config.Admin {
 	cfg := config.LoadAdminFromEnv()
-	cfg.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest"}
+	cfg.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest", Dev: "sandcastle/dev:latest"}
 	return cfg
 }
 
@@ -176,6 +176,66 @@ func TestPlanBuildAIImage(t *testing.T) {
 	}
 }
 
+func TestPlanSyncDevImage(t *testing.T) {
+	plan, err := PlanSync(customImageAdmin(), SyncRequest{SourceRef: "sandcastle/dev:ubuntu-26.04"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Template != "dev" {
+		t.Fatalf("Template = %q", plan.Template)
+	}
+	if plan.Alias != "sandcastle/dev:latest" {
+		t.Fatalf("Alias = %q", plan.Alias)
+	}
+}
+
+func TestPlanBuildDevImageRequiresCodexAndClaudeButNotGemini(t *testing.T) {
+	_, err := PlanBuild(customImageAdmin(), BuildRequest{Template: "dev"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "codex-version") || !strings.Contains(err.Error(), "claude-version") {
+		t.Fatalf("error = %q", err)
+	}
+	if strings.Contains(err.Error(), "gemini-version") {
+		t.Fatalf("dev image build should not require --gemini-version: %q", err)
+	}
+}
+
+func TestPlanBuildDevImage(t *testing.T) {
+	plan, err := PlanBuild(customImageAdmin(), BuildRequest{
+		Template:      "dev",
+		Tag:           "sandcastle/dev:ubuntu-26.04",
+		Tool:          "podman",
+		CodexVersion:  "1.2.3",
+		ClaudeVersion: "2.3.4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := strings.Join(plan.Command, " ")
+	for _, want := range []string{
+		"podman build",
+		"-t sandcastle/dev:ubuntu-26.04",
+		"-f images/dev/Dockerfile",
+		"--build-arg CODEX_CLI_VERSION=1.2.3",
+		"--build-arg CLAUDE_CODE_VERSION=2.3.4",
+		"--build-arg SANDCASTLE_IMAGE_TEMPLATE=dev",
+		"--build-arg SANDCASTLE_IMAGE_TAG=sandcastle/dev:ubuntu-26.04",
+		"images/dev",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("Command = %q, want %q", command, want)
+		}
+	}
+	if strings.Contains(command, "GEMINI_CLI_VERSION") {
+		t.Fatalf("dev image build should not pass GEMINI_CLI_VERSION: %q", command)
+	}
+	if strings.Contains(command, "SANDCASTLE_BASE_IMAGE") {
+		t.Fatalf("dev image is FROM ubuntu:26.04 directly, not the Sandcastle base image: %q", command)
+	}
+}
+
 func TestLocalBuilderRunsPlannedCommand(t *testing.T) {
 	runner := &fakeCommandRunner{}
 	result, err := (LocalBuilder{Runner: runner}).BuildImage(context.Background(), BuildPlan{
@@ -248,6 +308,20 @@ func TestPlanImportAIImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	if plan.Alias != "sandcastle/ai:latest" {
+		t.Fatalf("Alias = %q", plan.Alias)
+	}
+}
+
+func TestPlanImportDevImage(t *testing.T) {
+	plan, err := PlanImport(customImageAdmin(), ImportRequest{
+		Template:  "dev",
+		SourceRef: "oci:sandcastle/dev:ubuntu-26.04",
+		Tool:      "incus",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Alias != "sandcastle/dev:latest" {
 		t.Fatalf("Alias = %q", plan.Alias)
 	}
 }

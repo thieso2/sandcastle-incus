@@ -12,7 +12,7 @@ func testAdmin() config.Admin {
 	admin.Remote = "big"
 	// The remote-build feature produces the custom Sandcastle images; the
 	// package defaults are stock upstream images (no prebuilt image required).
-	admin.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest"}
+	admin.Images = config.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest", Dev: "sandcastle/dev:latest"}
 	return admin
 }
 
@@ -70,6 +70,48 @@ func TestPlanRemoteBuildAIFromImmutableBase(t *testing.T) {
 		if !strings.Contains(plan.BuildScript, want) {
 			t.Errorf("build script missing %q", want)
 		}
+	}
+}
+
+func TestPlanRemoteBuildDevFromUbuntuNotBase(t *testing.T) {
+	plan, err := PlanRemoteBuild(testAdmin(), RemoteBuildRequest{
+		Template:      "dev",
+		Version:       "0.2.0",
+		CodexVersion:  "1.2.3",
+		ClaudeVersion: "4.5.6",
+	})
+	if err != nil {
+		t.Fatalf("PlanRemoteBuild: %v", err)
+	}
+	if plan.BaseRef != "" {
+		t.Errorf("dev is FROM ubuntu:26.04 directly, want empty BaseRef, got %q", plan.BaseRef)
+	}
+	if plan.Alias != "sandcastle/dev:latest" {
+		t.Errorf("alias = %q", plan.Alias)
+	}
+	for _, want := range []string{"CODEX_CLI_VERSION=1.2.3", "CLAUDE_CODE_VERSION=4.5.6"} {
+		if !strings.Contains(plan.BuildScript, want) {
+			t.Errorf("build script missing %q", want)
+		}
+	}
+	if strings.Contains(plan.BuildScript, "GEMINI_CLI_VERSION") {
+		t.Errorf("dev image build should not pass GEMINI_CLI_VERSION:\n%s", plan.BuildScript)
+	}
+	if strings.Contains(plan.BuildScript, "SANDCASTLE_BASE_IMAGE") {
+		t.Errorf("dev image build should not pass SANDCASTLE_BASE_IMAGE:\n%s", plan.BuildScript)
+	}
+}
+
+func TestPlanRemoteBuildDevRequiresCodexAndClaudeButNotGemini(t *testing.T) {
+	_, err := PlanRemoteBuild(testAdmin(), RemoteBuildRequest{Template: "dev", Version: "0.2.0"})
+	if err == nil {
+		t.Fatal("expected error when dev versions are missing")
+	}
+	if !strings.Contains(err.Error(), "codex-version") || !strings.Contains(err.Error(), "claude-version") {
+		t.Fatalf("error = %q", err)
+	}
+	if strings.Contains(err.Error(), "gemini-version") {
+		t.Fatalf("dev image build should not require --gemini-version: %q", err)
 	}
 }
 

@@ -22,8 +22,12 @@ const (
 	// stock upstream image, pulled on demand from the public images: remote.
 	// (Set SANDCASTLE_BASE_IMAGE / SANDCASTLE_AI_IMAGE or --*-image to override
 	// with a custom image if you have one.)
-	DefaultBaseImageAlias         = "images:debian/13"
-	DefaultAIImageAlias           = "images:debian/13"
+	DefaultBaseImageAlias = "images:debian/13"
+	DefaultAIImageAlias   = "images:debian/13"
+	// The Dev Image is a distinct template (Ubuntu 26.04, not Debian 13), so it
+	// gets its own stock public images: alias rather than reusing Base/AI's.
+	// Not verified against a live Incus images: remote — see implementation-notes.md.
+	DefaultDevImageAlias          = "images:ubuntu/26.04"
 	DefaultRouteBrokerIncusSocket = "/var/lib/incus/unix.socket"
 )
 
@@ -57,6 +61,7 @@ type Admin struct {
 type Images struct {
 	Base string
 	AI   string
+	Dev  string
 }
 
 func LoadAdminFromEnv() Admin {
@@ -76,6 +81,7 @@ func AdminDefaults() Admin {
 		Images: Images{
 			Base: DefaultBaseImageAlias,
 			AI:   DefaultAIImageAlias,
+			Dev:  DefaultDevImageAlias,
 		},
 	}
 }
@@ -110,6 +116,7 @@ func adminOverridesFromEnv(env map[string]string) Admin {
 		Images: Images{
 			Base: strings.TrimSpace(env["SANDCASTLE_BASE_IMAGE"]),
 			AI:   strings.TrimSpace(env["SANDCASTLE_AI_IMAGE"]),
+			Dev:  strings.TrimSpace(env["SANDCASTLE_DEV_IMAGE"]),
 		},
 	}
 }
@@ -191,6 +198,9 @@ func MergeAdmin(base Admin, overrides Admin) Admin {
 	if strings.TrimSpace(overrides.Images.AI) != "" {
 		out.Images.AI = strings.TrimSpace(overrides.Images.AI)
 	}
+	if strings.TrimSpace(overrides.Images.Dev) != "" {
+		out.Images.Dev = strings.TrimSpace(overrides.Images.Dev)
+	}
 	return out
 }
 
@@ -229,6 +239,9 @@ func (c Admin) Validate() error {
 	}
 	if strings.TrimSpace(c.Images.AI) == "" {
 		return fmt.Errorf("AI image alias is required")
+	}
+	if strings.TrimSpace(c.Images.Dev) == "" {
+		return fmt.Errorf("dev image alias is required")
 	}
 	switch strings.TrimSpace(c.InfrastructureTLSMode) {
 	case "", "acme", "internal":

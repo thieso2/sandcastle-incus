@@ -2419,7 +2419,7 @@ func TestAdminTenantDeleteRequiresConfirmation(t *testing.T) {
 
 func imageSyncAdminConfig() scconfig.Admin {
 	cfg := scconfig.LoadAdminFromEnv()
-	cfg.Images = scconfig.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest"}
+	cfg.Images = scconfig.Images{Base: "sandcastle/base:latest", AI: "sandcastle/ai:latest", Dev: "sandcastle/dev:latest"}
 	return cfg
 }
 
