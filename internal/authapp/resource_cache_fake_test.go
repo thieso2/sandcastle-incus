@@ -27,6 +27,10 @@ type fakeResourceCacheServer struct {
 	projects map[string]*fakeProjectData
 	pools    []api.StoragePool
 	err      error
+	// volumeErr fails ONLY the storage-volume reads, the way a real host does
+	// when one instance's backing dataset is gone: every other resource type
+	// is a plain database read and keeps working.
+	volumeErr error
 }
 
 func newFakeResourceCacheServer() *fakeResourceCacheServer {
@@ -75,6 +79,9 @@ func (f *fakeResourceCacheServer) GetStoragePoolVolumesFullAllProjects(pool stri
 	if f.err != nil {
 		return nil, f.err
 	}
+	if f.volumeErr != nil {
+		return nil, f.volumeErr
+	}
 	var all []api.StorageVolumeFull
 	for _, p := range f.projects {
 		all = append(all, p.volumesByPool[pool]...)
@@ -109,14 +116,15 @@ func (f *fakeResourceCacheServer) GetEventsAllProjects() (*incus.EventListener, 
 }
 
 func (f *fakeResourceCacheServer) UseProject(name string) ResourceCacheProjectServer {
-	return fakeProjectServer{data: f.project(name), err: &f.err}
+	return fakeProjectServer{data: f.project(name), err: &f.err, volumeErr: &f.volumeErr}
 }
 
 // fakeProjectServer is the per-project view UseProject returns: reads reflect
 // whatever the test has put into data right now.
 type fakeProjectServer struct {
-	data *fakeProjectData
-	err  *error
+	data      *fakeProjectData
+	err       *error
+	volumeErr *error
 }
 
 func (s fakeProjectServer) GetInstancesFull(api.InstanceType) ([]api.InstanceFull, error) {
@@ -136,6 +144,9 @@ func (s fakeProjectServer) GetNetworks() ([]api.Network, error) {
 func (s fakeProjectServer) GetStoragePoolVolumesFull(pool string) ([]api.StorageVolumeFull, error) {
 	if *s.err != nil {
 		return nil, *s.err
+	}
+	if s.volumeErr != nil && *s.volumeErr != nil {
+		return nil, *s.volumeErr
 	}
 	return s.data.volumesByPool[pool], nil
 }

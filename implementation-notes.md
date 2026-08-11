@@ -5,6 +5,55 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-11 — one dead storage volume no longer disables the resource cache
+
+Found while verifying the `obelix` install after updating its auth-app to
+v0.6.2: `sc ls` still fell back, now with 503 instead of 404, and the
+auth-app logged the same line every ~10 seconds forever:
+
+```
+[resource-cache] initial read failed: list storage volumes for pool default across projects:
+  Failed to run: zfs get -H -p -o value used rpool/incus/containers/obelix-thieso2-klabauter_klabauter-postgres:
+  exit status 1 (cannot open '…': dataset does not exist)
+```
+
+The install has one broken instance — `klabauter-postgres` exists in the
+Incus database (STOPPED, with a `container/klabauter-postgres` volume record
+whose `used_by` points at it) but its ZFS dataset is gone. Listing volumes
+reaches into the storage driver per volume, so that one record fails
+`GetStoragePoolVolumesFullAllProjects("default")` for **every** project, and
+a fatal seed turned it into a permanent outage of the whole cache:
+`RunResourceCache` re-seeded every 5s, failed identically, and every tenant's
+`sc ls` silently used the live path.
+
+**Decision:** storage volumes become best-effort. A pool whose listing fails
+is logged and skipped in `seedResourceCache`, and the per-event refresh does
+the same; if *every* pool fails during a refresh the previous entry is kept
+rather than blanked, so a transient storage error cannot delete volumes that
+were readable a moment ago. Every other resource type stays fatal — those are
+plain database reads, and a listing without instances would be wrong rather
+than merely incomplete. ADR-0023 amended; decision 2's single readiness flag
+is unchanged.
+
+Alternatives considered:
+
+- **Leave it fatal and fix the host.** The environment is genuinely broken
+  and should be repaired, but "one dangling volume anywhere disables a
+  fleet-wide feature for every tenant, permanently, and says so only in the
+  appliance log" is not a failure mode worth preserving.
+- **Per-resource-type readiness flags** (partial cache answers). This is what
+  ADR-0023 decision 2 deliberately rejected, and it is a much larger change:
+  `sc ls` and the endpoint would have to reason about mixing cache-backed
+  instances with live-queried volumes. Degrading the one type that can fail
+  independently gets the same benefit without that.
+- **Drop the offending volume from the listing instead of the pool.** The
+  Incus API fails the whole call; there is no per-volume error to filter, so
+  this is not available without listing volumes one at a time.
+
+Note: the skip is per pool, so on a host with a single pool `sc ls
+--storage-volumes` shows nothing at all while the breakage lasts. That is
+why the log line names the pool and says what it means.
+
 ## 2026-08-11 — `sc admin` follows the install `sc ls` is on
 
 Reported from the field: `sc admin update`, run with `sc remote list` showing

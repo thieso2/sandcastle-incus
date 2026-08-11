@@ -22,7 +22,7 @@ func TestResourceCache_SeedBuildsIndexAcrossAllFiveResourceTypes(t *testing.T) {
 	worker.instances = []api.InstanceFull{{Instance: api.Instance{Project: "worker", Name: "job-1"}}}
 
 	cache := NewResourceCache(0)
-	if err := seedResourceCache(cache, server); err != nil {
+	if err := seedResourceCache(cache, server, nil); err != nil {
 		t.Fatalf("seedResourceCache: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func TestResourceCache_SeedFailurePropagatesAndLeavesCacheEmpty(t *testing.T) {
 	server.err = errFakeResourceCacheServer
 
 	cache := NewResourceCache(0)
-	if err := seedResourceCache(cache, server); err == nil {
+	if err := seedResourceCache(cache, server, nil); err == nil {
 		t.Fatal("expected seedResourceCache to return the underlying error")
 	}
 	if cache.Ready() {
@@ -142,3 +142,79 @@ var errFakeResourceCacheServer = fakeErr("simulated Incus API failure")
 type fakeErr string
 
 func (e fakeErr) Error() string { return string(e) }
+
+// A host with one broken instance — an Incus record whose backing dataset is
+// gone — fails the storage-volume listing for the whole pool, in every
+// project. Before this was made best-effort that single dead volume disabled
+// the entire cache permanently: the seed failed, RunResourceCache retried
+// every 5s and failed identically, and `sc ls` fell back to the live path
+// forever with only a WARN in the auth-app log to show for it.
+func TestResourceCache_SeedSurvivesUnreadableStorageVolumes(t *testing.T) {
+	server := newFakeResourceCacheServer()
+	server.pools = []api.StoragePool{{Name: "default"}}
+	server.project("sc2-alice-default").instances = []api.InstanceFull{
+		{Instance: api.Instance{Project: "sc2-alice-default", Name: "web", Type: "container"}},
+	}
+	server.project("sc2-alice-default").volumesByPool["default"] = []api.StorageVolumeFull{
+		{StorageVolume: api.StorageVolume{Project: "sc2-alice-default", Name: "home"}},
+	}
+	server.volumeErr = errFakeResourceCacheServer
+
+	cache := NewResourceCache(time.Minute)
+	var logged int
+	logf := ResourceCacheLogf(func(string, ...any) { logged++ })
+	if err := seedResourceCache(cache, server, logf); err != nil {
+		t.Fatalf("seed failed on unreadable volumes: %v — the instance listing must survive them", err)
+	}
+	if logged == 0 {
+		t.Fatal("skipping a pool's volumes must be logged, never silent")
+	}
+	cache.markStreamConnected()
+	if !cache.Ready() {
+		t.Fatal("cache not ready after a seed that only lost storage volumes")
+	}
+	snapshot := cache.Snapshot()
+	if len(snapshot.Instances) != 1 {
+		t.Fatalf("instances = %d, want the one seeded instance", len(snapshot.Instances))
+	}
+	if len(snapshot.StorageVolumes) != 0 {
+		t.Fatalf("storage volumes = %d, want none (the pool was unreadable)", len(snapshot.StorageVolumes))
+	}
+}
+
+// A resource type that is a plain database read must still be fatal: losing
+// instances means `sc ls` cannot be answered at all, and serving a listing
+// without them would be wrong rather than merely incomplete.
+func TestResourceCache_SeedStillFailsOnInstanceReadError(t *testing.T) {
+	server := newFakeResourceCacheServer()
+	server.err = errFakeResourceCacheServer
+	cache := NewResourceCache(time.Minute)
+	if err := seedResourceCache(cache, server, nil); err == nil {
+		t.Fatal("expected a failed instance read to fail the seed")
+	}
+	if cache.Ready() {
+		t.Fatal("cache reported ready after a failed seed")
+	}
+}
+
+// An event-driven refresh whose pools are all unreadable must leave the
+// previous entry alone rather than blanking it: a transient storage error
+// should not delete volumes that were readable a moment ago.
+func TestResourceCache_RefreshKeepsVolumesWhenEveryPoolFails(t *testing.T) {
+	server := newFakeResourceCacheServer()
+	server.pools = []api.StoragePool{{Name: "default"}}
+	server.project("sc2-alice-default").volumesByPool["default"] = []api.StorageVolumeFull{
+		{StorageVolume: api.StorageVolume{Project: "sc2-alice-default", Name: "home"}},
+	}
+	cache := NewResourceCache(time.Minute)
+	if err := seedResourceCache(cache, server, nil); err != nil {
+		t.Fatal(err)
+	}
+	server.volumeErr = errFakeResourceCacheServer
+	if err := refreshResourceCacheProject(cache, server, resourceCacheKindStorageVolume, "sc2-alice-default", nil); err != nil {
+		t.Fatalf("refresh returned %v, want a degraded no-op", err)
+	}
+	if got := len(cache.Snapshot().StorageVolumes); got != 1 {
+		t.Fatalf("storage volumes = %d, want the 1 kept from before the failure", got)
+	}
+}
