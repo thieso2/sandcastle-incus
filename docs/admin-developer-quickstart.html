@@ -292,7 +292,7 @@ sc-adm update --all-tenants   <span class="comment"># operator override: also fo
           <h3>Admin machine</h3>
           <ul>
             <li>Has an unrestricted Incus remote configured.</li>
-            <li>Can build or import Sandcastle base and AI images.</li>
+            <li>Can build or import Sandcastle base, AI, and dev images.</li>
             <li>Has the Sandcastle repo or installed CLI available.</li>
           </ul>
         </div>
@@ -325,22 +325,29 @@ export SANDCASTLE_STORAGE_POOL=default
 export SANDCASTLE_CIDR_POOL=10.248.0.0/16
 export SANDCASTLE_INCUS_PROJECT_PREFIX=sc
 export SANDCASTLE_BASE_IMAGE=sandcastle/base:latest
-export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest</code></pre>
+export SANDCASTLE_AI_IMAGE=sandcastle/ai:latest
+export SANDCASTLE_DEV_IMAGE=sandcastle/dev:latest</code></pre>
 
       <h3>3. Prepare images</h3>
-      <p>Tenants use the base image for sidecars and the AI image as the default machine template.</p>
-      <pre><code># Rebuild base and AI images, upload both, then sync tenant-local aliases
+      <p>Tenants use the base image for sidecars, the AI image as the default machine template for autonomous/headless AI CLI use, and the dev image (Ubuntu 26.04, <code>--image &lt;dev-alias&gt;</code>) as a batteries-included interactive shell — zsh, starship, mise-managed toolchain, Claude Code + Codex CLIs, and a context-usage status line for both. See <code>docs/usage.html</code> for the full package/tool list.</p>
+      <pre><code># Rebuild base, AI, and dev images, upload all three, then sync tenant-local aliases
 mise run image:all:build-upload</code></pre>
       <p>To rebuild one image at a time:</p>
       <pre><code>mise run image:base:build-upload
-mise run image:ai:build-upload</code></pre>
-      <p>The AI task resolves the latest npm versions automatically. To pin versions:</p>
+mise run image:ai:build-upload
+mise run image:dev:build-upload</code></pre>
+      <p>The AI and dev tasks resolve the latest npm versions automatically. To pin versions:</p>
       <pre><code>SANDCASTLE_CODEX_VERSION=0.132.0 \
 SANDCASTLE_CLAUDE_VERSION=2.1.145 \
 SANDCASTLE_GEMINI_VERSION=0.42.0 \
   mise run image:ai:build-upload</code></pre>
+      <p>The dev image takes the same <code>SANDCASTLE_CODEX_VERSION</code>/<code>SANDCASTLE_CLAUDE_VERSION</code> pins but no Gemini version — it does not install Gemini CLI:</p>
+      <pre><code>SANDCASTLE_CODEX_VERSION=0.132.0 \
+SANDCASTLE_CLAUDE_VERSION=2.1.145 \
+  mise run image:dev:build-upload</code></pre>
       <p>Or import a pre-built image from a registry:</p>
-      <pre><code>./bin/sc-adm image import ai SOURCE_REF</code></pre>
+      <pre><code>./bin/sc-adm image import ai SOURCE_REF
+./bin/sc-adm image import dev SOURCE_REF</code></pre>
 
       <h3>3a. Deploy the Auth App and broker (optional)</h3>
       <p>The manual, per-service infrastructure deploy that used to live here (<code>sc-adm infra …</code> plus a separate route broker) has been removed along with tenant v1. Server-side deployment is now a single command &mdash; see <a href="#install">Install a Sandcastle (current)</a> at the top of this page (<code>sc-adm install</code>), and <a href="auth-app-full-setup.html">Full Auth App Setup</a> for the OIDC provider, workload identity, and Cloud Identity details. Public routes and the <code>sc route</code> command were removed with tenant v1 and have no replacement.</p>

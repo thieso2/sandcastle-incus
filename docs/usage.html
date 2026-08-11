@@ -856,7 +856,7 @@ Publish a machine's port to the public Internet.
 
   <div class="step">
     <h3>Rebuild and upload every image</h3>
-    <p>Builds and uploads the base image first, rebuilds and uploads the AI image from that base image, then syncs both aliases into image-enabled Sandcastle tenant projects.</p>
+    <p>Builds and uploads the base image first, rebuilds and uploads the AI image from that base image, builds and uploads the dev image, then syncs all three aliases into image-enabled Sandcastle tenant projects.</p>
     <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
 <span class="cmd">mise run image:all:build-upload</span></code></pre>
   </div>
@@ -869,19 +869,43 @@ Publish a machine's port to the public Internet.
   </div>
 
   <div class="step">
+    <h3>Build and upload the dev image (Ubuntu 26.04, full interactive shell)</h3>
+    <p>A third Machine Template, distinct from <code>base</code>/<code>ai</code>: <code>FROM ubuntu:26.04</code>, not built on top of the (Debian) base image. It carries the minimum tenant plumbing (<code>systemd</code>, <code>openssh-server</code>) plus a fully provisioned interactive environment for someone sitting at a terminal, rather than headless/autonomous use:</p>
+    <ul>
+      <li><strong>Packages:</strong> <code>git gh ripgrep fd-find make zsh jq</code> (<code>fd-find</code>'s binary is symlinked to <code>/usr/local/bin/fd</code>). <strong>Default shell is zsh</strong> for both the image's own root/system shells and every tenant login user.</li>
+      <li><strong>Shell:</strong> zsh history is shared and de-duplicated live across panes (<code>INC_APPEND_HISTORY</code>, <code>SHARE_HISTORY</code>, <code>HIST_IGNORE_ALL_DUPS</code>, 10k entries). Prompt is <a href="https://starship.rs">starship</a> — one line, <code>user@fqdn:&gt;</code> (<code>&gt;</code> colored by last exit code) on the left, directory + git branch (colored by dirty/clean state) on the right.</li>
+      <li><strong>Toolchain:</strong> <a href="https://mise.jdx.dev">mise</a>-managed, pre-resolved at build time (no first-boot network fetch) — <code>go</code>, <code>node</code>, <code>starship</code>, and <a href="https://herdr.dev">herdr</a>, all pinned to <code>"latest"</code>-as-of-build in <code>~/.config/mise/config.toml</code>.</li>
+      <li><strong>AI CLIs:</strong> Claude Code and the Codex CLI (installed the same way <code>ai</code> installs them, via a shared install script — <strong>no Gemini CLI</strong>, unlike <code>ai</code>). Community skills (<code>mattpocock/skills</code>) are installed the same way <code>ai</code> installs them.</li>
+      <li><strong>Status lines — Claude Code:</strong> <code>~/.claude/statusline-command.sh</code> renders model name, a 10-segment context-usage bar (green/yellow/red), <code>~</code>-relative cwd, git branch, and 5h/7d rate-limit segments when present. <strong>Requires a Nerd Font in the terminal</strong> for the folder (U+F07C) and branch (U+E0A0) glyphs — without one they render as tofu/placeholder boxes, not an error.</li>
+      <li><strong>Status lines — Codex:</strong> Codex has no command-hook status line (no config key runs an external script, no JSON-stdin/ANSI-stdout contract) — there is nothing to port the Claude Code script to. <code>~/.codex/config.toml</code> instead selects Codex's own built-in <code>[tui] status_line</code> items: <code>model-with-reasoning</code>, <code>context-used</code>, <code>current-dir</code>, <code>git-branch</code>, <code>five-hour-limit</code>, <code>weekly-limit</code>. <strong>Capability gaps, not bugs:</strong> <code>context-used</code> is a percentage only — no 10-segment bar, no green/yellow/red color ramp (Codex uses its own theme coloring); <code>five-hour-limit</code>/<code>weekly-limit</code> are documented as <em>remaining</em>, not <em>used</em> (the inverse sense from the Claude Code script's <code>used_percentage</code>); neither rate-limit item has a reset-time field, so there is no <code>↻ HH:MM</code> equivalent.</li>
+      <li><strong>Git:</strong> global aliases (<code>co</code>, <code>br</code>, <code>st</code>, <code>last</code>, <code>unstage</code>, <code>amend</code>) ship at build time via <code>/etc/gitconfig</code>. <code>user.name</code>/<code>user.email</code> self-populate on first login from <code>gh api user</code>, only when <code>gh auth status</code> already holds a credential and neither value is already set (never overwrites a hand-set identity) — <code>gh auth login</code> itself is a first-run step you run interactively; the image never holds or writes a credential.</li>
+      <li><strong>No public ingress:</strong> unlike <code>base</code>/<code>ai</code> machines, a Dev Image machine gets no Caddy, no TLS leaf, and answers nothing on 443 — SSH only. It keeps its login user, SSH key, and sshd (unlike <code>--bare</code>), and its private hostname still resolves in tenant DNS.</li>
+    </ul>
+    <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
+<span class="cmd">mise run image:dev:build-upload</span></code></pre>
+    <p>Pin specific tool versions the same way as the AI image:</p>
+    <pre><code><span class="env">SANDCASTLE_CODEX_VERSION</span>=0.132.0 <span class="env">SANDCASTLE_CLAUDE_VERSION</span>=2.1.145 \
+  <span class="cmd">mise run image:dev:build-upload</span></code></pre>
+  </div>
+
+  <div class="step">
     <h3>All image mise tasks</h3>
     <table>
       <thead><tr><th>Task</th><th>Description</th></tr></thead>
       <tbody>
-        <tr><td>mise run image:all:build-upload</td><td>Rebuild base and AI images locally (docker), upload both to Incus, then sync tenant-local aliases</td></tr>
+        <tr><td>mise run image:all:build-upload</td><td>Rebuild base, AI, and dev images locally (docker), upload all three to Incus, then sync tenant-local aliases</td></tr>
         <tr><td>mise run image:tenant:sync</td><td>Sync published image aliases into image-enabled Sandcastle tenant projects</td></tr>
         <tr><td>mise run image:ai:build-upload</td><td>Build AI image locally with latest tool versions and upload to Incus</td></tr>
         <tr><td>mise run image:base:build-upload</td><td>Build base image locally and upload to Incus</td></tr>
         <tr><td>mise run image:base:build</td><td>Build base image locally only</td></tr>
         <tr><td>mise run image:base:upload</td><td>Upload a previously built base image</td></tr>
+        <tr><td>mise run image:dev:build-upload</td><td>Build dev image (Ubuntu 26.04) locally with latest Codex/Claude Code versions and upload to Incus</td></tr>
+        <tr><td>mise run image:dev:build</td><td>Build dev image locally only</td></tr>
+        <tr><td>mise run image:dev:upload</td><td>Upload a previously built dev image</td></tr>
         <tr><td>mise run image:base:build-remote</td><td>Build base image in the <code>sc-build</code> Image Builder appliance and publish to GHCR (needs <code>SANDCASTLE_GHCR_TOKEN</code>)</td></tr>
         <tr><td>mise run image:ai:build-remote</td><td>Build AI image in the Image Builder appliance with latest tool versions and publish to GHCR</td></tr>
-        <tr><td>mise run image:all:build-remote</td><td>Build base then AI in the Image Builder appliance and publish both to GHCR</td></tr>
+        <tr><td>mise run image:dev:build-remote</td><td>Build dev image in the Image Builder appliance with latest Codex/Claude Code versions and publish to GHCR</td></tr>
+        <tr><td>mise run image:all:build-remote</td><td>Build base, AI, then dev in the Image Builder appliance and publish all three to GHCR</td></tr>
         <tr><td>mise run image:builder:provision</td><td>Create and provision the <code>sc-build</code> appliance so subsequent <code>build-remote</code> runs skip provisioning</td></tr>
         <tr><td>mise run image:deps</td><td>Check that docker, incus, tar, zstd are installed</td></tr>
         <tr><td>mise run install</td><td>Install the user CLI and <code>sc</code> alias</td></tr>
@@ -894,8 +918,8 @@ Publish a machine's port to the public Internet.
     <p>Instead of building locally with docker, the <strong>Image Builder</strong> builds Sandcastle Images inside a dedicated, admin-managed Incus container and publishes them to GHCR. It is an infrastructure appliance, not a Machine. See <code>docs/adr/0010-image-builder-appliance.md</code>.</p>
     <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
 <span class="env">export SANDCASTLE_GHCR_TOKEN</span>=&lt;github PAT with write:packages&gt;
-<span class="cmd">mise run image:all:build-remote</span>          <span class="comment"># or sc-adm image build-remote base|ai|all</span></code></pre>
-    <p>How it works: the <code>sc-build</code> project holds a persistent <code>sc-builder</code> container (neutral <code>images:debian/13</code>, <code>security.nesting</code>, <code>/dev/fuse</code>) that builds with <strong>rootless podman</strong> against a cache volume. <code>build-remote</code> ensures the appliance and a one-time <code>ghcr</code> OCI remote, ships the working-tree build context in, logs in with the token over stdin (never persisted), builds <code>:latest</code> + an immutable <code>:&lt;git-describe&gt;</code> tag, pushes to GHCR, then copies the immutable tag into the local Incus alias and syncs tenant aliases. The AI image is built <code>FROM</code> the immutable base tag of the same run.</p>
+<span class="cmd">mise run image:all:build-remote</span>          <span class="comment"># or sc-adm image build-remote base|ai|dev|all</span></code></pre>
+    <p>How it works: the <code>sc-build</code> project holds a persistent <code>sc-builder</code> container (neutral <code>images:debian/13</code>, <code>security.nesting</code>, <code>/dev/fuse</code>) that builds with <strong>rootless podman</strong> against a cache volume. <code>build-remote</code> ensures the appliance and a one-time <code>ghcr</code> OCI remote, ships the working-tree build context in, logs in with the token over stdin (never persisted), builds <code>:latest</code> + an immutable <code>:&lt;git-describe&gt;</code> tag, pushes to GHCR, then copies the immutable tag into the local Incus alias and syncs tenant aliases. The AI image is built <code>FROM</code> the immutable base tag of the same run; the dev image is built independently <code>FROM ubuntu:26.04</code> (a different OS lineage from base/AI's Debian), so it does not chain off the base build.</p>
     <p><strong>Provisioning is decoupled from building.</strong> On a cold start (no appliance) <code>build-remote</code> auto-provisions; on a warm appliance it only starts it and builds, skipping the (idempotent) provision step for speed. Provision deliberately with <code>mise run image:builder:provision</code> (or <code>sandcastle-admin image builder provision</code>) — e.g. after changing the provision toolchain. Builds are heavily cached: the Dockerfiles use <code>RUN --mount=type=cache</code> for apt/npm and the build runs with <code>BUILDAH_LAYERS=true</code>, so a no-op rebuild is seconds. Pass <code>VERBOSE=1</code> to stream the underlying podman build/push output live.</p>
     <p>Flags: <code>--require-clean</code> (refuse a dirty tree), <code>--no-push</code>, <code>--no-import</code>, <code>--rebuild-builder</code>, <code>--ghcr-repo</code>, <code>--ghcr-user</code>, <code>--remote</code>, <code>--platform</code>, <code>--dry-run</code>. Manage the appliance with <code>sandcastle-admin image builder provision</code>, <code>sandcastle-admin image builder status</code>, and <code>sandcastle-admin image builder destroy [--yes] [--keep-cache]</code> (prompts for confirmation when run interactively). GHCR packages must be public-read so the Incus host pulls without credentials; the token is only used to push.</p>
   </div>
@@ -914,9 +938,18 @@ Publish a machine's port to the public Internet.
   </div>
 
   <div class="step">
+    <h3>Build the dev image manually (explicit versions)</h3>
+    <p>Unlike <code>ai</code>, the dev image build takes <code>--codex-version</code>/<code>--claude-version</code> only — there is no <code>--gemini-version</code>, since the dev image does not install Gemini CLI.</p>
+    <pre><code><span class="cmd">sandcastle-admin image build</span> <span class="arg">dev</span> \
+  <span class="flag">--codex-version</span>  <span class="arg">0.132.0</span> \
+  <span class="flag">--claude-version</span> <span class="arg">2.1.145</span></code></pre>
+  </div>
+
+  <div class="step">
     <h3>Import an OCI image into Incus</h3>
     <pre><code><span class="cmd">sandcastle-admin image import</span> <span class="arg">base</span> <span class="arg">docker://ghcr.io/example/sandcastle-base:latest</span>
-<span class="cmd">sandcastle-admin image import</span> <span class="arg">ai</span>   <span class="arg">docker://ghcr.io/example/sandcastle-ai:latest</span></code></pre>
+<span class="cmd">sandcastle-admin image import</span> <span class="arg">ai</span>   <span class="arg">docker://ghcr.io/example/sandcastle-ai:latest</span>
+<span class="cmd">sandcastle-admin image import</span> <span class="arg">dev</span>  <span class="arg">docker://ghcr.io/example/sandcastle-dev:latest</span></code></pre>
   </div>
 
   <div class="step">
@@ -984,6 +1017,7 @@ Publish a machine's port to the public Internet.
         <tr><td><code>SANDCASTLE_INFRA_CADDY_DATA_ARCHIVE</code></td><td><code>sc-adm install</code></td><td>Path to a Caddy ACME data archive restored during install.</td></tr>
         <tr><td><code>SANDCASTLE_BASE_IMAGE</code></td><td><code>sc-adm</code>, mise image tasks</td><td>Base sidecar image alias/tag.</td></tr>
         <tr><td><code>SANDCASTLE_AI_IMAGE</code></td><td><code>sc-adm</code>, mise image tasks</td><td>Default AI machine image alias/tag.</td></tr>
+        <tr><td><code>SANDCASTLE_DEV_IMAGE</code></td><td><code>sc-adm</code>, mise image tasks</td><td>Dev machine image alias/tag, default <code>sandcastle/dev:latest</code>. Also overrides <code>Images.Dev</code> (default <code>images:ubuntu/26.04</code>) at the config layer.</td></tr>
         <tr><td><code>SANDCASTLE_IMAGE_PLATFORM</code></td><td><code>sc-adm install</code></td><td>Docker/Podman platform for images built during infrastructure creation, default <code>linux/amd64</code>.</td></tr>
         <tr><td><code>SANDCASTLE_IMAGE_REBUILD</code></td><td><code>sc-adm install</code></td><td>Set to <code>1</code> to force local image rebuilds even when a matching local image already exists.</td></tr>
         <tr><td><code>SANDCASTLE_IMAGE_REUPLOAD</code></td><td><code>sc-adm install</code></td><td>Set to <code>1</code> to force image upload even when the configured Incus alias already exists on the remote.</td></tr>
@@ -1074,9 +1108,9 @@ Publish a machine's port to the public Internet.
     <table>
       <thead><tr><th>Variable</th><th>Used by</th><th>Purpose</th></tr></thead>
       <tbody>
-        <tr><td><code>SANDCASTLE_CODEX_VERSION</code></td><td><code>mise run image:ai:build-upload</code></td><td>Pin Codex version for AI image builds.</td></tr>
-        <tr><td><code>SANDCASTLE_CLAUDE_VERSION</code></td><td><code>mise run image:ai:build-upload</code></td><td>Pin Claude Code version for AI image builds.</td></tr>
-        <tr><td><code>SANDCASTLE_GEMINI_VERSION</code></td><td><code>mise run image:ai:build-upload</code></td><td>Pin Gemini CLI version for AI image builds.</td></tr>
+        <tr><td><code>SANDCASTLE_CODEX_VERSION</code></td><td><code>mise run image:ai:build-upload</code>, <code>image:dev:build-upload</code></td><td>Pin Codex version for AI and dev image builds.</td></tr>
+        <tr><td><code>SANDCASTLE_CLAUDE_VERSION</code></td><td><code>mise run image:ai:build-upload</code>, <code>image:dev:build-upload</code></td><td>Pin Claude Code version for AI and dev image builds.</td></tr>
+        <tr><td><code>SANDCASTLE_GEMINI_VERSION</code></td><td><code>mise run image:ai:build-upload</code></td><td>Pin Gemini CLI version for AI image builds. The dev image does not install Gemini CLI.</td></tr>
         <tr><td><code>DOCKER_DEFAULT_PLATFORM</code></td><td><code>sc-adm install</code>, mise image tasks</td><td>Fallback image build platform when <code>SANDCASTLE_IMAGE_PLATFORM</code> is unset; mise image tasks set it to <code>linux/amd64</code>.</td></tr>
         <tr><td><code>GO</code>, <code>GOOS</code>, <code>GOARCH</code>, <code>CGO_ENABLED</code></td><td>Makefile, mise build tasks</td><td>Go command and cross-compilation settings.</td></tr>
         <tr><td><code>PREFIX</code>, <code>BINDIR</code>, <code>DESTDIR</code>, <code>BIN_DIR</code></td><td>Makefile</td><td>Build and install destination overrides.</td></tr>
