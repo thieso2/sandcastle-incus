@@ -113,97 +113,6 @@ and tunnel latency rather than Sandcastle. The 3s budget holds, but not by
 much on a slow link — a persistent/reused connection would buy far more
 headroom than trimming further.
 
-## 2026-08-11 — t4: Documentation & ADR-0024 for the dev image
-
-Last slice of `docs/plan/add-a-dev-base-image-ubuntu-26-04-fixed-b2qtk8g.md`.
-Docs-only: `docs/usage.html`, `docs/admin-developer-quickstart.html`,
-`docs/e2e-sc2.md` (new Phase 8e + one-line Phase 6 addition),
-`docs/adr/0024-dev-image-third-machine-template.md`. No code changes.
-
-- **The four facts this slice was asked to consolidate were already recorded
-  by t1-t3** — nothing new to add for them, only to cite: the exact
-  `DefaultDevImageAlias` string and its unverified-against-a-live-remote
-  status (t1, above), the byte-identical-duplicate `install-ai-cli-tools.sh`
-  factoring for §B6 and the Claude-vs-Codex install-mechanism/status-line
-  note (t2, below), and the exact ingress-skip function
-  (`V2DevUserData(user, sshKey, domain string)`, `internal/tenant/create_plan_v2.go`)
-  plus its detection mechanism (`CreateMachineV2Request.DevImage`,
-  `internal/cli/create_v2.go`'s `runCreateMachineV2`) (t3, below). ADR-0024
-  cites all three by name/signature rather than re-deriving them.
-- **ADR number: 0024**, the next free slot after 0023 (event-bus resource
-  cache) — no collision to resolve.
-- **`docs/e2e-sc2.md` Phase 8e placed between Phase 8d (base images from a
-  running machine) and Phase 10 (self-update), not appended at the end.**
-  The doc's phases are meant to run top-to-bottom and Phase 9 already covers
-  unattended login (orthogonal); 8e sits with the other "images" phases
-  (8c/8c-bare/8d) rather than after the self-update phase, which is
-  unrelated to image templates. Marked ⚠️ (partial) in the doc's own status
-  legend, not ✅, since none of it was run against a live Incus deployment
-  from this session.
-- **Acceptance scenarios 1-8 (spec section "Acceptance scenarios"):
-  none were re-run live in this session** (no Docker daemon, no live Incus,
-  no authenticated Codex/gh session in this sandbox, same constraint every
-  prior slice hit). Scenario 8 (`base`/`ai` unaffected) is the one with real
-  automated coverage: `internal/config/admin_test.go`'s validate-with-no-dev-env
-  case (t1) and the `images/ai/Dockerfile` read-diff check (t2) stand in for
-  it. The rest (2, 3, 6, 7 especially) are documented in `docs/e2e-sc2.md`
-  Phase 8e as PASS criteria to run against a live deployment, each flagged
-  unverified-in-this-environment rather than claimed — per this ticket's
-  "Done when" clause.
-
-## 2026-08-11 — t1: config/build plumbing for the `dev` image template
-
-First slice of `docs/plan/add-a-dev-base-image-ubuntu-26-04-fixed-b2qtk8g.md`.
-Added a third image template, `dev`, alongside `base`/`ai` throughout
-`internal/config/admin.go`, `internal/images/plan.go`, `internal/images/remote.go`,
-`internal/cli/admin.go`, and `mise.toml`. Pure plumbing — no Dockerfile, no
-tenant-creation wiring (those are t2/t3).
-
-- **`DefaultDevImageAlias = "images:ubuntu/26.04"` — not verified against a
-  live Incus `images:` remote.** The repo's source can't answer whether Incus's
-  public images: remote actually publishes an Ubuntu 26.04 entry under that
-  exact path (vs. e.g. `images:ubuntu/26.04/cloud`, or a not-yet-published
-  release given Ubuntu 26.04 is itself very new at the time of this wish). I
-  picked the alias that follows the identical naming pattern
-  `DefaultBaseImageAlias`/`DefaultAIImageAlias` already use
-  (`images:debian/13`), which the spec explicitly sanctions as the fallback
-  approach ("`DefaultDevImageAlias` should follow the identical pattern... but
-  whether `images:ubuntu/26.04` needs to actually exist... did not send it
-  out to check"). This alias is only a fallback default anyway —
-  `SANDCASTLE_DEV_IMAGE` or `--tag`/`--dev-image` overrides it once an
-  operator builds+uploads the real Dev Image (mirroring how `ai` already
-  works today). If it turns out to be wrong, it's a one-line constant fix,
-  not a design change.
-- **`dev`'s version-arg validation requires `--codex-version` and
-  `--claude-version` but not `--gemini-version`** (per spec §B6/§B8 — no
-  Gemini CLI on the Dev Image), in both `PlanBuild` (`internal/images/plan.go`)
-  and `PlanRemoteBuild` (`internal/images/remote.go`). This is a real
-  asymmetry from `ai`'s three-arg requirement, not an oversight.
-- **`dev` does not carry a `SANDCASTLE_BASE_IMAGE` build-arg or `BaseRef`.**
-  Unlike `ai` (built FROM the Sandcastle base image), the Dev Image is
-  `FROM ubuntu:26.04` directly per the spec — a structurally independent
-  template, not a layer on top of `base`. `PlanBuild`/`PlanRemoteBuild` reflect
-  that: no base-image plumbing in the `dev` arm at all.
-- **Collateral fix, not in this ticket's file list:** `Admin.Validate()` now
-  requires `Images.Dev` to be non-empty (matching Base/AI). Two existing test
-  fixtures elsewhere in the repo (`internal/incusx/images_test.go`,
-  `internal/tenant/create_plan_v2_test.go`) built `config.Images{...}` literals
-  by hand without a `Dev` field and started failing `Validate()` as a result.
-  Fixed both with a one-line addition of `Dev: "..."` to keep `go test ./...`
-  green repo-wide; left the substantive t3 work (tenant-creation Dev Image
-  alias wiring, the ingress-skip mechanism) untouched — that's a different
-  ticket's slice. Did **not** touch the equivalent literals in
-  `internal/e2e/image_build_test.go`/`image_sync_test.go`: those are gated
-  behind `SANDCASTLE_INCUS_E2E`/`SANDCASTLE_E2E_IMAGE_BUILD`, don't run in
-  plain `go test ./...`, and updating them would mean growing their helper
-  function signatures (`imageBuildAdminConfig(e2eConfig, baseTag, aiTag)` etc.)
-  — a real design decision about e2e Dev Image coverage that belongs with the
-  e2e-doc/t4 slice (`docs/e2e-sc2.md` is explicitly listed as that slice's
-  responsibility), not a plumbing ticket.
-- **`internal/cli/admin_test.go` did not exist before this change** — created
-  it fresh for `remoteBuildTemplates` coverage since no prior test file
-  covered that helper.
-
 ## 2026-08-10 — t4: ADR + end-to-end verification for the `sc ls` cache wish
 
 Final slice of `docs/plan/admin-server-config-toggled-event-bus-ca8marg.md`.
@@ -4237,3 +4146,95 @@ refactored `images/ai/Dockerfile` per the plan's B6 step.
   pre-existing `internal/cli` `TestLogin*` failures in this sandbox are
   unrelated (no `incus` binary on PATH here — reproduced on the
   pre-change tree via `git stash` to confirm).
+
+## 2026-08-11 — t4: Documentation & ADR-0024 for the dev image
+
+Last slice of `docs/plan/add-a-dev-base-image-ubuntu-26-04-fixed-b2qtk8g.md`.
+Docs-only: `docs/usage.html`, `docs/admin-developer-quickstart.html`,
+`docs/e2e-sc2.md` (new Phase 8e + one-line Phase 6 addition),
+`docs/adr/0024-dev-image-third-machine-template.md`. No code changes.
+
+- **The four facts this slice was asked to consolidate were already recorded
+  by t1-t3** — nothing new to add for them, only to cite: the exact
+  `DefaultDevImageAlias` string and its unverified-against-a-live-remote
+  status (t1, above), the byte-identical-duplicate `install-ai-cli-tools.sh`
+  factoring for §B6 and the Claude-vs-Codex install-mechanism/status-line
+  note (t2, below), and the exact ingress-skip function
+  (`V2DevUserData(user, sshKey, domain string)`, `internal/tenant/create_plan_v2.go`)
+  plus its detection mechanism (`CreateMachineV2Request.DevImage`,
+  `internal/cli/create_v2.go`'s `runCreateMachineV2`) (t3, below). ADR-0024
+  cites all three by name/signature rather than re-deriving them.
+- **ADR number: 0024**, the next free slot after 0023 (event-bus resource
+  cache) — no collision to resolve.
+- **`docs/e2e-sc2.md` Phase 8e placed between Phase 8d (base images from a
+  running machine) and Phase 10 (self-update), not appended at the end.**
+  The doc's phases are meant to run top-to-bottom and Phase 9 already covers
+  unattended login (orthogonal); 8e sits with the other "images" phases
+  (8c/8c-bare/8d) rather than after the self-update phase, which is
+  unrelated to image templates. Marked ⚠️ (partial) in the doc's own status
+  legend, not ✅, since none of it was run against a live Incus deployment
+  from this session.
+- **Acceptance scenarios 1-8 (spec section "Acceptance scenarios"):
+  none were re-run live in this session** (no Docker daemon, no live Incus,
+  no authenticated Codex/gh session in this sandbox, same constraint every
+  prior slice hit). Scenario 8 (`base`/`ai` unaffected) is the one with real
+  automated coverage: `internal/config/admin_test.go`'s validate-with-no-dev-env
+  case (t1) and the `images/ai/Dockerfile` read-diff check (t2) stand in for
+  it. The rest (2, 3, 6, 7 especially) are documented in `docs/e2e-sc2.md`
+  Phase 8e as PASS criteria to run against a live deployment, each flagged
+  unverified-in-this-environment rather than claimed — per this ticket's
+  "Done when" clause.
+
+## 2026-08-11 — t1: config/build plumbing for the `dev` image template
+
+First slice of `docs/plan/add-a-dev-base-image-ubuntu-26-04-fixed-b2qtk8g.md`.
+Added a third image template, `dev`, alongside `base`/`ai` throughout
+`internal/config/admin.go`, `internal/images/plan.go`, `internal/images/remote.go`,
+`internal/cli/admin.go`, and `mise.toml`. Pure plumbing — no Dockerfile, no
+tenant-creation wiring (those are t2/t3).
+
+- **`DefaultDevImageAlias = "images:ubuntu/26.04"` — not verified against a
+  live Incus `images:` remote.** The repo's source can't answer whether Incus's
+  public images: remote actually publishes an Ubuntu 26.04 entry under that
+  exact path (vs. e.g. `images:ubuntu/26.04/cloud`, or a not-yet-published
+  release given Ubuntu 26.04 is itself very new at the time of this wish). I
+  picked the alias that follows the identical naming pattern
+  `DefaultBaseImageAlias`/`DefaultAIImageAlias` already use
+  (`images:debian/13`), which the spec explicitly sanctions as the fallback
+  approach ("`DefaultDevImageAlias` should follow the identical pattern... but
+  whether `images:ubuntu/26.04` needs to actually exist... did not send it
+  out to check"). This alias is only a fallback default anyway —
+  `SANDCASTLE_DEV_IMAGE` or `--tag`/`--dev-image` overrides it once an
+  operator builds+uploads the real Dev Image (mirroring how `ai` already
+  works today). If it turns out to be wrong, it's a one-line constant fix,
+  not a design change.
+- **`dev`'s version-arg validation requires `--codex-version` and
+  `--claude-version` but not `--gemini-version`** (per spec §B6/§B8 — no
+  Gemini CLI on the Dev Image), in both `PlanBuild` (`internal/images/plan.go`)
+  and `PlanRemoteBuild` (`internal/images/remote.go`). This is a real
+  asymmetry from `ai`'s three-arg requirement, not an oversight.
+- **`dev` does not carry a `SANDCASTLE_BASE_IMAGE` build-arg or `BaseRef`.**
+  Unlike `ai` (built FROM the Sandcastle base image), the Dev Image is
+  `FROM ubuntu:26.04` directly per the spec — a structurally independent
+  template, not a layer on top of `base`. `PlanBuild`/`PlanRemoteBuild` reflect
+  that: no base-image plumbing in the `dev` arm at all.
+- **Collateral fix, not in this ticket's file list:** `Admin.Validate()` now
+  requires `Images.Dev` to be non-empty (matching Base/AI). Two existing test
+  fixtures elsewhere in the repo (`internal/incusx/images_test.go`,
+  `internal/tenant/create_plan_v2_test.go`) built `config.Images{...}` literals
+  by hand without a `Dev` field and started failing `Validate()` as a result.
+  Fixed both with a one-line addition of `Dev: "..."` to keep `go test ./...`
+  green repo-wide; left the substantive t3 work (tenant-creation Dev Image
+  alias wiring, the ingress-skip mechanism) untouched — that's a different
+  ticket's slice. Did **not** touch the equivalent literals in
+  `internal/e2e/image_build_test.go`/`image_sync_test.go`: those are gated
+  behind `SANDCASTLE_INCUS_E2E`/`SANDCASTLE_E2E_IMAGE_BUILD`, don't run in
+  plain `go test ./...`, and updating them would mean growing their helper
+  function signatures (`imageBuildAdminConfig(e2eConfig, baseTag, aiTag)` etc.)
+  — a real design decision about e2e Dev Image coverage that belongs with the
+  e2e-doc/t4 slice (`docs/e2e-sc2.md` is explicitly listed as that slice's
+  responsibility), not a plumbing ticket.
+- **`internal/cli/admin_test.go` did not exist before this change** — created
+  it fresh for `remoteBuildTemplates` coverage since no prior test file
+  covered that helper.
+
