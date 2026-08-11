@@ -1895,6 +1895,22 @@ sc-adm update --check
 # pre-#124 deploys, noted outdated), every sidecar row marked tenant-managed;
 # latest release printed; image-builder noted as carrying no binary.
 
+# 10a-bis — the admin tree targets the install `sc ls` is on (not the ambient
+# incus default remote). With no SANDCASTLE_REMOTE / admin_remote set:
+sc remote list                          # note the active (*) install
+sc admin update --check
+# expect: 'targeting install "<active>" (the one `sc ls` is on)', and the
+# fleet rows are that install's projects (<active>-infra/...), even when the
+# global `incus` default remote points at a DIFFERENT host hosting a
+# different sandcastle. PASS requires the install named here to equal the one
+# marked * above.
+# expect: no "could not tell which Incus remote hosts …" warning. If it
+# appears, the fallback to the global incus default remote is in play and the
+# target may be the wrong deployment — treat as FAIL unless the client is
+# genuinely enrolled nowhere.
+SANDCASTLE_REMOTE=<other-remote> sc admin update --check
+# expect: the explicit remote wins over the active install (no warning).
+
 # 10b — global update (admin)
 sc-adm update --yes                     # or --version v<X.Y.Z> to pin/rollback
 # expect: per-component "ok" lines; services back active

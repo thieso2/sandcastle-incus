@@ -50,8 +50,21 @@ func ExecuteAdmin(name string, args []string) int {
 
 	explicitRemote := strings.TrimSpace(os.Getenv("SANDCASTLE_REMOTE")) != "" || strings.TrimSpace(adminConfig.AdminRemote) != ""
 
-	// Prefer explicit admin_remote; fall back to cert/IP-based auto-detection;
-	// finally fall back to the global Incus default remote.
+	// activeInstall is the Sandcastle install the USER CLI is pointed at —
+	// resolved exactly the way `sc ls` resolves it (scconfig.LoadUser, which
+	// prefers the shared incus dir's current remote over config.yml). Admin
+	// commands must act on that same install: `sc admin update` following a
+	// different deployment than `sc ls` lists is how an operator updates the
+	// wrong sandcastle without noticing. Skipped entirely when the operator
+	// named a remote explicitly — an explicit choice always wins.
+	activeInstall := ""
+	if !explicitRemote {
+		activeInstall = strings.TrimSpace(scconfig.LoadUser().Remote)
+	}
+
+	// Prefer explicit admin_remote; then cert/IP-based auto-detection; then the
+	// remote that actually hosts the active install; only then the global Incus
+	// default remote.
 	adminRemote := adminConfig.AdminRemote
 	if adminRemote == "" && !explicitRemote {
 		adminRemote = detectAdminRemote(adminConfig.Remote, verbose)
@@ -59,17 +72,36 @@ func ExecuteAdmin(name string, args []string) int {
 			fmt.Fprintf(os.Stderr, "[verbose] admin remote auto-detected: %s\n", adminRemote)
 		}
 	}
+	if adminRemote == "" && activeInstall != "" {
+		// Cert/address matching cannot resolve a v2 install: the user remote
+		// points at the tenant sidecar on the tailnet, not at the Incus host
+		// (ADR-0017). Ask each enrolled admin remote which installs it hosts
+		// instead — the install name is the identifier both planes share.
+		adminRemote = incusx.FindRemoteHostingInstall(activeInstall, verboseLogger(verbose))
+		if adminRemote != "" && verbose {
+			fmt.Fprintf(os.Stderr, "[verbose] admin remote %q hosts the active install %q\n", adminRemote, activeInstall)
+		}
+	}
 	if adminRemote == "" && !explicitRemote {
 		if globalCfg, err := incusx.LoadCLIConfig(""); err == nil {
 			adminRemote = globalCfg.DefaultRemote
-			if verbose && adminRemote != "" {
-				fmt.Fprintf(os.Stderr, "[verbose] admin remote: using global incus default %q\n", adminRemote)
+			if adminRemote != "" {
+				// Always visible, not just under VERBOSE: this is a guess, and
+				// the guess may well be a different deployment than the one the
+				// user CLI is on. Every admin command downstream then reports
+				// what it found there ("targeting install X…") in a tone that
+				// reads like confirmation, so the uncertainty has to be said
+				// out loud here or it is never said at all.
+				fmt.Fprintf(os.Stderr, "warning: could not tell which Incus remote hosts %s; falling back to the global incus default remote %q. "+
+					"Set SANDCASTLE_REMOTE (or admin_remote in config.yml) to be sure.\n",
+					describeActiveInstall(activeInstall), adminRemote)
 			}
 		}
 	}
 	if adminRemote != "" {
 		adminConfig.Remote = adminRemote
 	}
+	adminConfig.ActiveInstall = activeInstall
 	// INCUS_CONF is not pinned to a Sandcastle dir → the global incus config
 	// (admin certs) applies, defaulted above to the real per-OS incus dir.
 
@@ -262,6 +294,31 @@ func resourceCacheEnabled(value string) bool {
 	default:
 		return true
 	}
+}
+
+// verboseLogger adapts the admin tree's verbose flag to the func(string) sink
+// incusx helpers take, so their progress lines land on stderr under VERBOSE=1
+// and cost nothing otherwise. The sink writes messages verbatim — incusx
+// callers format their own "[verbose] …\n" line (see incusx/api_log.go), so
+// adding a prefix here would double it.
+func verboseLogger(verbose bool) func(string) {
+	if !verbose {
+		return nil
+	}
+	return func(message string) {
+		fmt.Fprint(os.Stderr, message)
+	}
+}
+
+// describeActiveInstall renders the subject of the "could not tell which
+// remote hosts this" warning. Naming the install is far more useful than the
+// generic phrasing, but the user CLI may not be enrolled anywhere at all (a
+// pure operator workstation), in which case there is no install to name.
+func describeActiveInstall(activeInstall string) string {
+	if strings.TrimSpace(activeInstall) == "" {
+		return "the active Sandcastle install"
+	}
+	return fmt.Sprintf("the active Sandcastle install %q", activeInstall)
 }
 
 func authAppServeArgs(args []string) bool {
