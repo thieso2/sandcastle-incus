@@ -88,6 +88,51 @@ func TestResolveUpdatePrefix(t *testing.T) {
 		}
 	})
 
+	// The install the user CLI is on wins over "the only one here": a remote
+	// hosting several sandcastles must still be updated on the one `sc ls`
+	// lists, not on whichever the discovery order happens to surface.
+	t.Run("active install wins over ambiguity", func(t *testing.T) {
+		t.Setenv("SANDCASTLE_INCUS_PROJECT_PREFIX", "")
+		t.Setenv("SANDCASTLE_PROJECT_PREFIX", "")
+		cfg := commandConfig{stderr: writerDiscard{}}
+		cfg.adminConfig.ActiveInstall = "obelix"
+		components := []incusx.ComponentVersion{
+			{Kind: meta.KindAuthApp, Project: "idefix-infra"},
+			{Kind: meta.KindAuthApp, Project: "obelix-infra"},
+		}
+		got, err := resolveUpdatePrefix("", cfg, components)
+		if err != nil || got != "obelix" {
+			t.Fatalf("got %q, %v; want obelix", got, err)
+		}
+	})
+
+	// An active install this remote does not host must not be forced onto it —
+	// fall through to the normal rules (here: the only install present).
+	t.Run("active install absent falls through", func(t *testing.T) {
+		t.Setenv("SANDCASTLE_INCUS_PROJECT_PREFIX", "")
+		t.Setenv("SANDCASTLE_PROJECT_PREFIX", "")
+		cfg := commandConfig{stderr: writerDiscard{}}
+		cfg.adminConfig.ActiveInstall = "obelix"
+		components := []incusx.ComponentVersion{{Kind: meta.KindAuthApp, Project: "idefix-infra"}}
+		got, err := resolveUpdatePrefix("", cfg, components)
+		if err != nil || got != "idefix" {
+			t.Fatalf("got %q, %v; want idefix", got, err)
+		}
+	})
+
+	// The flag still beats the active install.
+	t.Run("flag beats active install", func(t *testing.T) {
+		cfg := commandConfig{stderr: writerDiscard{}}
+		cfg.adminConfig.ActiveInstall = "obelix"
+		got, err := resolveUpdatePrefix("idefix", cfg, []incusx.ComponentVersion{
+			{Kind: meta.KindAuthApp, Project: "idefix-infra"},
+			{Kind: meta.KindAuthApp, Project: "obelix-infra"},
+		})
+		if err != nil || got != "idefix" {
+			t.Fatalf("got %q, %v; want idefix", got, err)
+		}
+	})
+
 	// No flag, no env, several installs ⇒ refuse and require --prefix.
 	t.Run("multiple installs error", func(t *testing.T) {
 		t.Setenv("SANDCASTLE_INCUS_PROJECT_PREFIX", "")

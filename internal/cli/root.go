@@ -406,6 +406,24 @@ func (f outputFormat) Type() string {
 	return "format"
 }
 
+// globalIncusDir returns the directory holding the admin Incus config and its
+// servercerts/: INCUS_CONF when set (ExecuteAdmin defaults it to the real
+// per-OS dir), then the platform dir, and only then the SDK's hardcoded
+// ~/.config/incus. Reading ~/.config/incus unconditionally is what silently
+// broke admin-remote detection on macOS, where `incus` keeps its config under
+// ~/Library/Application Support/incus and ~/.config/incus does not exist at
+// all — the scan below then failed on the very first step, and every admin
+// command fell through to "whatever the global default remote is".
+func globalIncusDir() string {
+	if dir := strings.TrimSpace(os.Getenv("INCUS_CONF")); dir != "" {
+		return dir
+	}
+	if dir := scconfig.PlatformIncusDir(); dir != "" {
+		return dir
+	}
+	return scconfig.NativeIncusDir()
+}
+
 // detectAdminRemote finds the global Incus remote (~/.config/incus/) that points to the same
 // server as the user's per-remote Sandcastle incus config, by comparing server TLS certificates.
 // This is more reliable than address comparison (which can fail when one config uses an IP and
@@ -439,14 +457,13 @@ func detectAdminRemote(userRemote string, verbose bool) string {
 	}
 
 	// Scan global incus servercerts/ for a matching certificate.
-	home, _ := os.UserHomeDir()
-	globalCertsDir := filepath.Join(home, ".config", "incus", "servercerts")
+	globalCertsDir := filepath.Join(globalIncusDir(), "servercerts")
 	entries, err := os.ReadDir(globalCertsDir)
 	if err != nil {
 		if verbose {
-			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: cannot read %s: %v\n", globalCertsDir, err)
+			fmt.Fprintf(os.Stderr, "[verbose] admin remote detection: cannot read %s: %v, trying address match\n", globalCertsDir, err)
 		}
-		return ""
+		return detectAdminRemoteByAddr(userRemote, userDir, verbose)
 	}
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".crt") {

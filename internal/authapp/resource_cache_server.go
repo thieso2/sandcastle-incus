@@ -116,7 +116,20 @@ func (log ResourceCacheLogf) call(format string, args ...any) {
 
 // seedResourceCache performs the one full, all-projects read across all five
 // resource types that populates a freshly started cache.
-func seedResourceCache(cache *ResourceCache, server ResourceCacheServer) error {
+//
+// Storage volumes are read best-effort: a pool whose listing fails is logged
+// and skipped rather than failing the whole seed. Every other type here is a
+// plain database read, but listing volumes reaches into the storage driver
+// per volume, so ONE broken instance anywhere on the host — an Incus record
+// whose backing dataset is gone ("cannot open 'rpool/incus/containers/…':
+// dataset does not exist") — fails the pool listing for every project. With a
+// fatal seed that single dead volume disabled the entire cache permanently:
+// RunResourceCache re-seeded every 5s, failed identically every time, and
+// `sc ls` fell back to the live path forever, silently. Volumes only feed the
+// optional `sc ls --storage-volumes` section, so degrading them is strictly
+// better than taking the instance listing down with them — and refusing to
+// serve does not conjure the unreadable data either.
+func seedResourceCache(cache *ResourceCache, server ResourceCacheServer, log ResourceCacheLogf) error {
 	instances, err := server.GetInstancesFullAllProjects(api.InstanceTypeAny)
 	if err != nil {
 		return fmt.Errorf("list instances across projects: %w", err)
@@ -133,7 +146,9 @@ func seedResourceCache(cache *ResourceCache, server ResourceCacheServer) error {
 	for _, pool := range pools {
 		poolVolumes, err := server.GetStoragePoolVolumesFullAllProjects(pool.Name)
 		if err != nil {
-			return fmt.Errorf("list storage volumes for pool %s across projects: %w", pool.Name, err)
+			log.call("[resource-cache] storage volumes for pool %s are unavailable, continuing without them "+
+				"(`sc ls --storage-volumes` will not show that pool; often one instance whose backing dataset is gone): %v", pool.Name, err)
+			continue
 		}
 		volumes = append(volumes, poolVolumes...)
 	}
@@ -154,7 +169,7 @@ func seedResourceCache(cache *ResourceCache, server ResourceCacheServer) error {
 // (kind, project) — never off the event's resource name — sidesteps having to
 // interpret rename event payloads (whether Name is the old or new name is not
 // documented) at the cost of one slightly wider re-read per event.
-func refreshResourceCacheProject(cache *ResourceCache, server ResourceCacheServer, kind resourceCacheKind, project string) error {
+func refreshResourceCacheProject(cache *ResourceCache, server ResourceCacheServer, kind resourceCacheKind, project string, log ResourceCacheLogf) error {
 	if kind == resourceCacheKindStoragePool {
 		pools, err := server.GetStoragePools()
 		if err != nil {
@@ -178,13 +193,25 @@ func refreshResourceCacheProject(cache *ResourceCache, server ResourceCacheServe
 		}
 		cache.setProjectNetworks(project, list)
 	case resourceCacheKindStorageVolume:
+		// Best-effort for the same reason the seed is (see seedResourceCache):
+		// a pool the storage driver cannot enumerate must not take the whole
+		// refresh — and with it this project's cache entry — down with it.
 		var volumes []api.StorageVolumeFull
+		var failed int
 		for _, pool := range cache.storagePoolNames() {
 			poolVolumes, err := projectServer.GetStoragePoolVolumesFull(pool)
 			if err != nil {
-				return fmt.Errorf("refresh storage volumes for project %s pool %s: %w", project, pool, err)
+				failed++
+				log.call("[resource-cache] storage volumes for project %s pool %s are unavailable, continuing without them: %v", project, pool, err)
+				continue
 			}
 			volumes = append(volumes, poolVolumes...)
+		}
+		if failed > 0 && len(volumes) == 0 {
+			// Every pool failed: leave the previous entry alone rather than
+			// replacing it with an empty list, so a transient storage outage
+			// does not blank out volumes that were readable a moment ago.
+			return nil
 		}
 		cache.setProjectStorageVolumes(project, volumes)
 	case resourceCacheKindProfile:
@@ -214,7 +241,7 @@ func handleResourceCacheEvent(cache *ResourceCache, server ResourceCacheServer, 
 	if !ok {
 		return
 	}
-	if err := refreshResourceCacheProject(cache, server, kind, event.Project); err != nil {
+	if err := refreshResourceCacheProject(cache, server, kind, event.Project, log); err != nil {
 		log.call("[resource-cache] %v", err)
 	}
 }
@@ -226,7 +253,7 @@ func handleResourceCacheEvent(cache *ResourceCache, server ResourceCacheServer, 
 // in a goroutine.
 func RunResourceCache(ctx context.Context, cache *ResourceCache, server ResourceCacheServer, log ResourceCacheLogf) {
 	for ctx.Err() == nil {
-		if err := seedResourceCache(cache, server); err != nil {
+		if err := seedResourceCache(cache, server, log); err != nil {
 			log.call("[resource-cache] initial read failed: %v", err)
 			select {
 			case <-ctx.Done():

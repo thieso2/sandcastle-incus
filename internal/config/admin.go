@@ -32,10 +32,17 @@ const (
 )
 
 type Admin struct {
-	Tenant                 string
-	Project                string
-	Remote                 string
-	AdminRemote            string // Incus remote for admin commands; uses global ~/.config/incus/ config
+	Tenant      string
+	Project     string
+	Remote      string
+	AdminRemote string // Incus remote for admin commands; uses global ~/.config/incus/ config
+	// ActiveInstall is the Sandcastle install the user CLI is currently on —
+	// the same value `sc ls` resolves (LoadUser). Filled in by ExecuteAdmin,
+	// never read from file or env, and empty when the operator named a remote
+	// explicitly. Admin commands use it to act on the install the user is
+	// looking at rather than on whichever one the ambient Incus default remote
+	// happens to host.
+	ActiveInstall          string
 	ConfigPath             string // path to per-remote Incus config dir; empty = use default ~/.config/incus
 	StoragePool            string
 	CIDRPool               string

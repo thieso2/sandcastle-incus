@@ -5,6 +5,322 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-11 — t2: `images/dev/Dockerfile` (the interactive dev image)
+
+Built the whole Dockerfile plus its baked assets (`images/dev/{gitconfig,
+starship.toml, mise-config.toml, zshrc, git-identity-hook.sh,
+statusline-command.sh, claude-settings.json, codex-config.toml,
+install-ai-cli-tools.sh}`), covering wish §§1-8 / spec B1(partial)-B9, and
+refactored `images/ai/Dockerfile` per the plan's B6 step.
+
+- **§B6 "shared script" could not be a single physically-shared file.**
+  `internal/images/plan.go`'s already-committed `PlanBuild` sets
+  `ContextDir: filepath.Join("images", template)` — i.e. `docker build`'s
+  context for `ai`/`dev` is `images/ai`/`images/dev`, not the repo root, and
+  `internal/images/remote.go`'s `PlanRemoteBuild` + `remote_exec.go`'s
+  `shipContext`/`writeContextTar` mirror that (they tar exactly
+  `ContextDir`'s contents with a leading dir named after the template, then
+  the in-appliance build script re-derives `contextDir :=
+  builderBuildRoot + "/" + plan.Template`). Docker's COPY forbids reaching
+  outside the build context, so `images/scripts/install-ai-cli-tools.sh`
+  (the plan's suggested location) is not COPY-reachable from either
+  Dockerfile as committed. Widening `ContextDir` to the repo root (matching
+  the ticket handoff's own standalone example, `docker build -f
+  images/dev/Dockerfile .`) or to `images/` would fix `COPY`, but ripples
+  into `remote.go`/`remote_exec.go`'s tar-shipping leading-dir logic in ways
+  I have no live Incus Image Builder appliance to verify in this sandbox —
+  too large and too risky a blast radius for this ticket. **Decision:** keep
+  `install-ai-cli-tools.sh` as a deliberate byte-identical duplicate in both
+  `images/ai/` and `images/dev/`, guarded by a drift test
+  (`images/dev/install_ai_cli_tools_test.go`, asserts the two files are
+  byte-equal) instead of a single shared path. `images/ai/Dockerfile`'s two
+  install `RUN` steps now call the shared script instead of inlining
+  `npm install -g`/`npx skills`, preserving the exact prior two-step
+  `HOME`/cache-mount structure so the change is behavior-preserving (same
+  packages, same versions, same `HOME=/etc/skel` scoping for the skills
+  step only) — confirmed by rereading the diff, not by a live `docker
+  build` (no Docker daemon in this sandbox).
+- **`nodejs`/`npm`/`build-essential` added to `images/dev`'s apt list**,
+  beyond wish §2's literal `git gh ripgrep fd-find make zsh`. Spec B6
+  already resolved the wish's install-mechanism ambiguity (curl installer
+  vs. npm) in favor of npm, to reuse `ai`'s mechanism and avoid version
+  drift — that decision requires npm actually being on `$PATH` at build
+  time, which `ai` gets for free from `sandcastle/base`'s Debian toolchain
+  layer but `dev` (FROM `ubuntu:26.04` directly, no base image) does not.
+- **Codex `status_line` identifiers and rate-limit semantics verified from
+  source, not a live Codex session** (no Codex CLI/authenticated session
+  available in this sandbox). Fetched
+  `codex-rs/core/config.schema.json` (`openai/codex@main`): `[tui]
+  status_line` is `array<string>`, default
+  `["model-with-reasoning", "current-dir"]`. Fetched
+  `codex-rs/tui/src/bottom_pane/status_line_setup.rs`: confirms the six
+  kebab-case identifiers used in `images/dev/codex-config.toml`
+  (`model-with-reasoning`, `context-used`, `current-dir`, `git-branch`,
+  `five-hour-limit`, `weekly-limit`) via the `StatusLineItem` enum's
+  `#[strum(serialize_all = "kebab_case")]`, and resolves spec B8's
+  remaining-vs-used caveat: the doc comments on `FiveHourLimit`/
+  `WeeklyLimit` read "Remaining usage on the primary/secondary rate limit"
+  — **remaining**, not used, matching the spec's stated caveat exactly. No
+  bar, color ramp, or reset-time field exists anywhere in that file for
+  either item, so none are faked in `codex-config.toml`.
+- **Found (not introduced) a real bug in the wish's own
+  `statusline-command.sh`, shipped verbatim anyway per the explicit
+  byte-for-byte instruction.** The four glyph escapes
+  (`\xef\x81\xbc`/`\xee\x82\xa0`/`\xe2\x8f\xb3`/`\xf0\x9f\x93\x85`/
+  `\xe2\x86\xbb`) sit in the *format string* of their `printf` calls, not
+  in a `%b`-tagged argument. dash's `printf` builtin only expands `\xHH`
+  escapes inside `%b` arguments, not the format string itself (bash's
+  `printf` does both, which is presumably why this wasn't caught during
+  drafting) — verified directly: `dash -c 'printf "\xef\x81\xbc\n"'`
+  prints the literal 12-byte string `\xef\x81\xbc`, `bash -c` prints the
+  3-byte glyph. The Dev Image's `/bin/sh` is dash (Ubuntu default), so on
+  a real Dev Image machine all five glyphs will render as literal
+  backslash-escape text, not icons — cosmetic only (every other segment:
+  model, bar, percentages, colors, works correctly), but real. Not fixed
+  here — the spec is explicit that this script ships byte-for-byte, no
+  deviation — but flagged here for whoever reviews next; a fix would be
+  either switching the shebang to `#!/bin/bash` or moving each `\xHH`
+  sequence into its own `%b` argument. `images/dev/statusline_test.go`
+  asserts the *actual* (literal-text) output, i.e. it tests the shipped
+  artifact's real behavior, not the presumably-intended one.
+- **`DefaultDevImageAlias` / mise `image:dev:*` tasks / `admin.Images.Dev`
+  plumbing were already committed by t1** before this session started;
+  nothing here touches `internal/config/admin.go`, `internal/images/*.go`,
+  `internal/cli/admin.go`, or `mise.toml` beyond what t1 already landed.
+  `herdr`'s mise-registry entry was independently re-verified (fetched
+  `registry/herdr.toml` from `jdx/mise@main`: `backends =
+  ["aqua:herdrdev/herdr", "github:herdrdev/herdr"]`), confirming t1's
+  Ground-truth claim that it needs no special plugin handling.
+- **Default shell**: `/etc/default/useradd`'s `SHELL=` line (not `DSHELL=`
+  — that was a naming slip in the plan) is rewritten to `/usr/bin/zsh`,
+  plus `chsh -s /usr/bin/zsh root` for the image's own root shell.
+- **Git identity hook** (`images/dev/git-identity-hook.sh`, sourced from
+  `/etc/skel/.zshrc`) guards on *both* `user.name` and `user.email` being
+  unset before populating either from `gh api user` — matching the spec's
+  literal "neither value is already configured" wording, so a tenant who
+  hand-sets only one of the two is still left alone.
+- **Not run in this sandbox** (no Docker daemon, no live Incus, no
+  authenticated Codex/gh session available here): an actual `docker build
+  -f images/dev/Dockerfile images/dev`, the §B1 herdr/agent-forwarding
+  reattach protocol, and live verification of the Codex `status_line`
+  rendering. Verified instead: `sh -n`/`go vet`/`go build ./...`/`go test
+  ./images/...` all pass; `images/ai/Dockerfile` still builds the same
+  packages at the same versions (read-diff verified, not built); the
+  Codex findings above are sourced from `openai/codex@main`'s own code,
+  not a live session.
+
+## 2026-08-11 — tenant creation: Dev Image alias sync + ingress-skip mechanism
+
+- **Where the "image resolves to admin.Images.Dev" detection actually
+  lives: the CLI, not `incusx`.** Traced `V2BareUserData`'s one call site
+  (`v2BareInstanceConfig` in `internal/incusx/machine_create_v2.go`,
+  invoked from `CreateMachineV2` when `request.Bare`) back through
+  `CreateMachineV2Request` to where it's built —
+  `runCreateMachineV2` in `internal/cli/create_v2.go`, which already has
+  `config.adminConfig` (the resolved `config.Admin`, including
+  `Images.Dev`) in scope. `TenantCreator`/`CreateMachineV2Request` itself
+  carries no admin config, so the comparison can't happen at the point
+  instance user-data is assembled — it has to happen one layer up, at the
+  point the `--image` value is resolved, and be threaded down as a plain
+  bool. Added `CreateMachineV2Request.DevImage`, set in
+  `runCreateMachineV2` as `image == strings.TrimSpace(config.adminConfig.Images.Dev)`
+  (exact string match against the configured alias — the only signal
+  available, as the ticket predicted). `--bare` wins if both would apply
+  (`DevImage: request.DevImage && !request.Bare` in `CreateMachineV2`) —
+  an explicit `--bare` on a Dev Image image still yields the bare
+  document; not spec'd either way, but bare's "no way in" promise reads as
+  the more explicit ask when both are in play.
+- **`V2DevUserData(user, sshKey, domain string)` signature mirrors
+  `V2BareUserData(domain, signerURL string)`, not
+  `V2DefaultProfileUserData`'s.** It's applied as INSTANCE config the same
+  way bare is, so identity has to be read back off the project's default
+  profile rather than threaded fresh — same reasoning as the existing
+  `v2BareInstanceConfig` doc comment (a restricted tenant certificate
+  can't see the infra project). Added `v2ProfileSSHKeyPattern` (matches
+  the line right after `ssh_authorized_keys:`) alongside the existing
+  `v2ProfileFQDNPattern`; login user reuses the existing
+  `v2ProfileUserPattern` extraction (with the same
+  `tenant.DefaultV2UnixUser` fallback `v2ProfileLoginUser` uses) rather
+  than a second profile fetch.
+- **Confirmed "drop the Caddy branch" means dropping generalize too, not
+  just caddy-setup.** The ticket's own phrasing ("it only drops the Caddy
+  branch (lines 64-87 of `V2DefaultProfileUserData`)") and the test
+  spec's explicit "Caddy/generalize write_files/runcmd entries are
+  ABSENT" agree: those two lines are one unit in the source (generalize
+  exists only to prep a machine for the leaf fetch caddy-setup then
+  does), so `V2DevUserData`'s body is exactly
+  `V2DefaultProfileUserData`'s `jinja && signerURL == ""` fallback shape
+  (identity + users + shims + `enable --now ssh`, no generalize, no
+  caddy-setup) but rendered from a single already-joined `domain` string
+  like `V2BareUserData` rather than separate `project`/`suffix` args.
+- **`uniqueImageAliases` change is one word.** `admin.Images.Dev` slots
+  into the existing variadic call
+  (`uniqueImageAliases(admin.Images.Base, admin.Images.AI, admin.Images.Dev)`)
+  — the function was already generic over any number of aliases, so
+  there was no design choice here beyond confirming that and adding the
+  dedup test (`TestPlanCreateV2ImageAliasesDeduplicated`, aliasing
+  `Images.Dev` to `Images.Base` and asserting the result collapses to
+  two entries).
+- **`CreateMachineV2Result.DevImage` + CLI messaging** ("Dev Image: no
+  Caddy/TLS ingress — SSH only.") added for parity with the existing
+  `Bare` result field/messaging — not required by the ticket's "Done
+  when", but leaving a Dev Image machine's `sc create` output identical
+  to a normal machine's would silently under-report the one thing this
+  ticket exists to guarantee (no ingress), which seemed worse than the
+  small addition.
+- **Not run against a real Incus deployment** (none available in this
+  sandbox): the "create a Dev-Image machine end-to-end, confirm no Caddy
+  process / no TLS leaf / no answer on :443 / private hostname still
+  resolves / `sc c`/`incus exec` still reach it" manual check the ticket
+  asks for. Verified instead: `go build ./...`, `go vet ./...`, and
+  `go test ./internal/tenant/... ./internal/incusx/...` (including the
+  new `TestV2DevUserData*`/`TestV2ProfileSSHKeyPattern*`/
+  `TestV2DevUserDataFollowsTheProfileIdentity` tests) all pass; the
+  pre-existing `internal/cli` `TestLogin*` failures in this sandbox are
+  unrelated (no `incus` binary on PATH here — reproduced on the
+  pre-change tree via `git stash` to confirm).
+
+## 2026-08-11 — t4: Documentation & ADR-0024 for the dev image
+
+Last slice of `docs/plan/add-a-dev-base-image-ubuntu-26-04-fixed-b2qtk8g.md`.
+Docs-only: `docs/usage.html`, `docs/admin-developer-quickstart.html`,
+`docs/e2e-sc2.md` (new Phase 8e + one-line Phase 6 addition),
+`docs/adr/0024-dev-image-third-machine-template.md`. No code changes.
+
+- **The four facts this slice was asked to consolidate were already recorded
+  by t1-t3** — nothing new to add for them, only to cite: the exact
+  `DefaultDevImageAlias` string and its unverified-against-a-live-remote
+  status (t1, above), the byte-identical-duplicate `install-ai-cli-tools.sh`
+  factoring for §B6 and the Claude-vs-Codex install-mechanism/status-line
+  note (t2, below), and the exact ingress-skip function
+  (`V2DevUserData(user, sshKey, domain string)`, `internal/tenant/create_plan_v2.go`)
+  plus its detection mechanism (`CreateMachineV2Request.DevImage`,
+  `internal/cli/create_v2.go`'s `runCreateMachineV2`) (t3, below). ADR-0024
+  cites all three by name/signature rather than re-deriving them.
+- **ADR number: 0024**, the next free slot after 0023 (event-bus resource
+  cache) — no collision to resolve.
+- **`docs/e2e-sc2.md` Phase 8e placed between Phase 8d (base images from a
+  running machine) and Phase 10 (self-update), not appended at the end.**
+  The doc's phases are meant to run top-to-bottom and Phase 9 already covers
+  unattended login (orthogonal); 8e sits with the other "images" phases
+  (8c/8c-bare/8d) rather than after the self-update phase, which is
+  unrelated to image templates. Marked ⚠️ (partial) in the doc's own status
+  legend, not ✅, since none of it was run against a live Incus deployment
+  from this session.
+- **Acceptance scenarios 1-8 (spec section "Acceptance scenarios"):
+  none were re-run live in this session** (no Docker daemon, no live Incus,
+  no authenticated Codex/gh session in this sandbox, same constraint every
+  prior slice hit). Scenario 8 (`base`/`ai` unaffected) is the one with real
+  automated coverage: `internal/config/admin_test.go`'s validate-with-no-dev-env
+  case (t1) and the `images/ai/Dockerfile` read-diff check (t2) stand in for
+  it. The rest (2, 3, 6, 7 especially) are documented in `docs/e2e-sc2.md`
+  Phase 8e as PASS criteria to run against a live deployment, each flagged
+  unverified-in-this-environment rather than claimed — per this ticket's
+  "Done when" clause.
+
+## 2026-08-11 — t1: config/build plumbing for the `dev` image template
+
+First slice of `docs/plan/add-a-dev-base-image-ubuntu-26-04-fixed-b2qtk8g.md`.
+Added a third image template, `dev`, alongside `base`/`ai` throughout
+`internal/config/admin.go`, `internal/images/plan.go`, `internal/images/remote.go`,
+`internal/cli/admin.go`, and `mise.toml`. Pure plumbing — no Dockerfile, no
+tenant-creation wiring (those are t2/t3).
+
+- **`DefaultDevImageAlias = "images:ubuntu/26.04"` — not verified against a
+  live Incus `images:` remote.** The repo's source can't answer whether Incus's
+  public images: remote actually publishes an Ubuntu 26.04 entry under that
+  exact path (vs. e.g. `images:ubuntu/26.04/cloud`, or a not-yet-published
+  release given Ubuntu 26.04 is itself very new at the time of this wish). I
+  picked the alias that follows the identical naming pattern
+  `DefaultBaseImageAlias`/`DefaultAIImageAlias` already use
+  (`images:debian/13`), which the spec explicitly sanctions as the fallback
+  approach ("`DefaultDevImageAlias` should follow the identical pattern... but
+  whether `images:ubuntu/26.04` needs to actually exist... did not send it
+  out to check"). This alias is only a fallback default anyway —
+  `SANDCASTLE_DEV_IMAGE` or `--tag`/`--dev-image` overrides it once an
+  operator builds+uploads the real Dev Image (mirroring how `ai` already
+  works today). If it turns out to be wrong, it's a one-line constant fix,
+  not a design change.
+- **`dev`'s version-arg validation requires `--codex-version` and
+  `--claude-version` but not `--gemini-version`** (per spec §B6/§B8 — no
+  Gemini CLI on the Dev Image), in both `PlanBuild` (`internal/images/plan.go`)
+  and `PlanRemoteBuild` (`internal/images/remote.go`). This is a real
+  asymmetry from `ai`'s three-arg requirement, not an oversight.
+- **`dev` does not carry a `SANDCASTLE_BASE_IMAGE` build-arg or `BaseRef`.**
+  Unlike `ai` (built FROM the Sandcastle base image), the Dev Image is
+  `FROM ubuntu:26.04` directly per the spec — a structurally independent
+  template, not a layer on top of `base`. `PlanBuild`/`PlanRemoteBuild` reflect
+  that: no base-image plumbing in the `dev` arm at all.
+- **Collateral fix, not in this ticket's file list:** `Admin.Validate()` now
+  requires `Images.Dev` to be non-empty (matching Base/AI). Two existing test
+  fixtures elsewhere in the repo (`internal/incusx/images_test.go`,
+  `internal/tenant/create_plan_v2_test.go`) built `config.Images{...}` literals
+  by hand without a `Dev` field and started failing `Validate()` as a result.
+  Fixed both with a one-line addition of `Dev: "..."` to keep `go test ./...`
+  green repo-wide; left the substantive t3 work (tenant-creation Dev Image
+  alias wiring, the ingress-skip mechanism) untouched — that's a different
+  ticket's slice. Did **not** touch the equivalent literals in
+  `internal/e2e/image_build_test.go`/`image_sync_test.go`: those are gated
+  behind `SANDCASTLE_INCUS_E2E`/`SANDCASTLE_E2E_IMAGE_BUILD`, don't run in
+  plain `go test ./...`, and updating them would mean growing their helper
+  function signatures (`imageBuildAdminConfig(e2eConfig, baseTag, aiTag)` etc.)
+  — a real design decision about e2e Dev Image coverage that belongs with the
+  e2e-doc/t4 slice (`docs/e2e-sc2.md` is explicitly listed as that slice's
+  responsibility), not a plumbing ticket.
+- **`internal/cli/admin_test.go` did not exist before this change** — created
+  it fresh for `remoteBuildTemplates` coverage since no prior test file
+  covered that helper.
+
+
+## 2026-08-11 — one dead storage volume no longer disables the resource cache
+
+Found while verifying the `obelix` install after updating its auth-app to
+v0.6.2: `sc ls` still fell back, now with 503 instead of 404, and the
+auth-app logged the same line every ~10 seconds forever:
+
+```
+[resource-cache] initial read failed: list storage volumes for pool default across projects:
+  Failed to run: zfs get -H -p -o value used rpool/incus/containers/obelix-thieso2-klabauter_klabauter-postgres:
+  exit status 1 (cannot open '…': dataset does not exist)
+```
+
+The install has one broken instance — `klabauter-postgres` exists in the
+Incus database (STOPPED, with a `container/klabauter-postgres` volume record
+whose `used_by` points at it) but its ZFS dataset is gone. Listing volumes
+reaches into the storage driver per volume, so that one record fails
+`GetStoragePoolVolumesFullAllProjects("default")` for **every** project, and
+a fatal seed turned it into a permanent outage of the whole cache:
+`RunResourceCache` re-seeded every 5s, failed identically, and every tenant's
+`sc ls` silently used the live path.
+
+**Decision:** storage volumes become best-effort. A pool whose listing fails
+is logged and skipped in `seedResourceCache`, and the per-event refresh does
+the same; if *every* pool fails during a refresh the previous entry is kept
+rather than blanked, so a transient storage error cannot delete volumes that
+were readable a moment ago. Every other resource type stays fatal — those are
+plain database reads, and a listing without instances would be wrong rather
+than merely incomplete. ADR-0023 amended; decision 2's single readiness flag
+is unchanged.
+
+Alternatives considered:
+
+- **Leave it fatal and fix the host.** The environment is genuinely broken
+  and should be repaired, but "one dangling volume anywhere disables a
+  fleet-wide feature for every tenant, permanently, and says so only in the
+  appliance log" is not a failure mode worth preserving.
+- **Per-resource-type readiness flags** (partial cache answers). This is what
+  ADR-0023 decision 2 deliberately rejected, and it is a much larger change:
+  `sc ls` and the endpoint would have to reason about mixing cache-backed
+  instances with live-queried volumes. Degrading the one type that can fail
+  independently gets the same benefit without that.
+- **Drop the offending volume from the listing instead of the pool.** The
+  Incus API fails the whole call; there is no per-volume error to filter, so
+  this is not available without listing volumes one at a time.
+
+Note: the skip is per pool, so on a host with a single pool `sc ls
+--storage-volumes` shows nothing at all while the breakage lasts. That is
+why the log line names the pool and says what it means.
+
 ## 2026-08-11 — `sc admin` follows the install `sc ls` is on
 
 Reported from the field: `sc admin update`, run with `sc remote list` showing
@@ -3971,270 +4287,3 @@ explicit scope boundary.
   trace and acceptance criteria are single-install, and threading the cache
   path through the fanout would need its own request/response shape decision
   the plan doesn't make.
-
-## 2026-08-11 — t2: `images/dev/Dockerfile` (the interactive dev image)
-
-Built the whole Dockerfile plus its baked assets (`images/dev/{gitconfig,
-starship.toml, mise-config.toml, zshrc, git-identity-hook.sh,
-statusline-command.sh, claude-settings.json, codex-config.toml,
-install-ai-cli-tools.sh}`), covering wish §§1-8 / spec B1(partial)-B9, and
-refactored `images/ai/Dockerfile` per the plan's B6 step.
-
-- **§B6 "shared script" could not be a single physically-shared file.**
-  `internal/images/plan.go`'s already-committed `PlanBuild` sets
-  `ContextDir: filepath.Join("images", template)` — i.e. `docker build`'s
-  context for `ai`/`dev` is `images/ai`/`images/dev`, not the repo root, and
-  `internal/images/remote.go`'s `PlanRemoteBuild` + `remote_exec.go`'s
-  `shipContext`/`writeContextTar` mirror that (they tar exactly
-  `ContextDir`'s contents with a leading dir named after the template, then
-  the in-appliance build script re-derives `contextDir :=
-  builderBuildRoot + "/" + plan.Template`). Docker's COPY forbids reaching
-  outside the build context, so `images/scripts/install-ai-cli-tools.sh`
-  (the plan's suggested location) is not COPY-reachable from either
-  Dockerfile as committed. Widening `ContextDir` to the repo root (matching
-  the ticket handoff's own standalone example, `docker build -f
-  images/dev/Dockerfile .`) or to `images/` would fix `COPY`, but ripples
-  into `remote.go`/`remote_exec.go`'s tar-shipping leading-dir logic in ways
-  I have no live Incus Image Builder appliance to verify in this sandbox —
-  too large and too risky a blast radius for this ticket. **Decision:** keep
-  `install-ai-cli-tools.sh` as a deliberate byte-identical duplicate in both
-  `images/ai/` and `images/dev/`, guarded by a drift test
-  (`images/dev/install_ai_cli_tools_test.go`, asserts the two files are
-  byte-equal) instead of a single shared path. `images/ai/Dockerfile`'s two
-  install `RUN` steps now call the shared script instead of inlining
-  `npm install -g`/`npx skills`, preserving the exact prior two-step
-  `HOME`/cache-mount structure so the change is behavior-preserving (same
-  packages, same versions, same `HOME=/etc/skel` scoping for the skills
-  step only) — confirmed by rereading the diff, not by a live `docker
-  build` (no Docker daemon in this sandbox).
-- **`nodejs`/`npm`/`build-essential` added to `images/dev`'s apt list**,
-  beyond wish §2's literal `git gh ripgrep fd-find make zsh`. Spec B6
-  already resolved the wish's install-mechanism ambiguity (curl installer
-  vs. npm) in favor of npm, to reuse `ai`'s mechanism and avoid version
-  drift — that decision requires npm actually being on `$PATH` at build
-  time, which `ai` gets for free from `sandcastle/base`'s Debian toolchain
-  layer but `dev` (FROM `ubuntu:26.04` directly, no base image) does not.
-- **Codex `status_line` identifiers and rate-limit semantics verified from
-  source, not a live Codex session** (no Codex CLI/authenticated session
-  available in this sandbox). Fetched
-  `codex-rs/core/config.schema.json` (`openai/codex@main`): `[tui]
-  status_line` is `array<string>`, default
-  `["model-with-reasoning", "current-dir"]`. Fetched
-  `codex-rs/tui/src/bottom_pane/status_line_setup.rs`: confirms the six
-  kebab-case identifiers used in `images/dev/codex-config.toml`
-  (`model-with-reasoning`, `context-used`, `current-dir`, `git-branch`,
-  `five-hour-limit`, `weekly-limit`) via the `StatusLineItem` enum's
-  `#[strum(serialize_all = "kebab_case")]`, and resolves spec B8's
-  remaining-vs-used caveat: the doc comments on `FiveHourLimit`/
-  `WeeklyLimit` read "Remaining usage on the primary/secondary rate limit"
-  — **remaining**, not used, matching the spec's stated caveat exactly. No
-  bar, color ramp, or reset-time field exists anywhere in that file for
-  either item, so none are faked in `codex-config.toml`.
-- **Found (not introduced) a real bug in the wish's own
-  `statusline-command.sh`, shipped verbatim anyway per the explicit
-  byte-for-byte instruction.** The four glyph escapes
-  (`\xef\x81\xbc`/`\xee\x82\xa0`/`\xe2\x8f\xb3`/`\xf0\x9f\x93\x85`/
-  `\xe2\x86\xbb`) sit in the *format string* of their `printf` calls, not
-  in a `%b`-tagged argument. dash's `printf` builtin only expands `\xHH`
-  escapes inside `%b` arguments, not the format string itself (bash's
-  `printf` does both, which is presumably why this wasn't caught during
-  drafting) — verified directly: `dash -c 'printf "\xef\x81\xbc\n"'`
-  prints the literal 12-byte string `\xef\x81\xbc`, `bash -c` prints the
-  3-byte glyph. The Dev Image's `/bin/sh` is dash (Ubuntu default), so on
-  a real Dev Image machine all five glyphs will render as literal
-  backslash-escape text, not icons — cosmetic only (every other segment:
-  model, bar, percentages, colors, works correctly), but real. Not fixed
-  here — the spec is explicit that this script ships byte-for-byte, no
-  deviation — but flagged here for whoever reviews next; a fix would be
-  either switching the shebang to `#!/bin/bash` or moving each `\xHH`
-  sequence into its own `%b` argument. `images/dev/statusline_test.go`
-  asserts the *actual* (literal-text) output, i.e. it tests the shipped
-  artifact's real behavior, not the presumably-intended one.
-- **`DefaultDevImageAlias` / mise `image:dev:*` tasks / `admin.Images.Dev`
-  plumbing were already committed by t1** before this session started;
-  nothing here touches `internal/config/admin.go`, `internal/images/*.go`,
-  `internal/cli/admin.go`, or `mise.toml` beyond what t1 already landed.
-  `herdr`'s mise-registry entry was independently re-verified (fetched
-  `registry/herdr.toml` from `jdx/mise@main`: `backends =
-  ["aqua:herdrdev/herdr", "github:herdrdev/herdr"]`), confirming t1's
-  Ground-truth claim that it needs no special plugin handling.
-- **Default shell**: `/etc/default/useradd`'s `SHELL=` line (not `DSHELL=`
-  — that was a naming slip in the plan) is rewritten to `/usr/bin/zsh`,
-  plus `chsh -s /usr/bin/zsh root` for the image's own root shell.
-- **Git identity hook** (`images/dev/git-identity-hook.sh`, sourced from
-  `/etc/skel/.zshrc`) guards on *both* `user.name` and `user.email` being
-  unset before populating either from `gh api user` — matching the spec's
-  literal "neither value is already configured" wording, so a tenant who
-  hand-sets only one of the two is still left alone.
-- **Not run in this sandbox** (no Docker daemon, no live Incus, no
-  authenticated Codex/gh session available here): an actual `docker build
-  -f images/dev/Dockerfile images/dev`, the §B1 herdr/agent-forwarding
-  reattach protocol, and live verification of the Codex `status_line`
-  rendering. Verified instead: `sh -n`/`go vet`/`go build ./...`/`go test
-  ./images/...` all pass; `images/ai/Dockerfile` still builds the same
-  packages at the same versions (read-diff verified, not built); the
-  Codex findings above are sourced from `openai/codex@main`'s own code,
-  not a live session.
-
-## 2026-08-11 — tenant creation: Dev Image alias sync + ingress-skip mechanism
-
-- **Where the "image resolves to admin.Images.Dev" detection actually
-  lives: the CLI, not `incusx`.** Traced `V2BareUserData`'s one call site
-  (`v2BareInstanceConfig` in `internal/incusx/machine_create_v2.go`,
-  invoked from `CreateMachineV2` when `request.Bare`) back through
-  `CreateMachineV2Request` to where it's built —
-  `runCreateMachineV2` in `internal/cli/create_v2.go`, which already has
-  `config.adminConfig` (the resolved `config.Admin`, including
-  `Images.Dev`) in scope. `TenantCreator`/`CreateMachineV2Request` itself
-  carries no admin config, so the comparison can't happen at the point
-  instance user-data is assembled — it has to happen one layer up, at the
-  point the `--image` value is resolved, and be threaded down as a plain
-  bool. Added `CreateMachineV2Request.DevImage`, set in
-  `runCreateMachineV2` as `image == strings.TrimSpace(config.adminConfig.Images.Dev)`
-  (exact string match against the configured alias — the only signal
-  available, as the ticket predicted). `--bare` wins if both would apply
-  (`DevImage: request.DevImage && !request.Bare` in `CreateMachineV2`) —
-  an explicit `--bare` on a Dev Image image still yields the bare
-  document; not spec'd either way, but bare's "no way in" promise reads as
-  the more explicit ask when both are in play.
-- **`V2DevUserData(user, sshKey, domain string)` signature mirrors
-  `V2BareUserData(domain, signerURL string)`, not
-  `V2DefaultProfileUserData`'s.** It's applied as INSTANCE config the same
-  way bare is, so identity has to be read back off the project's default
-  profile rather than threaded fresh — same reasoning as the existing
-  `v2BareInstanceConfig` doc comment (a restricted tenant certificate
-  can't see the infra project). Added `v2ProfileSSHKeyPattern` (matches
-  the line right after `ssh_authorized_keys:`) alongside the existing
-  `v2ProfileFQDNPattern`; login user reuses the existing
-  `v2ProfileUserPattern` extraction (with the same
-  `tenant.DefaultV2UnixUser` fallback `v2ProfileLoginUser` uses) rather
-  than a second profile fetch.
-- **Confirmed "drop the Caddy branch" means dropping generalize too, not
-  just caddy-setup.** The ticket's own phrasing ("it only drops the Caddy
-  branch (lines 64-87 of `V2DefaultProfileUserData`)") and the test
-  spec's explicit "Caddy/generalize write_files/runcmd entries are
-  ABSENT" agree: those two lines are one unit in the source (generalize
-  exists only to prep a machine for the leaf fetch caddy-setup then
-  does), so `V2DevUserData`'s body is exactly
-  `V2DefaultProfileUserData`'s `jinja && signerURL == ""` fallback shape
-  (identity + users + shims + `enable --now ssh`, no generalize, no
-  caddy-setup) but rendered from a single already-joined `domain` string
-  like `V2BareUserData` rather than separate `project`/`suffix` args.
-- **`uniqueImageAliases` change is one word.** `admin.Images.Dev` slots
-  into the existing variadic call
-  (`uniqueImageAliases(admin.Images.Base, admin.Images.AI, admin.Images.Dev)`)
-  — the function was already generic over any number of aliases, so
-  there was no design choice here beyond confirming that and adding the
-  dedup test (`TestPlanCreateV2ImageAliasesDeduplicated`, aliasing
-  `Images.Dev` to `Images.Base` and asserting the result collapses to
-  two entries).
-- **`CreateMachineV2Result.DevImage` + CLI messaging** ("Dev Image: no
-  Caddy/TLS ingress — SSH only.") added for parity with the existing
-  `Bare` result field/messaging — not required by the ticket's "Done
-  when", but leaving a Dev Image machine's `sc create` output identical
-  to a normal machine's would silently under-report the one thing this
-  ticket exists to guarantee (no ingress), which seemed worse than the
-  small addition.
-- **Not run against a real Incus deployment** (none available in this
-  sandbox): the "create a Dev-Image machine end-to-end, confirm no Caddy
-  process / no TLS leaf / no answer on :443 / private hostname still
-  resolves / `sc c`/`incus exec` still reach it" manual check the ticket
-  asks for. Verified instead: `go build ./...`, `go vet ./...`, and
-  `go test ./internal/tenant/... ./internal/incusx/...` (including the
-  new `TestV2DevUserData*`/`TestV2ProfileSSHKeyPattern*`/
-  `TestV2DevUserDataFollowsTheProfileIdentity` tests) all pass; the
-  pre-existing `internal/cli` `TestLogin*` failures in this sandbox are
-  unrelated (no `incus` binary on PATH here — reproduced on the
-  pre-change tree via `git stash` to confirm).
-
-## 2026-08-11 — t4: Documentation & ADR-0024 for the dev image
-
-Last slice of `docs/plan/add-a-dev-base-image-ubuntu-26-04-fixed-b2qtk8g.md`.
-Docs-only: `docs/usage.html`, `docs/admin-developer-quickstart.html`,
-`docs/e2e-sc2.md` (new Phase 8e + one-line Phase 6 addition),
-`docs/adr/0024-dev-image-third-machine-template.md`. No code changes.
-
-- **The four facts this slice was asked to consolidate were already recorded
-  by t1-t3** — nothing new to add for them, only to cite: the exact
-  `DefaultDevImageAlias` string and its unverified-against-a-live-remote
-  status (t1, above), the byte-identical-duplicate `install-ai-cli-tools.sh`
-  factoring for §B6 and the Claude-vs-Codex install-mechanism/status-line
-  note (t2, below), and the exact ingress-skip function
-  (`V2DevUserData(user, sshKey, domain string)`, `internal/tenant/create_plan_v2.go`)
-  plus its detection mechanism (`CreateMachineV2Request.DevImage`,
-  `internal/cli/create_v2.go`'s `runCreateMachineV2`) (t3, below). ADR-0024
-  cites all three by name/signature rather than re-deriving them.
-- **ADR number: 0024**, the next free slot after 0023 (event-bus resource
-  cache) — no collision to resolve.
-- **`docs/e2e-sc2.md` Phase 8e placed between Phase 8d (base images from a
-  running machine) and Phase 10 (self-update), not appended at the end.**
-  The doc's phases are meant to run top-to-bottom and Phase 9 already covers
-  unattended login (orthogonal); 8e sits with the other "images" phases
-  (8c/8c-bare/8d) rather than after the self-update phase, which is
-  unrelated to image templates. Marked ⚠️ (partial) in the doc's own status
-  legend, not ✅, since none of it was run against a live Incus deployment
-  from this session.
-- **Acceptance scenarios 1-8 (spec section "Acceptance scenarios"):
-  none were re-run live in this session** (no Docker daemon, no live Incus,
-  no authenticated Codex/gh session in this sandbox, same constraint every
-  prior slice hit). Scenario 8 (`base`/`ai` unaffected) is the one with real
-  automated coverage: `internal/config/admin_test.go`'s validate-with-no-dev-env
-  case (t1) and the `images/ai/Dockerfile` read-diff check (t2) stand in for
-  it. The rest (2, 3, 6, 7 especially) are documented in `docs/e2e-sc2.md`
-  Phase 8e as PASS criteria to run against a live deployment, each flagged
-  unverified-in-this-environment rather than claimed — per this ticket's
-  "Done when" clause.
-
-## 2026-08-11 — t1: config/build plumbing for the `dev` image template
-
-First slice of `docs/plan/add-a-dev-base-image-ubuntu-26-04-fixed-b2qtk8g.md`.
-Added a third image template, `dev`, alongside `base`/`ai` throughout
-`internal/config/admin.go`, `internal/images/plan.go`, `internal/images/remote.go`,
-`internal/cli/admin.go`, and `mise.toml`. Pure plumbing — no Dockerfile, no
-tenant-creation wiring (those are t2/t3).
-
-- **`DefaultDevImageAlias = "images:ubuntu/26.04"` — not verified against a
-  live Incus `images:` remote.** The repo's source can't answer whether Incus's
-  public images: remote actually publishes an Ubuntu 26.04 entry under that
-  exact path (vs. e.g. `images:ubuntu/26.04/cloud`, or a not-yet-published
-  release given Ubuntu 26.04 is itself very new at the time of this wish). I
-  picked the alias that follows the identical naming pattern
-  `DefaultBaseImageAlias`/`DefaultAIImageAlias` already use
-  (`images:debian/13`), which the spec explicitly sanctions as the fallback
-  approach ("`DefaultDevImageAlias` should follow the identical pattern... but
-  whether `images:ubuntu/26.04` needs to actually exist... did not send it
-  out to check"). This alias is only a fallback default anyway —
-  `SANDCASTLE_DEV_IMAGE` or `--tag`/`--dev-image` overrides it once an
-  operator builds+uploads the real Dev Image (mirroring how `ai` already
-  works today). If it turns out to be wrong, it's a one-line constant fix,
-  not a design change.
-- **`dev`'s version-arg validation requires `--codex-version` and
-  `--claude-version` but not `--gemini-version`** (per spec §B6/§B8 — no
-  Gemini CLI on the Dev Image), in both `PlanBuild` (`internal/images/plan.go`)
-  and `PlanRemoteBuild` (`internal/images/remote.go`). This is a real
-  asymmetry from `ai`'s three-arg requirement, not an oversight.
-- **`dev` does not carry a `SANDCASTLE_BASE_IMAGE` build-arg or `BaseRef`.**
-  Unlike `ai` (built FROM the Sandcastle base image), the Dev Image is
-  `FROM ubuntu:26.04` directly per the spec — a structurally independent
-  template, not a layer on top of `base`. `PlanBuild`/`PlanRemoteBuild` reflect
-  that: no base-image plumbing in the `dev` arm at all.
-- **Collateral fix, not in this ticket's file list:** `Admin.Validate()` now
-  requires `Images.Dev` to be non-empty (matching Base/AI). Two existing test
-  fixtures elsewhere in the repo (`internal/incusx/images_test.go`,
-  `internal/tenant/create_plan_v2_test.go`) built `config.Images{...}` literals
-  by hand without a `Dev` field and started failing `Validate()` as a result.
-  Fixed both with a one-line addition of `Dev: "..."` to keep `go test ./...`
-  green repo-wide; left the substantive t3 work (tenant-creation Dev Image
-  alias wiring, the ingress-skip mechanism) untouched — that's a different
-  ticket's slice. Did **not** touch the equivalent literals in
-  `internal/e2e/image_build_test.go`/`image_sync_test.go`: those are gated
-  behind `SANDCASTLE_INCUS_E2E`/`SANDCASTLE_E2E_IMAGE_BUILD`, don't run in
-  plain `go test ./...`, and updating them would mean growing their helper
-  function signatures (`imageBuildAdminConfig(e2eConfig, baseTag, aiTag)` etc.)
-  — a real design decision about e2e Dev Image coverage that belongs with the
-  e2e-doc/t4 slice (`docs/e2e-sc2.md` is explicitly listed as that slice's
-  responsibility), not a plumbing ticket.
-- **`internal/cli/admin_test.go` did not exist before this change** — created
-  it fresh for `remoteBuildTemplates` coverage since no prior test file
-  covered that helper.
-
