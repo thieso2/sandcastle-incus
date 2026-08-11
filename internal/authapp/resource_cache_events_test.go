@@ -14,7 +14,7 @@ func seededCache(t *testing.T) (*ResourceCache, *fakeResourceCacheServer) {
 	server.pools = []api.StoragePool{{Name: "default"}}
 	server.project("acme") // ensure the project exists with empty buckets
 	cache := NewResourceCache(0)
-	if err := seedResourceCache(cache, server); err != nil {
+	if err := seedResourceCache(cache, server, nil); err != nil {
 		t.Fatalf("seedResourceCache: %v", err)
 	}
 	return cache, server

@@ -140,6 +140,19 @@ is not a safe source of truth.
   minutes reads as not-ready and falls back to the live path even though
   nothing is actually wrong — judged acceptable because the fallback is
   exactly today's (safe, correct) behavior, not an error state.
+- **Amendment (2026-08-11).** Decision 2's single readiness flag stands, but
+  the *seed* is no longer all-or-nothing: storage volumes are read
+  best-effort. Every other resource type is a plain database read, while
+  listing volumes reaches into the storage driver per volume — so one broken
+  instance on the host (an Incus record whose backing dataset is gone) fails
+  the pool listing for every project and, under the original fatal seed,
+  disabled the whole cache permanently: re-seed every 5s, identical failure,
+  `sc ls` on the live path forever. Observed on the `obelix` install. A pool
+  that cannot be enumerated is now logged and skipped, so the instance
+  listing — the only thing default `sc ls` renders — survives it. Refusing to
+  serve never produced the unreadable volumes either; it only took everything
+  else down with them.
+
 - **Tradeoff (accepted):** `sc-adm list`/`sc admin list` keeps its full
   original cost. A busy install's admin-auth listing is not made faster by
   this wish.
