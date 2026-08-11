@@ -3916,3 +3916,107 @@ explicit scope boundary.
   trace and acceptance criteria are single-install, and threading the cache
   path through the fanout would need its own request/response shape decision
   the plan doesn't make.
+
+## 2026-08-11 — t2: `images/dev/Dockerfile` (the interactive dev image)
+
+Built the whole Dockerfile plus its baked assets (`images/dev/{gitconfig,
+starship.toml, mise-config.toml, zshrc, git-identity-hook.sh,
+statusline-command.sh, claude-settings.json, codex-config.toml,
+install-ai-cli-tools.sh}`), covering wish §§1-8 / spec B1(partial)-B9, and
+refactored `images/ai/Dockerfile` per the plan's B6 step.
+
+- **§B6 "shared script" could not be a single physically-shared file.**
+  `internal/images/plan.go`'s already-committed `PlanBuild` sets
+  `ContextDir: filepath.Join("images", template)` — i.e. `docker build`'s
+  context for `ai`/`dev` is `images/ai`/`images/dev`, not the repo root, and
+  `internal/images/remote.go`'s `PlanRemoteBuild` + `remote_exec.go`'s
+  `shipContext`/`writeContextTar` mirror that (they tar exactly
+  `ContextDir`'s contents with a leading dir named after the template, then
+  the in-appliance build script re-derives `contextDir :=
+  builderBuildRoot + "/" + plan.Template`). Docker's COPY forbids reaching
+  outside the build context, so `images/scripts/install-ai-cli-tools.sh`
+  (the plan's suggested location) is not COPY-reachable from either
+  Dockerfile as committed. Widening `ContextDir` to the repo root (matching
+  the ticket handoff's own standalone example, `docker build -f
+  images/dev/Dockerfile .`) or to `images/` would fix `COPY`, but ripples
+  into `remote.go`/`remote_exec.go`'s tar-shipping leading-dir logic in ways
+  I have no live Incus Image Builder appliance to verify in this sandbox —
+  too large and too risky a blast radius for this ticket. **Decision:** keep
+  `install-ai-cli-tools.sh` as a deliberate byte-identical duplicate in both
+  `images/ai/` and `images/dev/`, guarded by a drift test
+  (`images/dev/install_ai_cli_tools_test.go`, asserts the two files are
+  byte-equal) instead of a single shared path. `images/ai/Dockerfile`'s two
+  install `RUN` steps now call the shared script instead of inlining
+  `npm install -g`/`npx skills`, preserving the exact prior two-step
+  `HOME`/cache-mount structure so the change is behavior-preserving (same
+  packages, same versions, same `HOME=/etc/skel` scoping for the skills
+  step only) — confirmed by rereading the diff, not by a live `docker
+  build` (no Docker daemon in this sandbox).
+- **`nodejs`/`npm`/`build-essential` added to `images/dev`'s apt list**,
+  beyond wish §2's literal `git gh ripgrep fd-find make zsh`. Spec B6
+  already resolved the wish's install-mechanism ambiguity (curl installer
+  vs. npm) in favor of npm, to reuse `ai`'s mechanism and avoid version
+  drift — that decision requires npm actually being on `$PATH` at build
+  time, which `ai` gets for free from `sandcastle/base`'s Debian toolchain
+  layer but `dev` (FROM `ubuntu:26.04` directly, no base image) does not.
+- **Codex `status_line` identifiers and rate-limit semantics verified from
+  source, not a live Codex session** (no Codex CLI/authenticated session
+  available in this sandbox). Fetched
+  `codex-rs/core/config.schema.json` (`openai/codex@main`): `[tui]
+  status_line` is `array<string>`, default
+  `["model-with-reasoning", "current-dir"]`. Fetched
+  `codex-rs/tui/src/bottom_pane/status_line_setup.rs`: confirms the six
+  kebab-case identifiers used in `images/dev/codex-config.toml`
+  (`model-with-reasoning`, `context-used`, `current-dir`, `git-branch`,
+  `five-hour-limit`, `weekly-limit`) via the `StatusLineItem` enum's
+  `#[strum(serialize_all = "kebab_case")]`, and resolves spec B8's
+  remaining-vs-used caveat: the doc comments on `FiveHourLimit`/
+  `WeeklyLimit` read "Remaining usage on the primary/secondary rate limit"
+  — **remaining**, not used, matching the spec's stated caveat exactly. No
+  bar, color ramp, or reset-time field exists anywhere in that file for
+  either item, so none are faked in `codex-config.toml`.
+- **Found (not introduced) a real bug in the wish's own
+  `statusline-command.sh`, shipped verbatim anyway per the explicit
+  byte-for-byte instruction.** The four glyph escapes
+  (`\xef\x81\xbc`/`\xee\x82\xa0`/`\xe2\x8f\xb3`/`\xf0\x9f\x93\x85`/
+  `\xe2\x86\xbb`) sit in the *format string* of their `printf` calls, not
+  in a `%b`-tagged argument. dash's `printf` builtin only expands `\xHH`
+  escapes inside `%b` arguments, not the format string itself (bash's
+  `printf` does both, which is presumably why this wasn't caught during
+  drafting) — verified directly: `dash -c 'printf "\xef\x81\xbc\n"'`
+  prints the literal 12-byte string `\xef\x81\xbc`, `bash -c` prints the
+  3-byte glyph. The Dev Image's `/bin/sh` is dash (Ubuntu default), so on
+  a real Dev Image machine all five glyphs will render as literal
+  backslash-escape text, not icons — cosmetic only (every other segment:
+  model, bar, percentages, colors, works correctly), but real. Not fixed
+  here — the spec is explicit that this script ships byte-for-byte, no
+  deviation — but flagged here for whoever reviews next; a fix would be
+  either switching the shebang to `#!/bin/bash` or moving each `\xHH`
+  sequence into its own `%b` argument. `images/dev/statusline_test.go`
+  asserts the *actual* (literal-text) output, i.e. it tests the shipped
+  artifact's real behavior, not the presumably-intended one.
+- **`DefaultDevImageAlias` / mise `image:dev:*` tasks / `admin.Images.Dev`
+  plumbing were already committed by t1** before this session started;
+  nothing here touches `internal/config/admin.go`, `internal/images/*.go`,
+  `internal/cli/admin.go`, or `mise.toml` beyond what t1 already landed.
+  `herdr`'s mise-registry entry was independently re-verified (fetched
+  `registry/herdr.toml` from `jdx/mise@main`: `backends =
+  ["aqua:herdrdev/herdr", "github:herdrdev/herdr"]`), confirming t1's
+  Ground-truth claim that it needs no special plugin handling.
+- **Default shell**: `/etc/default/useradd`'s `SHELL=` line (not `DSHELL=`
+  — that was a naming slip in the plan) is rewritten to `/usr/bin/zsh`,
+  plus `chsh -s /usr/bin/zsh root` for the image's own root shell.
+- **Git identity hook** (`images/dev/git-identity-hook.sh`, sourced from
+  `/etc/skel/.zshrc`) guards on *both* `user.name` and `user.email` being
+  unset before populating either from `gh api user` — matching the spec's
+  literal "neither value is already configured" wording, so a tenant who
+  hand-sets only one of the two is still left alone.
+- **Not run in this sandbox** (no Docker daemon, no live Incus, no
+  authenticated Codex/gh session available here): an actual `docker build
+  -f images/dev/Dockerfile images/dev`, the §B1 herdr/agent-forwarding
+  reattach protocol, and live verification of the Codex `status_line`
+  rendering. Verified instead: `sh -n`/`go vet`/`go build ./...`/`go test
+  ./images/...` all pass; `images/ai/Dockerfile` still builds the same
+  packages at the same versions (read-diff verified, not built); the
+  Codex findings above are sourced from `openai/codex@main`'s own code,
+  not a live session.

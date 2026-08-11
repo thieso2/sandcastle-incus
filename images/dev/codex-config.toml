@@ -1,0 +1,18 @@
+# Codex has no command-hook status line (no config key runs an external
+# script; no JSON-stdin/ANSI-stdout contract like Claude Code's
+# statusline-command.sh). `status_line` instead selects from Codex's own
+# fixed set of built-in items, rendered with Codex's own theme-derived
+# coloring — verified against codex-rs/core/config.schema.json and
+# codex-rs/tui/src/bottom_pane/status_line_setup.rs (see
+# implementation-notes.md). Deliberately NOT ported: a 10-segment bar, the
+# green/yellow/red color ramp, or a rate-limit reset-time clock — none of
+# those exist as Codex status-line fields, so none are faked here.
+[tui]
+status_line = [
+  "model-with-reasoning", # model name + reasoning level
+  "context-used",         # percentage only — no bar, no color-ramp
+  "current-dir",          # Codex's own truncation/formatting
+  "git-branch",           # auto-omitted outside a git repo
+  "five-hour-limit",      # REMAINING (not used) usage on the 5h window
+  "weekly-limit",         # REMAINING (not used) usage on the 7d window
+]

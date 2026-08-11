@@ -1,0 +1,5 @@
+[tools]
+go = "latest"
+herdr = "latest"
+node = "latest"
+starship = "latest"
