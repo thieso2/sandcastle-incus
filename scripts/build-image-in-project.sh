@@ -59,7 +59,7 @@ while [ "$#" -gt 0 ]; do
     --keep) KEEP=1; shift ;;
     --recreate) RECREATE=1; shift ;;
     --skip-provision) SKIP_PROVISION=1; shift ;;
-    -h|--help) sed -n '1,40p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
