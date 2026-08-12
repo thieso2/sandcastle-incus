@@ -155,11 +155,11 @@ bash scripts/import-docker-image-to-incus.sh "${DEV_TAG}" "${DEV_TAG}" "$SANDCAS
 
 [tasks."image:dev:build-in-project"]
 description = "Build the dev image inside a machine in a Sandcastle project (native host arch, no docker on the Mac, no GHCR) and publish it there with `sc image save`"
-# Deliberately no SANDCASTLE_REMOTE: this task drives the *user* CLI, which
-# takes its remote/tenant from ~/.config/sandcastle/config.yml. Override the
-# build project with SANDCASTLE_BUILD_PROJECT, and pass extra flags through
-# after `--` (e.g. --copy-to work,builder --keep).
-env = { SANDCASTLE_BUILD_PROJECT = "newbuild2" }
+# Deliberately no env here: this task drives the *user* CLI, which takes its
+# remote, tenant and project from ~/.config/sandcastle/config.yml. With no
+# --project the build lands in whatever project `sc` is currently on
+# (`sc project switch`); SANDCASTLE_BUILD_PROJECT overrides that, and extra
+# flags pass through after `--` (e.g. --copy-to work,gauntlet --keep).
 run = """
 set -euo pipefail
 make build

@@ -26,7 +26,8 @@
 # Usage:
 #   scripts/build-image-in-project.sh [options]
 #
-#   --project P     Sandcastle project to build in (default $SANDCASTLE_BUILD_PROJECT)
+#   --project P     Sandcastle project to build in (default: $SANDCASTLE_BUILD_PROJECT,
+#                   else the project `sc` is currently on)
 #   --machine M     build machine name (default dev-build)
 #   --template T    machine template: dev (default dev)
 #   --alias A       published image name (default the template name)
@@ -67,7 +68,16 @@ done
 ALIAS="${ALIAS:-$TEMPLATE}"
 
 if [ -z "$PROJECT" ]; then
-  echo "a project is required: --project <name> or SANDCASTLE_BUILD_PROJECT" >&2
+  # Default to the project `sc` is currently on (`sc project switch`), so a bare
+  # run builds where the operator is already working. `sc project list` marks it
+  # with a leading `*`. Resolved BEFORE SANDCASTLE_PROJECT is exported below,
+  # which would otherwise answer this question with its own answer.
+  PROJECT="$("$SC" project list 2>/dev/null | awk '/^\*/ { print $2; exit }')"
+fi
+
+if [ -z "$PROJECT" ]; then
+  echo "could not determine a project: pass --project <name>, set" >&2
+  echo "SANDCASTLE_BUILD_PROJECT, or select one with \`sc project switch\`" >&2
   exit 2
 fi
 

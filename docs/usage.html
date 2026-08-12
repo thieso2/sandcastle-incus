@@ -900,7 +900,7 @@ Publish a machine's port to the public Internet.
     </ul>
     <p>The recipe is <code>images/dev/provision.sh</code>, the same stages <code>images/dev/Dockerfile</code> runs, so the two build paths cannot drift.</p>
     <pre><code><span class="cmd">mise run image:dev:build-in-project</span></code></pre>
-    <p>The build project defaults to <code>SANDCASTLE_BUILD_PROJECT</code> (<code>newbuild2</code> in <code>mise.toml</code>). The published image is a <strong>project-local</strong> image named <code>dev</code>, so launch from it inside that project — or copy it into other projects as part of the run:</p>
+    <p>With no <code>--project</code> the build lands in whatever project <code>sc</code> is currently on (<code>sc project switch</code>); <code>SANDCASTLE_BUILD_PROJECT</code> overrides that. A project named with <code>--project</code> is created if it does not exist. The published image is a <strong>project-local</strong> image named <code>dev</code>, so launch from it inside that project — or copy it into other projects as part of the run:</p>
     <pre><code><span class="cmd">mise run image:dev:build-in-project</span> -- --project imagebuild --copy-to work,builder
 
 <span class="comment"># or drive the script directly</span>
@@ -908,7 +908,7 @@ Publish a machine's port to the public Internet.
     <table>
       <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td><code>--project P</code></td><td>Sandcastle project to build in (default <code>$SANDCASTLE_BUILD_PROJECT</code>); created if missing</td></tr>
+        <tr><td><code>--project P</code></td><td>Sandcastle project to build in (default <code>$SANDCASTLE_BUILD_PROJECT</code>, else the current <code>sc</code> project); created if missing</td></tr>
         <tr><td><code>--machine M</code></td><td>Build machine name (default <code>dev-build</code>)</td></tr>
         <tr><td><code>--alias A</code></td><td>Published image name (default <code>dev</code>)</td></tr>
         <tr><td><code>--base IMG</code></td><td>Image to build from (default <code>images:ubuntu/26.04/cloud</code>)</td></tr>
