@@ -32,7 +32,8 @@ These graphs reflect the commit they were generated at (`meta.json` records it);
 - Safe E2E suite: `make e2e-safe` (unit + gated + local stages via `scripts/e2e.sh`)
 - Build base image locally: `mise run image:base:build-upload` (docker on the host; requires `SANDCASTLE_REMOTE`)
 - Build AI image locally: `mise run image:ai:build-upload` (resolves latest npm versions, requires `SANDCASTLE_REMOTE`)
-- Build + publish to GHCR via the Image Builder appliance: `mise run image:all:build-remote` (requires `SANDCASTLE_REMOTE` and `SANDCASTLE_GHCR_TOKEN`; see `docs/adr/0010-image-builder-appliance.md`)
+- Build + publish to GHCR via the Image Builder appliance: `mise run image:all:build-remote` (requires `SANDCASTLE_REMOTE` and `SANDCASTLE_GHCR_TOKEN`; see `docs/adr/0010-image-builder-appliance.md`). **Produces OCI images** — good for registry distribution, *not* for machine images (Incus runs OCI images as application containers; systemd never boots)
+- Build the dev image on the host, in a Sandcastle project: `mise run image:dev:build-in-project` (`scripts/build-image-in-project.sh`) — provisions a throwaway machine with `images/dev/provision.sh` and publishes it with `sc image save`. Native host arch, no docker on the Mac, no GHCR, and the result is a **system-container** image (systemd as PID 1), which is what machines need. The recipe is shared with `images/dev/Dockerfile`
 
 ### Cutting a Homebrew release
 

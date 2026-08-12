@@ -880,6 +880,7 @@ Publish a machine's port to the public Internet.
       <li><strong>Status lines — Claude Code:</strong> <code>~/.claude/statusline-command.sh</code> renders model name, a 10-segment context-usage bar (green/yellow/red), <code>~</code>-relative cwd, git branch, and 5h/7d rate-limit segments when present. <strong>Requires a Nerd Font in the terminal</strong> for the folder (U+F07C) and branch (U+E0A0) glyphs — without one they render as tofu/placeholder boxes, not an error.</li>
       <li><strong>Status lines — Codex:</strong> Codex has no command-hook status line (no config key runs an external script, no JSON-stdin/ANSI-stdout contract) — there is nothing to port the Claude Code script to. <code>~/.codex/config.toml</code> instead selects Codex's own built-in <code>[tui] status_line</code> items: <code>model-with-reasoning</code>, <code>context-used</code>, <code>current-dir</code>, <code>git-branch</code>, <code>five-hour-limit</code>, <code>weekly-limit</code>. <strong>Capability gaps, not bugs:</strong> <code>context-used</code> is a percentage only — no 10-segment bar, no green/yellow/red color ramp (Codex uses its own theme coloring); <code>five-hour-limit</code>/<code>weekly-limit</code> are documented as <em>remaining</em>, not <em>used</em> (the inverse sense from the Claude Code script's <code>used_percentage</code>); neither rate-limit item has a reset-time field, so there is no <code>↻ HH:MM</code> equivalent.</li>
       <li><strong>Git:</strong> global aliases (<code>co</code>, <code>br</code>, <code>st</code>, <code>last</code>, <code>unstage</code>, <code>amend</code>) ship at build time via <code>/etc/gitconfig</code>. <code>user.name</code>/<code>user.email</code> self-populate on first login from <code>gh api user</code>, only when <code>gh auth status</code> already holds a credential and neither value is already set (never overwrites a hand-set identity) — <code>gh auth login</code> itself is a first-run step you run interactively; the image never holds or writes a credential.</li>
+      <li><strong>Working <code>ping</code> for normal users.</strong> Ubuntu ships no <code>cap_net_raw</code> on <code>/usr/bin/ping</code> and relies on unprivileged ICMP datagram sockets, gated by <code>net.ipv4.ping_group_range</code>. systemd's own default (<code>-net.ipv4.ping_group_range = 0 2147483647</code>) <strong>silently fails in an unprivileged container</strong> — gid 2147483647 is not mapped into the container's user namespace, the kernel rejects the write with <code>EINVAL</code>, and the leading <code>-</code> makes systemd-sysctl ignore it — leaving the restrictive <code>65534 65534</code> and every user ping failing with <em>"missing cap_net_raw+p capability or setuid?"</em>. The image ships <code>/etc/sysctl.d/99-sandcastle-ping.conf</code> with a range inside the mapped gids (<code>0 65534</code>). Machines from <code>base</code>/<code>ai</code> do not carry this fix.</li>
       <li><strong>No public ingress:</strong> unlike <code>base</code>/<code>ai</code> machines, a Dev Image machine gets no Caddy, no TLS leaf, and answers nothing on 443 — SSH only. It keeps its login user, SSH key, and sshd (unlike <code>--bare</code>), and its private hostname still resolves in tenant DNS.</li>
     </ul>
     <pre><code><span class="env">export SANDCASTLE_REMOTE</span>=big
@@ -887,6 +888,39 @@ Publish a machine's port to the public Internet.
     <p>Pin specific tool versions the same way as the AI image:</p>
     <pre><code><span class="env">SANDCASTLE_CODEX_VERSION</span>=0.132.0 <span class="env">SANDCASTLE_CLAUDE_VERSION</span>=2.1.145 \
   <span class="cmd">mise run image:dev:build-upload</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h3>Build the dev image on the host, in a Sandcastle project (recommended from a Mac)</h3>
+    <p>Builds the dev image inside a throwaway machine in one of your own Sandcastle projects and publishes it from there with <code>sc image save</code>. Nothing runs on your laptop but the <code>sc</code> CLI:</p>
+    <ul>
+      <li><strong>Native architecture.</strong> The build runs in a machine on the Incus host, so it is the host's architecture. No emulated <code>linux/amd64</code> docker build on an arm64 Mac, and no docker on the Mac at all.</li>
+      <li><strong>The right image type.</strong> <code>sc image save</code> publishes a running machine, so the result is a <strong>system-container</strong> image that boots systemd as PID 1 — what Sandcastle machines need. The <code>build-remote</code> path publishes an <em>OCI</em> image, which Incus runs as an application container (PID 1 is the entrypoint, systemd never boots).</li>
+      <li><strong>No registry, no admin rights.</strong> No GHCR token, no <code>sc-adm</code>, and no image data round-trips through your laptop — the snapshot and publish happen inside the host.</li>
+    </ul>
+    <p>The recipe is <code>images/dev/provision.sh</code>, the same stages <code>images/dev/Dockerfile</code> runs, so the two build paths cannot drift.</p>
+    <pre><code><span class="cmd">mise run image:dev:build-in-project</span></code></pre>
+    <p>The build project defaults to <code>SANDCASTLE_BUILD_PROJECT</code> (<code>newbuild2</code> in <code>mise.toml</code>). The published image is a <strong>project-local</strong> image named <code>dev</code>, so launch from it inside that project — or copy it into other projects as part of the run:</p>
+    <pre><code><span class="cmd">mise run image:dev:build-in-project</span> -- --project imagebuild --copy-to work,builder
+
+<span class="comment"># or drive the script directly</span>
+<span class="env">SC</span>=./bin/sandcastle <span class="cmd">bash scripts/build-image-in-project.sh</span> --project imagebuild --keep</code></pre>
+    <table>
+      <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>--project P</code></td><td>Sandcastle project to build in (default <code>$SANDCASTLE_BUILD_PROJECT</code>); created if missing</td></tr>
+        <tr><td><code>--machine M</code></td><td>Build machine name (default <code>dev-build</code>)</td></tr>
+        <tr><td><code>--alias A</code></td><td>Published image name (default <code>dev</code>)</td></tr>
+        <tr><td><code>--base IMG</code></td><td>Image to build from (default <code>images:ubuntu/26.04/cloud</code>)</td></tr>
+        <tr><td><code>--copy-to P1,P2</code></td><td>Also copy the published image into these projects</td></tr>
+        <tr><td><code>--keep</code></td><td>Leave the build machine running instead of deleting it</td></tr>
+        <tr><td><code>--recreate</code></td><td>Delete an existing build machine first</td></tr>
+        <tr><td><code>--skip-provision</code></td><td>Re-save an already-provisioned build machine without re-running the recipe</td></tr>
+      </tbody>
+    </table>
+    <p>Launch from the result — set <code>SANDCASTLE_DEV_IMAGE</code> to the same alias so <code>sc create</code> takes the Dev Image path (no Caddy, no TLS leaf, SSH only):</p>
+    <pre><code><span class="env">SANDCASTLE_PROJECT</span>=newbuild2 <span class="env">SANDCASTLE_DEV_IMAGE</span>=dev \
+  <span class="cmd">sc create</span> mydev <span class="flag">--image</span> dev</code></pre>
   </div>
 
   <div class="step">
@@ -903,6 +937,7 @@ Publish a machine's port to the public Internet.
         <tr><td>mise run image:dev:build-upload</td><td>Build dev image (Ubuntu 26.04) locally with latest Codex/Claude Code versions and upload to Incus</td></tr>
         <tr><td>mise run image:dev:build</td><td>Build dev image locally only</td></tr>
         <tr><td>mise run image:dev:upload</td><td>Upload a previously built dev image</td></tr>
+        <tr><td>mise run image:dev:build-in-project</td><td>Build the dev image in a machine in a Sandcastle project (native host arch, no docker, no GHCR) and publish it there with <code>sc image save</code></td></tr>
         <tr><td>mise run image:base:build-remote</td><td>Build base image in the <code>sc-build</code> Image Builder appliance and publish to GHCR (needs <code>SANDCASTLE_GHCR_TOKEN</code>)</td></tr>
         <tr><td>mise run image:ai:build-remote</td><td>Build AI image in the Image Builder appliance with latest tool versions and publish to GHCR</td></tr>
         <tr><td>mise run image:dev:build-remote</td><td>Build dev image in the Image Builder appliance with latest Codex/Claude Code versions and publish to GHCR</td></tr>

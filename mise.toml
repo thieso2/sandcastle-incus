@@ -153,6 +153,19 @@ make build
 bash scripts/import-docker-image-to-incus.sh "${DEV_TAG}" "${DEV_TAG}" "$SANDCASTLE_REMOTE"
 """
 
+[tasks."image:dev:build-in-project"]
+description = "Build the dev image inside a machine in a Sandcastle project (native host arch, no docker on the Mac, no GHCR) and publish it there with `sc image save`"
+# Deliberately no SANDCASTLE_REMOTE: this task drives the *user* CLI, which
+# takes its remote/tenant from ~/.config/sandcastle/config.yml. Override the
+# build project with SANDCASTLE_BUILD_PROJECT, and pass extra flags through
+# after `--` (e.g. --copy-to work,builder --keep).
+env = { SANDCASTLE_BUILD_PROJECT = "newbuild2" }
+run = """
+set -euo pipefail
+make build
+SC=./bin/sandcastle bash scripts/build-image-in-project.sh "$@"
+"""
+
 [tasks."image:tenant:sync"]
 description = "Sync published Sandcastle image aliases into image-enabled tenant projects"
 env = { SANDCASTLE_REMOTE = "big" }

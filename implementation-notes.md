@@ -5,6 +5,113 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-12 — `starship.toml`: literal string for the stashed symbol
+
+`git_status.stashed = "\$"` made starship refuse the whole config on every
+shell start (`TOML parse error … missing escaped value`). `\$` is not a valid
+escape in a TOML *basic* string; the `$` still has to be escaped for starship,
+which parses these values as format strings. Fixed with a TOML **literal**
+string, `stashed = '\$'`, rather than the double-escaped `"\\$"` starship's own
+docs use — the literal form keeps the file readable and can't drift again if
+another `$` symbol is added. Applied to the running `mydev` machine's
+`~/.config/starship.toml` and `/etc/skel/.config/starship.toml` too, since the
+image predates the fix.
+
+## 2026-08-12 — Building the dev image in a Sandcastle project, not on the Mac
+
+Added `scripts/build-image-in-project.sh` + `mise run image:dev:build-in-project`:
+build the dev image inside a throwaway machine in one of the operator's own
+Sandcastle projects, and publish it from there with `sc image save`.
+
+- **Why not the existing paths.** The ask was "build the container on the host
+  with the right arch, build the image there, publish from there". Two paths
+  already existed and neither does it: `image:dev:build-upload` builds with
+  docker **on the Mac** under `DOCKER_DEFAULT_PLATFORM=linux/amd64` emulation,
+  and `image:dev:build-remote` does build on the host (in the `sc-build`
+  appliance, ADR-0010) but publishes through GHCR — needing a token, a public
+  registry round trip, and, decisively, **producing an OCI image**. Incus runs
+  OCI images as application containers: PID 1 is the entrypoint, systemd never
+  boots, so a Sandcastle machine built from one has no sshd, no caddy, nothing.
+  Only the `import-docker-image-to-incus.sh` path produced system-container
+  images, and it runs on the Mac.
+- **`sc image save` as the publish step.** ADR-0019 already publishes a running
+  machine as a local image; that is a system-container image by construction and
+  runs entirely server-side. So instead of building an OCI image and converting
+  it, the build machine *is* the image: provision it, then snapshot it.
+  Alternatives rejected: (a) `podman export` in the appliance + `incus image
+  import` — the rootfs tarball has to reach a client that can talk to the target
+  daemon, i.e. it round-trips through the laptop (~GBs over a relayed tailnet);
+  (b) doing the import over SSH on the host, which `importOnHost` already does —
+  but SSH to the host is not universally available (IncusOS hosts have no shell,
+  and `big`'s sshd is LAN-only); (c) mounting the Incus socket into the builder
+  so it could import server-side — a real privilege escalation for an
+  internet-facing appliance that handles a registry token.
+- **One recipe, two engines.** The Dockerfile's `RUN` bodies were extracted into
+  `images/dev/provision.sh`, staged (`packages`/`ai`/`skills`/`shell`/`stamp`)
+  so each stage is still exactly one Docker layer with its original cache mount,
+  and the Dockerfile now calls it. Same split `install-ai-cli-tools.sh` already
+  uses. Without this the native path would have been a second copy of the recipe
+  and the two would drift on the first change. `provision.sh` finds its context
+  dir from `$SANDCASTLE_DEV_CTX`, else its own directory, else
+  `/usr/local/share/sandcastle-dev` (where the Dockerfile puts it) — so the same
+  script works copied to `/usr/local/sbin` in a build and run from a pushed
+  directory in a machine.
+- **A `clean` stage the Dockerfile never calls.** `sc image save` publishes the
+  whole rootfs, so the build machine's own boot state would ship inside the
+  template. `clean` removes the login user (a child's cloud-init would otherwise
+  find the account present, skip creation, and never populate a home from
+  `/etc/skel` — the entire interactive environment silently missing), strips the
+  `/.sc` shims that cloud-init re-appends per instance, and resets cloud-init
+  state. It deliberately leaves SSH host keys and `/etc/machine-id` alone:
+  `sandcastle-generalize` regenerates both on the child's first boot (ADR-0019),
+  and that logic should live in exactly one place.
+- **The build machine is created as a Dev Image machine.** `SANDCASTLE_DEV_IMAGE`
+  is set to the base image for the `sc create` call, so the machine takes the
+  ADR-0024 no-Caddy path. Not cosmetic: otherwise cloud-init apt-installs Caddy
+  and fetches a TLS leaf, and both would be baked into the published template.
+- **Detached provisioning, not a long `incus exec`.** The first live run died on
+  `write tcp …: i/o timeout` during `incus file push -r` — the link to the host
+  is a relayed tailnet path (one API call per file, any of which can time out).
+  The context is now streamed as a single tar over `exec`'s stdin, and the
+  provisioning itself runs as a transient systemd unit (`systemd-run`) that the
+  script polls, so a dropped connection cannot kill a 15-minute build.
+- **Found and fixed a live bug in the merged dev-image feature.**
+  `internal/config/sandcastle.go`'s `adminFromConfigAndEnv` — the **user** CLI's
+  config assembly, and the only reader of `Images.Dev` that matters, since
+  `sc create` matches `--image` against it — set `Images.Base` and `Images.AI`
+  from the environment but omitted `Dev`. `SANDCASTLE_DEV_IMAGE` was therefore
+  ignored by `sc`, pinning `Images.Dev` to `DefaultDevImageAlias`
+  (`images:ubuntu/26.04`), so ADR-0024's no-Caddy carve-out could never trigger
+  for any operator-built dev image. Added the field plus
+  `TestLoadUserFromFileAndEnvCarriesImageOverrides`.
+- **Also verified what ADR-0024 flagged as unverified:** `images:ubuntu/26.04`
+  does exist on the public `images:` remote, including the `/cloud` variant this
+  script builds from (`incus image list images: ubuntu` → `ubuntu/26.04`,
+  `ubuntu/26.04/cloud`, x86_64 + aarch64).
+- **`ping` needed a sysctl drop-in, not a capability.** First real use of a Dev
+  Image machine hit `ping: socket: Operation not permitted … missing
+  cap_net_raw+p capability or setuid?`. Ubuntu ships `/usr/bin/ping` with no
+  file capability and no setuid, relying on unprivileged ICMP datagram sockets
+  gated by `net.ipv4.ping_group_range`. systemd's own
+  `/usr/lib/sysctl.d/50-default.conf` tries to open that up with
+  `-net.ipv4.ping_group_range = 0 2147483647` — but gid 2147483647 is not mapped
+  into an unprivileged container's user namespace, so the kernel rejects the
+  write with `EINVAL`, and the entry's leading `-` makes systemd-sysctl swallow
+  the failure. The value silently stays at `65534 65534` (gid `nogroup` only).
+  Fix: `provision.sh packages` writes `/etc/sysctl.d/99-sandcastle-ping.conf`
+  with `0 65534` — inside the mapped gid range, and `99-` sorts after
+  `50-default.conf`. Rejected `setcap cap_net_raw+ep /usr/bin/ping`: file
+  capabilities in a userns are v3 xattrs carrying a rootid, which makes them
+  fragile across the publish/relaunch uid remapping, whereas the sysctl is
+  namespaced state the container owns outright. Verified live (`ping` as the
+  login user, 0% loss). Scoped to the dev template only — `base`/`ai` plausibly
+  share the trait, but widening this to the project profile's cloud-init would
+  touch every machine's boot path and was out of scope for this change.
+- **Known limitation:** `sc image save` publishes into the tenant project it
+  runs in, so the result is a project-local image. `--copy-to` copies it into
+  other projects (resolving each target's Incus project name off the live
+  tenant, never deriving it), but there is no tenant-wide alias.
+
 ## 2026-08-11 — t2: `images/dev/Dockerfile` (the interactive dev image)
 
 Built the whole Dockerfile plus its baked assets (`images/dev/{gitconfig,

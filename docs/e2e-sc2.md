@@ -1892,14 +1892,41 @@ is whatever alias the operator built/uploaded to (by convention
 `sandcastle/dev:latest`, `SANDCASTLE_DEV_IMAGE`) — `--image dev` only works
 verbatim if an operator happens to publish under the literal alias `dev`.
 `DefaultDevImageAlias` (`images:ubuntu/26.04`) is the zero-build fallback, the
-same pattern `base`/`ai` use, **but whether Incus's public `images:` remote
-actually publishes that alias is unverified in this repo** — confirm with
-`incus image list images: ubuntu` before relying on it.
+same pattern `base`/`ai` use — **verified 2026-08-12** to exist on the public
+`images:` remote (`incus image list images: ubuntu` lists `ubuntu/26.04` and
+`ubuntu/26.04/cloud`, x86_64 and aarch64; a Sandcastle machine needs the
+`/cloud` variant, which carries cloud-init).
 
 ```bash
 sc create devbox --image <dev-alias>
 sc c devbox
 ```
+
+### 8e.0 — Building the image (two paths, two image *types*)
+
+**PASS — the in-project build (`mise run image:dev:build-in-project`,
+`scripts/build-image-in-project.sh`):** builds in a throwaway machine in a
+Sandcastle project on the host — native host architecture, no docker on the
+operator's machine, no GHCR — and publishes with `sc image save`, which yields
+a **system-container** image (systemd as PID 1). Verify:
+- `sc create` for the build machine prints `Dev Image: no Caddy/TLS ingress —
+  SSH only.` (the script sets `SANDCASTLE_DEV_IMAGE` to the base image for that
+  call so Caddy is never installed into, and so never baked into, the template).
+- After the run, `sc image list` in the build project shows the alias, and the
+  build machine is gone (unless `--keep`).
+- On a machine created from the published image: `ps -p 1 -o comm=` → `systemd`,
+  and the login user exists with a home populated from `/etc/skel` (proving
+  `provision.sh clean` removed the build machine's own account rather than
+  shipping it, which would make cloud-init skip user creation on the child).
+
+**Known trap — `build-remote` produces the wrong image type.** `mise run
+image:dev:build-remote` publishes to GHCR and imports with `incus image copy
+ghcr:… --alias …`, which yields an **OCI** image. Incus runs OCI images as
+application containers: PID 1 is the image's entrypoint, **systemd never boots**,
+so sshd/caddy/anything unit-driven is dead on arrival, and launching one makes
+Incus re-pull layers from ghcr.io. `build-remote` is for registry distribution,
+not for producing machine images. **PASS:** `incus image info <alias>` reports
+`Type: container` (not `oci`) for any alias machines are created from.
 
 **PASS — shell/toolchain (spec B2/B4/B5):**
 - `echo $SHELL` / `getent passwd $(whoami)` → `/bin/zsh` (also the image's own
@@ -1911,6 +1938,13 @@ sc c devbox
 - `fd`, `rg`, `gh`, `make`, `git` all resolve on `$PATH`.
 - `mise ls` shows `go`/`node`/`herdr`/`starship` already installed (pre-resolved
   at build time — no first-boot network fetch).
+- `ping -c2 <gateway>` **as the login user** succeeds. Regression guard: Ubuntu
+  ships no `cap_net_raw` on `/usr/bin/ping`, and systemd's default
+  `-net.ipv4.ping_group_range = 0 2147483647` silently fails in an unprivileged
+  container (gid unmapped → `EINVAL`, swallowed by the `-`), leaving
+  `65534 65534` and "missing cap_net_raw+p capability or setuid?".
+  **PASS:** `sysctl -n net.ipv4.ping_group_range` → `0 65534`, from the image's
+  `/etc/sysctl.d/99-sandcastle-ping.conf`.
 
 **PASS — AI CLI tooling (spec B6):**
 - `claude --version` and `codex --version` resolve; `~/.claude/skills`

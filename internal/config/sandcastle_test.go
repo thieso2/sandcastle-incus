@@ -95,6 +95,36 @@ func TestLoadUserFromFileAndEnvExportedEnvWins(t *testing.T) {
 	}
 }
 
+// The user CLI is what reads Images.Dev: `sc create` matches --image against it
+// to decide a machine takes the Dev Image path (no Caddy/TLS leaf, ADR-0024).
+// SANDCASTLE_DEV_IMAGE was missing from this assembly, which pinned the value to
+// DefaultDevImageAlias and made the carve-out unreachable for any operator-built
+// dev image.
+func TestLoadUserFromFileAndEnvCarriesImageOverrides(t *testing.T) {
+	clearAdminEnvForTest(t)
+	t.Setenv("SANDCASTLE_BASE_IMAGE", "sandcastle/base:test")
+	t.Setenv("SANDCASTLE_AI_IMAGE", "sandcastle/ai:test")
+	t.Setenv("SANDCASTLE_DEV_IMAGE", "sandcastle/dev:test")
+	admin := loadUserFromFileAndEnv(SandcastleConfig{})
+	if admin.Images.Base != "sandcastle/base:test" {
+		t.Fatalf("Images.Base = %q, want sandcastle/base:test", admin.Images.Base)
+	}
+	if admin.Images.AI != "sandcastle/ai:test" {
+		t.Fatalf("Images.AI = %q, want sandcastle/ai:test", admin.Images.AI)
+	}
+	if admin.Images.Dev != "sandcastle/dev:test" {
+		t.Fatalf("Images.Dev = %q, want sandcastle/dev:test", admin.Images.Dev)
+	}
+}
+
+func TestLoadUserFromFileAndEnvDefaultsImagesWithoutEnv(t *testing.T) {
+	clearAdminEnvForTest(t)
+	admin := loadUserFromFileAndEnv(SandcastleConfig{})
+	if admin.Images.Dev != DefaultDevImageAlias {
+		t.Fatalf("Images.Dev = %q, want %q", admin.Images.Dev, DefaultDevImageAlias)
+	}
+}
+
 func TestLoadAdminFromFileAndEnvFileUsedWhenNoEnv(t *testing.T) {
 	t.Setenv("SANDCASTLE_TENANT", "")
 	t.Setenv("SANDCASTLE_REMOTE", "")

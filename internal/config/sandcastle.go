@@ -401,6 +401,12 @@ func adminFromConfigAndEnv(cfg SandcastleConfig, env map[string]string) Admin {
 		Images: Images{
 			Base: strings.TrimSpace(env["SANDCASTLE_BASE_IMAGE"]),
 			AI:   strings.TrimSpace(env["SANDCASTLE_AI_IMAGE"]),
+			// The user CLI is the ONLY reader of Images.Dev that matters:
+			// `sc create` decides a machine takes the Dev Image path (no
+			// Caddy, no TLS leaf — ADR-0024) by matching --image against it.
+			// Omitting it here pinned the value to DefaultDevImageAlias, so
+			// no operator-built dev image could ever be recognized.
+			Dev: strings.TrimSpace(env["SANDCASTLE_DEV_IMAGE"]),
 		},
 	})
 }
