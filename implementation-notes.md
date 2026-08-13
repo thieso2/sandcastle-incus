@@ -4394,3 +4394,24 @@ explicit scope boundary.
   trace and acceptance criteria are single-install, and threading the cache
   path through the fanout would need its own request/response shape decision
   the plan doesn't make.
+
+## 2026-08-13 — plan_ticket: confirm Caddyfile wildcard rendering + exact-vs-wildcard precedence
+
+`RenderCaddyfile` (`internal/authapp/routes_caddy.go`) already writes each
+Route's `Hostname` verbatim as the site address — no rendering code change was
+needed. Added `TestRenderCaddyfile_WildcardRouteBlock` and
+`TestRenderCaddyfile_ExactAndWildcardBothRendered`
+(`internal/authapp/routes_caddy_test.go`) confirming a `*.jot.moyn.dev` Route
+renders a valid `*.jot.moyn.dev {` block with on-demand TLS and the right
+`reverse_proxy` target, standalone and alongside an exact-host Route for the
+same zone. Both pass.
+
+- **No executable confirmation of exact-over-wildcard precedence.** This repo
+  has no `caddy` binary and no `caddyserver/caddy` module dependency anywhere
+  (checked `go.mod`, `PATH`, and the filesystem) — Caddy config here is plain
+  string templating, never adapted or run. So the "exact route wins" decision
+  is not exercised by a test; it relies on Caddy's own documented behavior
+  (site addresses are matched most-specific-first, and a literal hostname is
+  more specific than the same zone's wildcard). If this precedence is ever
+  load-bearing enough to need proof beyond the docs, that requires vendoring a
+  `caddy adapt`/`caddy validate` step, which is out of scope for this slice.

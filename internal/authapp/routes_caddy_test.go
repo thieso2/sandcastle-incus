@@ -87,6 +87,42 @@ func TestRenderCaddyfile_RouteTLSInternal(t *testing.T) {
 	}
 }
 
+func TestRenderCaddyfile_WildcardRouteBlock(t *testing.T) {
+	routes := []Route{
+		{Hostname: "*.jot.moyn.dev", LocalPort: 20005},
+	}
+	out := RenderCaddyfile(testCaddyConfig(), routes)
+	if !strings.Contains(out, "*.jot.moyn.dev {") {
+		t.Errorf("missing wildcard route site:\n%s", out)
+	}
+	if !strings.Contains(out, "tls {\n\t\ton_demand\n\t}") {
+		t.Errorf("wildcard route should use on-demand TLS:\n%s", out)
+	}
+	if !strings.Contains(out, "reverse_proxy 127.0.0.1:20005") {
+		t.Errorf("wildcard route should proxy to its loopback port:\n%s", out)
+	}
+}
+
+func TestRenderCaddyfile_ExactAndWildcardBothRendered(t *testing.T) {
+	routes := []Route{
+		{Hostname: "foo.jot.moyn.dev", LocalPort: 20006},
+		{Hostname: "*.jot.moyn.dev", LocalPort: 20007},
+	}
+	out := RenderCaddyfile(testCaddyConfig(), routes)
+	if !strings.Contains(out, "foo.jot.moyn.dev {") {
+		t.Errorf("missing exact route site:\n%s", out)
+	}
+	if !strings.Contains(out, "reverse_proxy 127.0.0.1:20006") {
+		t.Errorf("exact route should proxy to its loopback port:\n%s", out)
+	}
+	if !strings.Contains(out, "*.jot.moyn.dev {") {
+		t.Errorf("missing wildcard route site:\n%s", out)
+	}
+	if !strings.Contains(out, "reverse_proxy 127.0.0.1:20007") {
+		t.Errorf("wildcard route should proxy to its loopback port:\n%s", out)
+	}
+}
+
 func TestRenderCaddyfile_RoutesSortedDeterministic(t *testing.T) {
 	routes := []Route{
 		{Hostname: "b.acme.sc2.thieso2.dev", LocalPort: 20002},
