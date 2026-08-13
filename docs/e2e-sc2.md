@@ -517,6 +517,30 @@ sc ls -a --networks --storage-pools --storage-volumes --profiles --images
 # NOTE: `sc-adm list` / `sc admin list` are explicitly out of scope for this
 #       cache — they keep querying Incus live, unaffected by the toggle.
 
+# The request must ask only for what it will print — a plain `sc ls` that
+# ships four unrendered resource types is what pushed a real install's
+# response to 79 KB and lost the cache to a timeout. Read the endpoint
+# directly (token from ~/.config/sandcastle/config.yml auth_tokens):
+curl -s -o /dev/null -w '%{size_download}\n' -H "Authorization: Bearer $TOKEN" \
+  "https://<auth-hostname>/api/resources?tenant=<tenant>&include=machines"
+curl -s -o /dev/null -w '%{size_download}\n' -H "Authorization: Bearer $TOKEN" \
+  "https://<auth-hostname>/api/resources?tenant=<tenant>"
+# PASS: include=machines returns a body with a "machines" array and no
+#       networks/storagePools/storageVolumes/profiles/images keys, and is
+#       substantially smaller than the no-include= request (which still
+#       returns every kind — that back-compat is what keeps an older `sc ls`
+#       working against a current appliance).
+# PASS: an unknown kind is ignored, not rejected —
+#       include=machines,quantum-widgets still answers 200 with machines.
+# PASS: `sc ls --storage-pools` shows STORAGE POOL/DRIVER/STATUS and
+#       `sc ls --profiles` shows PROJECT/PROFILE/USED BY — the trims that
+#       drop pool used_by and profile config/devices from the wire must not
+#       cost a rendered column.
+SANDCASTLE_LS_CACHE_TIMEOUT=10s VERBOSE=1 sc ls -a
+# PASS: the cache budget is overridable — useful on a tunnelled Auth
+#       Hostname where a cold TLS handshake alone can cost seconds. A junk
+#       or non-positive value is ignored and the 5s default applies.
+
 # 3. the ADR-0018 DNS battery (sidecar CoreDNS = tenant CIDR .3)
 DNS=10.254.0.3
 dig +short web.default.castle      @$DNS     # canonical            → machine IP

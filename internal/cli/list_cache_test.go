@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
@@ -60,7 +61,14 @@ func TestListMachinesViaCache_ReadyReturnsCacheDataIncludingNewResourceTypes(t *
 		adminConfig:   scconfig.Admin{Tenant: "acme"},
 		authResources: fake,
 	}
-	result, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{AllProjects: true})
+	renderAll := listRenderOptions{
+		ShowNetworks:       true,
+		ShowStoragePools:   true,
+		ShowStorageVolumes: true,
+		ShowProfiles:       true,
+		ShowImages:         true,
+	}
+	result, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{AllProjects: true}, renderAll)
 	if !ok {
 		t.Fatalf("cache-ready path fell back unexpectedly")
 	}
@@ -72,13 +80,7 @@ func TestListMachinesViaCache_ReadyReturnsCacheDataIncludingNewResourceTypes(t *
 		t.Fatalf("result = %+v, want every cache-backed resource type carried through", result)
 	}
 
-	rendered := formatMachineList(result, listRenderOptions{
-		ShowNetworks:       true,
-		ShowStoragePools:   true,
-		ShowStorageVolumes: true,
-		ShowProfiles:       true,
-		ShowImages:         true,
-	})
+	rendered := formatMachineList(result, renderAll)
 	for _, want := range []string{
 		"NETWORKS", "sc2br0",
 		"STORAGE POOLS", "default", "zfs",
@@ -96,21 +98,21 @@ func TestListMachinesViaCache_ScopesRequestTenantAndProject(t *testing.T) {
 	fake := &fakeResourceClient{result: authapp.ResourceListResult{Tenant: tenant.Summary{Tenant: "acme"}}}
 	config := commandConfig{adminConfig: scconfig.Admin{Tenant: "acme", Project: "pinned"}, authResources: fake}
 
-	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}); !ok {
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}, listRenderOptions{}); !ok {
 		t.Fatal("expected cache path to answer")
 	}
 	if fake.lastRequest.Tenant != "acme" || fake.lastRequest.Project != "pinned" {
 		t.Fatalf("request = %+v, want tenant=acme project=pinned (locally pinned project)", fake.lastRequest)
 	}
 
-	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{AllProjects: true}); !ok {
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{AllProjects: true}, listRenderOptions{}); !ok {
 		t.Fatal("expected cache path to answer")
 	}
 	if fake.lastRequest.Project != "" {
 		t.Fatalf("--all-projects request carried project = %q, want empty", fake.lastRequest.Project)
 	}
 
-	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{Project: "other/gbrain"}); !ok {
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{Project: "other/gbrain"}, listRenderOptions{}); !ok {
 		t.Fatal("expected cache path to answer")
 	}
 	if fake.lastRequest.Tenant != "other" || fake.lastRequest.Project != "gbrain" {
@@ -120,7 +122,7 @@ func TestListMachinesViaCache_ScopesRequestTenantAndProject(t *testing.T) {
 
 func TestListMachinesViaCache_FallsBackWithNoStoredAuthToken(t *testing.T) {
 	config := commandConfig{adminConfig: scconfig.Admin{Tenant: "acme"}}
-	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}); ok {
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}, listRenderOptions{}); ok {
 		t.Fatalf("expected fallback with no stored AuthToken")
 	}
 }
@@ -128,7 +130,7 @@ func TestListMachinesViaCache_FallsBackWithNoStoredAuthToken(t *testing.T) {
 func TestListMachinesViaCache_FallsBackWhenUnreachable(t *testing.T) {
 	fake := &fakeResourceClient{err: errors.New("dial tcp: connection refused")}
 	config := commandConfig{adminConfig: scconfig.Admin{Tenant: "acme"}, authResources: fake}
-	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}); ok {
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}, listRenderOptions{}); ok {
 		t.Fatalf("expected fallback when endpoint unreachable")
 	}
 }
@@ -136,7 +138,7 @@ func TestListMachinesViaCache_FallsBackWhenUnreachable(t *testing.T) {
 func TestListMachinesViaCache_FallsBackWhenNotReady(t *testing.T) {
 	fake := &fakeResourceClient{err: errors.New(fakeResourceCacheUnavailableErr)}
 	config := commandConfig{adminConfig: scconfig.Admin{Tenant: "acme"}, authResources: fake}
-	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}); ok {
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}, listRenderOptions{}); ok {
 		t.Fatalf("expected fallback when cache not ready")
 	}
 }
@@ -147,7 +149,7 @@ func TestListMachinesViaCache_FallsBackWhenToggleOff(t *testing.T) {
 	// the failed call alone, never off distinguishing the two.
 	fake := &fakeResourceClient{err: errors.New(fakeResourceCacheUnavailableErr)}
 	config := commandConfig{adminConfig: scconfig.Admin{Tenant: "acme"}, authResources: fake}
-	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}); ok {
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{}, listRenderOptions{}); ok {
 		t.Fatalf("expected fallback when toggle is off")
 	}
 }
@@ -271,5 +273,50 @@ func TestListCommand_FallsBackToLiveWhenCacheUnavailable(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "default") || !strings.Contains(stdout, "codex") {
 		t.Fatalf("stdout = %q, want the live-path machine listed after fallback", stdout)
+	}
+}
+
+// A plain `sc ls` must ask the cache endpoint for machines and nothing else.
+// Shipping the four resource types it will not print is what took a real
+// install's response to 79 KB and pushed the round trip past the cache budget,
+// sending every listing to the live path the cache exists to replace.
+func TestListMachinesViaCache_RequestsOnlyTheRenderedResourceKinds(t *testing.T) {
+	fake := &fakeResourceClient{result: authapp.ResourceListResult{Tenant: tenant.Summary{Tenant: "acme"}}}
+	config := commandConfig{adminConfig: scconfig.Admin{Tenant: "acme"}, authResources: fake}
+
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{AllProjects: true}, listRenderOptions{}); !ok {
+		t.Fatal("expected cache path to answer")
+	}
+	if got := strings.Join(fake.lastRequest.Include, ","); got != authapp.ResourceKindMachines {
+		t.Fatalf("plain sc ls asked for include=%q, want just %q", got, authapp.ResourceKindMachines)
+	}
+
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{AllProjects: true}, listRenderOptions{ShowImages: true, ShowProfiles: true}); !ok {
+		t.Fatal("expected cache path to answer")
+	}
+	want := []string{authapp.ResourceKindMachines, authapp.ResourceKindProfiles, authapp.ResourceKindImages}
+	if got := strings.Join(fake.lastRequest.Include, ","); got != strings.Join(want, ",") {
+		t.Fatalf("--profiles --images asked for include=%q, want %q", got, strings.Join(want, ","))
+	}
+}
+
+// The budget is overridable for links slower than the default allows, and a
+// junk value must not silently disable the cache path by leaving a zero
+// timeout behind.
+func TestResourceCacheRequestTimeout_EnvOverride(t *testing.T) {
+	if got := resourceCacheRequestTimeout(); got != defaultResourceCacheRequestTimeout {
+		t.Fatalf("unset = %s, want %s", got, defaultResourceCacheRequestTimeout)
+	}
+	for raw, want := range map[string]time.Duration{
+		"12s":      12 * time.Second,
+		"1m":       time.Minute,
+		"nonsense": defaultResourceCacheRequestTimeout,
+		"0":        defaultResourceCacheRequestTimeout,
+		"-5s":      defaultResourceCacheRequestTimeout,
+	} {
+		t.Setenv(resourceCacheTimeoutEnv, raw)
+		if got := resourceCacheRequestTimeout(); got != want {
+			t.Fatalf("%s=%q -> %s, want %s", resourceCacheTimeoutEnv, raw, got, want)
+		}
 	}
 }

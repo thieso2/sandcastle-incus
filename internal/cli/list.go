@@ -20,12 +20,36 @@ import (
 	tenant "github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
-// resourceCacheRequestTimeout bounds the GET /api/resources round trip `sc
-// ls` makes before falling back to the live per-project Incus path. It is far
-// shorter than DeviceClient's default (5 minutes, sized for the device-login
-// poll) because an unreachable or slow cache endpoint should fall back near-
-// instantly rather than stall the listing — see implementation-notes.md.
-const resourceCacheRequestTimeout = 3 * time.Second
+// defaultResourceCacheRequestTimeout bounds the GET /api/resources round trip
+// `sc ls` makes before falling back to the live per-project Incus path. It is
+// far shorter than DeviceClient's default (5 minutes, sized for the
+// device-login poll) because an unreachable or slow cache endpoint should fall
+// back quickly rather than stall the listing — see implementation-notes.md.
+//
+// It is not, however, only about Sandcastle's own work: a cold TLS handshake
+// to a Cloudflare-tunnelled Auth Hostname measured 0.7–2.2s on its own, and a
+// 3-byte /healthz over the same tunnel 0.25–4.2s, so the earlier 3s budget
+// expired on tunnel latency alone even with a minimal body. An endpoint that
+// is actually down fails on connect long before this fires; only a live-but-
+// slow one waits it out.
+const defaultResourceCacheRequestTimeout = 5 * time.Second
+
+// resourceCacheTimeoutEnv overrides that budget, for links slower still (or
+// for a deployment that would rather never wait on the cache). A value that
+// does not parse as a Go duration, or is not positive, is ignored.
+const resourceCacheTimeoutEnv = "SANDCASTLE_LS_CACHE_TIMEOUT"
+
+func resourceCacheRequestTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(resourceCacheTimeoutEnv))
+	if raw == "" {
+		return defaultResourceCacheRequestTimeout
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil || value <= 0 {
+		return defaultResourceCacheRequestTimeout
+	}
+	return value
+}
 
 type listPayload struct {
 	Tenant         tenant.Summary             `json:"tenant"`
@@ -59,6 +83,33 @@ type listRenderOptions struct {
 	ShowStorageVolumes bool
 	ShowProfiles       bool
 	ShowImages         bool
+}
+
+// resourceKinds is the include= selection these options imply: exactly the
+// sections formatMachineList will print. "machines" is unconditional — it is
+// the listing itself — and everything else rides on its flag, so a plain
+// `sc ls` never asks the cache endpoint for the networks/pools/volumes/
+// profiles/images it would then throw away. On a real install that is the
+// difference between a 4.4 KB and a 79 KB response over a tunnelled Auth
+// Hostname, i.e. between a cache hit and a silent fallback to the live path.
+func (o listRenderOptions) resourceKinds() []string {
+	kinds := []string{authapp.ResourceKindMachines}
+	if o.ShowNetworks {
+		kinds = append(kinds, authapp.ResourceKindNetworks)
+	}
+	if o.ShowStoragePools {
+		kinds = append(kinds, authapp.ResourceKindStoragePools)
+	}
+	if o.ShowStorageVolumes {
+		kinds = append(kinds, authapp.ResourceKindStorageVolumes)
+	}
+	if o.ShowProfiles {
+		kinds = append(kinds, authapp.ResourceKindProfiles)
+	}
+	if o.ShowImages {
+		kinds = append(kinds, authapp.ResourceKindImages)
+	}
+	return kinds
 }
 
 // multiListPayload is what a `sc ls` whose install part globs returns: one
@@ -133,20 +184,20 @@ expand it first.`,
 				defer restore()
 				runCfg = scoped
 			}
-			result, ok := listMachinesViaCache(cmd.Context(), runCfg, request)
-			if !ok {
-				var err error
-				result, err = listMachines(cmd.Context(), runCfg, request)
-				if err != nil {
-					return err
-				}
-			}
 			renderOpts := listRenderOptions{
 				ShowNetworks:       showNetworks,
 				ShowStoragePools:   showStoragePools,
 				ShowStorageVolumes: showStorageVolumes,
 				ShowProfiles:       showProfiles,
 				ShowImages:         showImages,
+			}
+			result, ok := listMachinesViaCache(cmd.Context(), runCfg, request, renderOpts)
+			if !ok {
+				var err error
+				result, err = listMachines(cmd.Context(), runCfg, request)
+				if err != nil {
+					return err
+				}
 			}
 			return writeOutput(config.stdout, opts.output, formatMachineList(result, renderOpts), result)
 		},
@@ -168,7 +219,7 @@ expand it first.`,
 // the caller must fall through to listMachines unchanged. The fallback reason
 // is logged only under VERBOSE=1, matching the existing
 // "[verbose] incus api: …" trace style (see incusx's logIncusAPICall).
-func listMachinesViaCache(ctx context.Context, config commandConfig, request listMachinesRequest) (listPayload, bool) {
+func listMachinesViaCache(ctx context.Context, config commandConfig, request listMachinesRequest, renderOpts listRenderOptions) (listPayload, bool) {
 	client := config.authResources
 	if client == nil {
 		token := strings.TrimSpace(config.adminConfig.AuthToken)
@@ -184,12 +235,13 @@ func listMachinesViaCache(ctx context.Context, config commandConfig, request lis
 		client = authapp.DeviceClient{BaseURL: baseURL, AuthToken: token}
 	}
 	tenantName, projectFilter := splitListTenantAndProject(config, request)
-	cacheCtx, cancel := context.WithTimeout(ctx, resourceCacheRequestTimeout)
+	cacheCtx, cancel := context.WithTimeout(ctx, resourceCacheRequestTimeout())
 	defer cancel()
 	result, err := client.ListResources(cacheCtx, authapp.ResourceListRequest{
 		Tenant:  tenantName,
 		Project: projectFilter,
 		Machine: strings.TrimSpace(request.Machine),
+		Include: renderOpts.resourceKinds(),
 	})
 	if err != nil {
 		logListCacheFallback(config, err.Error())
