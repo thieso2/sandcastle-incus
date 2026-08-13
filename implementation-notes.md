@@ -5,6 +5,77 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-12 — `sc ls` asks the cache only for what it prints, and gets 5s to do it
+
+Reported from the field on `obelix`: `VERBOSE=1 sc ls -a` still logged
+`cache-backed endpoint unavailable (context deadline exceeded), falling back
+to live per-project query` — the same symptom as the 2026-08-10 storage-volume
+entry below, on an install that already had that fix. Measured this time
+rather than guessed:
+
+- `GET /api/resources?tenant=thieso2` returned **79 KB** — machines **3.9 KB**,
+  storage-pool `used_by` **16.8 KB** (13.7 KB of it one pool), profile
+  `config`/`devices` **45 KB**. A plain `sc ls` renders *none* of the latter,
+  and the pools section is server-scoped so it shipped even with a project
+  filter applied.
+- Server-side work was not the problem: warm-connection TTFB was 0.43–0.69s.
+  The rest was transport — a cold TLS handshake through the Cloudflare tunnel
+  cost 0.7–2.2s, a 3-byte `/healthz` over the same tunnel measured 0.25–4.2s,
+  and the 79 KB body added ~2s of trickle after first byte.
+
+So the 3s budget was being spent almost entirely on data nobody reads, plus
+tunnel latency that exists whatever the payload.
+
+**Decision, two parts.**
+
+1. **`include=` on the endpoint** — the follow-up the 2026-08-10 entry
+   explicitly deferred, now that the numbers justify it. `sc ls` sends the
+   kinds it will render (`machines`, plus one per `--networks`/
+   `--storage-pools`/`--storage-volumes`/`--profiles`/`--images`), and the
+   handler builds only those sections. A **missing** `include` still means
+   "everything", so an older `sc ls` against a current appliance is
+   unaffected; an **unknown** kind is **ignored, not 400'd**, so a newer
+   `sc ls` against an older appliance is too — the CLI and the appliance
+   version independently, and a 400 would silently push that client onto the
+   live path, which is the exact failure this endpoint exists to prevent.
+   Default payload: 79 KB → ~4.4 KB.
+2. **Budget 3s → 5s, overridable with `SANDCASTLE_LS_CACHE_TIMEOUT`.** The
+   2026-08-10 entry rejected raising it, on the grounds that waiting longer
+   for a payload that is 95% unread data inverts the feature's purpose. That
+   reasoning is retired by part 1, not contradicted: with the payload minimal,
+   what remains in the budget is connection setup the CLI cannot avoid. The
+   decisive number is the other side of the trade — on the same install a
+   *fallback* run took **49 seconds**, so treating the cache as cheap to
+   abandon was wrong by an order of magnitude. An endpoint that is genuinely
+   down fails on connect long before 5s; only a live-but-slow one waits.
+
+Also trimmed on the wire, same rule as `trimStorageVolume` (drop what no
+`sc ls` section renders, keep what it does): storage-pool `UsedBy`
+(`formatStoragePoolsSection` prints name/driver/status) and profile
+`Config`/`Devices` (`formatProfilesSection` prints project/name and the
+*count* of `UsedBy`, so `UsedBy` stays). The cache keeps the full objects; only
+the response is trimmed, and a test asserts that.
+
+Alternatives considered:
+
+- **Trim harder and leave the budget at 3s.** Rejected: after `include=` the
+  body is already near-minimal, and the measurements show the remaining cost
+  is tunnel latency. 3s would still fail intermittently on a link where
+  `/healthz` alone can take 4s.
+- **Reuse a connection across `sc` invocations** (the "would buy far more
+  headroom" note left by the 2026-08-10 entry). Still true, still the bigger
+  win, still out of scope — it needs a local agent or a persistent session,
+  which is a different feature, not a fix.
+- **Make `include=` reject unknown kinds.** Rejected for the version-skew
+  reason above; forward compatibility matters more here than catching a
+  typo in a hand-written `curl`.
+
+Verified against `obelix` after the client change alone (the appliance is
+still on the old build, so it ignores `include=` and still returns 79 KB):
+4 of 5 `sc ls -a` runs answered from the cache in ~1s, versus 0 of 1 before.
+The remaining fallback is what the server-side `include=` handling removes
+once the appliance is updated.
+
 ## 2026-08-12 — `starship.toml`: literal string for the stashed symbol
 
 `git_status.stashed = "\$"` made starship refuse the whole config on every

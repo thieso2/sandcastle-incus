@@ -444,6 +444,13 @@ type ResourceListRequest struct {
 	Tenant  string
 	Project string
 	Machine string
+	// Include names the resource kinds the caller will actually render (the
+	// resourceKind* constants in resource_cache_api.go). Empty means "send
+	// everything", which is what an appliance predating the param does anyway;
+	// `sc ls` always fills it, because shipping the four resource types it is
+	// not going to print is what pushed a real install's response to 79 KB and
+	// its round trip past the cache budget.
+	Include []string
 }
 
 // ListResources calls the t2 cache-backed GET /api/resources endpoint. `sc
@@ -461,6 +468,15 @@ func (c DeviceClient) ListResources(ctx context.Context, request ResourceListReq
 	}
 	if v := strings.TrimSpace(request.Machine); v != "" {
 		query.Set("machine", v)
+	}
+	kinds := make([]string, 0, len(request.Include))
+	for _, kind := range request.Include {
+		if kind = strings.TrimSpace(kind); kind != "" {
+			kinds = append(kinds, kind)
+		}
+	}
+	if len(kinds) > 0 {
+		query.Set("include", strings.Join(kinds, ","))
 	}
 	path := "/api/resources"
 	if encoded := query.Encode(); encoded != "" {

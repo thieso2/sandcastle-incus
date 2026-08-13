@@ -128,8 +128,9 @@ is not a safe source of truth.
   full status-code contract, including the request-validation codes — 400,
   401, 403, 404 — that are genuine errors `sc ls` must **not** treat as a
   fallback trigger).
-- `sc ls` (`internal/cli/list.go`) tries the cache first with a short (3s)
-  request-scoped timeout and falls through to unmodified `listMachines()` on
+- `sc ls` (`internal/cli/list.go`) tries the cache first with a short (5s,
+  see the 2026-08-12 amendment) request-scoped timeout and falls through to
+  unmodified `listMachines()` on
   any non-answer, with no user-visible difference — a fallback shows up only
   under `VERBOSE=1`. With the toggle off, `sc ls`'s default output is
   byte-for-byte what it was before this wish; the new
@@ -152,6 +153,22 @@ is not a safe source of truth.
   listing — the only thing default `sc ls` renders — survives it. Refusing to
   serve never produced the unreadable volumes either; it only took everything
   else down with them.
+
+- **Amendment (2026-08-12).** The request now names the resource kinds it
+  will render (`GET /api/resources?include=machines[,networks,…]`), and the
+  budget is 5s rather than 3s. Both come from the same field measurement on
+  `obelix`: a `sc ls -a` that renders machines only was being answered with
+  79 KB, 62 KB of it storage-pool `used_by` and profile `config`/`devices`
+  that no `sc ls` section prints, and over a Cloudflare-tunnelled Auth
+  Hostname the round trip missed the 3s budget often enough that a *ready*
+  cache still fell back. A missing `include` still means "everything", so an
+  older `sc ls` is unaffected, and an unknown kind is ignored rather than
+  rejected so a newer one is too. The budget move is a separate admission:
+  even a minimal body costs a 0.7–2.2s cold TLS handshake through the tunnel
+  before Sandcastle does anything, and the live path it falls back to was
+  measured at 49s on that install — waiting a little longer for the cache is
+  strictly cheaper than losing it. `SANDCASTLE_LS_CACHE_TIMEOUT` overrides
+  the budget for slower links.
 
 - **Tradeoff (accepted):** `sc-adm list`/`sc admin list` keeps its full
   original cost. A busy install's admin-auth listing is not made faster by

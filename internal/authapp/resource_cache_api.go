@@ -33,6 +33,51 @@ type ResourceCacheMachineRenderer func(tenantName string, project string, instan
 // full response contract.
 const resourceCacheUnavailableMessage = "resource cache is not available: toggle is off, or the cache has not finished its initial read / lost its event-bus connection"
 
+// The kinds GET /api/resources?include=… selects. `sc ls` sends the kinds it
+// is actually going to render — always "machines", plus one per
+// --networks/--storage-pools/--storage-volumes/--profiles/--images flag — so
+// the common `sc ls` never pays to ship five resource types it will not print.
+// See implementation-notes.md for the measurement that motivated this.
+const (
+	ResourceKindMachines       = "machines"
+	ResourceKindNetworks       = "networks"
+	ResourceKindStoragePools   = "storage-pools"
+	ResourceKindStorageVolumes = "storage-volumes"
+	ResourceKindProfiles       = "profiles"
+	ResourceKindImages         = "images"
+	ResourceKindAll            = "all"
+)
+
+// resourceInclude is the parsed include= selection. A missing (or empty)
+// param means "everything", which is what keeps a pre-include `sc ls` — one
+// built before this param existed — seeing exactly the payload it did before.
+type resourceInclude map[string]bool
+
+func (i resourceInclude) has(kind string) bool { return i[ResourceKindAll] || i[kind] }
+
+// parseResourceInclude reads the comma-separated include= param. Unknown kinds
+// are ignored rather than rejected: the CLI and the appliance are versioned and
+// deployed independently, so a newer `sc ls` asking for a kind this appliance
+// has never heard of must still get an answer for the kinds it does know —
+// a 400 here would silently send that client to the live per-project path,
+// which is the exact fallback this endpoint exists to prevent.
+func parseResourceInclude(raw string) resourceInclude {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return resourceInclude{ResourceKindAll: true}
+	}
+	include := resourceInclude{}
+	for _, part := range strings.Split(raw, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			include[part] = true
+		}
+	}
+	if len(include) == 0 {
+		return resourceInclude{ResourceKindAll: true}
+	}
+	return include
+}
+
 // ResourceListResult is the GET /api/resources response: the cache-backed
 // counterpart of listMachines() in internal/cli/list.go, extended with the
 // resource types docs/shape/admin-server-config-toggled-event-bus-ca8marg.md
@@ -127,44 +172,59 @@ func (h handler) resourcesAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	include := parseResourceInclude(r.URL.Query().Get("include"))
 	result := ResourceListResult{
-		Tenant:       summary,
-		Project:      projectFilter,
-		Machine:      machineFilter,
-		AllProjects:  projectFilter == "",
-		Machines:     []meta.Machine{},
-		StoragePools: snapshot.StoragePools,
+		Tenant:      summary,
+		Project:     projectFilter,
+		Machine:     machineFilter,
+		AllProjects: projectFilter == "",
+		Machines:    []meta.Machine{},
 	}
-	for _, instance := range snapshot.Instances {
-		short, ok := matched[instance.Project]
-		if !ok {
-			continue
-		}
-		if machineFilter != "" && !naming.MatchName(machineFilter, instance.Name) {
-			continue
-		}
-		if converted, ok := h.resourceCacheRenderer(summary.Tenant, short, instance); ok {
-			result.Machines = append(result.Machines, converted)
-		}
-	}
-	for _, network := range snapshot.Networks {
-		if _, ok := matched[network.Project]; ok {
-			result.Networks = append(result.Networks, network)
+	if include.has(ResourceKindMachines) {
+		for _, instance := range snapshot.Instances {
+			short, ok := matched[instance.Project]
+			if !ok {
+				continue
+			}
+			if machineFilter != "" && !naming.MatchName(machineFilter, instance.Name) {
+				continue
+			}
+			if converted, ok := h.resourceCacheRenderer(summary.Tenant, short, instance); ok {
+				result.Machines = append(result.Machines, converted)
+			}
 		}
 	}
-	for _, volume := range snapshot.StorageVolumes {
-		if _, ok := matched[volume.Project]; ok {
-			result.StorageVolumes = append(result.StorageVolumes, trimStorageVolume(volume))
+	if include.has(ResourceKindNetworks) {
+		for _, network := range snapshot.Networks {
+			if _, ok := matched[network.Project]; ok {
+				result.Networks = append(result.Networks, network)
+			}
 		}
 	}
-	for _, profile := range snapshot.Profiles {
-		if _, ok := matched[profile.Project]; ok {
-			result.Profiles = append(result.Profiles, profile)
+	if include.has(ResourceKindStoragePools) {
+		for _, pool := range snapshot.StoragePools {
+			result.StoragePools = append(result.StoragePools, trimStoragePool(pool))
 		}
 	}
-	for _, image := range snapshot.Images {
-		if _, ok := matched[image.Project]; ok {
-			result.Images = append(result.Images, image)
+	if include.has(ResourceKindStorageVolumes) {
+		for _, volume := range snapshot.StorageVolumes {
+			if _, ok := matched[volume.Project]; ok {
+				result.StorageVolumes = append(result.StorageVolumes, trimStorageVolume(volume))
+			}
+		}
+	}
+	if include.has(ResourceKindProfiles) {
+		for _, profile := range snapshot.Profiles {
+			if _, ok := matched[profile.Project]; ok {
+				result.Profiles = append(result.Profiles, trimProfile(profile))
+			}
+		}
+	}
+	if include.has(ResourceKindImages) {
+		for _, image := range snapshot.Images {
+			if _, ok := matched[image.Project]; ok {
+				result.Images = append(result.Images, image)
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -186,6 +246,26 @@ func trimStorageVolume(volume api.StorageVolumeFull) api.StorageVolumeFull {
 	volume.Snapshots = nil
 	volume.Backups = nil
 	return volume
+}
+
+// trimStoragePool drops a pool's UsedBy list, the same wire-only trim
+// trimStorageVolume performs. `sc ls --storage-pools` renders name, driver,
+// and status (formatStoragePoolsSection); UsedBy is a URL per instance,
+// volume, and image on the pool — 13.7 KB for a single pool on a real install,
+// the largest single item in that install's response.
+func trimStoragePool(pool api.StoragePool) api.StoragePool {
+	pool.UsedBy = nil
+	return pool
+}
+
+// trimProfile drops a profile's Config and Devices. `sc ls --profiles` renders
+// project, name, and the *count* of UsedBy (formatProfilesSection), so UsedBy
+// stays and the rest goes: on a real install the 13 profiles' configs came to
+// 45 KB, the bulk of a 79 KB response.
+func trimProfile(profile api.Profile) api.Profile {
+	profile.Config = nil
+	profile.Devices = nil
+	return profile
 }
 
 // selectAccessibleTenant resolves the request's tenant query param against

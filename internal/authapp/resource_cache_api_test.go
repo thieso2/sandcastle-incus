@@ -233,3 +233,119 @@ func TestResourcesAPI_OmitsVolumeSnapshotsAndBackups(t *testing.T) {
 		t.Fatalf("cache lost its snapshots: %+v", snapshot.StorageVolumes)
 	}
 }
+
+// resourceIncludeTestCache holds one item of every resource kind, all in
+// alice's default project, so a response can be asserted kind by kind.
+func resourceIncludeTestCache() *ResourceCache {
+	cache := NewResourceCache(time.Minute)
+	cache.seed(
+		[]api.InstanceFull{{Instance: api.Instance{Project: "sc2-alice-default", Name: "web", Type: "container"}}},
+		[]api.Network{{Name: "sc2br0", Project: "sc2-alice-default"}},
+		[]api.StoragePool{{Name: "default", Driver: "zfs", UsedBy: []string{"/1.0/instances/web"}}},
+		[]api.StorageVolumeFull{{StorageVolume: api.StorageVolume{Project: "sc2-alice-default", Name: "sc-local"}}},
+		[]api.Profile{{
+			ProfilePut: api.ProfilePut{
+				Config:  map[string]string{"user.big": "payload"},
+				Devices: map[string]map[string]string{"root": {"path": "/"}},
+			},
+			Name:    "default",
+			Project: "sc2-alice-default",
+			UsedBy:  []string{"/1.0/instances/web"},
+		}},
+		[]api.Image{{Fingerprint: "abc123", Project: "sc2-alice-default"}},
+	)
+	cache.markStreamConnected()
+	return cache
+}
+
+func resourcesAPIResult(t *testing.T, h http.Handler, token string, query string) ResourceListResult {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?"+query, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("GET ?%s = %d %q, want 200", query, res.Code, res.Body.String())
+	}
+	var result ResourceListResult
+	if err := json.Unmarshal(res.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// include= selects the resource kinds in the response. A plain `sc ls` sends
+// include=machines and must not pay to ship the four kinds it will not print
+// — the payload size that pushed a real install past `sc ls`'s cache budget.
+func TestResourcesAPI_IncludeSelectsResourceKinds(t *testing.T) {
+	h, token := resourceAPITestHandler(t, resourceIncludeTestCache())
+
+	machinesOnly := resourcesAPIResult(t, h, token, "tenant=alice&include=machines")
+	if len(machinesOnly.Machines) != 1 {
+		t.Fatalf("machines = %+v, want alice's one instance", machinesOnly.Machines)
+	}
+	if len(machinesOnly.Networks) != 0 || len(machinesOnly.StoragePools) != 0 ||
+		len(machinesOnly.StorageVolumes) != 0 || len(machinesOnly.Profiles) != 0 || len(machinesOnly.Images) != 0 {
+		t.Fatalf("include=machines shipped unrequested kinds: %+v", machinesOnly)
+	}
+
+	// StoragePools is the one server-scoped kind (never project-filtered), so
+	// it is the one most worth proving include= still gates.
+	pools := resourcesAPIResult(t, h, token, "tenant=alice&include=machines,storage-pools")
+	if len(pools.StoragePools) != 1 || len(pools.Machines) != 1 {
+		t.Fatalf("include=machines,storage-pools = %+v, want both kinds", pools)
+	}
+	if len(pools.Profiles) != 0 || len(pools.Images) != 0 {
+		t.Fatalf("include=machines,storage-pools shipped other kinds: %+v", pools)
+	}
+
+	// An unknown kind is ignored, not rejected: a newer CLI naming a kind this
+	// appliance has never heard of must still get an answer rather than a 400
+	// that silently sends it to the live path.
+	forward := resourcesAPIResult(t, h, token, "tenant=alice&include=machines,quantum-widgets")
+	if len(forward.Machines) != 1 {
+		t.Fatalf("unknown include kind broke the answer: %+v", forward)
+	}
+}
+
+// No include= at all means "everything", so an `sc ls` built before the param
+// existed keeps seeing exactly the payload it did before.
+func TestResourcesAPI_NoIncludeParamReturnsEveryKind(t *testing.T) {
+	h, token := resourceAPITestHandler(t, resourceIncludeTestCache())
+	result := resourcesAPIResult(t, h, token, "tenant=alice")
+	if len(result.Machines) != 1 || len(result.Networks) != 1 || len(result.StoragePools) != 1 ||
+		len(result.StorageVolumes) != 1 || len(result.Profiles) != 1 || len(result.Images) != 1 {
+		t.Fatalf("no include= = %+v, want every kind", result)
+	}
+}
+
+// The wire-only trims, same rule as trimStorageVolume: drop what no `sc ls`
+// section renders, keep what it does.
+func TestResourcesAPI_TrimsUnrenderedPoolAndProfileFields(t *testing.T) {
+	cache := resourceIncludeTestCache()
+	h, token := resourceAPITestHandler(t, cache)
+	result := resourcesAPIResult(t, h, token, "tenant=alice&include=storage-pools,profiles")
+
+	pool := result.StoragePools[0]
+	if len(pool.UsedBy) != 0 {
+		t.Fatalf("pool shipped UsedBy=%v, want it trimmed", pool.UsedBy)
+	}
+	if pool.Name != "default" || pool.Driver != "zfs" {
+		t.Fatalf("trimmed away a rendered pool field: %+v", pool)
+	}
+
+	profile := result.Profiles[0]
+	if len(profile.Config) != 0 || len(profile.Devices) != 0 {
+		t.Fatalf("profile shipped config=%v devices=%v, want both trimmed", profile.Config, profile.Devices)
+	}
+	// formatProfilesSection renders the UsedBy *count*, so UsedBy must survive.
+	if profile.Name != "default" || profile.Project != "sc2-alice-default" || len(profile.UsedBy) != 1 {
+		t.Fatalf("trimmed away a rendered profile field: %+v", profile)
+	}
+
+	// The cache itself keeps the full objects — only the wire response is trimmed.
+	snapshot := cache.Snapshot()
+	if len(snapshot.StoragePools[0].UsedBy) != 1 || len(snapshot.Profiles[0].Config) != 1 {
+		t.Fatalf("cache lost data to a wire-only trim: %+v %+v", snapshot.StoragePools[0], snapshot.Profiles[0])
+	}
+}
