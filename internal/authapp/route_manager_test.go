@@ -243,6 +243,33 @@ func TestStatus_CustomHostnameAwaitingDNS(t *testing.T) {
 	}
 }
 
+func TestStatus_WildcardHostnameProbesRandomLabel(t *testing.T) {
+	ctx := context.Background()
+	m, backend, _ := newManager(t)
+	backend.states["acme/default/web"] = running("10.248.3.42")
+	route := Route{Hostname: "*.jot.moyn.dev", Tenant: "acme", Project: "default", Machine: "web", BackendPort: 3000}
+
+	var resolved string
+	m.ResolveHost = func(ctx context.Context, host string) bool {
+		if host == "*.jot.moyn.dev" {
+			t.Fatal("must not resolve the literal wildcard hostname")
+		}
+		resolved = host
+		return false
+	}
+	if got := m.Status(ctx, route); got.Status != RouteStatusAwaitingDNS {
+		t.Fatalf("unresolved wildcard should be awaiting-dns, got %q", got.Status)
+	}
+	if !strings.HasSuffix(resolved, ".jot.moyn.dev") || resolved == "jot.moyn.dev" {
+		t.Fatalf("expected a probe label under jot.moyn.dev, got %q", resolved)
+	}
+
+	m.ResolveHost = func(ctx context.Context, host string) bool { return true }
+	if got := m.Status(ctx, route); got.Status != RouteStatusLive {
+		t.Fatalf("resolved wildcard should be live, got %q", got.Status)
+	}
+}
+
 func TestStatus_AutoSubdomainNeverAwaitingDNS(t *testing.T) {
 	ctx := context.Background()
 	m, backend, _ := newManager(t)
