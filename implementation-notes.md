@@ -4415,3 +4415,29 @@ same zone. Both pass.
   more specific than the same zone's wildcard). If this precedence is ever
   load-bearing enough to need proof beyond the docs, that requires vendoring a
   `caddy adapt`/`caddy validate` step, which is out of scope for this slice.
+
+## 2026-08-13 — plan_ticket: wildcard public routes (#141) — the two non-obvious calls
+
+Recording both non-obvious choices made while building wildcard route support
+(spanning the `routesAsk`/hostname-validation change, the `RenderCaddyfile`
+confirmation, and the `Status` DNS-liveness probe), per the spec's
+"Documentation to update alongside the code" note:
+
+- **Leaf cert per real SNI, not one real wildcard certificate.** `routesAsk`
+  (`internal/authapp/routes_api.go`) authorizes on-demand issuance for any
+  concrete subdomain covered by a registered `*.<zone>` Route, but a literal
+  `*.<zone>` domain is always denied (no TLS handshake ever presents a literal
+  `*` SNI). Caddy's `on_demand_tls` therefore issues and caches one ACME leaf
+  cert per distinct subdomain the first time it's hit — there is no DNS-01
+  challenge and no xcaddy plugin anywhere in this change, matching the spec's
+  non-goal. The tradeoff: first-hit latency and one Let's Encrypt issuance per
+  new subdomain, in exchange for zero added infra (no DNS provider API
+  credentials, no custom-built Caddy).
+- **Exact-vs-wildcard precedence relies on Caddy's own address-specificity
+  sort, not app-level matching logic** — confirmed by *reading* Caddyfile
+  address-matching semantics, not by an executable test: this repo has no
+  `caddy` binary or `caddyserver/caddy` module dependency, so `caddy
+  adapt`/`validate` isn't available to exercise it directly. See the entry
+  above ("confirm Caddyfile wildcard rendering + exact-vs-wildcard
+  precedence") for what was actually tested (`RenderCaddyfile` emits both
+  blocks correctly) versus what's asserted from docs (which block wins).
