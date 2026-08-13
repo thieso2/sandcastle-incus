@@ -708,8 +708,13 @@ Publish a machine's port to the public Internet.
 <span class="cmd">sc route publish</span> <span class="arg">web</span> <span class="flag">--port</span> <span class="arg">3000</span> <span class="flag">--name</span> <span class="arg">api</span>
 
 <span class="comment"># Bring your own domain: publish it, then CNAME it onto the auth host yourself</span>
-<span class="cmd">sc route publish</span> <span class="arg">web</span> <span class="flag">--port</span> <span class="arg">3000</span> <span class="flag">--hostname</span> <span class="arg">app.customer.com</span></code></pre>
-    <p>The machine is addressed with the usual <code>[[remote:]project:]machine</code> syntax. <code>--port</code> (the backend port inside the machine) is required. Custom hostnames are self-serve first-come; sc does not automate DNS — a custom route only serves once you point its DNS at the auth host and the certificate is issued.</p>
+<span class="cmd">sc route publish</span> <span class="arg">web</span> <span class="flag">--port</span> <span class="arg">3000</span> <span class="flag">--hostname</span> <span class="arg">app.customer.com</span>
+
+<span class="comment"># Wildcard: every subdomain under it proxies to this one machine/port, each
+# getting its own on-demand-issued cert on first request (e.g. a push-to-deploy
+# platform minting a fresh slug.jot.moyn.dev per deployment)</span>
+<span class="cmd">sc route publish</span> <span class="arg">web</span> <span class="flag">--port</span> <span class="arg">3000</span> <span class="flag">--hostname</span> <span class="arg">'*.jot.moyn.dev'</span></code></pre>
+    <p>The machine is addressed with the usual <code>[[remote:]project:]machine</code> syntax. <code>--port</code> (the backend port inside the machine) is required. Custom hostnames are self-serve first-come; sc does not automate DNS — a custom route only serves once you point its DNS at the auth host and the certificate is issued. A wildcard hostname (a single leading <code>*.</code> label, e.g. <code>*.jot.moyn.dev</code>) needs a wildcard DNS record pointed at the auth host instead of one per name; you still CNAME it yourself. An exact-hostname route always wins over a covering wildcard route for the same name.</p>
   </div>
 
   <div class="step">

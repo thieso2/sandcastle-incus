@@ -319,6 +319,12 @@ func (h handler) routesAsk(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "domain is required", http.StatusBadRequest)
 		return
 	}
+	// No real TLS handshake ever presents a literal "*" SNI, so a domain that is
+	// itself a wildcard is never a certificate to issue — deny outright.
+	if strings.HasPrefix(domain, "*.") {
+		http.Error(w, "unknown host", http.StatusForbidden)
+		return
+	}
 	// The Auth Hostname itself is a normal (non-on-demand) certificate, but allow
 	// it through in case Caddy ever asks.
 	if domain == h.authHostname {
@@ -331,10 +337,31 @@ func (h handler) routesAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
+		if wildcard, has := routeCoveringWildcard(domain); has {
+			ok, err = RouteHostnameRegistered(r.Context(), h.db, wildcard)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+	if !ok {
 		http.Error(w, "unknown host", http.StatusForbidden)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// routeCoveringWildcard returns the wildcard Hostname that would cover domain:
+// its leftmost label stripped and replaced with "*.". "a.b.example.com" ->
+// "*.b.example.com". A domain with fewer than two labels has no label to
+// strip, so it has no covering wildcard.
+func routeCoveringWildcard(domain string) (string, bool) {
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 {
+		return "", false
+	}
+	return "*." + strings.Join(labels[1:], "."), true
 }
 
 // routeHostname resolves the public FQDN for a publish request: a custom
@@ -401,7 +428,20 @@ func isValidDNSLabel(label string) bool {
 	return true
 }
 
+// isValidPublicHostname accepts an exact hostname, or a wildcard hostname
+// whose leftmost label is exactly "*" and whose remainder (the rest of the
+// name, without the "*." prefix) is itself a valid exact hostname. That base
+// check never accepts "*" in a label, so a second/nested wildcard label (e.g.
+// "foo.*.example.com" or "*.*.example.com") is rejected the same way any
+// other invalid character would be.
 func isValidPublicHostname(hostname string) bool {
+	if rest, ok := strings.CutPrefix(hostname, "*."); ok {
+		return isValidExactHostname(rest)
+	}
+	return isValidExactHostname(hostname)
+}
+
+func isValidExactHostname(hostname string) bool {
 	if hostname == "" || len(hostname) > 253 || !strings.Contains(hostname, ".") {
 		return false
 	}

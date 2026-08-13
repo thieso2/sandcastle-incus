@@ -4465,3 +4465,50 @@ explicit scope boundary.
   trace and acceptance criteria are single-install, and threading the cache
   path through the fanout would need its own request/response shape decision
   the plan doesn't make.
+
+## 2026-08-13 — plan_ticket: confirm Caddyfile wildcard rendering + exact-vs-wildcard precedence
+
+`RenderCaddyfile` (`internal/authapp/routes_caddy.go`) already writes each
+Route's `Hostname` verbatim as the site address — no rendering code change was
+needed. Added `TestRenderCaddyfile_WildcardRouteBlock` and
+`TestRenderCaddyfile_ExactAndWildcardBothRendered`
+(`internal/authapp/routes_caddy_test.go`) confirming a `*.jot.moyn.dev` Route
+renders a valid `*.jot.moyn.dev {` block with on-demand TLS and the right
+`reverse_proxy` target, standalone and alongside an exact-host Route for the
+same zone. Both pass.
+
+- **No executable confirmation of exact-over-wildcard precedence.** This repo
+  has no `caddy` binary and no `caddyserver/caddy` module dependency anywhere
+  (checked `go.mod`, `PATH`, and the filesystem) — Caddy config here is plain
+  string templating, never adapted or run. So the "exact route wins" decision
+  is not exercised by a test; it relies on Caddy's own documented behavior
+  (site addresses are matched most-specific-first, and a literal hostname is
+  more specific than the same zone's wildcard). If this precedence is ever
+  load-bearing enough to need proof beyond the docs, that requires vendoring a
+  `caddy adapt`/`caddy validate` step, which is out of scope for this slice.
+
+## 2026-08-13 — plan_ticket: wildcard public routes (#141) — the two non-obvious calls
+
+Recording both non-obvious choices made while building wildcard route support
+(spanning the `routesAsk`/hostname-validation change, the `RenderCaddyfile`
+confirmation, and the `Status` DNS-liveness probe), per the spec's
+"Documentation to update alongside the code" note:
+
+- **Leaf cert per real SNI, not one real wildcard certificate.** `routesAsk`
+  (`internal/authapp/routes_api.go`) authorizes on-demand issuance for any
+  concrete subdomain covered by a registered `*.<zone>` Route, but a literal
+  `*.<zone>` domain is always denied (no TLS handshake ever presents a literal
+  `*` SNI). Caddy's `on_demand_tls` therefore issues and caches one ACME leaf
+  cert per distinct subdomain the first time it's hit — there is no DNS-01
+  challenge and no xcaddy plugin anywhere in this change, matching the spec's
+  non-goal. The tradeoff: first-hit latency and one Let's Encrypt issuance per
+  new subdomain, in exchange for zero added infra (no DNS provider API
+  credentials, no custom-built Caddy).
+- **Exact-vs-wildcard precedence relies on Caddy's own address-specificity
+  sort, not app-level matching logic** — confirmed by *reading* Caddyfile
+  address-matching semantics, not by an executable test: this repo has no
+  `caddy` binary or `caddyserver/caddy` module dependency, so `caddy
+  adapt`/`validate` isn't available to exercise it directly. See the entry
+  above ("confirm Caddyfile wildcard rendering + exact-vs-wildcard
+  precedence") for what was actually tested (`RenderCaddyfile` emits both
+  blocks correctly) versus what's asserted from docs (which block wins).

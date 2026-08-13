@@ -2,6 +2,7 @@ package authapp
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -206,7 +207,7 @@ func (m RouteManager) Status(ctx context.Context, route Route) RouteStatus {
 	switch {
 	case err != nil || !state.Present || !state.Running:
 		status.Status = RouteStatusUnhealthy
-	case m.isCustomHostname(route.Hostname) && !m.hostResolves(ctx, route.Hostname):
+	case m.isCustomHostname(route.Hostname) && !m.hostResolves(ctx, probeHostname(route.Hostname)):
 		status.Status = RouteStatusAwaitingDNS
 	default:
 		status.Status = RouteStatusLive
@@ -223,6 +224,22 @@ func (m RouteManager) isCustomHostname(hostname string) bool {
 		base = strings.Trim(strings.TrimSpace(m.Render.AuthHostname), ".")
 	}
 	return base == "" || !strings.HasSuffix(hostname, "."+base)
+}
+
+// probeHostname returns the name to DNS-check for hostname's liveness: for a
+// wildcard Hostname ("*.jot.moyn.dev"), the literal "*." name can never
+// resolve, so this substitutes a random-looking label ("a1b2c3.jot.moyn.dev")
+// under the same suffix as a liveness probe. Not an authorization gate, so the
+// label just needs to be unpredictable enough not to collide with a real
+// record. Non-wildcard hostnames pass through unchanged.
+func probeHostname(hostname string) string {
+	rest, ok := strings.CutPrefix(hostname, "*.")
+	if !ok {
+		return hostname
+	}
+	var buf [4]byte
+	_, _ = rand.Read(buf[:])
+	return hex.EncodeToString(buf[:]) + "." + rest
 }
 
 // hostResolves reports whether host resolves to an address, with a short bound.

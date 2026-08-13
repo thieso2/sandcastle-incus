@@ -1474,6 +1474,45 @@ sc route delete <hostname> --yes
 > (the tenant `sc` restricted cert wasn't set up on the test client); the `sc route`
 > CLI drives the same endpoints after a normal `sc login`.
 
+### Variant — wildcard route (`--hostname '*.<domain>'`, #141)
+A single Route can cover an open-ended set of subdomains — e.g. a push-to-deploy
+platform minting a fresh `<slug>.jot.moyn.dev` per deployment — instead of
+publishing one Route per name. There is no real wildcard certificate: Caddy's
+`on_demand_tls` issues one leaf cert per real SNI the first time it is hit, gated
+by the same `/api/routes/ask` endpoint extended to recognize a domain covered by
+a registered wildcard Route (exact-match Routes are checked first and win over a
+covering wildcard for the same name).
+
+```bash
+sc route publish web --port 3000 --hostname '*.jot.moyn.dev'
+# → operator points a wildcard DNS record *.jot.moyn.dev at the auth host
+
+sc route status '*.jot.moyn.dev'   # live once ANY real subdomain resolves —
+                                    # the literal "*.jot.moyn.dev" is never queried
+```
+
+**PASS:**
+- `sc route publish … --hostname '*.jot.moyn.dev'` succeeds and `sc route status
+  '*.jot.moyn.dev'` reports `live` once the operator's wildcard DNS record is in
+  place — the liveness probe resolves a random subdomain (e.g.
+  `a1b2c3.jot.moyn.dev`), never the literal `*.jot.moyn.dev` string.
+- Hit **at least two distinct random subdomains** under the wildcard, e.g.
+  `curl https://foo1.jot.moyn.dev/` and `curl https://foo2.jot.moyn.dev/` (no
+  prior publish for either name): each returns the app body from `web` over a
+  **live proxied response**, with its **own** on-demand-issued certificate
+  (distinct leaf certs, not one shared wildcard cert — confirm via
+  `openssl s_client -connect <host>:443 -servername <subdomain>` showing
+  `subject=CN=<that exact subdomain>` for each).
+- `curl https://jot.moyn.dev/` (the bare zone, not covered — wildcard matches
+  exactly one extra label) and a name under an **unregistered** zone both fail
+  the `/api/routes/ask` gate with no cert issued.
+- Publishing an exact hostname under the same zone (e.g. `sc route publish web2
+  --port 3001 --hostname pinned.jot.moyn.dev`) alongside the wildcard Route
+  serves `pinned.jot.moyn.dev` from `web2`, not `web` — exact beats wildcard.
+- `sc route delete '*.jot.moyn.dev' --yes` removes the wildcard site block; the
+  previously-hit subdomains stop resolving through this Route (their leaf certs
+  simply go unused, nothing to clean up per-subdomain).
+
 ### Route discovery — `sc route` and `GET /api/routes/config`
 A Tenant cannot derive the route base domain or the CNAME target from anything
 they can see, so the install reports both: `GET /api/routes/config` (token-gated)

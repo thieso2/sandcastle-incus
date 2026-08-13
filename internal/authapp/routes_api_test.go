@@ -167,6 +167,116 @@ func TestRouteAskAPI_GatesUnregisteredHostnames(t *testing.T) {
 	}
 }
 
+func TestIsValidDNSLabel_RejectsWildcardCharacter(t *testing.T) {
+	if isValidDNSLabel("*") {
+		t.Error(`isValidDNSLabel("*") should be false: "*" is not a valid DNS label character`)
+	}
+}
+
+func TestIsValidPublicHostname_Wildcard(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		host string
+		want bool
+	}{
+		{"leading wildcard label is valid", "*.jot.moyn.dev", true},
+		{"wildcard not exactly the leftmost label", "*foo.jot.moyn.dev", false},
+		{"wildcard not leftmost", "foo.*.jot.moyn.dev", false},
+		{"remainder has no dot", "*.dev", false},
+		{"wildcard alone", "*", false},
+		{"double wildcard", "*.*.jot.moyn.dev", false},
+		{"plain hostname unaffected", "web.acme.sc2.thieso2.dev", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isValidPublicHostname(tc.host); got != tc.want {
+				t.Errorf("isValidPublicHostname(%q) = %v, want %v", tc.host, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRouteHostname_AcceptsWildcardCustomHostname(t *testing.T) {
+	h := handler{authHostname: "sc2.thieso2.dev"}
+	got, err := h.routeHostname(RoutePublishRequest{Hostname: "*.jot.moyn.dev"})
+	if err != nil {
+		t.Fatalf("routeHostname: %v", err)
+	}
+	if got != "*.jot.moyn.dev" {
+		t.Errorf("routeHostname = %q, want %q", got, "*.jot.moyn.dev")
+	}
+}
+
+func TestRouteCoveringWildcard(t *testing.T) {
+	for _, tc := range []struct {
+		domain       string
+		wantWildcard string
+		wantOK       bool
+	}{
+		{"foo123.jot.moyn.dev", "*.jot.moyn.dev", true},
+		{"a.b.jot.moyn.dev", "*.b.jot.moyn.dev", true},
+		{"jot.moyn.dev", "*.moyn.dev", true},
+		{"solo", "", false},
+	} {
+		t.Run(tc.domain, func(t *testing.T) {
+			gotWildcard, gotOK := routeCoveringWildcard(tc.domain)
+			if gotOK != tc.wantOK || gotWildcard != tc.wantWildcard {
+				t.Errorf("routeCoveringWildcard(%q) = (%q, %v), want (%q, %v)", tc.domain, gotWildcard, gotOK, tc.wantWildcard, tc.wantOK)
+			}
+		})
+	}
+}
+
+// A wildcard Route (e.g. "*.jot.moyn.dev") covers every direct subdomain, but
+// not the wildcard root itself, not a second-level subdomain, not an
+// unrelated domain, and never a literal "*" SNI — Caddy never sees one.
+func TestRouteAskAPI_WildcardCoverage(t *testing.T) {
+	backend := newFakeBackend()
+	backend.states["acme/default/jot"] = running("10.248.3.42")
+	h, token := routeTestHandler(t, backend, &fakeCaddy{})
+
+	pub := httptest.NewRequest(http.MethodPost, "/api/routes", strings.NewReader(`{"tenant":"acme","project":"default","machine":"jot","backendPort":3000,"hostname":"*.jot.moyn.dev"}`))
+	pub.Header.Set("Authorization", "Bearer "+token)
+	pubRes := httptest.NewRecorder()
+	h.ServeHTTP(pubRes, pub)
+	if pubRes.Code != http.StatusOK {
+		t.Fatalf("publish wildcard route = %d %q", pubRes.Code, pubRes.Body.String())
+	}
+
+	for _, tc := range []struct {
+		domain string
+		want   int
+	}{
+		{"foo123.jot.moyn.dev", http.StatusOK},
+		{"bar.jot.moyn.dev", http.StatusOK},
+		{"jot.moyn.dev", http.StatusForbidden},
+		{"a.b.jot.moyn.dev", http.StatusForbidden},
+		{"evil.example.com", http.StatusForbidden},
+		{"*.jot.moyn.dev", http.StatusForbidden},
+	} {
+		t.Run(tc.domain, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/routes/ask?domain="+tc.domain, nil)
+			res := httptest.NewRecorder()
+			h.ServeHTTP(res, req)
+			if res.Code != tc.want {
+				t.Errorf("ask domain=%q = %d, want %d", tc.domain, res.Code, tc.want)
+			}
+		})
+	}
+
+	// An exactly-registered hostname that is also wildcard-covered must still
+	// resolve via the exact match — exact-beats-wildcard precedence.
+	pubExact := httptest.NewRequest(http.MethodPost, "/api/routes", strings.NewReader(`{"tenant":"acme","project":"default","machine":"jot","backendPort":3000,"hostname":"pinned.jot.moyn.dev"}`))
+	pubExact.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(httptest.NewRecorder(), pubExact)
+
+	exactReq := httptest.NewRequest(http.MethodGet, "/api/routes/ask?domain=pinned.jot.moyn.dev", nil)
+	exactRes := httptest.NewRecorder()
+	h.ServeHTTP(exactRes, exactReq)
+	if exactRes.Code != http.StatusOK {
+		t.Errorf("ask for exactly-registered, wildcard-covered host = %d, want 200", exactRes.Code)
+	}
+}
+
 func TestRouteListAndDeleteAPI(t *testing.T) {
 	backend := newFakeBackend()
 	backend.states["acme/default/web"] = running("10.248.3.42")
