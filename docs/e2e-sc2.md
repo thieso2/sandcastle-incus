@@ -547,19 +547,33 @@ SANDCASTLE_LS_CACHE_TIMEOUT=10s VERBOSE=1 sc ls -a
 # instance-started until some unrelated event touches the same project. A
 # cache-backed `sc ls` must never report that blank as fact.
 sc create dev                                # in a fresh project
-sc ls                                        # IMMEDIATELY, no sleep
-# PASS: the IP column shows the machine's tenant address on the FIRST `sc ls`
-#       after create — never blank-then-populated-later. Cross-check against
-#       the live view, which must agree:
-#       `sc-adm incus list <remote>: --project <prefix>-<tenant>-<project> -c ns4`
-VERBOSE=1 sc ls 2>&1 | grep -i 'cache-backed'
-# PASS (cache still holds the pre-lease snapshot): a "[verbose] incus api: sc
-#       ls cache-backed endpoint unavailable (cached machine <project>/<name>
-#       is running with no address), falling back to live per-project query"
-#       line — the listing is served live and correct, and the run is one
-#       per-project GetInstancesFull slower. This is the intended trade:
-#       ADR-0023 decision 3 accepts a silently stale cache, and `sc ls`
-#       refuses to pass that staleness on when it is detectable.
+# Capture ONE listing and assert everything from it. Running `sc ls` twice is
+# not a valid check here: any lifecycle event landing in between re-reads that
+# project, so a second run can be a cache hit that hides what the first did.
+VERBOSE=1 sc ls > /tmp/first-ls.txt 2>&1     # IMMEDIATELY, no sleep
+cat /tmp/first-ls.txt
+sc-adm incus list <remote>: --project <prefix>-<tenant>-<project> -c ns4
+# PASS: the IP column in /tmp/first-ls.txt shows the machine's tenant address
+#       on the FIRST `sc ls` after create — never blank-then-populated-later —
+#       and it matches the live `sc-adm incus list` output above.
+grep -i 'cache-backed' /tmp/first-ls.txt
+# PASS (cache still holds the pre-lease snapshot): that SAME captured run
+#       carries a "[verbose] incus api: sc ls cache-backed endpoint
+#       unavailable (cached machine <project>/<name> is running with no
+#       address), falling back to live per-project query" line — the listing
+#       was served live and correct, one per-project GetInstancesFull slower.
+#       This is the intended trade: ADR-0023 decision 3 accepts a silently
+#       stale cache, and `sc ls` refuses to pass that staleness on when it is
+#       detectable in the answer itself.
+# PASS: no such line is ALSO fine — it means the cache happened to be current
+#       for that project. What must never appear is a blank IP column,
+#       whichever path served the listing.
+# NOTE: `sc create` polls for the lease itself, bounded by v2MachineIPTimeout
+#       (45s container / 90s VM, internal/incusx/machine_create_v2.go), and can
+#       still return with an empty PrivateIP on timeout. That is a different
+#       failure — a machine that really has no address — and it shows up as a
+#       blank IP in the LIVE `sc-adm incus list` output too, which is what
+#       distinguishes the two.
 # PASS: a STOPPED machine with no address does NOT trigger the fallback —
 #       blank there is the truth, and treating it as a miss would bypass the
 #       cache for every listing that includes a stopped machine.
