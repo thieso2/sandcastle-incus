@@ -4557,3 +4557,26 @@ omitting one it does) is the worse failure. Stopped machines are excluded from
 the check for the same reason in reverse: a blank there is the truth, and
 treating it as a miss would bypass the cache for every listing containing a
 stopped machine.
+
+## 2026-08-21 — Device login no longer fails when the SSH-key reconcile hits a broken machine
+
+**Decision.** `devicePoll` now treats a `reconcilePersonalTenantSSHKey` failure
+as a warning, not a 500: the key is stored, the login approves with the
+enrollment token, and the poll response carries a new `warning` field that the
+CLI prints to stderr (`Warning: SSH key was saved but not written to every
+existing machine: …`). Previously the error aborted the whole login before the
+client received the token.
+
+**Why.** Observed live on obelix (2026-08-21): a brand-new laptop could not
+enroll at all because project `herdr` contained two running containers launched
+from a stock Ubuntu image — no `thies` Unix user, so the in-machine
+`install -d -o thies` exited 1, `reconcileV2` surfaced it (correctly: no machine
+in that project took the key), and the poll 500'd. One machine the user is
+locked out of either way must not block enrolling a new device; the handler
+already treats the client-certificate recording just above as best-effort.
+
+**Alternatives considered.** (a) Skip machines whose Unix user is missing inside
+the reconcile script — rejected: it silently narrows "reconcile failed" to
+success and hides real breakage; (b) keep the hard failure and document
+"stop the offending machine" — rejected: turns a cosmetic inconsistency into a
+login outage. The warning keeps the signal without the outage.

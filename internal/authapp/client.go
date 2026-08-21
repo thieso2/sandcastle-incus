@@ -64,6 +64,7 @@ type DevicePollResult struct {
 	NextCommand        string
 	LoginResult        *CLILoginResult
 	ExpiresIn          int
+	Warning            string
 }
 
 type DevicePollRequest struct {
@@ -170,6 +171,7 @@ func (c DeviceClient) Poll(ctx context.Context, deviceCode string, poll DevicePo
 		NextCommand:        payload.NextCommand,
 		LoginResult:        payload.LoginResult,
 		ExpiresIn:          payload.ExpiresIn,
+		Warning:            payload.Warning,
 	}, nil
 }
 

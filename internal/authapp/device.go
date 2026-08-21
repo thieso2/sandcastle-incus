@@ -93,6 +93,9 @@ type devicePollResponse struct {
 	NextCommand        string          `json:"next_command,omitempty"`
 	LoginResult        *CLILoginResult `json:"login_result,omitempty"`
 	ExpiresIn          int             `json:"expires_in,omitempty"`
+	// Warning carries a non-fatal problem the client should show the user
+	// (e.g. the SSH key could not be written to every existing machine).
+	Warning string `json:"warning,omitempty"`
 }
 
 func (h handler) deviceStart(w http.ResponseWriter, r *http.Request) {
@@ -238,15 +241,21 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		_ = SetUserClientCertificate(r.Context(), h.db, login.UserKey, request.ClientCertificate)
 	}
 	sshFingerprint := ""
+	warning := ""
 	if login.Status == DeviceStatusApproved && strings.TrimSpace(request.SSHPublicKey) != "" {
 		stored, _, err := SetUserSSHKey(r.Context(), h.db, login.UserKey, request.SSHPublicKey)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// Best-effort: the key is stored and lands on machines created from now
+		// on; failing to rewrite authorized_keys on some EXISTING machine (e.g.
+		// one built from a non-Sandcastle image with no tenant Unix user) must
+		// not block enrolling this device — the user is locked out of that one
+		// machine either way. Surface it as a warning instead of failing login.
 		if err := h.reconcilePersonalTenantSSHKey(r.Context(), login.UserKey, stored.PublicKey); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			warning = fmt.Sprintf("SSH key was saved but not written to every existing machine: %v", err)
+			svclog.Logf(r.Context(), "device poll: %s", warning)
 		}
 		sshFingerprint = stored.Fingerprint
 	} else if login.Status == DeviceStatusApproved && login.UserKey != "" {
@@ -289,6 +298,7 @@ func (h handler) devicePoll(w http.ResponseWriter, r *http.Request) {
 		NextCommand:        nextCommandForDeviceLogin(login),
 		LoginResult:        loginResult,
 		ExpiresIn:          expiresIn,
+		Warning:            warning,
 	})
 }
 

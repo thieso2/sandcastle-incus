@@ -1045,6 +1045,16 @@ created with `--home-share`.
 > falling back to the deployment's `--default-unix-user`, then `dev`
 > (`root` and invalid names are skipped, not errors). Broker-created tenants
 > (`tenant create`) take `--ssh-key` explicitly and default to `dev`.
+>
+> **Key reconcile is best-effort.** Writing the (re-)login key into EXISTING
+> machines can fail on a machine that lacks the tenant's Unix user (e.g. one
+> launched from a stock `images:` image without the Sandcastle profile). That
+> must NOT abort the device login: the poll still answers `approved` with the
+> enrollment token, and the CLI prints
+> `Warning: SSH key was saved but not written to every existing machine: …`
+> on stderr. **PASS:** with such a machine running in some project, `sc login
+> --force` completes enrollment and prints the warning; stopping the machine
+> (or creating the user in it) makes the warning disappear on the next login.
 
 ---
 

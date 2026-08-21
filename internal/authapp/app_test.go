@@ -577,6 +577,43 @@ func TestDevicePollProvisionsPersonalTenantOnceAfterApproval(t *testing.T) {
 	}
 }
 
+func TestDevicePollSSHKeyReconcileFailureWarnsButApproves(t *testing.T) {
+	db := authDBForTest(t)
+	cookie := adminSessionCookieForTest(t, db)
+	provisioner := &fakePersonalTenantProvisioner{}
+	reconciler := &fakeMachineSSHKeyReconciler{reconcileErr: errors.New("reconcile User SSH Public Key on machine test2: script exited 1")}
+	handler := NewHandler(db, HandlerOptions{
+		AuthHostname:   "auth.example.com",
+		Tenants:        tenant.MemoryStore{Projects: v2TenantProjectsForAuthTest(authTestTenant{Tenant: "admin", CIDR: "10.248.1.0/24"})},
+		Provisioner:    provisioner,
+		MachineSSHKeys: reconciler,
+	})
+
+	login, err := CreateDeviceLogin(context.Background(), db, "auth.example.com", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveRequest := httptest.NewRequest(http.MethodPost, "/device", strings.NewReader("user_code="+login.UserCode+"&action=approve"))
+	approveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approveRequest.AddCookie(cookie)
+	handler.ServeHTTP(httptest.NewRecorder(), approveRequest)
+
+	// One pre-existing machine that cannot take the key (e.g. built from a
+	// non-Sandcastle image) must not block enrolling this device: the poll
+	// still approves with the enrollment token, and the failure is surfaced
+	// as a warning instead.
+	approved := pollDeviceWithSSHKeyForTest(t, handler, login.DeviceCode, validAuthAuthorizedKeyForTest(t))
+	if approved.Status != DeviceStatusApproved || approved.Token != "token-admin" {
+		t.Fatalf("approved = %#v", approved)
+	}
+	if len(reconciler.calls) != 1 {
+		t.Fatalf("reconciler calls = %#v", reconciler.calls)
+	}
+	if !strings.Contains(approved.Warning, "script exited 1") || !strings.Contains(approved.Warning, "SSH key was saved") {
+		t.Fatalf("warning = %q", approved.Warning)
+	}
+}
+
 func TestDevicePollRetriesPersonalTenantProvisioningFailure(t *testing.T) {
 	db := authDBForTest(t)
 	cookie := adminSessionCookieForTest(t, db)
@@ -911,6 +948,7 @@ type fakeMachineSSHKeyReconciler struct {
 		tenant string
 		user   string
 	}
+	reconcileErr error
 }
 
 func (r *fakeMachineSSHKeyReconciler) ReconcileUserSSHKey(ctx context.Context, summary tenant.Summary, userKey string, publicKey string) error {
@@ -919,7 +957,7 @@ func (r *fakeMachineSSHKeyReconciler) ReconcileUserSSHKey(ctx context.Context, s
 		user   string
 		key    string
 	}{tenant: summary.Tenant, user: userKey, key: publicKey})
-	return nil
+	return r.reconcileErr
 }
 
 func (r *fakeMachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summary tenant.Summary, userKey string) error {
