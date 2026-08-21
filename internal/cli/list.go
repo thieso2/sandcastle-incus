@@ -247,6 +247,10 @@ func listMachinesViaCache(ctx context.Context, config commandConfig, request lis
 		logListCacheFallback(config, err.Error())
 		return listPayload{}, false
 	}
+	if stale, found := runningWithoutAddress(result.Machines); found {
+		logListCacheFallback(config, fmt.Sprintf("cached machine %s/%s is running with no address", stale.Project, stale.Name))
+		return listPayload{}, false
+	}
 	return listPayload{
 		Tenant:         result.Tenant,
 		Remote:         strings.TrimSpace(config.adminConfig.Remote),
@@ -260,6 +264,36 @@ func listMachinesViaCache(ctx context.Context, config commandConfig, request lis
 		Profiles:       result.Profiles,
 		Images:         result.Images,
 	}, true
+}
+
+// runningWithoutAddress returns the first cached machine that is running but
+// carries no private address — the one shape a cache-backed answer must not be
+// trusted on, so `sc ls` treats it as a miss and re-reads live.
+//
+// Nothing on the Incus event bus fires when a guest picks up its DHCP lease.
+// api.EventLifecycleInstanceUpdated — which ADR-0023 decision 3 leans on for
+// "IP/NIC changes" — is emitted from exactly two places upstream, both at the
+// tail of the instance driver's Update(), i.e. a config change made through the
+// API. A guest acquiring an address is not an API operation and emits nothing.
+// The cache refreshes a project on instance-created/instance-started, both of
+// which land before the lease does, and that decision keeps no periodic resync,
+// so the empty address captured at start time survives until some unrelated
+// event happens to touch the same project. Meanwhile the machine is fully
+// reachable (ssh works) and `sc ls` prints a blank IP column.
+//
+// Falling back costs one live per-project read for listings in that state. A
+// machine that genuinely has no address while running — no NIC device, or a VM
+// whose incus-agent never came up — makes the fallback permanent for any
+// listing that includes it, which is exactly pre-cache `sc ls` behaviour:
+// slower, never wrong. Printing an address the machine does not have, or
+// omitting one it does, is the worse failure.
+func runningWithoutAddress(machines []meta.Machine) (meta.Machine, bool) {
+	for _, candidate := range machines {
+		if candidate.Running && strings.TrimSpace(candidate.PrivateIP) == "" {
+			return candidate, true
+		}
+	}
+	return meta.Machine{}, false
 }
 
 // splitListTenantAndProject mirrors the tenant/project resolution at the top

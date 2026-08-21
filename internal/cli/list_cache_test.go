@@ -46,7 +46,7 @@ func TestListMachinesViaCache_ReadyReturnsCacheDataIncludingNewResourceTypes(t *
 	fake := &fakeResourceClient{result: authapp.ResourceListResult{
 		Tenant:      tenant.Summary{Tenant: "acme"},
 		AllProjects: true,
-		Machines:    []meta.Machine{{Project: "gbrain", Name: "web", Running: true}},
+		Machines:    []meta.Machine{{Project: "gbrain", Name: "web", PrivateIP: "10.1.0.9", Running: true}},
 		Networks:    []api.Network{{Name: "sc2br0", Type: "bridge", Managed: true, Project: "gbrain"}},
 		StoragePools: []api.StoragePool{
 			{Name: "default", Driver: "zfs"},
@@ -163,7 +163,7 @@ func TestFormatMachineList_DefaultOutputUnaffectedByCacheOnlyFields(t *testing.T
 	base := listPayload{
 		Tenant:      tenant.Summary{Tenant: "acme", DNSSuffix: "acme.sandcastle.dev"},
 		AllProjects: true,
-		Machines:    []meta.Machine{{Project: "gbrain", Name: "web", Running: true}},
+		Machines:    []meta.Machine{{Project: "gbrain", Name: "web", PrivateIP: "10.1.0.9", Running: true}},
 	}
 	withExtras := base
 	withExtras.Networks = []api.Network{{Name: "sc2br0", Project: "gbrain"}}
@@ -229,7 +229,7 @@ func TestListCommand_ToggleOnReadyAnswersFromCacheWithoutLiveIncusCall(t *testin
 	fake := &fakeResourceClient{result: authapp.ResourceListResult{
 		Tenant:      tenant.Summary{Tenant: "acme", DNSSuffix: "acme.sandcastle.dev"},
 		AllProjects: true,
-		Machines:    []meta.Machine{{Project: "gbrain", Name: "web", Running: true}},
+		Machines:    []meta.Machine{{Project: "gbrain", Name: "web", PrivateIP: "10.1.0.9", Running: true}},
 	}}
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:          "sandcastle",
@@ -318,5 +318,80 @@ func TestResourceCacheRequestTimeout_EnvOverride(t *testing.T) {
 		if got := resourceCacheRequestTimeout(); got != want {
 			t.Fatalf("%s=%q -> %s, want %s", resourceCacheTimeoutEnv, raw, got, want)
 		}
+	}
+}
+
+// A running machine with a blank address is the cache holding its pre-DHCP
+// snapshot: the guest got its lease after instance-started, and nothing on the
+// Incus event bus reports that, so the project is never re-read. `sc ls` must
+// treat such an answer as a miss and go live rather than print an empty IP
+// column for a machine that is reachable.
+func TestListMachinesViaCache_FallsBackWhenRunningMachineHasNoAddress(t *testing.T) {
+	fake := &fakeResourceClient{result: authapp.ResourceListResult{
+		Tenant: tenant.Summary{Tenant: "acme"},
+		Machines: []meta.Machine{
+			{Tenant: "acme", Project: "web", Name: "api", PrivateIP: "10.1.0.7", Running: true},
+			{Tenant: "acme", Project: "web", Name: "dev", PrivateIP: "", Running: true},
+		},
+	}}
+	config := commandConfig{adminConfig: scconfig.Admin{Tenant: "acme"}, authResources: fake}
+
+	if _, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{AllProjects: true}, listRenderOptions{}); ok {
+		t.Fatal("expected a fallback to the live path for a running machine with no address")
+	}
+}
+
+// A machine that is not running has no address to report, so a blank IP there
+// is the truth, not a stale read — falling back on it would bypass the cache
+// for every listing that includes a stopped machine.
+func TestListMachinesViaCache_StoppedMachineWithoutAddressStillUsesCache(t *testing.T) {
+	fake := &fakeResourceClient{result: authapp.ResourceListResult{
+		Tenant: tenant.Summary{Tenant: "acme"},
+		Machines: []meta.Machine{
+			{Tenant: "acme", Project: "web", Name: "api", PrivateIP: "10.1.0.7", Running: true},
+			{Tenant: "acme", Project: "web", Name: "archived", PrivateIP: "", Running: false},
+		},
+	}}
+	config := commandConfig{adminConfig: scconfig.Admin{Tenant: "acme"}, authResources: fake}
+
+	result, ok := listMachinesViaCache(context.Background(), config, listMachinesRequest{AllProjects: true}, listRenderOptions{})
+	if !ok {
+		t.Fatal("stopped machine without an address must not trigger a fallback")
+	}
+	if len(result.Machines) != 2 {
+		t.Fatalf("Machines = %d, want both carried through", len(result.Machines))
+	}
+}
+
+func TestRunningWithoutAddress(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		machines []meta.Machine
+		want     string // machine name, or "" for none
+	}{
+		{name: "empty", machines: nil},
+		{name: "all addressed", machines: []meta.Machine{{Name: "a", PrivateIP: "10.0.0.1", Running: true}}},
+		{name: "stopped and blank", machines: []meta.Machine{{Name: "a", Running: false}}},
+		{name: "running and blank", machines: []meta.Machine{{Name: "a", Running: true}}, want: "a"},
+		{
+			name: "reports the first offender",
+			machines: []meta.Machine{
+				{Name: "a", PrivateIP: "10.0.0.1", Running: true},
+				{Name: "b", Running: true},
+				{Name: "c", Running: true},
+			},
+			want: "b",
+		},
+		{name: "whitespace is not an address", machines: []meta.Machine{{Name: "a", PrivateIP: "   ", Running: true}}, want: "a"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, found := runningWithoutAddress(testCase.machines)
+			if found != (testCase.want != "") {
+				t.Fatalf("found = %v, want %v", found, testCase.want != "")
+			}
+			if found && got.Name != testCase.want {
+				t.Fatalf("machine = %q, want %q", got.Name, testCase.want)
+			}
+		})
 	}
 }

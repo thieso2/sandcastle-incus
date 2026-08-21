@@ -541,6 +541,29 @@ SANDCASTLE_LS_CACHE_TIMEOUT=10s VERBOSE=1 sc ls -a
 #       Hostname where a cold TLS handshake alone can cost seconds. A junk
 #       or non-positive value is ignored and the 5s default applies.
 
+# 2e. a fresh machine's IP must appear immediately (cache miss on a blank
+# address). Nothing on the Incus event bus fires when a guest picks up its
+# DHCP lease, so the cache keeps the empty address it read at
+# instance-started until some unrelated event touches the same project. A
+# cache-backed `sc ls` must never report that blank as fact.
+sc create dev                                # in a fresh project
+sc ls                                        # IMMEDIATELY, no sleep
+# PASS: the IP column shows the machine's tenant address on the FIRST `sc ls`
+#       after create — never blank-then-populated-later. Cross-check against
+#       the live view, which must agree:
+#       `sc-adm incus list <remote>: --project <prefix>-<tenant>-<project> -c ns4`
+VERBOSE=1 sc ls 2>&1 | grep -i 'cache-backed'
+# PASS (cache still holds the pre-lease snapshot): a "[verbose] incus api: sc
+#       ls cache-backed endpoint unavailable (cached machine <project>/<name>
+#       is running with no address), falling back to live per-project query"
+#       line — the listing is served live and correct, and the run is one
+#       per-project GetInstancesFull slower. This is the intended trade:
+#       ADR-0023 decision 3 accepts a silently stale cache, and `sc ls`
+#       refuses to pass that staleness on when it is detectable.
+# PASS: a STOPPED machine with no address does NOT trigger the fallback —
+#       blank there is the truth, and treating it as a miss would bypass the
+#       cache for every listing that includes a stopped machine.
+
 # 3. the ADR-0018 DNS battery (sidecar CoreDNS = tenant CIDR .3)
 DNS=10.254.0.3
 dig +short web.default.castle      @$DNS     # canonical            → machine IP
