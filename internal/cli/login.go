@@ -651,6 +651,7 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 			}
 			verbosef("device start: interval=%ds expires_in=%ds", interval, start.ExpiresIn)
 			lastMessage := strings.TrimSpace(start.Message)
+			lastWarning := ""
 			awaitingTailnet := false
 			approvedAnnounced := false
 			tailnetJoinPrinted := false
@@ -702,6 +703,10 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				if message != "" && message != lastMessage {
 					fmt.Fprintln(config.stdout, message)
 					lastMessage = message
+				}
+				if warning := strings.TrimSpace(result.Warning); warning != "" && warning != lastWarning {
+					fmt.Fprintf(config.stderr, "Warning: %s\n", warning)
+					lastWarning = warning
 				}
 				switch result.Status {
 				case authapp.DeviceStatusPending:
