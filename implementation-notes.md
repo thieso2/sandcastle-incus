@@ -4512,3 +4512,48 @@ confirmation, and the `Status` DNS-liveness probe), per the spec's
   above ("confirm Caddyfile wildcard rendering + exact-vs-wildcard
   precedence") for what was actually tested (`RenderCaddyfile` emits both
   blocks correctly) versus what's asserted from docs (which block wins).
+
+## 2026-08-21 — `sc ls` treats a running machine with a blank address as a cache miss
+
+**What.** `listMachinesViaCache` (`internal/cli/list.go`) now scans a
+cache-backed answer before returning it: if any machine is `Running` with an
+empty `PrivateIP`, the answer is discarded and `sc ls` falls through to the live
+per-project path, logging the reason under `VERBOSE=1` like every other
+fallback. New helper `runningWithoutAddress`.
+
+**Why (this was a real, reproducible bug, not a theoretical gap).** ADR-0023
+decision 3 keeps the resource cache event-driven with no periodic resync, on the
+premise that `sc ls`'s fields are covered by `instance-updated` ("IP/NIC/state
+changes"). That premise does not hold for addresses. Upstream emits
+`api.EventLifecycleInstanceUpdated` from exactly two sites — the tail of
+`(*lxc).Update()` and `(*qemu).Update()` — i.e. an instance **config** change
+made through the API. A guest picking up its DHCP lease is not an API operation
+and emits nothing at all. So the sequence on every `sc create` is:
+`instance-created` + `instance-started` → cache re-reads the project → eth0 has
+no lease yet → an empty address is cached → the lease lands → **no event** → the
+blank survives until some unrelated create/update/start/stop happens to touch
+that same project. Observed live on obelix on 2026-08-21: `7ed-sdui/dev` was
+reachable over ssh at `10.123.0.190` while `sc ls` printed an empty IP column,
+and `wordpress/dev` did the same an hour earlier.
+
+**Alternatives considered.**
+
+- *Periodic resync ticker* (what ADR-0023 names as the follow-up, ADR-0018's
+  pattern). Rejected for now: it pays a recurring full-fleet sweep — the exact
+  cost the cache exists to remove — to fix a gap that is detectable for free at
+  the point of use.
+- *Delayed re-read after `instance-started`* (server side). Rejected as a guess
+  at a timer: no delay is right for every image and network, and a wrong guess
+  reintroduces the same blank with extra machinery.
+- *Render blank as "pending"*. Rejected — it dresses up a stale read as a state
+  the system does not actually have.
+
+**Tradeoff, stated plainly.** A machine that genuinely runs without an address —
+no NIC device, or a VM whose incus-agent never came up — makes the fallback
+permanent for any listing that includes it. That is exactly pre-cache `sc ls`
+behaviour: one live per-project read, slower but never wrong. Chosen
+deliberately, because reporting an address the machine does not have (or
+omitting one it does) is the worse failure. Stopped machines are excluded from
+the check for the same reason in reverse: a blank there is the truth, and
+treating it as a miss would bypass the cache for every listing containing a
+stopped machine.

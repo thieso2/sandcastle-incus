@@ -74,6 +74,22 @@ is not a safe source of truth.
    periodic resync is the known, already-proven-in-this-codebase pattern
    (ADR-0018's ticker) for a follow-up wish; nothing here forecloses it.
 
+   **Amended 2026-08-21 — the risk landed, and is now mitigated at the point
+   of use.** "`sc ls` output depends on `instance-updated` (IP/NIC…)" is not
+   true of addresses: upstream emits `api.EventLifecycleInstanceUpdated` only
+   from the tail of `(*lxc).Update()` / `(*qemu).Update()`, i.e. an instance
+   *config* change made through the API. A guest picking up its DHCP lease is
+   not an API operation and emits nothing, so the empty address read at
+   `instance-started` survives every subsequent `sc ls` until an unrelated
+   event touches the same project — observed live on obelix (a machine
+   reachable over ssh listed with a blank IP column). Rather than add the
+   ticker, `sc ls` now treats *a running machine with no address* as a cache
+   miss and falls back to the live per-project path
+   (`runningWithoutAddress` in `internal/cli/list.go`; see
+   `implementation-notes.md`, 2026-08-21). The no-resync decision stands; what
+   changes is that this particular undetectable-staleness case is detectable
+   in the answer itself, so the fallback contract of decision 2 covers it.
+
 4. **Staleness is detected by a last-event-received heartbeat, not a
    protocol-level liveness ping** (the Incus event bus has none). Any event
    received on the listener — not just ones the cache acts on — resets
