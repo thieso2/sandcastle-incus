@@ -173,6 +173,32 @@ func (c Config) Ensure(machine Machine) (Plan, error) {
 	return c.plan([]Machine{machine}, false)
 }
 
+// Recorded returns the keys known_hosts currently pins for host (any entry
+// whose host pattern matches — Sandcastle-tagged or not). The cache-first
+// connect path uses it to decide whether a machine's identity is already on
+// disk: a recorded key that matches what port 22 offers means the full
+// authoritative host-key read can be skipped. A missing or unreadable file
+// yields nil, never an error — the caller falls back to the live path.
+func (c Config) Recorded(host string) []Key {
+	host = strings.TrimSpace(host)
+	if host == "" || c.Path == "" {
+		return nil
+	}
+	lines, err := readLines(c.Path)
+	if err != nil {
+		return nil
+	}
+	var keys []Key
+	for _, line := range lines {
+		e := parseEntry(line)
+		if e.kind == kindOpaque || !e.key0().valid() || !e.matchesHost(host) {
+			continue
+		}
+		keys = append(keys, e.key0())
+	}
+	return keys
+}
+
 // Purge reconciles every live machine in the tenant and additionally removes
 // tagged lines whose machine no longer exists. Only Purge can do that: knowing
 // a line is orphaned requires the full live-machine list, which connect does
