@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -83,6 +84,7 @@ func (r MachineSSHKeyReconciler) reconcileV2(ctx context.Context, server Machine
 		}
 		byProject[project] = append(byProject[project], managed)
 	}
+	var failures []error
 	for _, project := range order {
 		projectServer := server.UseProject(summary.V2IncusProjectName(project))
 		var lastErr error
@@ -106,11 +108,15 @@ func (r MachineSSHKeyReconciler) reconcileV2(ctx context.Context, server Machine
 		}
 		if !reconciled && lastErr != nil {
 			// Nothing in this project could be written, and it was not simply
-			// that everything is stopped: surface the last real failure.
-			return lastErr
+			// that everything is stopped: record the failure and KEEP GOING.
+			// Returning here skipped every remaining project, so one machine
+			// without the login user (e.g. a hand-made stock-image machine)
+			// blocked key distribution tenant-wide — every project ordered
+			// after the broken one silently never got the rotated key.
+			failures = append(failures, lastErr)
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 // v2LoginUser resolves the Unix account whose authorized_keys must carry the
@@ -269,6 +275,7 @@ func (r MachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summary t
 		}
 		byProject[project] = append(byProject[project], managed)
 	}
+	var failures []error
 	for _, project := range order {
 		projectServer := server.UseProject(summary.V2IncusProjectName(project))
 		var lastErr error
@@ -285,10 +292,12 @@ func (r MachineSSHKeyReconciler) RevokeUserSSHKey(ctx context.Context, summary t
 			break
 		}
 		if !revoked && lastErr != nil {
-			return lastErr
+			// Keep going, same as reconcileV2: an unrevokable project must not
+			// leave the key standing in every project after it.
+			failures = append(failures, lastErr)
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 func (r MachineSSHKeyReconciler) revokeMachine(ctx context.Context, server MachineSSHKeyResourceServer, instanceName string, linuxUser string) error {

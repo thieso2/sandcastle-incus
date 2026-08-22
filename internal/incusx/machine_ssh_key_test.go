@@ -205,6 +205,66 @@ func TestMachineSSHKeyReconcilerV2SurfacesRealFailures(t *testing.T) {
 	}
 }
 
+// A project that cannot be written (e.g. its machines lack the login user)
+// must not block key distribution to the projects AFTER it: the old early
+// return skipped every remaining project, so one hand-made stock-image machine
+// silently locked the rotated key out of the rest of the tenant (observed live
+// on obelix 2026-08-22: herdr's failure kept wordpress & co. on the old key).
+// The failure still surfaces — as part of a joined error, not instead of work.
+func TestMachineSSHKeyReconcilerV2ContinuesPastBrokenProject(t *testing.T) {
+	resource := &fakeMachineSSHKeyResource{
+		// The broken project's machine fails with a script exit (the no-such-
+		// user shape); the later project's machine succeeds.
+		exitCode: func(instanceName string) int {
+			if instanceName == "no-user" {
+				return 1
+			}
+			return 0
+		},
+	}
+	reconciler := MachineSSHKeyReconciler{
+		Store: fakeMachineSSHKeyStore{machines: []meta.Machine{
+			{Tenant: "alice", Project: "herdr", Name: "no-user", Running: true},
+			{Tenant: "alice", Project: "wordpress", Name: "dev", Running: true},
+		}},
+		Server: &fakeMachineSSHKeyServer{resource: resource},
+	}
+	err := reconciler.ReconcileUserSSHKey(context.Background(), v2Summary(), "alice", "ssh-ed25519 rotated")
+	if err == nil || !strings.Contains(err.Error(), "no-user") {
+		t.Fatalf("error = %v, want the broken project's failure surfaced", err)
+	}
+	if len(resource.execs) != 2 || resource.execs[1].instance != "dev" {
+		t.Fatalf("execs = %#v, want the later project still written", resource.execs)
+	}
+}
+
+// Same continue-past-failure contract for revocation: an unrevokable project
+// must not leave the key standing in every project ordered after it.
+func TestMachineSSHKeyReconcilerRevokeContinuesPastBrokenProject(t *testing.T) {
+	resource := &fakeMachineSSHKeyResource{
+		exitCode: func(instanceName string) int {
+			if instanceName == "no-user" {
+				return 1
+			}
+			return 0
+		},
+	}
+	reconciler := MachineSSHKeyReconciler{
+		Store: fakeMachineSSHKeyStore{machines: []meta.Machine{
+			{Tenant: "alice", Project: "herdr", Name: "no-user", Running: true},
+			{Tenant: "alice", Project: "wordpress", Name: "dev", Running: true},
+		}},
+		Server: &fakeMachineSSHKeyServer{resource: resource},
+	}
+	err := reconciler.RevokeUserSSHKey(context.Background(), v2Summary(), "alice")
+	if err == nil || !strings.Contains(err.Error(), "no-user") {
+		t.Fatalf("error = %v, want the broken project's failure surfaced", err)
+	}
+	if len(resource.execs) != 2 || resource.execs[1].instance != "dev" {
+		t.Fatalf("execs = %#v, want the later project still revoked", resource.execs)
+	}
+}
+
 // incus exec reports a non-zero SCRIPT exit in the operation metadata, not from
 // op.Wait(). Without reading it, a write that failed inside the machine (e.g.
 // the target Unix user does not exist) looked exactly like success — which is
