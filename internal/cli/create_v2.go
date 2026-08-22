@@ -351,6 +351,12 @@ func runConnectV2(ctx context.Context, config commandConfig, summary tenant.Summ
 	if dialed.bare {
 		return connectV2Bare(ctx, config, summary, dialed, command)
 	}
+	return runSSHSession(ctx, config, dialed, command)
+}
+
+// runSSHSession opens the SSH session a dial resolved — shared by the live
+// path (runConnectV2) and the cache-first path (dialV2MachineViaCache).
+func runSSHSession(ctx context.Context, config commandConfig, dialed dialedV2Machine, command []string) error {
 	sshArgs := dialed.sshArgs
 	// ssh joins its trailing arguments with spaces into ONE remote command
 	// string that the remote shell re-splits, so argv must be shell-quoted here

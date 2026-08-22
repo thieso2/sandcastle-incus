@@ -4621,3 +4621,32 @@ aborted mid-fleet.
 **Alternatives.** Skipping user-missing machines silently (treat like stopped)
 was rejected: "your key is not on machine X" is information the user needs —
 the warning stays, it just stops taking the rest of the tenant hostage.
+
+## 2026-08-22 — Cache-first `sc connect`
+
+**Decision.** `sc connect` gained a cache-first happy path
+(`dialV2MachineViaCache`): when the referenced machine is cached by the
+auth-app resource cache as running with an address, AND `~/.ssh/known_hosts`
+already pins a host key that matches what the machine's sshd presents (checked
+with one `ssh-keyscan` against the machine itself), the session opens from ONE
+auth-app request + ONE keyscan — no live Incus API calls at all. Anything
+short of that certainty falls back to the unchanged live path (which owns
+creation, starting, bare machines, cross-install refs, and authoritative
+host-key repair). Client kill switch: `SANDCASTLE_CONNECT_CACHE=0`.
+
+**Why.** Observed live: a repeat `sc c wordpress:dev` spent ~2s on ~10
+sequential Incus round trips (~150ms each over the tailnet) re-deriving facts
+that had not changed since the last connect. Measured 3.3s → 1.3s end-to-end
+for a `-- true` session.
+
+**Key design point.** The keyscan is what keeps the fast path honest: it
+doubles as the sshd-reachability probe (a machine the cache wrongly believes
+is up fails it) and as the identity check (a REBUILT machine's key mismatches
+the pinned one and takes the live path, which re-reads keys authoritatively
+via `ensureV2HostKey` and repairs known_hosts). The alternative — trusting the
+pinned key blindly and letting ssh hard-fail on mismatch — was rejected: it
+would turn every machine rebuild into a scary MITM warning.
+
+**Scope.** `sc fix` deliberately stays live-only (it exists to repair).
+`hostkeys` gained an exported `Config.Recorded(host)` lookup for the pinned-
+key check.

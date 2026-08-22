@@ -63,6 +63,13 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 		Short:   "Connect to a Sandcastle machine",
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Cache-first happy path: the machine is cached running with an
+			// address and known_hosts already pins the identity its sshd
+			// presents — one auth-app request + one keyscan, no live Incus
+			// round trips. Any doubt falls through to the live path below.
+			if dialed, ok := dialV2MachineViaCache(cmd.Context(), config, args[0]); ok {
+				return runSSHSession(cmd.Context(), config, dialed, args[1:])
+			}
 			return withResolvedV2Machine(cmd, config, args[0], func(ctx context.Context, config commandConfig, summary tenant.Summary, reference string) error {
 				return runConnectV2(ctx, config, summary, reference, args[1:], launchV2Options{VM: useVM, HomeShare: homeShare})
 			})

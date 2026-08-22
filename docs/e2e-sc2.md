@@ -529,6 +529,30 @@ sc ls -a --networks --storage-pools --storage-volumes --profiles --images
 # NOTE: `sc-adm list` / `sc admin list` are explicitly out of scope for this
 #       cache — they keep querying Incus live, unaffected by the toggle.
 
+# 2d-ii. cache-first `sc connect` (same resource cache, plus a keyscan)
+# On the happy path — the machine is cached as running with an address, and
+# ~/.ssh/known_hosts already pins the host key its sshd presents — `sc c`
+# resolves everything from ONE auth-app request plus ONE ssh-keyscan against
+# the machine, instead of the ~10 sequential live Incus API calls of the full
+# dial (project probe, profile read, instance/state reads, cloud-init gate,
+# three host-key fetches).
+VERBOSE=1 sc c <project>:<machine> -- true 2>&1 | grep 'connect cache'
+# PASS (hit): a "[verbose] connect cache: hit — <project>/<machine> at <ip>
+#       (skipping live Incus resolution)" line, NO "[verbose] incus api:" trace
+#       lines, ssh opens with StrictHostKeyChecking=yes, and the session is
+#       noticeably faster than the live path.
+# PASS (miss): a "[verbose] connect cache: falling back to live resolution
+#       (<reason>)" line and the familiar live trace — behavior identical to
+#       pre-cache connect. Misses are anything short of certainty: first
+#       connect to a machine (no pinned host key yet), machine stopped or
+#       absent (connect must create/start it), bare machines, globbed/dotted/
+#       remote-prefixed references, cache unreachable, or the host key on
+#       port 22 disagreeing with known_hosts (a REBUILT machine must take the
+#       live path so its key gets re-read authoritatively and repaired —
+#       the cache path must never pin around a changed identity).
+# Client-side kill switch: SANDCASTLE_CONNECT_CACHE=0 forces the live path.
+# `sc fix` always resolves live — it exists to repair, not to be fast.
+
 # The request must ask only for what it will print — a plain `sc ls` that
 # ships four unrendered resource types is what pushed a real install's
 # response to 79 KB and lost the cache to a timeout. Read the endpoint
