@@ -4602,3 +4602,22 @@ when the projects were created.
 `tokenPlan` site) was rejected: the broker and admin-CLI paths mint tokens from
 the same plan and had the same flaw; putting the union in the plan fixes all
 three and keeps `RestrictedProjects` the single authority on token scope.
+
+## 2026-08-22 — SSH-key reconcile continues past a broken project
+
+**Decision.** `reconcileV2` and `RevokeUserSSHKey` no longer return on the
+first project that cannot be written: per-project failures are collected and
+returned joined (`errors.Join`) after every project has been attempted.
+
+**Why.** Observed live on obelix (2026-08-22): the `herdr` project's running
+machines are hand-made stock-image containers without the tenant's `thies`
+user, so its reconcile failed (`script exited 1`) — and the early return then
+skipped every project ordered after it. `wordpress` (and others) silently never
+received the re-login key: SSH from the newly enrolled Arch client was denied
+while the Mac (whose key was cloud-init-baked at machine create) kept working.
+#150 had made the login itself survive the failure, but the reconcile still
+aborted mid-fleet.
+
+**Alternatives.** Skipping user-missing machines silently (treat like stopped)
+was rejected: "your key is not on machine X" is information the user needs —
+the warning stays, it just stops taking the rest of the tenant hostage.

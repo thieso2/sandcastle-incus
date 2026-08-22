@@ -1067,6 +1067,17 @@ created with `--home-share`.
 > on stderr. **PASS:** with such a machine running in some project, `sc login
 > --force` completes enrollment and prints the warning; stopping the machine
 > (or creating the user in it) makes the warning disappear on the next login.
+>
+> **And best-effort is per-project, not first-failure-aborts.** A project whose
+> running machines all lack the login user must not block key distribution to
+> the projects reconciled after it: with a broken project AND a healthy
+> multi-machine tenant, `sc login --force` **PASS:** the warning names only the
+> broken project's machine(s), and `ssh <user>@<machine>` works against every
+> healthy project — including ones ordered after the broken one
+> (`reconcileV2` collects per-project failures with `errors.Join` instead of
+> returning early; `TestMachineSSHKeyReconcilerV2ContinuesPastBrokenProject`).
+> **FAIL:** machines in projects after the broken one still hold only the old
+> key (the pre-fix early return, observed live on obelix 2026-08-22).
 
 ---
 
