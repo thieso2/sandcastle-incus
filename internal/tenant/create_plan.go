@@ -85,6 +85,14 @@ type CreateRequest struct {
 	// "dev" and the key to empty across every app project's default profile.
 	ExistingUnixUser string
 	ExistingSSHKey   string
+	// ExistingProjects carries the live tenant's app projects (full Incus
+	// names) on idempotent re-provisioning. RestrictedProjects unions them with
+	// the default project so a re-login's enrollment token — and the shared-
+	// certificate extension it drives — grants EVERY project the tenant already
+	// has, not just the default. Without this a fresh client certificate saw
+	// only the default project while older certificates (extended one-by-one at
+	// each `sc project create`) saw them all.
+	ExistingProjects []string
 }
 
 type SidecarPlan struct {

@@ -130,6 +130,7 @@ func (a TenantProvisionerAdapter) CreateTenant(ctx context.Context, req projectb
 		ExistingDefaultProject: reuse.DefaultProject,
 		ExistingUnixUser:       reuse.UnixUser,
 		ExistingSSHKey:         reuse.SSHPublicKey,
+		ExistingProjects:       reuse.Projects,
 	})
 	if err != nil {
 		return projectbroker.TenantResult{}, err

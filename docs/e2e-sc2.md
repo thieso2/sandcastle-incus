@@ -332,6 +332,18 @@ Unit-tested, but the connect resolution deserves a live pass on `home`:
     it (`sc config unset project`) and re-login on a TTY: login **prompts** for
     the default; a non-interactive login instead defaults to the tenant's current
     project and prints a `Change with: sc project switch <name>` note.
+12b. **Re-login grants every existing project — new client.** With a multi-
+    project tenant (≥2 projects), log in from a machine that has never enrolled
+    (fresh client certificate). **PASS:** `sc project ls` on the new machine
+    lists ALL the tenant's projects, same as an established client — the
+    enrollment token (and the shared-certificate union for an existing cert) is
+    scoped to every existing app project, default first
+    (`PlanCreateV2.RestrictedProjects`, `ProvisionReuse.Projects`;
+    `TestPlanCreateV2RestrictedProjectsUnionExisting`,
+    `TestProvisionReuseInputsReturnsExistingProjects`). **FAIL:** the new
+    client sees only the default project (the pre-fix behaviour: the token was
+    scoped to the default project alone, and only certificates that lived
+    through each `sc project create` had been extended project-by-project).
 13. **`sc project switch`.** With ≥2 projects, `sc project switch api` **PASS:**
     prints `Switched to project "api"`, `sc config show` shows `file.project:
     "api"`, and `sc project list` marks `* api`. `sc project switch ghost`

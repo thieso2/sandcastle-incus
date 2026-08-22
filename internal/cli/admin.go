@@ -206,6 +206,7 @@ func newAdminTenantCreateV2Command(config commandConfig, opts *rootOptions) *cob
 				ExistingDefaultProject: reuse.DefaultProject,
 				ExistingUnixUser:       reuse.UnixUser,
 				ExistingSSHKey:         reuse.SSHPublicKey,
+				ExistingProjects:       reuse.Projects,
 			})
 			if err != nil {
 				return err

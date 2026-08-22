@@ -22,6 +22,24 @@ func v2TestAdmin() config.Admin {
 	}
 }
 
+// Re-provisioning an existing tenant must scope the enrollment token to EVERY
+// existing app project, default first — only-the-default locked a fresh client
+// certificate out of every project created since first login.
+func TestPlanCreateV2RestrictedProjectsUnionExisting(t *testing.T) {
+	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{
+		Reference: "acme",
+		// unsorted, with the default duplicated and a blank entry
+		ExistingProjects: []string{"sc2-acme-work", "sc2-acme-default", "", "sc2-acme-builder"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"sc2-acme-default", "sc2-acme-builder", "sc2-acme-work"}
+	if !reflect.DeepEqual(plan.RestrictedProjects, want) {
+		t.Fatalf("RestrictedProjects = %v, want %v", plan.RestrictedProjects, want)
+	}
+}
+
 func TestPlanCreateV2Names(t *testing.T) {
 	plan, err := PlanCreateV2(v2TestAdmin(), CreateRequest{Reference: "acme"})
 	if err != nil {

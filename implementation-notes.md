@@ -4580,3 +4580,25 @@ the reconcile script — rejected: it silently narrows "reconcile failed" to
 success and hides real breakage; (b) keep the hard failure and document
 "stop the offending machine" — rejected: turns a cosmetic inconsistency into a
 login outage. The warning keeps the signal without the outage.
+
+## 2026-08-22 — Re-login enrollment token grants every existing project
+
+**Decision.** `PlanCreateV2` no longer scopes `RestrictedProjects` to the
+default project alone: it unions in the tenant's existing app projects
+(`CreateRequest.ExistingProjects`, gathered by `ProvisionReuseInputs` from live
+kind=project Incus projects, prefix- and tenant-scoped), default first, rest
+sorted. All three token-minting callers (auth-app login provisioning, project
+broker tenant create, `sc-adm tenant create`) thread the reuse list through.
+
+**Why.** Observed live on obelix (2026-08-22): a first login from a new machine
+enrolled a fresh restricted certificate that could only see the default project
+(`sc project ls` → just `work`), while an older client's certificate saw all 13
+— it had been extended one project at a time by each `sc project create`. The
+token (and the shared-certificate union on re-login, which uses the same
+`tokenPlan.Projects`) must carry the full set for clients that weren't around
+when the projects were created.
+
+**Alternatives.** Fixing only in the auth-app provisioner (union at the
+`tokenPlan` site) was rejected: the broker and admin-CLI paths mint tokens from
+the same plan and had the same flaw; putting the union in the plan fixes all
+three and keeps `RestrictedProjects` the single authority on token scope.

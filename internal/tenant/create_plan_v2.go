@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/netip"
+	"sort"
 	"strings"
 	"time"
 
@@ -434,29 +435,29 @@ type CreatePlanV2 struct {
 	// DefaultProjectShort is the short name of the tenant's one project (issue
 	// #93). The user chooses it at first login; it defaults to "default". The
 	// full Incus project name is DefaultProject (<prefix>-<tenant>-<short>).
-	DefaultProjectShort string     `json:"defaultProjectShort"`
-	Bridge              string     `json:"bridge"`
-	DNSSuffix           string     `json:"dnsSuffix"`
-	PrivateCIDR         string     `json:"privateCIDR"`
-	GatewayAddress      string     `json:"gatewayAddress"`
-	TailscaleAddress    string     `json:"tailscaleAddress"`
-	DNSAddress          string     `json:"dnsAddress"`
-	StoragePool         string     `json:"storagePool"`
-	HomeVolume          string     `json:"homeVolume"`
-	WorkspaceVolume     string     `json:"workspaceVolume"`
-	CAVolume            string     `json:"caVolume"`
+	DefaultProjectShort string `json:"defaultProjectShort"`
+	Bridge              string `json:"bridge"`
+	DNSSuffix           string `json:"dnsSuffix"`
+	PrivateCIDR         string `json:"privateCIDR"`
+	GatewayAddress      string `json:"gatewayAddress"`
+	TailscaleAddress    string `json:"tailscaleAddress"`
+	DNSAddress          string `json:"dnsAddress"`
+	StoragePool         string `json:"storagePool"`
+	HomeVolume          string `json:"homeVolume"`
+	WorkspaceVolume     string `json:"workspaceVolume"`
+	CAVolume            string `json:"caVolume"`
 	// SCVolumes is the per-tenant /.sc shared-scripts volume set (spec #127):
 	// the platform layer machines mount read-only and the tenant-writable local
 	// layer, as pure-testable plan data.
-	SCVolumes []SCVolume `json:"scVolumes"`
-	SidecarInstance     string     `json:"sidecarInstance"`
-	SidecarImage        string     `json:"sidecarImage"`
-	DefaultProfileUser  string     `json:"defaultProfileUser"`
-	SSHPublicKey        string     `json:"sshPublicKey"`
-	ImageAliases        []string   `json:"imageAliases"`
-	DNSFiles            []dns.File `json:"dnsFiles"`
-	TenantCA            TenantCA   `json:"tenantCA"`
-	RestrictedProjects  []string   `json:"restrictedProjects"`
+	SCVolumes          []SCVolume `json:"scVolumes"`
+	SidecarInstance    string     `json:"sidecarInstance"`
+	SidecarImage       string     `json:"sidecarImage"`
+	DefaultProfileUser string     `json:"defaultProfileUser"`
+	SSHPublicKey       string     `json:"sshPublicKey"`
+	ImageAliases       []string   `json:"imageAliases"`
+	DNSFiles           []dns.File `json:"dnsFiles"`
+	TenantCA           TenantCA   `json:"tenantCA"`
+	RestrictedProjects []string   `json:"restrictedProjects"`
 }
 
 // PlanCreateV2 builds a CreatePlanV2 from admin config and a create request.
@@ -604,8 +605,30 @@ func PlanCreateV2(admin config.Admin, request CreateRequest) (CreatePlanV2, erro
 			CertificatePEM:  ca.CertificatePEM,
 			PrivateKeyPEM:   ca.PrivateKeyPEM,
 		},
-		RestrictedProjects: []string{defaultProject},
+		RestrictedProjects: restrictedProjects(defaultProject, request.ExistingProjects),
 	}, nil
+}
+
+// restrictedProjects is the project scope a tenant's enrollment token grants:
+// the default project first, then every other existing app project (sorted,
+// deduplicated). Existing projects must be included — a re-login mints a fresh
+// restricted certificate (or extends the shared one), and scoping it to the
+// default project alone locked new clients out of every project created since
+// first login.
+func restrictedProjects(defaultProject string, existing []string) []string {
+	out := []string{defaultProject}
+	seen := map[string]bool{defaultProject: true}
+	sorted := append([]string(nil), existing...)
+	sort.Strings(sorted)
+	for _, name := range sorted {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 // DNSAddressForCIDR returns the sidecar's address inside a tenant's private /24

@@ -202,6 +202,12 @@ type ProvisionReuse struct {
 	UnixUser       string
 	SSHPublicKey   string
 	OccupiedCIDRs  []string
+	// Projects is the tenant's EXISTING app projects (full Incus names,
+	// <prefix>-<tenant>-<short>), sorted. A re-login's enrollment token must be
+	// scoped to ALL of them, not just the default project — otherwise a fresh
+	// client certificate only ever sees the default project, while older
+	// certificates were extended project-by-project as each was created.
+	Projects []string
 }
 
 // ProvisionReuseInputs gathers a ProvisionReuse from live Incus state. "Own"
@@ -226,6 +232,25 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 		var cidr string
 		own := false
 		switch incusProject.Config[meta.KeyKind] {
+		case meta.KindV2Project:
+			// The tenant's own app projects: collect their full Incus names so a
+			// re-provision can scope the enrollment token to every one of them.
+			// Ownership follows the same name anatomy v2Summaries parses:
+			// <prefix>-<tenant>-<short>.
+			owner := strings.TrimSpace(incusProject.Config[meta.KeyTenant])
+			if tenantName == "" || owner != tenantName {
+				continue
+			}
+			marker := "-" + tenantName + "-"
+			idx := strings.Index(incusProject.Name, marker)
+			if idx <= 0 || incusProject.Name[idx+len(marker):] == "" {
+				continue
+			}
+			if incusProject.Name[:idx] != installPrefix {
+				continue
+			}
+			reuse.Projects = append(reuse.Projects, incusProject.Name)
+			continue
 		case legacyTenantKind:
 			// v1 is removed and nothing creates kind=tenant projects any more,
 			// but a host upgraded from it can still carry orphaned ones whose
@@ -260,6 +285,7 @@ func ProvisionReuseInputs(ctx context.Context, store IncusTenantStore, installPr
 			reuse.OccupiedCIDRs = append(reuse.OccupiedCIDRs, cidr)
 		}
 	}
+	sort.Strings(reuse.Projects)
 	return reuse, nil
 }
 
