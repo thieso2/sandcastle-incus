@@ -124,6 +124,7 @@ func (p Provisioner) ensurePersonalTenantV2(ctx context.Context, userKey string,
 		ExistingDefaultProject: reuse.DefaultProject,
 		ExistingUnixUser:       reuse.UnixUser,
 		ExistingSSHKey:         reuse.SSHPublicKey,
+		ExistingProjects:       reuse.Projects,
 	})
 	if err != nil {
 		return PersonalTenantResult{}, err

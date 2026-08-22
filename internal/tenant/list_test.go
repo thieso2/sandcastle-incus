@@ -232,6 +232,38 @@ func TestProvisionReuseInputsReturnsStoredUserAndKey(t *testing.T) {
 	}
 }
 
+// A re-login's enrollment token must be scoped to EVERY existing app project,
+// so the reuse inputs carry the tenant's own app projects (full Incus names) —
+// scoped to this install's prefix and this tenant; foreign installs' and other
+// tenants' projects stay out.
+func TestProvisionReuseInputsReturnsExistingProjects(t *testing.T) {
+	appConfig := func(tenantName string) map[string]string {
+		return map[string]string{
+			meta.KeyKind: meta.KindV2Project, meta.KeyVersion: "2", meta.KeyTenant: tenantName,
+		}
+	}
+	store := MemoryStore{Projects: []IncusProject{
+		{Name: "sc2-acme", Config: map[string]string{
+			meta.KeyKind: meta.KindInfra, meta.KeyVersion: "2", meta.KeyTenant: "acme",
+			meta.KeyV2CIDR: "10.253.0.0/24", meta.KeyV2Prefix: "sc2",
+		}},
+		{Name: "sc2-acme-work", Config: appConfig("acme")},
+		{Name: "sc2-acme-default", Config: appConfig("acme")},
+		// another tenant on the same install
+		{Name: "sc2-other-web", Config: appConfig("other")},
+		// same tenant on a foreign install
+		{Name: "id-acme-work", Config: appConfig("acme")},
+	}}
+	reuse, err := ProvisionReuseInputs(context.Background(), store, "sc2", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"sc2-acme-default", "sc2-acme-work"}
+	if len(reuse.Projects) != len(want) || reuse.Projects[0] != want[0] || reuse.Projects[1] != want[1] {
+		t.Fatalf("Projects = %v, want %v", reuse.Projects, want)
+	}
+}
+
 // A v1 (kind=tenant) project with the SAME tenant name is still a foreign
 // install's tenant: its /24 must come back as occupied, never as own —
 // treating it as own made provisioning reuse the CIDR and collide with the
