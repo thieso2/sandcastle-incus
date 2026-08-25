@@ -478,8 +478,10 @@ sc create vm1 --vm --detach                  # a VM next to the CTs in default
 #    wait for both to be RUNNING (sc list), then:
 # NB: `sc incus exec` runs as ROOT inside the machine, so $USER expands to "root"
 # and /home/root does not exist. Use the login user's home explicitly (default: sc).
-# NB: `sc c <machine> -- sh -c '<script>'` does NOT work — see the appendix
-# (`sc c` does not shell-quote its argv, so the remote shell re-splits it).
+# NB: `sc c <machine> -- sh -c '<script>'` works (fixed in #53 — `remoteCommandLine`
+# shell-quotes argv before it reaches ssh). A LONE argument still passes through raw
+# as a shell snippet, so `sc c web -- 'ls -l /tmp'` is also correct. The steps below
+# use `sc incus exec` because they need ROOT, not because `sc c` cannot run them.
 sc incus exec web -- sh -c 'echo from-ct > /workspace/marker'
 sc incus exec vm1 -- sh -c 'cat /workspace/marker'   # → from-ct
 sc incus exec vm1 -- sh -c 'echo from-vm >> /workspace/marker'

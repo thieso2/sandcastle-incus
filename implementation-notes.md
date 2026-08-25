@@ -4650,3 +4650,84 @@ would turn every machine rebuild into a scary MITM warning.
 **Scope.** `sc fix` deliberately stays live-only (it exists to repair).
 `hostkeys` gained an exported `Config.Recorded(host)` lookup for the pinned-
 key check.
+
+## 2026-08-25 — Agent skill for driving Sandcastle from the shell (`docs/agents/skills/sandcastle/`)
+
+**Decision.** Added a model-invoked Claude Code skill: `SKILL.md` plus four
+disclosed reference files (`operations.md`, `admin.md`, `internals.md`,
+`troubleshooting.md`). The tracked copy lives under `docs/agents/skills/`,
+beside the other agent-facing docs.
+
+**Why not `.claude/skills/`** — the natural home, and where a working copy also
+sits: `.claude/` is gitignored as local Claude Code settings, so a skill there
+never versions with the CLI it documents. **Why not `.agents/skills/`** — that
+tree is vendored from `mattpocock-skills` and governed by `skills-lock.json`, so
+a hand-written repo skill there would fight the sync. `docs/agents/` was already
+the home for agent consumer rules (`domain.md`, `issue-tracker.md`,
+`triage-labels.md`), which makes `docs/agents/skills/` the one tracked location
+that fits. Install it by copying to `~/.claude/skills/` (or the repo's
+`.claude/skills/`); those copies are derived, this one is the source.
+
+**What it deliberately does NOT contain.** No exhaustive flag dump. `sc <cmd>
+--help` is one command away and is the single source of truth for flags; a copy
+in the skill would be a cache that goes stale on every CLI change. The skill
+carries only what `--help` cannot: the tenant/project/machine model, the
+prefix→`sc2` naming derivation, the JSON payload shapes, and the behavioural
+gotchas (connect creates on a missing name; `--yes` is required without a TTY;
+`sc c` runs as the login user while `sc incus exec` runs as root; globs must be
+quoted and matching nothing is an error; routes are pruned when a machine is
+deleted). Alternative considered: generating a full command reference from the
+cobra tree at build time — rejected as maintenance the repo does not currently
+carry, and it would duplicate `docs/usage.html`.
+
+**Facts verified against live state, not docs.** `docs/topology.md` says the
+Incus projects are `sc2-<tenant>`; `naming.DefaultIncusProjectPrefix` is `sc` and
+`NormalizeV2Prefix` maps it to `sc2`, and a real install on `obelix` uses prefix
+`obelix` throughout (`obelix-thieso2-family`). The skill therefore states the
+derivation rule and tells the agent to READ the real names (`sc remote list`,
+`sc ls -a`) rather than assume any prefix. Likewise `docs/e2e-sc2.md:481` still
+carries a stale NB that `sc c <m> -- sh -c '<script>'` does not work; that was
+fixed in #53 (`remoteCommandLine` shell-quotes argv), and the skill documents the
+current behaviour — multi-arg is quoted and joined, a lone arg passes through raw
+as a shell snippet.
+
+**Also newly written down:** base images are per-project (`sc image save`
+publishes into the resolved machine's project; `sc image list`/`rm` read the
+ACTIVE project, not literally `default` as the flag help implies), so an image
+saved in one project is invisible from another. That is not stated in any doc.
+
+## 2026-08-25 — Doc drift fixed: install prefix, and flat DNS superseded by ADR-0018
+
+Writing the shell skill meant checking the docs against the live CLI and a real
+install, which surfaced drift in three places. Fixed at the source rather than
+worked around in the skill.
+
+**1. Incus project prefix.** `docs/topology.md` and `docs/glossary.md` stated the
+project/bridge names as `sc2-<tenant>` flat, as if `sc2` were fixed. The rule is
+`<install-prefix>-<tenant>`, where the prefix comes from `sc-adm install
+--prefix` and the built-in default `sc` normalizes to `sc2`
+(`naming.NormalizeV2Prefix`). A live install on `obelix` uses prefix `obelix`
+throughout (`obelix-thieso2-family`), so an agent deriving a project name from
+the tenant handle targets nothing. Both docs now state the derivation, keep
+`sc2-` as the *example* default, and say to read the real names from
+`sc remote list` / `sc ls -a`.
+
+**2. Flat DNS.** `docs/glossary.md` ("Machine hostname — Flat:
+`<machine>.<suffix>`"), `docs/topology.md`, and `docs/usage.html` all still
+described ADR-0016 decision 9, which **ADR-0018 superseded** in 2026-07. The
+canonical name is `<machine>.<project>.<Tenant DNS Suffix>` for every project
+including `default`; exactly one short form exists (the Default Project Short
+Hostname), and machines outside the default project have none. The glossary's
+entry was the worst of the three — it is the canonical term list the other docs
+defer to, so leaving it would have re-seeded the error. It is now split into
+three entries (Machine Private Hostname / Default Project Short Hostname /
+Tenant DNS Suffix) matching `CONTEXT.md`'s wording, and records that the suffix
+defaults to the tenant handle without being required to equal it.
+
+**3. Stale `sc c` NB.** `docs/e2e-sc2.md` step 2b warned that
+`sc c <m> -- sh -c '<script>'` does not work. Issue #53 fixed that in 2026-07
+(`remoteCommandLine` shell-quotes argv before it reaches ssh) and the doc's own
+appendix records the fix — only the inline NB was missed. It now states the
+current behaviour (multi-arg quoted and joined; a lone arg passes through raw as
+a shell snippet) and explains that the steps below it use `sc incus exec`
+because they need root, not because `sc c` cannot run them.

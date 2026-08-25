@@ -151,3 +151,7 @@ This repo uses the standard five-label triage vocabulary. See `docs/agents/triag
 ### Domain docs
 
 This repo uses a multi-context domain documentation layout (root Sandcastle context + `sc-edge`), indexed by `CONTEXT-MAP.md`. See `docs/agents/domain.md`.
+
+### Driving Sandcastle from the shell
+
+A model-invoked skill for operating Sandcastle with `sc`/`sc-adm` lives at `docs/agents/skills/sandcastle/`. Install it by copying the directory into `~/.claude/skills/` (global) or `.claude/skills/` (this repo only) — those copies are derived; the tracked one is the source. Keep it current when CLI behaviour changes.

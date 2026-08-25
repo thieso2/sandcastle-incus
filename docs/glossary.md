@@ -7,8 +7,11 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
 - **Tenant** — The top-level ownership, identity, and infrastructure boundary.
   Its handle is the normalized GitHub username for login-provisioned tenants, or
   an admin-minted handle. Access, DNS, tailnet, storage, and the OIDC issuer are
-  all scoped to it. Names key on the handle: infra project `sc2-<tenant>`,
-  app project `sc2-<tenant>-<project>`, bridge `sc2-<tenant>`.
+  all scoped to it. Names key on the handle *and* the installation prefix
+  (`sc-adm install --prefix`; the default `sc` normalizes to `sc2`): infra
+  project `<prefix>-<tenant>`, app project `<prefix>-<tenant>-<project>`, bridge
+  `<prefix>-<tenant>`. Examples elsewhere show the default `sc2-`; read the real
+  names from `sc remote list` rather than deriving them from the handle alone.
 - **Project** — A real Incus project owned by a tenant (`sc2-<tenant>-<project>`),
   holding that project's machines, profiles, and storage. Created/deleted as an
   actual Incus project through the broker, not a metadata label. The seeded
@@ -32,10 +35,20 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
   sidecar's tailnet `:8443` to the host's Incus API. The tenant's enrolled remote
   points at the sidecar's tailnet IP, so the host's TLS certificate is pinned
   end-to-end and no host port is exposed.
-- **Machine hostname** — Flat: `<machine>.<suffix>` (suffix = the tenant handle).
-  One CoreDNS zone per tenant; the Auth App reconciler auto-registers every
-  running machine. Resolves to the machine's bridge IP, reachable over the tenant
-  tailnet's subnet route.
+- **Machine Private Hostname** — The canonical name of a machine,
+  `<machine>.<project>.<Tenant DNS Suffix>`, for every project including
+  `default`, plus a wildcard `*.<machine>.<project>.<suffix>` (ADR-0018).
+  One CoreDNS zone per tenant, the only DNS authority; the Auth App reconciler
+  auto-registers every running machine. Resolves to the machine's bridge IP,
+  reachable over the tenant tailnet's subnet route.
+- **Default Project Short Hostname** — The one short form: `<machine>.<suffix>`
+  (+ wildcard), aliasing the *default* project's machine of that name. Machines
+  in other projects have no short name — never first-wins, never dependent on
+  uniqueness across projects.
+- **Tenant DNS Suffix** — The tenant-chosen, single-label final part of every
+  machine hostname. Set at tenant creation (`--dns-suffix`), immutable
+  thereafter, and defaulting to the tenant handle — but not required to equal
+  it, so never assume the two are the same.
 - **Project profile** — Each project's Incus `default` profile bundles the shared
   `/workspace` volume, the shared-bridge NIC, and cloud-init login
   (user + SSH key + sshd). This is how a machine "in a project" gets its shared,
