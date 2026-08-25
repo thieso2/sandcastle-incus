@@ -291,6 +291,11 @@ type launchV2Options struct {
 	// HomeShare adds the project's homeshare profile, mounting the shared
 	// /home volume; without it the machine gets a machine-local /home.
 	HomeShare bool
+	// ConfirmCreate, when set, is asked before a machine that does not exist
+	// is brought into being, and aborts the dial if it returns an error. It is
+	// how `sc connect` keeps a mistyped name from provisioning a container:
+	// commands that leave it nil (`sc fix`) create silently as before.
+	ConfirmCreate func(project string, machine string) error
 }
 
 type createV2Options struct {
@@ -442,13 +447,17 @@ func dialV2Machine(ctx context.Context, config commandConfig, summary tenant.Sum
 	if err != nil {
 		return dialedV2Machine{}, err
 	}
-	ensured, err := config.tenantCreator.EnsureMachineV2(ctx, incusx.CreateMachineV2Request{
+	request := incusx.CreateMachineV2Request{
 		IncusProject: summary.V2IncusProjectName(project),
 		Name:         machineName,
 		Image:        v2DefaultMachineImage,
 		VM:           vm,
 		HomeShare:    launch.HomeShare,
-	})
+	}
+	if confirm := launch.ConfirmCreate; confirm != nil {
+		request.ConfirmCreate = func() error { return confirm(project, machineName) }
+	}
+	ensured, err := config.tenantCreator.EnsureMachineV2(ctx, request)
 	if err != nil {
 		return dialedV2Machine{}, err
 	}

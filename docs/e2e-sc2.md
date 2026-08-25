@@ -1226,7 +1226,9 @@ for the tenant-topology support (each step below failed at least once before bei
 fixed; see the appendix).
 
 ```bash
-sc c lc1 -- hostname                           # connect CREATES a missing machine, waits for sshd, SSHes
+sc c lc1 -- hostname                           # connect CREATES a missing machine: asks first, waits for sshd, SSHes
+                                               #   answer `n` once → "create canceled", nothing created, then re-run and answer `y`
+                                               #   (unattended: `sc c --yes lc1 -- hostname`)
 sc list                                        # lc1 with flat FQDN lc1.<suffix> + live IP
 sc incus exec lc1 -- sh -c '
   su - $LOGIN_USER -c "touch /workspace/ok"    # /workspace writable by the login user
@@ -1243,7 +1245,12 @@ sc list                                        # lc1 gone
   **write `/workspace`**, and has `~/.ssh/authorized_keys` (on the machine's own
   `/home`; on the shared `/home` volume when created with `--home-share`).
 - `sc c <machine>` creates a missing machine, starts a stopped one, waits for
-  sshd, and lands an SSH session as the profile login user.
+  sshd, and lands an SSH session as the profile login user. Creating one is
+  **confirmed first**: `Machine lc1 does not exist in project default. Create
+  it? [y/N]`, and anything but `y`/`yes` cancels with `create canceled` and
+  creates nothing. `--yes` skips the prompt; with no terminal the missing
+  `--yes` is an error (`… pass --yes to create it`), not a silent create.
+  Starting a stopped machine is **not** prompted — nothing is provisioned.
 - `sc delete <machine> --yes` deletes the freeform instance (force-stops first);
   start/stop/restart work; `sc incus` targets the right project.
 - `sc incus` **requires a live v2 tenant**: it reads the app project name off the
@@ -1257,7 +1264,7 @@ The project and machine parts of a reference are globs, on both the listing and
 the lifecycle commands. Quote the patterns so the shell does not expand them.
 
 ```bash
-sc c lc1 -- true && sc c lc2 -- true && sc c web-a -- true   # three machines in the current project
+sc c --yes lc1 -- true && sc c --yes lc2 -- true && sc c --yes web-a -- true   # three machines in the current project
 
 sc ls ':lc*'                    # machine glob within the current project
 sc ls -a '*:lc*'                # …across every project
@@ -1294,7 +1301,7 @@ sc delete web-a --yes
   successful machines are still reported as done.
 - A wildcard that matches nothing is an **error** (`no machines match "lc*" …`),
   never a silent no-op. A wildcard never creates a machine — only `sc c <name>`
-  with a literal name does.
+  with a literal name does, and only after confirming (or `--yes`).
 - `sc delete '<pattern>'` interactively prompts once, naming every machine
   (`Delete 2 machines (default:lc1, default:lc2)?`); non-interactively it still
   refuses without `--yes`.
@@ -1369,15 +1376,15 @@ known_hosts file for v2, and **no** IP-keyed entry is ever written.
 
 ```bash
 M=hk1
-sc c $M -- true                                # records ALL host key types, tagged
+sc c --yes $M -- true                          # creates hk1; records ALL host key types, tagged
 grep "^$M\." ~/.ssh/known_hosts                # one tagged line per key type
 
 # the reported bug: rebuild the machine, its host key changes
-sc delete $M --yes && sc c $M -- true          # must NOT warn; must reclaim the stale name
+sc delete $M --yes && sc c --yes $M -- true    # must NOT warn; must reclaim the stale name
 
 # first boot: cloud-init deletes and regenerates every host key AFTER sshd is up
 sc delete $M --yes
-sc c $M -- true                                # create+connect in one shot; must NOT warn
+sc c --yes $M -- true                          # create+connect in one shot; must NOT warn
 ssh -o BatchMode=yes $M.default.$SUFFIX true   # bare ssh works, by name
 ssh -o BatchMode=yes $M.$SUFFIX true           # short alias too (default project, ADR-0018)
 
@@ -1436,7 +1443,7 @@ sc project create web
 #     --cert "$DIR/client.crt" --key "$DIR/client.key"
 
 sc list                        # summary now lists project "web"
-sc c web:dev1 -- hostname      # machine lifecycle scoped by project prefix
+sc c --yes web:dev1 -- hostname # machine lifecycle scoped by project prefix (--yes: dev1 is new)
 sc delete web:dev1 --yes
 ```
 **PASS:**

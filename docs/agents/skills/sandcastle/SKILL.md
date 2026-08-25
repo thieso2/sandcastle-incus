@@ -82,9 +82,13 @@ matches nothing is an **error**, never a silent no-op — except a project glob 
 
 ## Rules that bite
 
-**`sc connect` creates the machine when it does not exist.** A typo provisions a
-container and waits for it to boot. Confirm the name with `sc ls` before
-connecting, or reach for a lifecycle verb, which refuses an unknown name.
+**`sc connect` creates the machine when it does not exist — after asking.**
+`Machine dev does not exist in project default. Create it? [y/N]`; anything but
+`y`/`yes` cancels. Non-interactively (which is how you run it) there is nobody
+to ask, so the create is an **error** unless you pass `--yes` — `sc c --yes dev`
+is the deliberate "create it" form. Confirm the name with `sc ls` first, or
+reach for a lifecycle verb, which refuses an unknown name. `sc fix` still
+creates silently.
 
 **Destructive commands need `--yes` without a TTY.** `sc delete`, `sc project
 delete`, `sc route delete`, `sc ssh-key purge` prompt interactively; with no

@@ -43,6 +43,14 @@ type CreateMachineV2Request struct {
 	// the requested image resolves to admin.Images.Dev. Ignored when Bare is
 	// also set — an explicit --bare wins.
 	DevImage bool
+	// ConfirmCreate, when set, is consulted by EnsureMachineV2 just before it
+	// brings a MISSING machine into existence — the one branch of an ensure
+	// that provisions rather than reuses. Returning an error aborts without
+	// creating anything. It is a hook rather than a caller-side existence
+	// check so the decision rides on the lookup the ensure already did: no
+	// second round trip, and no window between asking and creating.
+	// CreateMachineV2 ignores it — an explicit create is its own confirmation.
+	ConfirmCreate func() error
 }
 
 // v2MachineProfiles returns the profile list a machine is created with:
@@ -188,6 +196,11 @@ func (c TenantCreator) EnsureMachineV2(ctx context.Context, request CreateMachin
 	case err == nil:
 		result.PrivateIP, result.PrivateCIDR = waitForV2InstanceIPv4(ctx, project, request.Name, 20*time.Second)
 	case api.StatusErrorCheck(err, http.StatusNotFound):
+		if request.ConfirmCreate != nil {
+			if err := request.ConfirmCreate(); err != nil {
+				return EnsureMachineV2Result{}, err
+			}
+		}
 		created, err := c.CreateMachineV2(ctx, request)
 		if err != nil {
 			return EnsureMachineV2Result{}, err

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -57,6 +58,7 @@ func withResolvedV2Machine(cmd *cobra.Command, config commandConfig, ref string,
 func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var useVM bool
 	var homeShare bool
+	var assumeYes bool
 	command := &cobra.Command{
 		Use:     "connect [[remote:]project:]machine [-- command...]",
 		Aliases: []string{"c"},
@@ -71,13 +73,37 @@ func newConnectCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return runSSHSession(cmd.Context(), config, dialed, args[1:])
 			}
 			return withResolvedV2Machine(cmd, config, args[0], func(ctx context.Context, config commandConfig, summary tenant.Summary, reference string) error {
-				return runConnectV2(ctx, config, summary, reference, args[1:], launchV2Options{VM: useVM, HomeShare: homeShare})
+				return runConnectV2(ctx, config, summary, reference, args[1:], launchV2Options{
+					VM:            useVM,
+					HomeShare:     homeShare,
+					ConfirmCreate: confirmCreateMissingMachine(config, assumeYes),
+				})
 			})
 		},
 	}
 	command.Flags().BoolVar(&useVM, "vm", false, "when the machine has to be created first, launch a virtual machine instead of a container")
 	command.Flags().BoolVar(&homeShare, "home-share", false, "when the machine has to be created first, mount the project's shared /home (homeshare profile)")
+	command.Flags().BoolVar(&assumeYes, "yes", false, "create the machine without asking, when it does not exist yet")
 	return command
+}
+
+// confirmCreateMissingMachine is the ConfirmCreate hook `sc connect` hands to
+// the ensure path. Connecting to a name that is not there yet provisions a
+// machine and waits for it to boot, which is a lot to hand a typo — so the
+// creation branch asks first. --yes (or a non-interactive caller that passes
+// it) keeps the old straight-through behaviour; without a terminal there is
+// nobody to ask, so the missing --yes is an error rather than a silent create.
+func confirmCreateMissingMachine(config commandConfig, assumeYes bool) func(project string, machine string) error {
+	return func(project string, machine string) error {
+		if assumeYes {
+			return nil
+		}
+		_, err := confirmMissingYesNamed(config,
+			fmt.Sprintf("Machine %s does not exist in project %s. Create it?", machine, project),
+			fmt.Sprintf("machine %s does not exist in project %s; pass --yes to create it", machine, project),
+			"create canceled")
+		return err
+	}
 }
 
 // probeSSHPort reports whether the machine is accepting SSH yet. Kept from the

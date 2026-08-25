@@ -4731,3 +4731,33 @@ appendix records the fix — only the inline NB was missed. It now states the
 current behaviour (multi-arg quoted and joined; a lone arg passes through raw as
 a shell snippet) and explains that the steps below it use `sc incus exec`
 because they need root, not because `sc c` cannot run them.
+
+## 2026-08-25 — `sc connect` confirms before it creates a machine
+
+`sc c <name>` provisioned a machine whenever the name did not exist, so a typo
+launched a container and waited for it to boot. The creation branch now asks
+first: `Machine dev does not exist in project default. Create it? [y/N]`, with
+`--yes` to skip the prompt. Starting a *stopped* machine still happens silently
+— nothing is provisioned there.
+
+**Where the hook lives.** The obvious implementation — an `InstanceExists` call
+in `dialV2Machine` before `EnsureMachineV2` — costs a second round trip and
+opens a window between "does not exist" and the create. Instead
+`CreateMachineV2Request` grew an optional `ConfirmCreate func() error` that
+`EnsureMachineV2` calls in its `StatusNotFound` branch, i.e. on the lookup it
+already did, immediately before creating. A domain request struct carrying a
+callback is unusual, but it keeps the decision atomic with the branch it guards.
+`CreateMachineV2` ignores it — an explicit `sc create` is its own confirmation.
+
+**Only `sc connect` sets it.** `dialV2Machine` is shared with `sc fix`, which
+passes `launchV2Options{}` and therefore keeps creating silently: the prompt is
+about `sc c` being the everyday command a typo lands in.
+
+**No terminal ⇒ error, not a silent create.** Following the repo's existing
+`confirmMissingYes` pattern (`sc delete`, `sc project delete`, …), a
+non-interactive caller without `--yes` gets `machine dev does not exist in
+project default; pass --yes to create it`. This is a deliberate behaviour break
+for scripts that relied on connect-creates: the alternative — prompting on a TTY
+but creating silently without one — makes the guarantee depend on where the
+command runs, which is worse than one loud error. `docs/e2e-sc2.md` steps whose
+connect creates the machine now pass `--yes`.
