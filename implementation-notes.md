@@ -4695,3 +4695,39 @@ as a shell snippet.
 publishes into the resolved machine's project; `sc image list`/`rm` read the
 ACTIVE project, not literally `default` as the flag help implies), so an image
 saved in one project is invisible from another. That is not stated in any doc.
+
+## 2026-08-25 — Doc drift fixed: install prefix, and flat DNS superseded by ADR-0018
+
+Writing the shell skill meant checking the docs against the live CLI and a real
+install, which surfaced drift in three places. Fixed at the source rather than
+worked around in the skill.
+
+**1. Incus project prefix.** `docs/topology.md` and `docs/glossary.md` stated the
+project/bridge names as `sc2-<tenant>` flat, as if `sc2` were fixed. The rule is
+`<install-prefix>-<tenant>`, where the prefix comes from `sc-adm install
+--prefix` and the built-in default `sc` normalizes to `sc2`
+(`naming.NormalizeV2Prefix`). A live install on `obelix` uses prefix `obelix`
+throughout (`obelix-thieso2-family`), so an agent deriving a project name from
+the tenant handle targets nothing. Both docs now state the derivation, keep
+`sc2-` as the *example* default, and say to read the real names from
+`sc remote list` / `sc ls -a`.
+
+**2. Flat DNS.** `docs/glossary.md` ("Machine hostname — Flat:
+`<machine>.<suffix>`"), `docs/topology.md`, and `docs/usage.html` all still
+described ADR-0016 decision 9, which **ADR-0018 superseded** in 2026-07. The
+canonical name is `<machine>.<project>.<Tenant DNS Suffix>` for every project
+including `default`; exactly one short form exists (the Default Project Short
+Hostname), and machines outside the default project have none. The glossary's
+entry was the worst of the three — it is the canonical term list the other docs
+defer to, so leaving it would have re-seeded the error. It is now split into
+three entries (Machine Private Hostname / Default Project Short Hostname /
+Tenant DNS Suffix) matching `CONTEXT.md`'s wording, and records that the suffix
+defaults to the tenant handle without being required to equal it.
+
+**3. Stale `sc c` NB.** `docs/e2e-sc2.md` step 2b warned that
+`sc c <m> -- sh -c '<script>'` does not work. Issue #53 fixed that in 2026-07
+(`remoteCommandLine` shell-quotes argv before it reaches ssh) and the doc's own
+appendix records the fix — only the inline NB was missed. It now states the
+current behaviour (multi-arg quoted and joined; a lone arg passes through raw as
+a shell snippet) and explains that the steps below it use `sc incus exec`
+because they need root, not because `sc c` cannot run them.

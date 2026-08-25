@@ -16,12 +16,21 @@ Two principles run through everything:
 
 ## The model
 
+Every Incus-level name derives from the installation **prefix**, chosen at
+`sc-adm install --prefix` so several sandcastles can share one Incus host. The
+built-in default `sc` normalizes to the Incus project prefix `sc2`
+(`naming.NormalizeV2Prefix`), which is what the examples below show; an install
+made with `--prefix id` uses `id-` throughout instead. Never derive a project
+name from the tenant handle alone — read the real one from `sc remote list` or
+`sc ls -a`.
+
 ```
 Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
  │       login-provisioned tenants, or an admin-minted handle)
  │
  ├── sc2-<tenant>            Incus project = per-tenant infra
- │     └── one sidecar: CoreDNS + Tailscale subnet-router (+ Incus Reach proxy)
+ │     └── one sidecar (instance `sidecar`): CoreDNS + Tailscale subnet-router
+ │                                           (+ Incus Reach proxy)
  │
  ├── sc2-<tenant>            bridge (in the `default` Incus project)  ← one shared
  │                           network for all the tenant's projects (10.x.y.0/24)
@@ -29,10 +38,10 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
  ├── sc2-<tenant>-default    Incus project (features.networks=false → shared bridge)
  │     ├── default profile   = shared /workspace volume + cloud-init login
  │     ├── homeshare profile = shared /home volume (opt-in: sc create --home-share)
- │     └── machines: dev, web, …   → resolve flat as  dev.<tenant> , web.<tenant>
+ │     └── machines: dev, web, …   → dev.default.<suffix>  (+ short  dev.<suffix>)
  │
  └── sc2-<tenant>-<project>  Incus project   (a second project; same shape)
-       └── machines: dev1, …          → dev1.<tenant>
+       └── machines: dev1, …          → dev1.<project>.<suffix>   (no short form)
 ```
 
 - **Boundary = Tenant.** Access (a restricted, project-scoped Incus TLS cert),
@@ -48,8 +57,15 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
   nodes; they sit on the bridge (`10.x`) and are reached over the tenant's
   tailnet via the sidecar's advertised `/24` subnet route. The tenant brings
   their own Tailscale key (or joins the sidecar interactively at login).
-- **Flat DNS: `<machine>.<suffix>`.** One CoreDNS zone per tenant; a background
-  reconciler in the Auth App registers every running machine automatically.
+- **DNS: `<machine>.<project>.<Tenant DNS Suffix>`** for every machine in every
+  project, `default` included (ADR-0018). Exactly one short form exists — the
+  Default Project Short Hostname `<machine>.<suffix>`, aliasing the *default*
+  project's machine of that name; machines in other projects have none. Each
+  record carries a wildcard (`*.<machine>.<project>.<suffix>`). One CoreDNS zone
+  per tenant, the only DNS authority; a background reconciler in the Auth App
+  registers every running machine automatically. The Tenant DNS Suffix is
+  tenant-chosen, single-label, and immutable — it defaults to the tenant name but
+  is not required to equal it.
 
 ## Native `incus`, brokered lifecycle
 
@@ -75,7 +91,7 @@ deployed in one command by `sc-adm install`:
 |---|---|
 | **Auth App** (`sc2-auth-app`) | GitHub OAuth login + device login; provisions tenants; the OIDC provider for workload identity; the DNS auto-registration reconciler. Terminates its own public hostname (embedded caddy; optional cloudflared for tunnel mode) — no separate edge appliance. |
 | **Broker** (`sc2-broker`) | Authorizes and performs tenant + project lifecycle over the host Incus socket. |
-| **Sidecar** (`sc2-<tenant>`) | Per tenant: CoreDNS (the tenant zone) + Tailscale subnet-router + the Incus Reach proxy. |
+| **Sidecar** (instance `sidecar`, in project `sc2-<tenant>`) | Per tenant: CoreDNS (the tenant zone) + Tailscale subnet-router + the Incus Reach proxy. |
 
 ## Public ingress
 
