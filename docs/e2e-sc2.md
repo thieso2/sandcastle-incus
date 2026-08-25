@@ -2241,7 +2241,18 @@ sc update --yes
 #   restarts (verify: coredns/tailscaled uptime unchanged, tenant DNS + SSH
 #   still work mid-update); sidecar stamp = deployment version afterwards.
 
+# 10c-i — install script (curl | bash), the install `sc update` can self-replace
+curl -fsSL https://raw.githubusercontent.com/thieso2/sandcastle-incus/main/install.sh \
+  | bash -s -- --dir /tmp/sc-install --version v<older>
+/tmp/sc-install/sc version            # <older>; `sandcastle` is the real file, `sc` a symlink
+/tmp/sc-install/sc-adm version        # only with --admin (default links `sc` alone)
+# expect: SHA-256 verified against the release checksums.txt before anything is
+#   written (corrupt the tarball → "checksum mismatch", nothing installed); a
+#   404 release tag fails loudly; the script writes ONLY inside --dir and never
+#   edits a shell profile; re-running upgrades in place.
+
 # 10d — CLI self-update (direct install)
+/tmp/sc-install/sc update --yes       # the install.sh layout self-replaces (not brew-managed)
 sc update --version v<older> --yes      # roll the CLI back…
 sc version                              # …binary now reports <older>, .bak kept
 sc update --yes                         # …and forward to latest again
@@ -2262,8 +2273,11 @@ sc update --yes                         # …and forward to latest again
 
 **PASS:** 10a table complete and truthful (unknown ⇒ outdated); 10b idempotent
 with stamps written; 10c restarts only the leaf signer with connectivity
-untouched and the sidecar never ahead of the deployment; 10d atomic replace
-with `.bak` rollback artifact (brew installs never self-replace); 10e notices
+untouched and the sidecar never ahead of the deployment; 10c-i installs a
+checksum-verified binary into the requested directory as `sandcastle` + `sc`
+symlink, and `sc update` then reports that install as self-updatable (not
+Homebrew-managed); 10d atomic replace with `.bak` rollback artifact through the
+symlink (brew installs never self-replace); 10e notices
 throttled ≤1/24h per target and env-suppressible; 10f card states match the
 stamps.
 

@@ -4761,3 +4761,43 @@ for scripts that relied on connect-creates: the alternative — prompting on a T
 but creating silently without one — makes the guarantee depend on where the
 command runs, which is worse than one loud error. `docs/e2e-sc2.md` steps whose
 connect creates the machine now pass `--yes`.
+
+## 2026-08-25 — `curl | bash` installer (`install.sh`)
+
+`brew install thieso2/tap/sandcastle` is macOS-only and Homebrew installs are
+deliberately never self-replaced by `sc update` (the Caskroom desynchronizes and
+the next `brew upgrade` silently downgrades). Linux had no install path but
+"download the tarball and put it on PATH". `install.sh` at the repo root closes
+both: `curl -fsSL …/main/install.sh | bash` installs the release binary into
+`~/.local/bin`, and because that directory is the user's own, `sc update`
+self-replaces in place on Linux *and* macOS.
+
+**Layout.** The real file is installed as `sandcastle` with `sc` a symlink
+beside it — the busybox layout `cmd/sandcastle/main.go` dispatches on. That is
+also what makes self-update work unchanged: `update.Apply` resolves the symlink
+and replaces the real file, so `sc` survives. `sc-adm`/`sandcastle-admin` are
+`--admin`-only, matching the Homebrew cask, which deliberately exposes only the
+user CLI.
+
+**Latest release via the redirect, not the API.** `curl -fsSLI` on
+`/releases/latest` yields the tag from the redirect target.
+`api.github.com` unauthenticated is rate-limited **per IP**, which is exactly
+the wrong failure mode for an installer that runs from shared CI addresses.
+
+**Checksums are mandatory.** The script verifies the tarball against the
+release's `checksums.txt` (`sha256sum` or `shasum -a 256`) and refuses to
+install if neither tool exists, rather than offering a `--skip-checksum`
+escape hatch nobody should take on a `curl | bash`.
+
+**It writes nothing outside `--dir`.** No shell profile is edited; when the
+directory is not on `PATH` the script prints the line to add, per shell. Staging
+as `.sandcastle.new` + `mv` means a failed download never leaves a half-written
+binary on `PATH`, and a running `sc` keeps its own inode.
+
+**Help text is embedded, not read from `$0`.** Piped into bash, `$0` is `bash` —
+the original `sed -n '3,22p' "$0"` usage would have failed in the one invocation
+form the script exists for.
+
+**CI lints it.** `ci.yml` runs `bash -n` + `shellcheck --severity=warning`:
+the file is served straight from `main`, so a syntax error there breaks every
+new install immediately, with no release to gate it.

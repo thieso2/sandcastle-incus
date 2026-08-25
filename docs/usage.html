@@ -172,7 +172,12 @@
 
   <div class="step">
     <h3>Install the user CLI</h3>
-    <p>Install only the user-facing <code>sandcastle</code> binary and <code>sc</code> alias. The task installs into <code>~/.local/bin</code> when that directory is already on <code>PATH</code>; otherwise it installs into <code>/usr/local/bin</code>.</p>
+    <p><strong>From a release (Linux and macOS).</strong> The install script picks the right <code>sandcastle-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> for your machine, verifies its SHA-256 against the release's <code>checksums.txt</code>, and installs the binary as <code>sandcastle</code> in <code>~/.local/bin</code> with an <code>sc</code> symlink beside it:</p>
+    <pre><code><span class="cmd">curl -fsSL https://raw.githubusercontent.com/thieso2/sandcastle-incus/main/install.sh | bash</span>
+<span class="cmd">sc version</span></code></pre>
+    <p>Flags go after <code>-s --</code> when piping (<code>| bash -s -- --version v0.8.0</code>): <code>--version &lt;tag&gt;</code> installs (or rolls back to) a specific release, <code>--dir &lt;path&gt;</code> installs elsewhere, and <code>--admin</code> also links <code>sc-adm</code> / <code>sandcastle-admin</code> for operators. Each has an env-var form (<code>SANDCASTLE_VERSION</code>, <code>SANDCASTLE_INSTALL_DIR</code>, <code>SANDCASTLE_ADMIN=1</code>). The script only writes inside the install directory — it never edits your shell profile; when the directory is not on <code>PATH</code> it prints the line to add. Because the binary then lives in a directory you own, <code>sc update</code> can self-replace it, which a Homebrew install deliberately cannot. Re-running the script is the other way to upgrade.</p>
+    <p><strong>Homebrew (macOS).</strong> <code>brew install thieso2/tap/sandcastle</code>, upgraded with <code>brew upgrade sandcastle</code>. Casks are macOS-only.</p>
+    <p><strong>From a source checkout.</strong> <code>mise run install</code> installs the binary you just built into <code>~/.local/bin</code> when that directory is already on <code>PATH</code>; otherwise into <code>/usr/local/bin</code>.</p>
     <pre><code><span class="cmd">mise run install</span>
 <span class="cmd">sc version</span></code></pre>
     <p>Normal tenant users do not need <code>sandcastle-admin</code> or <code>sc-adm</code>; those are operator tools for tenant, infrastructure, image, and sidecar administration.</p>
@@ -185,7 +190,7 @@
 <span class="cmd">sc update</span>                    <span class="comment"># show the table, then prompt to apply what's outdated</span>
 <span class="cmd">sc update --yes</span>              <span class="comment"># apply without prompting</span>
 <span class="cmd">sc update --version v0.3.1</span>   <span class="comment"># pin the CLI to a tag (an older tag rolls back)</span></code></pre>
-    <p>The <strong>CLI target</strong> downloads <code>sandcastle-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> from the release, verifies its SHA-256 against <code>checksums.txt</code>, and atomically replaces the binary, keeping the previous one as <code>.bak</code>. Homebrew-managed installs are never self-replaced &mdash; the command prints <code>brew upgrade sandcastle</code> instead. The <strong>sidecar target</strong> is delegated to the deployment (auth-app token plane, broker mTLS fallback), which pushes its own running binary into your sidecar and restarts only the TLS leaf signer (sub-second; DNS and connectivity untouched).</p>
+    <p>The <strong>CLI target</strong> downloads <code>sandcastle-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> from the release, verifies its SHA-256 against <code>checksums.txt</code>, and atomically replaces the binary, keeping the previous one as <code>.bak</code>. Homebrew-managed installs are never self-replaced &mdash; the command prints <code>brew upgrade sandcastle</code> instead; an install from <code>install.sh</code> (or any writable directory) self-replaces in place on both Linux and macOS. The <strong>sidecar target</strong> is delegated to the deployment (auth-app token plane, broker mTLS fallback), which pushes its own running binary into your sidecar and restarts only the TLS leaf signer (sub-second; DNS and connectivity untouched).</p>
   </div>
 
   <div class="step">

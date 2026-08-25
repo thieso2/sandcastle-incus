@@ -17,6 +17,31 @@ and can publish HTTP routes through shared infrastructure Caddy.
 
 ## Install
 
+### Install script (Linux / macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thieso2/sandcastle-incus/main/install.sh | bash
+```
+
+Detects your OS/arch, downloads the matching release tarball, verifies it
+against the release `checksums.txt`, and installs `sandcastle` into
+`~/.local/bin` with an `sc` symlink beside it. Nothing outside the install
+directory is touched — if it is not on your `PATH`, the script prints the line
+to add.
+
+Flags come after `-s --` when piping:
+
+```bash
+curl -fsSL .../install.sh | bash -s -- --version v0.8.0   # pin a release (or roll back)
+curl -fsSL .../install.sh | bash -s -- --dir /usr/local/bin
+curl -fsSL .../install.sh | bash -s -- --admin            # also link sc-adm / sandcastle-admin
+```
+
+`SANDCASTLE_VERSION`, `SANDCASTLE_INSTALL_DIR` and `SANDCASTLE_ADMIN=1` are the
+env-var equivalents. Because the binary lands in a directory you own,
+`sc update` self-replaces it in place on both Linux and macOS — a Homebrew
+install deliberately cannot.
+
 ### Homebrew (macOS)
 
 ```bash

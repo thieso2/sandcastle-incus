@@ -46,6 +46,14 @@ jobs:
           fi
           echo "no v1 name shapes"
 
+      # install.sh is served straight from main to `curl | bash`, so a syntax
+      # error or an unquoted path in it breaks every new install the moment it
+      # lands — before any release is cut.
+      - name: Install script parses and lints
+        run: |
+          bash -n install.sh
+          shellcheck --severity=warning install.sh
+
       - name: Unit tests
         run: scripts/e2e.sh unit
 

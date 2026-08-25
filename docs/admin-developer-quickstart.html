@@ -410,9 +410,10 @@ incus info REMOTE:
       <p>Run these commands on the developer's own workstation.</p>
 
       <h3>1. Install the CLI locally</h3>
-      <pre><code>mise run install
+      <pre><code>curl -fsSL https://raw.githubusercontent.com/thieso2/sandcastle-incus/main/install.sh | bash
 sc version</code></pre>
-      <p>This installs the user-facing <code>sandcastle</code> binary and <code>sc</code> alias into <code>~/.local/bin</code> when that directory is already on <code>PATH</code>, otherwise into <code>/usr/local/bin</code>. Developers do not need <code>sandcastle-admin</code> or <code>sc-adm</code>; those are operator tools. If the admin provides prebuilt Linux amd64 binaries instead of a source checkout, install the user CLI and alias directly from the <code>mise run build:linux-amd64</code> output.</p>
+      <p>The install script is the shortest path for a developer with no source checkout: it downloads the release tarball for their OS/arch, verifies its SHA-256, and installs <code>sandcastle</code> + the <code>sc</code> symlink into <code>~/.local/bin</code> — a directory they own, so <code>sc update</code> can self-replace it later (a Homebrew install cannot). Pass <code>-s -- --version v&lt;tag&gt;</code> to pin the release the deployment expects. macOS developers can use <code>brew install thieso2/tap/sandcastle</code> instead.</p>
+      <p>From a source checkout, <code>mise run install</code> does the same with the locally built binary: it installs the user-facing <code>sandcastle</code> binary and <code>sc</code> alias into <code>~/.local/bin</code> when that directory is already on <code>PATH</code>, otherwise into <code>/usr/local/bin</code>. Developers do not need <code>sandcastle-admin</code> or <code>sc-adm</code>; those are operator tools. If the admin provides prebuilt Linux amd64 binaries instead of a source checkout, install the user CLI and alias directly from the <code>mise run build:linux-amd64</code> output.</p>
 
       <h3>2. Add the restricted remote</h3>
       <pre><code>sc remote add sandcastle-alice JOIN_TOKEN_FROM_ADMIN --tenant acme</code></pre>
