@@ -102,8 +102,12 @@ sc route status <hostname>
 - `awaiting-dns` means the public DNS record does not exist yet. An auto-subdomain
   needs the operator's wildcard record; a custom `--hostname` needs your own CNAME
   onto the target `sc route` names.
-- The **first HTTPS request issues the certificate** and is slow. A timeout on
-  request one is not a failure.
+- The **first HTTPS request issues the certificate** and is slow for exact
+  routes and for wildcard routes on default installs. Operators serving an
+  open-ended hostname set can redeploy with
+  `--route-dns-cloudflare-wildcard '<authorized-hostname>'` together with
+  `--route-dns-cloudflare-api-token` so the wildcard certificate is obtained
+  through DNS-01 during reconciliation.
 - On a Cloudflare zone the record must be **DNS-only (grey cloud)**. A proxied
   record intercepts `:443`, HTTP-01 never reaches the host, and no certificate
   issues.

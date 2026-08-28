@@ -5,6 +5,38 @@ spot, deviations from what was asked, tradeoffs, and workarounds for
 environment/tooling limits. The "why" behind the code; larger hard-to-reverse
 decisions live in `docs/adr/`. Newest first.
 
+## 2026-08-28 — wildcard Public Routes may use one DNS-01 certificate
+
+Production measurements on `*.jot.moyn.dev` isolated a 5–7 second first-click
+delay to ACME inside the TLS handshake. A second connection to the same hostname
+completed in about 140 ms, and newly issued certificate timestamps aligned with
+the first request. JotD had not received HTTP yet, so application caching could
+not fix it.
+
+PR #148 deliberately chose broker-authorized, leaf-per-SNI on-demand TLS. That
+remains the zero-credential default. This follow-up adds the operator flags
+`--route-dns-cloudflare-api-token` and
+`--route-dns-cloudflare-wildcard '*.jot.moyn.dev'`: when both are present, the
+appliance downloads Caddy with `caddy-dns/cloudflare`, stores the token in a
+Caddy-only `0600` environment file, and renders only exactly allowlisted
+leading-wildcard Public Routes with DNS-01. Other wildcard routes and all exact
+routes still use the ask-gated on-demand path.
+
+The exact wildcard allowlist is an authorization boundary, not convenience
+configuration. A Cloudflare token may cover a whole zone, while Public Route
+hostnames are Tenant input; allowing every wildcard Route to use that token
+would let Tenant publication silently exercise operator DNS authority.
+
+The token is not added to the Auth App's environment. Pointing Caddy at the
+existing Auth App environment file would also disclose the GitHub OAuth secret,
+simulated-login token, and Tailscale key to Caddy; a separate file keeps the
+process secret boundary narrow. An empty file is written when the option is
+disabled so a redeploy removes stale DNS authority.
+
+Alternatives rejected: prewarming every hostname (same issuance and rate-limit
+cost, only shifts latency) and passing TLS through to the target Machine (reopens
+ADR-0013's shared public-ingress decision and needs another L4 routing layer).
+
 ## 2026-08-12 — `sc ls` asks the cache only for what it prints, and gets 5s to do it
 
 Reported from the field on `obelix`: `VERBOSE=1 sc ls -a` still logged

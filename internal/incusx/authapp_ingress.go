@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -32,8 +33,13 @@ const (
 	// :80/:443 to the appliance, so the appliance must NOT claim the host ports
 	// itself. Use it when something else already owns :80/:443 on the Incus host
 	// (e.g. an sc-edge fronting other vhosts) and routes reach the appliance by
-	// SNI on its bridge address.
+	// SNI on its bridge address. Route certificates remain on-demand unless an
+	// operator configures DNS-01 for leading-wildcard Public Routes.
 	IngressACMEProxied = "acme-proxied"
+
+	// RouteDNSProviderCloudflare makes leading-wildcard Public Routes use a
+	// real wildcard certificate obtained through Cloudflare DNS-01.
+	RouteDNSProviderCloudflare = "cloudflare"
 
 	authAppCaddyBinary       = "/usr/bin/caddy"
 	authAppCloudflaredBinary = "/usr/bin/cloudflared"
@@ -41,6 +47,10 @@ const (
 	authAppCaddyUnitPath     = "/etc/systemd/system/caddy.service"
 	authAppTunnelUnitPath    = "/etc/systemd/system/cloudflared.service"
 	authAppTunnelEnvPath     = "/etc/default/cloudflared"
+	// AuthAppRouteDNSEnvPath is deliberately separate from the Auth App env:
+	// Caddy receives only the DNS credential it needs, not OAuth or login
+	// secrets from the service's main environment file.
+	AuthAppRouteDNSEnvPath = "/etc/sandcastle/auth-app/route-dns.env"
 )
 
 // authAppCaddyfile renders the appliance Caddyfile for the ingress mode.
@@ -70,6 +80,7 @@ Wants=network-online.target
 
 [Service]
 Type=notify
+EnvironmentFile=-/etc/sandcastle/auth-app/route-dns.env
 ExecStart=/usr/bin/caddy run --config /etc/caddy/Caddyfile
 ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile --force
 TimeoutStopSec=5s
@@ -104,8 +115,8 @@ WantedBy=multi-user.target
 // fetchIngressBinaries downloads caddy (and cloudflared for tunnel mode) ON THE
 // HOST — an in-container download over the NAT'd bridge can crawl or time out,
 // while the host fetch takes seconds (hard-won sc-edge lesson).
-func fetchIngressBinaries(mode, arch string) (caddy []byte, cloudflared []byte, err error) {
-	caddy, err = downloadURL("https://caddyserver.com/api/download?os=linux&arch="+arch, 3*time.Minute)
+func fetchIngressBinaries(mode, arch, routeDNSProvider string) (caddy []byte, cloudflared []byte, err error) {
+	caddy, err = downloadURL(caddyDownloadURL(arch, routeDNSProvider), 3*time.Minute)
 	if err != nil {
 		return nil, nil, fmt.Errorf("download caddy: %w", err)
 	}
@@ -116,6 +127,14 @@ func fetchIngressBinaries(mode, arch string) (caddy []byte, cloudflared []byte, 
 		}
 	}
 	return caddy, cloudflared, nil
+}
+
+func caddyDownloadURL(arch, routeDNSProvider string) string {
+	query := url.Values{"os": {"linux"}, "arch": {arch}}
+	if strings.TrimSpace(routeDNSProvider) == RouteDNSProviderCloudflare {
+		query.Add("p", "github.com/caddy-dns/cloudflare")
+	}
+	return "https://caddyserver.com/api/download?" + query.Encode()
 }
 
 func downloadURL(url string, timeout time.Duration) ([]byte, error) {

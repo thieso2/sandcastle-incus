@@ -132,6 +132,11 @@ In the Cloudflare dashboard (free plan is fine):
   resolve to the host's public IP.
 - `--ingress none` — bring your own edge (e.g. a standalone
   [`sc-edge`](sc-edge/) appliance) and front `:9444` yourself.
+- `--route-ingress acme|acme-proxied --route-dns-cloudflare-wildcard '*.jot.example.com' --route-dns-cloudflare-api-token <token>`
+  — optional route TLS optimization for services that mint open-ended
+  hostnames: exactly allowlisted leading-wildcard Public Routes use one
+  Cloudflare DNS-01 certificate instead of issuing a certificate on every
+  first request. Scope the token to `Zone:Read` + `DNS:Edit` for the route zone.
 
 ---
 

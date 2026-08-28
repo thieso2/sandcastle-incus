@@ -27,6 +27,8 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 		tenantBaseImage, tenantAIImage                                        string
 		ingressMode, acmeEmail, tunnelToken                                   string
 		routeIngress, routeBaseDomain, routeCNAMETarget, routeFront, routeTLS string
+		routeDNSCloudflareAPIToken                                            string
+		routeDNSCloudflareWildcards                                           []string
 	)
 	command := &cobra.Command{
 		Use:   "deploy",
@@ -77,35 +79,42 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 			if routeIngress != "" && routeIngress != incusx.IngressACME && routeIngress != incusx.IngressACMEProxied {
 				return fmt.Errorf("unknown --route-ingress %q (acme, acme-proxied, or empty to disable)", routeIngress)
 			}
+			routeDNSProvider, err := routeDNSProviderForCloudflare(routeIngress, routeDNSCloudflareAPIToken, routeDNSCloudflareWildcards)
+			if err != nil {
+				return err
+			}
 			if err := creator.BootstrapAuthApp(cmd.Context(), incusx.BootstrapAuthAppRequest{
-				Project:             project,
-				Instance:            instance,
-				BaseImage:           baseImage,
-				BinaryPath:          binaryPath,
-				Bridge:              bridge,
-				StoragePool:         storagePool,
-				Hostname:            hostname,
-				GitHubClientID:      githubClientID,
-				GitHubClientSecret:  githubClientSecret,
-				AdminGitHubUsers:    splitCommaList(adminUsers),
-				DefaultUnixUser:     defaultUnixUser,
-				TailscaleAuthKey:    tailscaleAuthKey,
-				DebugDeviceUser:     debugDeviceUser,
-				SimulateGitHubToken: simulateGitHubToken,
-				CIDRPool:            cidrPool,
-				ProjectPrefix:       projectPrefix,
-				InfraProject:        infraProject,
-				TLSMode:             tlsMode,
-				BaseImageRef:        tenantBaseImage,
-				AIImageRef:          tenantAIImage,
-				IngressMode:         strings.TrimSpace(ingressMode),
-				ACMEEmail:           strings.TrimSpace(acmeEmail),
-				TunnelToken:         strings.TrimSpace(tunnelToken),
-				RouteIngress:        routeIngress,
-				RouteBaseDomain:     strings.TrimSpace(routeBaseDomain),
-				RouteCNAMETarget:    strings.TrimSpace(routeCNAMETarget),
-				RouteFront:          strings.TrimSpace(routeFront),
-				RouteTLS:            strings.TrimSpace(routeTLS),
+				Project:                    project,
+				Instance:                   instance,
+				BaseImage:                  baseImage,
+				BinaryPath:                 binaryPath,
+				Bridge:                     bridge,
+				StoragePool:                storagePool,
+				Hostname:                   hostname,
+				GitHubClientID:             githubClientID,
+				GitHubClientSecret:         githubClientSecret,
+				AdminGitHubUsers:           splitCommaList(adminUsers),
+				DefaultUnixUser:            defaultUnixUser,
+				TailscaleAuthKey:           tailscaleAuthKey,
+				DebugDeviceUser:            debugDeviceUser,
+				SimulateGitHubToken:        simulateGitHubToken,
+				CIDRPool:                   cidrPool,
+				ProjectPrefix:              projectPrefix,
+				InfraProject:               infraProject,
+				TLSMode:                    tlsMode,
+				BaseImageRef:               tenantBaseImage,
+				AIImageRef:                 tenantAIImage,
+				IngressMode:                strings.TrimSpace(ingressMode),
+				ACMEEmail:                  strings.TrimSpace(acmeEmail),
+				TunnelToken:                strings.TrimSpace(tunnelToken),
+				RouteIngress:               routeIngress,
+				RouteBaseDomain:            strings.TrimSpace(routeBaseDomain),
+				RouteCNAMETarget:           strings.TrimSpace(routeCNAMETarget),
+				RouteFront:                 strings.TrimSpace(routeFront),
+				RouteTLS:                   strings.TrimSpace(routeTLS),
+				RouteDNSProvider:           routeDNSProvider,
+				RouteDNSWildcards:          routeDNSCloudflareWildcards,
+				RouteDNSCloudflareAPIToken: strings.TrimSpace(routeDNSCloudflareAPIToken),
 			}); err != nil {
 				return err
 			}
@@ -145,6 +154,8 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&routeFront, "route-front", "", "shared front instance to publish the route SNI list to, as <project>/<instance> (e.g. infrastructure/sc-edge); the auth-app writes a caddy-l4 fragment there and reloads it on every route change. Empty = this appliance owns the host ports")
 	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e)")
 	_ = command.Flags().MarkHidden("route-tls")
+	command.Flags().StringVar(&routeDNSCloudflareAPIToken, "route-dns-cloudflare-api-token", "", "Cloudflare API token with zone DNS edit access; wildcard public routes use one DNS-01 certificate instead of issuing a certificate per subdomain")
+	command.Flags().StringSliceVar(&routeDNSCloudflareWildcards, "route-dns-cloudflare-wildcard", nil, "exact leading-wildcard Public Route hostname authorized for Cloudflare DNS-01 (repeat for multiple hostnames)")
 	return command
 }
 

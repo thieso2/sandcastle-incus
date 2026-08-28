@@ -38,6 +38,8 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 		simulateGitHubToken, tlsMode, brokerPort                              string
 		ingressMode, acmeEmail, tunnelToken, cloudflareAPIToken               string
 		routeIngress, routeBaseDomain, routeCNAMETarget, routeFront, routeTLS string
+		routeDNSCloudflareAPIToken                                            string
+		routeDNSCloudflareWildcards                                           []string
 	)
 	command := &cobra.Command{
 		Use:   "install",
@@ -130,6 +132,10 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 					return fmt.Errorf("route ingress needs the host ports %v, but they are already in use", busy)
 				}
 			}
+			routeDNSProvider, err := routeDNSProviderForCloudflare(routeIngress, routeDNSCloudflareAPIToken, routeDNSCloudflareWildcards)
+			if err != nil {
+				return err
+			}
 
 			// Appliance bridge: by default each install creates and owns its own
 			// bridge (<prefix>-net), so nothing but the daemon is shared with v1
@@ -149,30 +155,33 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 
 			fmt.Fprintf(config.stdout, "[1/2] deploying auth-app appliance %s...\n", authAppInstance)
 			if err := creator.BootstrapAuthApp(cmd.Context(), incusx.BootstrapAuthAppRequest{
-				Project:             infraProject,
-				Instance:            authAppInstance,
-				BaseImage:           baseImage,
-				BinaryPath:          binaryPath,
-				Bridge:              applianceBridge,
-				StoragePool:         storagePool,
-				Hostname:            hostname,
-				GitHubClientID:      githubClientID,
-				GitHubClientSecret:  githubClientSecret,
-				AdminGitHubUsers:    splitCommaList(adminUsers),
-				DefaultUnixUser:     defaultUnixUser,
-				TailscaleAuthKey:    tailscaleAuthKey,
-				SimulateGitHubToken: simulateGitHubToken,
-				CIDRPool:            cidrPool,
-				ProjectPrefix:       prefix,
-				TLSMode:             tlsMode,
-				IngressMode:         ingressMode,
-				ACMEEmail:           acmeEmail,
-				TunnelToken:         tunnelToken,
-				RouteIngress:        routeIngress,
-				RouteBaseDomain:     routeBaseDomain,
-				RouteCNAMETarget:    routeCNAMETarget,
-				RouteFront:          routeFront,
-				RouteTLS:            routeTLS,
+				Project:                    infraProject,
+				Instance:                   authAppInstance,
+				BaseImage:                  baseImage,
+				BinaryPath:                 binaryPath,
+				Bridge:                     applianceBridge,
+				StoragePool:                storagePool,
+				Hostname:                   hostname,
+				GitHubClientID:             githubClientID,
+				GitHubClientSecret:         githubClientSecret,
+				AdminGitHubUsers:           splitCommaList(adminUsers),
+				DefaultUnixUser:            defaultUnixUser,
+				TailscaleAuthKey:           tailscaleAuthKey,
+				SimulateGitHubToken:        simulateGitHubToken,
+				CIDRPool:                   cidrPool,
+				ProjectPrefix:              prefix,
+				TLSMode:                    tlsMode,
+				IngressMode:                ingressMode,
+				ACMEEmail:                  acmeEmail,
+				TunnelToken:                tunnelToken,
+				RouteIngress:               routeIngress,
+				RouteBaseDomain:            routeBaseDomain,
+				RouteCNAMETarget:           routeCNAMETarget,
+				RouteFront:                 routeFront,
+				RouteTLS:                   routeTLS,
+				RouteDNSProvider:           routeDNSProvider,
+				RouteDNSWildcards:          routeDNSCloudflareWildcards,
+				RouteDNSCloudflareAPIToken: routeDNSCloudflareAPIToken,
 			}); err != nil {
 				return fmt.Errorf("auth-app deploy: %w", err)
 			}
@@ -277,9 +286,29 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&routeFront, "route-front", "", "shared front instance to publish the route SNI list to, as <project>/<instance> (e.g. infrastructure/sc-edge); the auth-app writes a caddy-l4 fragment there and reloads it on every route change. Empty = this appliance owns the host ports")
 	command.Flags().StringVar(&routeTLS, "route-tls", "", "TEST ONLY: 'internal' makes route sites use Caddy's self-signed CA instead of on-demand Let's Encrypt (hermetic e2e, no public DNS/ACME)")
 	_ = command.Flags().MarkHidden("route-tls")
+	command.Flags().StringVar(&routeDNSCloudflareAPIToken, "route-dns-cloudflare-api-token", "", "Cloudflare API token with zone DNS edit access; wildcard public routes use one DNS-01 certificate instead of issuing a certificate per subdomain")
+	command.Flags().StringSliceVar(&routeDNSCloudflareWildcards, "route-dns-cloudflare-wildcard", nil, "exact leading-wildcard Public Route hostname authorized for Cloudflare DNS-01 (repeat for multiple hostnames)")
 	command.Flags().StringVar(&tunnelToken, "cloudflare-tunnel-token", "", "connector token of a dashboard-created Cloudflare tunnel routing the hostname to http://localhost:8080 (cloudflare ingress)")
 	command.Flags().StringVar(&cloudflareAPIToken, "cloudflare-api-token", "", "Cloudflare API token (Tunnel:Edit + DNS:Edit + Zone:Read): install creates the tunnel, ingress rule, and proxied DNS record itself (cloudflare ingress)")
 	return command
+}
+
+func routeDNSProviderForCloudflare(routeIngress, token string, wildcards []string) (string, error) {
+	hasToken := strings.TrimSpace(token) != ""
+	hasWildcards := len(wildcards) > 0
+	if !hasToken && !hasWildcards {
+		return "", nil
+	}
+	if strings.TrimSpace(routeIngress) == "" {
+		return "", fmt.Errorf("Cloudflare route DNS-01 requires --route-ingress")
+	}
+	if !hasToken {
+		return "", fmt.Errorf("--route-dns-cloudflare-wildcard requires --route-dns-cloudflare-api-token")
+	}
+	if !hasWildcards {
+		return "", fmt.Errorf("--route-dns-cloudflare-api-token requires at least one --route-dns-cloudflare-wildcard")
+	}
+	return incusx.RouteDNSProviderCloudflare, nil
 }
 
 // detectExistingInstall lists the components of an installation under the given

@@ -81,11 +81,13 @@ sc route delete <hostname> --yes
 - Auto-subdomains ride a wildcard DNS record the operator set up. A custom
   `--hostname` needs its own CNAME onto the target `sc route` reports; until that
   record exists the route sits at `awaiting-dns`.
-- Certificates issue on the **first HTTPS request**, so that request is slow.
+- Exact-route certificates issue on the **first HTTPS request**, so that request
+  is slow. Wildcard routes do too unless the operator configured route DNS-01.
 - On a Cloudflare zone a custom route hostname must be DNS-only (grey cloud); a
   proxied record intercepts `:443` and no certificate ever issues.
-- A wildcard route issues one certificate per real subdomain on demand. An exact
-  route for the same name beats a covering wildcard.
+- By default a wildcard route issues one certificate per real subdomain on
+  demand. With operator-configured Cloudflare route DNS-01 it uses one wildcard
+  certificate. An exact route for the same name still beats a covering wildcard.
 - **Deleting a machine prunes its routes** within seconds. A delete-and-recreate
   rebuild therefore needs a re-publish; only an IP change on a live machine is
   refreshed in place.

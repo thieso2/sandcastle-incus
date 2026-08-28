@@ -1,5 +1,9 @@
 # Shape: support wildcard public routes (jot.moyn.dev)
 
+> Follow-up: ADR-0025 proposes optional operator-configured Cloudflare DNS-01
+> for a real wildcard certificate. This document remains the record of the
+> default, credential-free per-SNI mode delivered by PR #148.
+
 ## What this wish is
 
 Let a tenant publish one Public Route whose Hostname is a single-label wildcard

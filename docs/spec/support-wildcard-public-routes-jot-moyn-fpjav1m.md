@@ -1,5 +1,9 @@
 # Spec: support wildcard public routes (jot.moyn.dev)
 
+> Follow-up: ADR-0025 proposes optional operator-configured Cloudflare DNS-01
+> for a real wildcard certificate. This spec still defines the compatible
+> default when no route DNS provider is configured.
+
 Builds on `docs/shape/support-wildcard-public-routes-jot-moyn-fpjav1m.md`. That map located the
 real surface (all under `internal/authapp/`, not the wish's stale `internal/route`/`internal/caddy`
 paths) and settled three decisions: self-service authorization (no new gate), acme-only ingress
