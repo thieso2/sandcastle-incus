@@ -1616,6 +1616,34 @@ sc route status '*.jot.moyn.dev'   # live once ANY real subdomain resolves —
   previously-hit subdomains stop resolving through this Route (their leaf certs
   simply go unused, nothing to clean up per-subdomain).
 
+### Variant — one DNS-01 certificate for a wildcard route
+
+Redeploy the appliance with route ingress plus a zone-scoped Cloudflare token:
+
+```bash
+sc-adm auth-app deploy … \
+  --route-ingress acme-proxied \
+  --route-dns-cloudflare-wildcard '*.jot.moyn.dev' \
+  --route-dns-cloudflare-api-token "$ROUTE_DNS_TOKEN"
+```
+
+The token needs only `Zone:Read` and `DNS:Edit` for the wildcard route's zone.
+Publish `*.jot.moyn.dev` as above.
+
+**PASS:**
+- The generated wildcard site contains `dns cloudflare
+  {env.SANDCASTLE_ROUTE_DNS_CLOUDFLARE_API_TOKEN}` and no `on_demand` directive;
+  an exact route in the same Caddyfile still contains `on_demand`.
+- `/usr/bin/caddy list-modules` in the appliance includes the Cloudflare DNS
+  provider, while a redeploy without the flag returns to the stock build.
+- Two previously unseen subdomains both complete their first TLS handshake
+  without creating per-host certificates. `openssl s_client` shows the same
+  certificate with a `*.jot.moyn.dev` SAN for each.
+- The Auth App environment contains the normalized `*.jot.moyn.dev` allowlist;
+  an unlisted wildcard Route retains `on_demand` TLS.
+- `/etc/sandcastle/auth-app/route-dns.env` is mode `0600`, contains only the
+  route DNS token, and is empty after redeploying without the option.
+
 ### Route discovery — `sc route` and `GET /api/routes/config`
 A Tenant cannot derive the route base domain or the CNAME target from anything
 they can see, so the install reports both: `GET /api/routes/config` (token-gated)
@@ -1735,7 +1763,8 @@ device's `connect` re-points and the route serves again, #114), the
 everything. **PASS:** `ALL PASS — sc route non-interactive e2e`.
 
 `--route-tls internal` is **test-only** (hidden flag / `SANDCASTLE_ROUTE_TLS=internal`);
-production always uses on-demand Let's Encrypt. The internal-TLS mode swaps the cert
+production uses on-demand Let's Encrypt except for wildcard routes on an install
+with operator-configured route DNS-01. The internal-TLS mode swaps the cert
 issuer but exercises the same ingress → Caddy → proxy-device → machine plumbing; the
 real-LE issuance path is covered by the live run above.
 

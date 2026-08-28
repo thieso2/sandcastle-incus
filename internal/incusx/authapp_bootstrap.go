@@ -81,8 +81,15 @@ type BootstrapAuthAppRequest struct {
 	// sits in front of the appliance, and `sc route` reports it to Tenants.
 	RouteCNAMETarget string
 	// RouteTLS overrides route-site TLS: "internal" = Caddy self-signed CA (for
-	// hermetic e2e tests — no public DNS / ACME); empty = on-demand Let's Encrypt.
+	// hermetic e2e tests — no public DNS / ACME); empty selects normal production
+	// behavior (on-demand, except configured DNS-01 wildcard Routes).
 	RouteTLS string
+	// RouteDNSProvider enables DNS-01 for leading-wildcard Public Routes.
+	// Cloudflare is the first supported provider. Its API token is written to a
+	// Caddy-only environment file and never exposed to the Auth App process.
+	RouteDNSProvider           string
+	RouteDNSWildcards          []string
+	RouteDNSCloudflareAPIToken string
 
 	// Provisioning config baked into the appliance env (the Auth App provisions
 	// tenants on device login).
@@ -96,6 +103,9 @@ type BootstrapAuthAppRequest struct {
 
 // BootstrapAuthApp deploys the Auth App as an appliance and starts it.
 func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAppRequest) error {
+	if err := validateRouteDNSConfig(req); err != nil {
+		return err
+	}
 	server, err := c.resolveV2Server()
 	if err != nil {
 		return err
@@ -128,14 +138,17 @@ func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAp
 		{AuthAppUnitPath, []byte(authAppUnit()), 0o644},
 	}
 	mode := strings.TrimSpace(req.IngressMode)
+	routeIngress := strings.TrimSpace(req.RouteIngress)
+	routeDNSProvider := strings.TrimSpace(req.RouteDNSProvider)
 	units := []string{"sandcastle-auth-app.service"}
-	if mode == IngressACME || mode == IngressCloudflare {
+	needsCaddy := mode == IngressACME || mode == IngressCloudflare || routeIngress == IngressACME || routeIngress == IngressACMEProxied
+	if needsCaddy {
 		ingressArch, err := applianceIngressArch(psrv, instance)
 		if err != nil {
 			return err
 		}
 		c.log("fetch ingress binaries on the host (caddy" + map[bool]string{true: " + cloudflared", false: ""}[mode == IngressCloudflare] + ", arch " + ingressArch + ")")
-		caddy, cloudflared, err := fetchIngressBinaries(mode, ingressArch)
+		caddy, cloudflared, err := fetchIngressBinaries(mode, ingressArch, routeDNSProvider)
 		if err != nil {
 			return err
 		}
@@ -143,6 +156,7 @@ func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAp
 			applianceFile{authAppCaddyBinary, caddy, 0o755},
 			applianceFile{authAppCaddyfilePath, []byte(authAppCaddyfile(mode, req.Hostname, req.ACMEEmail)), 0o644},
 			applianceFile{authAppCaddyUnitPath, []byte(authAppCaddyUnit()), 0o644},
+			applianceFile{AuthAppRouteDNSEnvPath, []byte(authAppRouteDNSEnv(req)), 0o600},
 		)
 		units = append(units, "caddy.service")
 		if mode == IngressCloudflare {
@@ -185,6 +199,65 @@ func (c TenantCreator) BootstrapAuthApp(ctx context.Context, req BootstrapAuthAp
 			" (front it at https://" + req.Hostname + " via sc-edge)")
 	}
 	return nil
+}
+
+func validateRouteDNSConfig(req BootstrapAuthAppRequest) error {
+	provider := strings.TrimSpace(req.RouteDNSProvider)
+	token := strings.TrimSpace(req.RouteDNSCloudflareAPIToken)
+	wildcards, err := normalizeRouteDNSWildcards(req.RouteDNSWildcards)
+	if err != nil {
+		return err
+	}
+	if provider == "" && token == "" && len(wildcards) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(req.RouteIngress) == "" {
+		return fmt.Errorf("route DNS-01 requires route ingress")
+	}
+	if provider != RouteDNSProviderCloudflare {
+		return fmt.Errorf("unsupported route DNS provider %q", provider)
+	}
+	if token == "" {
+		return fmt.Errorf("cloudflare route DNS-01 requires an API token")
+	}
+	if len(wildcards) == 0 {
+		return fmt.Errorf("cloudflare route DNS-01 requires at least one authorized wildcard hostname")
+	}
+	return nil
+}
+
+func normalizeRouteDNSWildcards(hostnames []string) ([]string, error) {
+	out := make([]string, 0, len(hostnames))
+	seen := map[string]bool{}
+	for _, hostname := range hostnames {
+		hostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
+		base, ok := strings.CutPrefix(hostname, "*.")
+		if !ok || !isValidDNSName(base) {
+			return nil, fmt.Errorf("invalid route DNS wildcard %q: use a leading wildcard hostname such as *.jot.example.com", hostname)
+		}
+		if !seen[hostname] {
+			seen[hostname] = true
+			out = append(out, hostname)
+		}
+	}
+	return out, nil
+}
+
+func isValidDNSName(hostname string) bool {
+	if hostname == "" || len(hostname) > 251 || !strings.Contains(hostname, ".") {
+		return false
+	}
+	for _, label := range strings.Split(hostname, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func ensureAuthAppProject(server TenantCreateServer, project string) error {
@@ -370,6 +443,8 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_ROUTE_CNAME_TARGET=" + q(strings.TrimSpace(req.RouteCNAMETarget)),
 		"SANDCASTLE_ROUTE_FRONT=" + q(strings.TrimSpace(req.RouteFront)),
 		"SANDCASTLE_ROUTE_TLS=" + q(strings.TrimSpace(req.RouteTLS)),
+		"SANDCASTLE_ROUTE_DNS_PROVIDER=" + q(strings.TrimSpace(req.RouteDNSProvider)),
+		"SANDCASTLE_ROUTE_DNS_WILDCARDS=" + q(strings.Join(mustNormalizeRouteDNSWildcards(req.RouteDNSWildcards), ",")),
 		// Incus access: the mounted host admin unix socket.
 		"SANDCASTLE_REMOTE=" + q("local"),
 		"SANDCASTLE_STORAGE_POOL=" + q(orDefaultStr(req.StoragePool, "default")),
@@ -381,6 +456,19 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_AI_IMAGE=" + q(orDefaultStr(req.AIImageRef, DefaultApplianceImage)),
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func mustNormalizeRouteDNSWildcards(hostnames []string) []string {
+	normalized, _ := normalizeRouteDNSWildcards(hostnames)
+	return normalized
+}
+
+func authAppRouteDNSEnv(req BootstrapAuthAppRequest) string {
+	if strings.TrimSpace(req.RouteDNSProvider) != RouteDNSProviderCloudflare {
+		return ""
+	}
+	q := func(v string) string { return "'" + strings.ReplaceAll(v, "'", "") + "'" }
+	return "SANDCASTLE_ROUTE_DNS_CLOUDFLARE_API_TOKEN=" + q(strings.TrimSpace(req.RouteDNSCloudflareAPIToken)) + "\n"
 }
 
 func authAppUnit() string {

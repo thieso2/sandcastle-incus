@@ -21,19 +21,27 @@ const (
 // DNS, inbound ports, or a real ACME server. Never set in production.
 const RouteTLSInternal = "internal"
 
+// RouteDNSProviderCloudflare enables DNS-01 for leading-wildcard Public
+// Routes. Exact-host Routes deliberately retain broker-gated on-demand TLS.
+const RouteDNSProviderCloudflare = "cloudflare"
+
+const routeDNSCloudflareTokenEnv = "SANDCASTLE_ROUTE_DNS_CLOUDFLARE_API_TOKEN"
+
 // CaddyRenderConfig carries the inputs the Auth App needs to regenerate the
 // appliance Caddyfile. It renders one Caddy config that serves BOTH the Auth
 // Hostname (per its own ingress mode) AND native-ACME Public Route sites — so
 // routes can run alongside a Cloudflare-tunnelled login hostname (Spec #111 +
 // coexistence).
 type CaddyRenderConfig struct {
-	AuthHostname    string // the install's Auth Hostname (login site)
-	AuthIngressMode string // how the Auth Hostname is served: acme | cloudflare | none
-	RouteBaseDomain string // routes live under this (falls back to AuthHostname)
-	ACMEEmail       string // Let's Encrypt contact email (optional)
-	AuthAppUpstream string // where the Auth App HTTP listener is, e.g. 127.0.0.1:9444
-	AskURL          string // on-demand-TLS ask endpoint, e.g. http://127.0.0.1:9444/api/routes/ask
-	RouteTLS        string // route-site TLS: "" = on-demand Let's Encrypt; "internal" = Caddy self-signed (tests)
+	AuthHostname      string   // the install's Auth Hostname (login site)
+	AuthIngressMode   string   // how the Auth Hostname is served: acme | cloudflare | none
+	RouteBaseDomain   string   // routes live under this (falls back to AuthHostname)
+	ACMEEmail         string   // Let's Encrypt contact email (optional)
+	AuthAppUpstream   string   // where the Auth App HTTP listener is, e.g. 127.0.0.1:9444
+	AskURL            string   // on-demand-TLS ask endpoint, e.g. http://127.0.0.1:9444/api/routes/ask
+	RouteTLS          string   // route-site TLS: "" = on-demand Let's Encrypt; "internal" = Caddy self-signed (tests)
+	RouteDNSProvider  string   // "cloudflare" enables DNS-01 for explicitly authorized wildcard hostnames
+	RouteDNSWildcards []string // exact leading-wildcard Route hostnames the operator authorizes for DNS-01
 }
 
 // The Auth App HTTP listener and its on-demand-TLS ask endpoint are fixed at the
@@ -52,15 +60,17 @@ const (
 // + authIngressMode describe the login site; routeBaseDomain is where routes live
 // (empty → the Auth Hostname). Single source for both the reconcile loop and the
 // handlers.
-func RouteRenderConfig(authHostname, authIngressMode, routeBaseDomain, acmeEmail, routeTLS string) CaddyRenderConfig {
+func RouteRenderConfig(authHostname, authIngressMode, routeBaseDomain, acmeEmail, routeTLS, routeDNSProvider string, routeDNSWildcards []string) CaddyRenderConfig {
 	return CaddyRenderConfig{
-		AuthHostname:    strings.Trim(strings.TrimSpace(authHostname), "."),
-		AuthIngressMode: strings.TrimSpace(authIngressMode),
-		RouteBaseDomain: strings.Trim(strings.TrimSpace(routeBaseDomain), "."),
-		ACMEEmail:       strings.TrimSpace(acmeEmail),
-		AuthAppUpstream: authAppLoopbackUpstream,
-		AskURL:          authAppAskURL,
-		RouteTLS:        strings.TrimSpace(routeTLS),
+		AuthHostname:      strings.Trim(strings.TrimSpace(authHostname), "."),
+		AuthIngressMode:   strings.TrimSpace(authIngressMode),
+		RouteBaseDomain:   strings.Trim(strings.TrimSpace(routeBaseDomain), "."),
+		ACMEEmail:         strings.TrimSpace(acmeEmail),
+		AuthAppUpstream:   authAppLoopbackUpstream,
+		AskURL:            authAppAskURL,
+		RouteTLS:          strings.TrimSpace(routeTLS),
+		RouteDNSProvider:  strings.TrimSpace(routeDNSProvider),
+		RouteDNSWildcards: normalizeRouteDNSWildcards(routeDNSWildcards),
 	}
 }
 
@@ -68,8 +78,9 @@ func RouteRenderConfig(authHostname, authIngressMode, routeBaseDomain, acmeEmail
 // the ACME email and the on-demand-TLS `ask` endpoint; the Auth Hostname site
 // rendered per its ingress mode (a Cloudflare-tunnelled hostname is served plain
 // on :8080, otherwise a normal ACME site); and one native-ACME site per Route.
-// Route sites use on-demand TLS so a certificate issues lazily on first request,
-// gated by the ask endpoint (registered Hostnames only). No global `auto_https
+// Route sites use on-demand TLS by default; operator-configured leading-wildcard
+// sites use DNS-01 instead. The on-demand path is gated by the ask endpoint
+// (registered Hostnames only). No global `auto_https
 // off` — that would suppress the route certificates; the Auth Hostname stays
 // cert-free instead via its explicit `http://…:8080` scheme. Routes reverse-proxy
 // to the per-Route loopback port an Incus proxy device forwards to the Machine,
@@ -114,6 +125,8 @@ func RenderCaddyfile(cfg CaddyRenderConfig, routes []Route) string {
 		fmt.Fprintf(&b, "%s {\n", host)
 		if cfg.RouteTLS == RouteTLSInternal {
 			b.WriteString("\ttls internal\n")
+		} else if routeUsesDNS01(host, cfg) {
+			fmt.Fprintf(&b, "\ttls {\n\t\tdns cloudflare {env.%s}\n\t}\n", routeDNSCloudflareTokenEnv)
 		} else {
 			b.WriteString("\ttls {\n\t\ton_demand\n\t}\n")
 		}
@@ -122,4 +135,31 @@ func RenderCaddyfile(cfg CaddyRenderConfig, routes []Route) string {
 	}
 
 	return b.String()
+}
+
+func routeUsesDNS01(host string, cfg CaddyRenderConfig) bool {
+	if cfg.RouteDNSProvider != RouteDNSProviderCloudflare || !strings.HasPrefix(host, "*.") {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	for _, allowed := range cfg.RouteDNSWildcards {
+		if host == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeRouteDNSWildcards(hostnames []string) []string {
+	out := make([]string, 0, len(hostnames))
+	seen := map[string]bool{}
+	for _, hostname := range hostnames {
+		hostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
+		if hostname == "" || seen[hostname] {
+			continue
+		}
+		seen[hostname] = true
+		out = append(out, hostname)
+	}
+	return out
 }

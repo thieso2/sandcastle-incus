@@ -270,6 +270,7 @@ sc-adm install \
   --admin-github-users you \
   --ingress cloudflare --cloudflare-api-token &lt;token&gt;</code></pre>
       <p>The GitHub OAuth App's callback URL is <code>https://&lt;auth-hostname&gt;/oauth/github/callback</code>. <code>--cidr-pool</code> is optional (shared by auth-app + broker); keep pools distinct across installations that share a tailnet. <code>--prefix</code> (default <code>sc</code>) scopes an installation so several can share one host; the installer refuses to run when a same-prefix install already exists.</p>
+      <p><strong>Wildcard Public Routes without first-request certificate latency:</strong> enable route ingress and pass both <code>--route-dns-cloudflare-wildcard '*.jot.moyn.dev'</code> and <code>--route-dns-cloudflare-api-token &lt;token&gt;</code>. Sandcastle builds the appliance Caddy with the Cloudflare DNS module and uses one DNS-01 wildcard certificate only for exactly allowlisted wildcard routes; every other route retains on-demand TLS. Scope this separate token to <code>Zone:Read</code> and <code>DNS:Edit</code> for the route zone, and supply it again on <code>sc-adm auth-app deploy</code>.</p>
       <p><strong>Then a user logs in from any Tailscale node:</strong></p>
       <pre><code>sc login https://burg.example.dev            <span class="comment"># --tailscale-auth-key to join the sidecar unattended,
                                              # or follow the printed tailnet join URL</span>

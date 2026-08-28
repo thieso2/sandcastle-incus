@@ -46,7 +46,7 @@ func TestRenderCaddyfile_RouteBlockUsesOnDemandAndLoopback(t *testing.T) {
 }
 
 func TestRenderCaddyfile_CoexistCloudflareLoginAndAcmeRoutes(t *testing.T) {
-	cfg := RouteRenderConfig("home.thieso2.dev", IngressModeCloudflare, "home.tc42.uk", "ops@example.dev", "")
+	cfg := RouteRenderConfig("home.thieso2.dev", IngressModeCloudflare, "home.tc42.uk", "ops@example.dev", "", "", nil)
 	routes := []Route{{Hostname: "web.acme.home.tc42.uk", LocalPort: 20001}}
 	out := RenderCaddyfile(cfg, routes)
 
@@ -68,7 +68,7 @@ func TestRenderCaddyfile_CoexistCloudflareLoginAndAcmeRoutes(t *testing.T) {
 }
 
 func TestRenderCaddyfile_AcmeLoginHostStaysBareSite(t *testing.T) {
-	cfg := RouteRenderConfig("sc2.thieso2.dev", IngressModeACME, "", "ops@example.dev", "")
+	cfg := RouteRenderConfig("sc2.thieso2.dev", IngressModeACME, "", "ops@example.dev", "", "", nil)
 	out := RenderCaddyfile(cfg, nil)
 	if !strings.Contains(out, "sc2.thieso2.dev {") || strings.Contains(out, "http://sc2.thieso2.dev:8080") {
 		t.Errorf("acme login host should be a bare ACME site, not :8080:\n%s", out)
@@ -76,7 +76,7 @@ func TestRenderCaddyfile_AcmeLoginHostStaysBareSite(t *testing.T) {
 }
 
 func TestRenderCaddyfile_RouteTLSInternal(t *testing.T) {
-	cfg := RouteRenderConfig("sc2.thieso2.dev", IngressModeACME, "routes.test", "", RouteTLSInternal)
+	cfg := RouteRenderConfig("sc2.thieso2.dev", IngressModeACME, "routes.test", "", RouteTLSInternal, "", nil)
 	routes := []Route{{Hostname: "web.acme.routes.test", LocalPort: 20001}}
 	out := RenderCaddyfile(cfg, routes)
 	if !strings.Contains(out, "tls internal") {
@@ -100,6 +100,40 @@ func TestRenderCaddyfile_WildcardRouteBlock(t *testing.T) {
 	}
 	if !strings.Contains(out, "reverse_proxy 127.0.0.1:20005") {
 		t.Errorf("wildcard route should proxy to its loopback port:\n%s", out)
+	}
+}
+
+func TestRenderCaddyfile_WildcardRouteUsesConfiguredCloudflareDNS01(t *testing.T) {
+	cfg := testCaddyConfig()
+	cfg.RouteDNSProvider = RouteDNSProviderCloudflare
+	cfg.RouteDNSWildcards = []string{"*.jot.moyn.dev"}
+	routes := []Route{
+		{Hostname: "*.jot.moyn.dev", LocalPort: 20005},
+		{Hostname: "*.other.example.dev", LocalPort: 20006},
+		{Hostname: "status.example.dev", LocalPort: 20007},
+	}
+	out := RenderCaddyfile(cfg, routes)
+
+	wildcardStart := strings.Index(out, "*.jot.moyn.dev {")
+	otherWildcardStart := strings.Index(out, "*.other.example.dev {")
+	exactStart := strings.Index(out, "status.example.dev {")
+	if wildcardStart < 0 || otherWildcardStart < 0 || exactStart < 0 {
+		t.Fatalf("missing route blocks:\n%s", out)
+	}
+	wildcardBlock := out[wildcardStart:otherWildcardStart]
+	if !strings.Contains(wildcardBlock, "dns cloudflare {env.SANDCASTLE_ROUTE_DNS_CLOUDFLARE_API_TOKEN}") {
+		t.Errorf("wildcard route should use Cloudflare DNS-01:\n%s", wildcardBlock)
+	}
+	if strings.Contains(wildcardBlock, "on_demand") {
+		t.Errorf("wildcard DNS-01 route must not use on-demand TLS:\n%s", wildcardBlock)
+	}
+	otherWildcardBlock := out[otherWildcardStart:exactStart]
+	if !strings.Contains(otherWildcardBlock, "on_demand") {
+		t.Errorf("wildcard route not authorized by the operator should retain on-demand TLS:\n%s", otherWildcardBlock)
+	}
+	exactBlock := out[exactStart:]
+	if !strings.Contains(exactBlock, "on_demand") {
+		t.Errorf("exact route should retain on-demand TLS:\n%s", exactBlock)
 	}
 }
 

@@ -1,5 +1,9 @@
 # Plan: support wildcard public routes (jot.moyn.dev)
 
+> Follow-up: ADR-0025 proposes optional operator-configured Cloudflare DNS-01.
+> This plan remains the record of the compatible per-SNI default delivered by
+> PR #148.
+
 Builds on the shape and spec docs. Real surface is `internal/authapp/` (the wish's
 `internal/route`/`internal/caddy`/`internal/infra` paths are stale — deleted in the v1 purge).
 Four slices: two independent core-behaviour changes, one confirmation-only slice, one closing

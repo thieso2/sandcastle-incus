@@ -408,7 +408,7 @@ func (h handler) routeManager() (RouteManager, bool) {
 		// appliance's journal, which is where an operator looks when a front
 		// falls behind.
 		Logf:        func(format string, args ...any) { fmt.Fprintf(os.Stderr, "auth-app route: "+format+"\n", args...) },
-		Render:      RouteRenderConfig(h.authHostname, h.authIngressMode, h.routeBaseDomain, h.acmeEmail, h.routeTLS),
+		Render:      RouteRenderConfig(h.authHostname, h.authIngressMode, h.routeBaseDomain, h.acmeEmail, h.routeTLS, h.routeDNSProvider, h.routeDNSWildcards),
 		ResolveHost: h.routeResolveHost,
 	}, true
 }

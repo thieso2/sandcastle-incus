@@ -1,6 +1,9 @@
 package incusx
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAuthAppDevices_RouteIngressBindsHostPorts(t *testing.T) {
 	// Cloudflare login (no host ports for the auth hostname) BUT route ingress on
@@ -43,5 +46,51 @@ func TestAuthAppDevices_NoIngressNoHostPorts(t *testing.T) {
 	})
 	if _, ok := devices["https"]; ok {
 		t.Fatalf("cloudflare-only (no route ingress) must not bind host :443, devices=%v", devices)
+	}
+}
+
+func TestAuthAppEnvConfiguresCloudflareDNS01WithoutEmbeddingItsToken(t *testing.T) {
+	req := BootstrapAuthAppRequest{
+		RouteDNSProvider:           RouteDNSProviderCloudflare,
+		RouteDNSWildcards:          []string{"*.JOT.moyn.dev."},
+		RouteDNSCloudflareAPIToken: "route-dns-secret",
+	}
+	out := authAppEnv(req)
+	if !strings.Contains(out, "SANDCASTLE_ROUTE_DNS_PROVIDER='cloudflare'") {
+		t.Fatalf("auth-app env missing route DNS provider:\n%s", out)
+	}
+	if strings.Contains(out, "route-dns-secret") {
+		t.Fatalf("auth-app env must not contain the route DNS token")
+	}
+	if !strings.Contains(out, "SANDCASTLE_ROUTE_DNS_WILDCARDS='*.jot.moyn.dev'") {
+		t.Fatalf("auth-app env missing normalized route DNS wildcard:\n%s", out)
+	}
+	secretEnv := authAppRouteDNSEnv(req)
+	if secretEnv != "SANDCASTLE_ROUTE_DNS_CLOUDFLARE_API_TOKEN='route-dns-secret'\n" {
+		t.Fatalf("route DNS env = %q", secretEnv)
+	}
+}
+
+func TestValidateRouteDNSConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     BootstrapAuthAppRequest
+		wantErr bool
+	}{
+		{name: "disabled"},
+		{name: "configured", req: BootstrapAuthAppRequest{RouteIngress: IngressACMEProxied, RouteDNSProvider: RouteDNSProviderCloudflare, RouteDNSWildcards: []string{"*.jot.moyn.dev"}, RouteDNSCloudflareAPIToken: "secret"}},
+		{name: "missing route ingress", req: BootstrapAuthAppRequest{RouteDNSProvider: RouteDNSProviderCloudflare, RouteDNSWildcards: []string{"*.jot.moyn.dev"}, RouteDNSCloudflareAPIToken: "secret"}, wantErr: true},
+		{name: "missing token", req: BootstrapAuthAppRequest{RouteIngress: IngressACMEProxied, RouteDNSProvider: RouteDNSProviderCloudflare, RouteDNSWildcards: []string{"*.jot.moyn.dev"}}, wantErr: true},
+		{name: "missing wildcard", req: BootstrapAuthAppRequest{RouteIngress: IngressACMEProxied, RouteDNSProvider: RouteDNSProviderCloudflare, RouteDNSCloudflareAPIToken: "secret"}, wantErr: true},
+		{name: "invalid wildcard", req: BootstrapAuthAppRequest{RouteIngress: IngressACMEProxied, RouteDNSProvider: RouteDNSProviderCloudflare, RouteDNSWildcards: []string{"foo.*.moyn.dev"}, RouteDNSCloudflareAPIToken: "secret"}, wantErr: true},
+		{name: "unknown provider", req: BootstrapAuthAppRequest{RouteIngress: IngressACMEProxied, RouteDNSProvider: "other", RouteDNSWildcards: []string{"*.jot.moyn.dev"}, RouteDNSCloudflareAPIToken: "secret"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRouteDNSConfig(tt.req)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }

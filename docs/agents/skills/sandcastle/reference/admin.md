@@ -19,6 +19,8 @@ sc-adm install \
   --github-client-id … --github-client-secret … \
   --ingress cloudflare --cloudflare-api-token … \
   --route-ingress acme --acme-email ops@example.com \
+  --route-dns-cloudflare-wildcard '*.jot.example.com' \
+  --route-dns-cloudflare-api-token … \
   --prefix sc --cidr-pool 10.248.0.0/16
 ```
 
@@ -43,6 +45,11 @@ Decisions worth getting right the first time:
   beside a tunnelled login host: `acme` binds the host ports, `acme-proxied`
   terminates route TLS in the appliance behind an upstream SNI proxy that owns
   them. Empty disables `sc route` for every tenant on the install.
+- **`--route-dns-cloudflare-wildcard` + `--route-dns-cloudflare-api-token`**
+  are optional and apply DNS-01 only to an exactly allowlisted wildcard Public
+  Route. Repeat the wildcard flag for multiple Hostnames. Other wildcard and
+  exact routes remain on-demand. Use a zone-scoped `Zone:Read` + `DNS:Edit`
+  token and supply it again on appliance redeploy.
 - **`--cidr-pool`** must not overlap the host's own network, `incusbr0`, other
   bridges, or another install sharing a tailnet. The allocator sees existing
   tenants, not arbitrary host subnets — an overlap fails at bridge creation with

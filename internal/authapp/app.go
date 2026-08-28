@@ -127,8 +127,14 @@ type HTTPRunner struct {
 	// appliance; empty means "cannot be stated", not "use the Auth Hostname".
 	RouteCNAMETarget string
 	// RouteTLS overrides route-site TLS ("internal" = Caddy self-signed, for
-	// hermetic tests; empty = on-demand Let's Encrypt). Never set in production.
+	// hermetic tests). Never set in production.
 	RouteTLS string
+	// RouteDNSProvider enables operator-managed DNS-01 for wildcard Public
+	// Routes. Empty preserves per-SNI on-demand issuance.
+	RouteDNSProvider string
+	// RouteDNSWildcards are the exact leading-wildcard Route hostnames the
+	// operator authorizes to use the configured DNS credential.
+	RouteDNSWildcards []string
 	// RouteEvents, when set, subscribes to instance lifecycle events and calls
 	// notify() so the Route reconcile runs within seconds of a Machine change.
 	RouteEvents func(ctx context.Context, notify func())
@@ -248,6 +254,8 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			RouteIngress:                 r.RouteIngress,
 			RouteCNAMETarget:             r.RouteCNAMETarget,
 			RouteTLS:                     r.RouteTLS,
+			RouteDNSProvider:             r.RouteDNSProvider,
+			RouteDNSWildcards:            r.RouteDNSWildcards,
 			Version:                      r.Version,
 			Sidecars:                     r.Sidecars,
 			ResourceCache:                resourceCache,
@@ -367,7 +375,7 @@ func (r HTTPRunner) runRouteReconcileLoop(ctx context.Context, db *sql.DB, logge
 		DB:      db,
 		Backend: r.Routes,
 		Caddy:   r.RouteCaddy,
-		Render:  RouteRenderConfig(authHostname, r.AuthIngressMode, r.RouteBaseDomain, r.ACMEEmail, r.RouteTLS),
+		Render:  RouteRenderConfig(authHostname, r.AuthIngressMode, r.RouteBaseDomain, r.ACMEEmail, r.RouteTLS, r.RouteDNSProvider, r.RouteDNSWildcards),
 		Logf: func(format string, args ...any) {
 			logger.Message(ctx, "ERROR", "auth-app route: "+format, args...)
 		},
@@ -780,6 +788,8 @@ type HandlerOptions struct {
 	RouteIngress        string
 	RouteCNAMETarget    string
 	RouteTLS            string
+	RouteDNSProvider    string
+	RouteDNSWildcards   []string
 	// RouteResolveHost overrides how a custom hostname's DNS is checked for the
 	// awaiting-dns status. Optional; nil uses a real DNS lookup. Injected in tests.
 	RouteResolveHost func(ctx context.Context, host string) bool
@@ -845,6 +855,8 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		routeIngress:          strings.TrimSpace(handlerOptions.RouteIngress),
 		routeCNAME:            strings.Trim(strings.TrimSpace(handlerOptions.RouteCNAMETarget), "."),
 		routeTLS:              strings.TrimSpace(handlerOptions.RouteTLS),
+		routeDNSProvider:      strings.TrimSpace(handlerOptions.RouteDNSProvider),
+		routeDNSWildcards:     normalizeRouteDNSWildcards(handlerOptions.RouteDNSWildcards),
 		routeResolveHost:      handlerOptions.RouteResolveHost,
 		version:               strings.TrimSpace(handlerOptions.Version),
 		sidecars:              handlerOptions.Sidecars,
@@ -967,6 +979,8 @@ type handler struct {
 	routeIngress          string
 	routeCNAME            string
 	routeTLS              string
+	routeDNSProvider      string
+	routeDNSWildcards     []string
 	routeResolveHost      func(ctx context.Context, host string) bool
 	version               string
 	sidecars              projectbroker.SidecarUpdater
