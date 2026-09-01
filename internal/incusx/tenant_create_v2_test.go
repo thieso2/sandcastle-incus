@@ -54,7 +54,7 @@ func TestEnsureV2BridgeCreatesWithDNSModeNone(t *testing.T) {
 	res := &fakeBridgeResources{}
 	s := &fakeBridgeServer{res: res}
 	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSSuffix: "jules", PrivateCIDR: "10.249.7.0/24", DNSAddress: "10.249.7.3"}
-	if err := ensureV2Bridge(s, plan); err != nil {
+	if err := ensureV2Bridge(s, plan, false); err != nil {
 		t.Fatalf("ensureV2Bridge: %v", err)
 	}
 	if res.created == nil {
@@ -77,7 +77,7 @@ func TestEnsureV2BridgeConvergesExistingToDNSModeNone(t *testing.T) {
 	}}
 	s := &fakeBridgeServer{res: res}
 	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSAddress: "10.249.7.3"}
-	if err := ensureV2Bridge(s, plan); err != nil {
+	if err := ensureV2Bridge(s, plan, false); err != nil {
 		t.Fatalf("ensureV2Bridge: %v", err)
 	}
 	if res.updated == nil {
@@ -100,11 +100,79 @@ func TestEnsureV2BridgeNoopWhenConverged(t *testing.T) {
 	}}
 	s := &fakeBridgeServer{res: res}
 	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSAddress: "10.249.7.3"}
-	if err := ensureV2Bridge(s, plan); err != nil {
+	if err := ensureV2Bridge(s, plan, false); err != nil {
 		t.Fatalf("ensureV2Bridge: %v", err)
 	}
 	if res.updated != nil {
 		t.Fatal("converged bridge must not be updated")
+	}
+}
+
+// Toggling egress on must converge an existing (otherwise fully converged)
+// bridge onto the two-option dnsmasq value — CoreDNS resolver plus the
+// classless static route steering the CGNAT range at the sidecar, default
+// route included (RFC 3442).
+func TestEnsureV2BridgeEgressOnAddsClasslessRoute(t *testing.T) {
+	res := &fakeBridgeResources{network: &api.Network{
+		Name: "sc2-acme",
+		NetworkPut: api.NetworkPut{Config: map[string]string{
+			"raw.dnsmasq": "dhcp-option=6,10.249.7.3",
+			"dns.mode":    "none",
+		}},
+	}}
+	s := &fakeBridgeServer{res: res}
+	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSAddress: "10.249.7.3", GatewayAddress: "10.249.7.1"}
+	if err := ensureV2Bridge(s, plan, true); err != nil {
+		t.Fatalf("ensureV2Bridge: %v", err)
+	}
+	if res.updated == nil {
+		t.Fatal("expected the existing bridge to be updated")
+	}
+	want := "dhcp-option=6,10.249.7.3\ndhcp-option=121,100.64.0.0/10,10.249.7.3,0.0.0.0/0,10.249.7.1"
+	if got := res.updated.Config["raw.dnsmasq"]; got != want {
+		t.Fatalf("raw.dnsmasq = %q, want %q", got, want)
+	}
+}
+
+// Toggling egress off must converge the bridge BACK to the resolver-only
+// value — the exact-equality converge removes option 121, it doesn't just add.
+func TestEnsureV2BridgeEgressOffRemovesClasslessRoute(t *testing.T) {
+	res := &fakeBridgeResources{network: &api.Network{
+		Name: "sc2-acme",
+		NetworkPut: api.NetworkPut{Config: map[string]string{
+			"raw.dnsmasq": "dhcp-option=6,10.249.7.3\ndhcp-option=121,100.64.0.0/10,10.249.7.3,0.0.0.0/0,10.249.7.1",
+			"dns.mode":    "none",
+		}},
+	}}
+	s := &fakeBridgeServer{res: res}
+	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSAddress: "10.249.7.3", GatewayAddress: "10.249.7.1"}
+	if err := ensureV2Bridge(s, plan, false); err != nil {
+		t.Fatalf("ensureV2Bridge: %v", err)
+	}
+	if res.updated == nil {
+		t.Fatal("expected the existing bridge to be updated")
+	}
+	if got := res.updated.Config["raw.dnsmasq"]; got != "dhcp-option=6,10.249.7.3" {
+		t.Fatalf("raw.dnsmasq = %q, want resolver-only", got)
+	}
+}
+
+// A bridge already carrying the egress options is fully converged — no update.
+func TestEnsureV2BridgeEgressNoopWhenConverged(t *testing.T) {
+	res := &fakeBridgeResources{network: &api.Network{
+		Name: "sc2-acme",
+		NetworkPut: api.NetworkPut{Config: map[string]string{
+			"raw.dnsmasq": "dhcp-option=6,10.249.7.3\ndhcp-option=121,100.64.0.0/10,10.249.7.3,0.0.0.0/0,10.249.7.1",
+			"dns.mode":    "none",
+		}},
+	}}
+	s := &fakeBridgeServer{res: res}
+	plan := tenant.CreatePlanV2{Tenant: "acme", Bridge: "sc2-acme", DNSAddress: "10.249.7.3", GatewayAddress: "10.249.7.1"}
+	if err := ensureV2Bridge(s, plan, true); err != nil {
+		t.Fatalf("ensureV2Bridge: %v", err)
+	}
+	if res.updated != nil {
+		t.Fatal("converged egress bridge must not be updated")
 	}
 }
 

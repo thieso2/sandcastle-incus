@@ -2365,6 +2365,41 @@ Phases 0–9 are validated green today; the items above are refinements, not blo
 
 ---
 
+## Phase 11 — Tailnet egress (ADR-0026, opt-in) ⚠️ not yet run
+
+Machines reaching tailnet peers *outbound* through the sidecar. Off by default;
+all of a tenant's machines share the sidecar's `tag:sandcastle` ACL identity —
+on a default-open ACL, enabling egress opens the whole tailnet to every machine.
+
+```bash
+# 1. Baseline: from a machine, a tailnet peer is UNREACHABLE (default route → host → public uplink drops CGNAT)
+sc c dev -- sh -c 'curl -sS -m5 http://<peer-tailnet-ip>:<port>/ && echo UNEXPECTED || echo unreachable-as-expected'
+
+# 2. Enable + converge (admin plane; the toggle alone changes nothing)
+sc tailscale egress <tenant> on
+sc-adm tenant create <tenant> ...      # idempotent converge applies bridge option 121 + sidecar NAT unit
+
+# 3. Bridge carries both options now (project default)
+incus network get <prefix>-<tenant> raw.dnsmasq   # dhcp-option=6,<dns> + dhcp-option=121,100.64.0.0/10,<dns>,0.0.0.0/0,<gw>
+
+# 4. Sidecar unit + table live
+incus exec sidecar --project <prefix>-<tenant> -- systemctl is-active sandcastle-sidecar-egress.service
+incus exec sidecar --project <prefix>-<tenant> -- nft list table ip sandcastle-egress
+
+# 5. ACL: grant tag:sandcastle → <peer>:<port> in the tenant's tailnet policy (packets are DROPPED until then)
+
+# 6. Machine picks up the route on DHCP renewal (≤ lease/2) — force it, then verify
+sc c dev -- sh -c 'ip route get <peer-tailnet-ip>'      # next hop must be the sidecar (.3), not .1
+sc c dev -- sh -c 'curl -sS -m8 http://<peer-tailnet-ip>:<port>/'   # PASS: peer answers
+
+# 7. Disable converges everything back
+sc tailscale egress <tenant> off && sc-adm tenant create <tenant> ...   # bridge back to resolver-only, unit+table gone
+```
+
+PASS: step 1 fails closed, step 6 reaches the peer, step 7 restores the baseline.
+
+---
+
 ## Appendix — Problems encountered & fixes (keep updating)
 Log every problem hit while running this e2e and how it was resolved, so the runbook
 stays truthful and self-healing.

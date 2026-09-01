@@ -48,6 +48,13 @@ const (
 	// ever read back, so `sc project set-cloud-identity` was a no-op.
 	KeyV2CloudIdentity   = Prefix + "v2.cloud-identity"
 	KeyV2DockerAutostart = Prefix + "v2.docker-autostart"
+	// KeyV2TailnetEgress holds the tenant's tailnet-egress toggle on the
+	// kind=infra project (ADR-0026): "true" means machines reach tailnet peers
+	// (100.64.0.0/10) through the sidecar — a DHCP classless static route on the
+	// tenant bridge plus a masquerade on the sidecar's tailscale0. Absent/other
+	// means off. Deliberately NOT part of v2InfraMetadata: the converge reads it,
+	// only `sc tailscale egress` writes it.
+	KeyV2TailnetEgress = Prefix + "v2.tailnet-egress"
 	// KeyV2Bare marks an INSTANCE created with `sc create --bare`: no login
 	// user, no SSH key, no sshd. `sc connect` reads it to pick an Incus exec
 	// session over SSH, which on such a machine could only ever time out.

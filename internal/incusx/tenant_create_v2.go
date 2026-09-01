@@ -57,8 +57,13 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		sidecarImage = plan.SidecarImage
 	}
 
-	c.log("ensure shared bridge " + plan.Bridge + " (in default)")
-	if err := ensureV2Bridge(server, plan); err != nil {
+	// The tailnet-egress toggle lives on the infra project (ADR-0026), written
+	// only by `sc tailscale egress`; on a first create the project doesn't exist
+	// yet, which reads as "off". Resolved before the bridge so one converge
+	// applies both the DHCP option and the sidecar NAT consistently.
+	egress := v2TailnetEgressEnabled(server, plan.InfraProject)
+	c.log("ensure shared bridge " + plan.Bridge + " (in default, tailnet egress " + onOff(egress) + ")")
+	if err := ensureV2Bridge(server, plan, egress); err != nil {
 		return err
 	}
 	c.log("ensure infra project " + plan.InfraProject)
@@ -102,6 +107,10 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 	}
 	c.log("configure sidecar network + CoreDNS")
 	if err := configureV2Sidecar(server.UseProject(plan.InfraProject), plan); err != nil {
+		return err
+	}
+	c.log("ensure sidecar tailnet egress " + onOff(egress))
+	if err := ensureV2SidecarEgress(server.UseProject(plan.InfraProject), plan, egress); err != nil {
 		return err
 	}
 	c.log("configure tenant TLS leaf signer")
@@ -162,10 +171,14 @@ func (c TenantCreator) resolveV2Server() (TenantCreateServer, error) {
 // ensureV2Bridge creates the shared per-tenant bridge in the default project.
 // An existing bridge is converged onto the CoreDNS DHCP resolver option so
 // pre-ADR-0018 tenants pick it up on their next idempotent re-provision.
-func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
+func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2, egress bool) error {
 	def := server.UseProject(naming.DefaultProjectName)
+	// With egress on, guests additionally get a classless static route steering
+	// the tailnet CGNAT range at the sidecar (ADR-0026). The exact-equality
+	// converge below applies AND removes it on existing bridges; machines pick
+	// the change up on their next DHCP renewal.
+	wantDNSmasq := tenant.BridgeDHCPOptions(plan.DNSAddress, plan.GatewayAddress, egress)
 	if bridge, etag, err := def.GetNetwork(plan.Bridge); err == nil {
-		wantDNSmasq := "dhcp-option=6," + plan.DNSAddress
 		if bridge.Config["raw.dnsmasq"] == wantDNSmasq && bridge.Config["dns.mode"] == "none" {
 			return nil
 		}
@@ -200,7 +213,7 @@ func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 				// (ADR-0018): hand it to guests as their DHCP resolver instead of
 				// the bridge dnsmasq, whose lease names are guest-asserted and
 				// cannot express the project label.
-				"raw.dnsmasq": "dhcp-option=6," + plan.DNSAddress,
+				"raw.dnsmasq": wantDNSmasq,
 				// Disable the bridge's managed DNS entirely. All of a tenant's
 				// projects share this one bridge, and managed DNS enforces
 				// per-network uniqueness of the instance name — so h1:t1 and h2:t1
@@ -214,6 +227,87 @@ func ensureV2Bridge(server TenantCreateServer, plan tenant.CreatePlanV2) error {
 			},
 		},
 	})
+}
+
+// v2TailnetEgressEnabled reads the tenant's tailnet-egress toggle off the
+// infra project (ADR-0026). The project may not exist yet (first create) or be
+// unreadable — both read as "off": egress must fail closed.
+func v2TailnetEgressEnabled(server TenantCreateServer, infraProject string) bool {
+	project, _, err := server.GetProject(infraProject)
+	if err != nil || project == nil {
+		return false
+	}
+	return project.Config[meta.KeyV2TailnetEgress] == "true"
+}
+
+func onOff(enabled bool) string {
+	if enabled {
+		return "on"
+	}
+	return "off"
+}
+
+// V2 sidecar tailnet-egress artifacts (ADR-0026): a oneshot unit enabling
+// forwarding and masquerading machine→tailnet traffic onto tailscale0, so
+// tailnet peers see the sidecar's tailnet IP and need no --accept-routes.
+const (
+	sidecarEgressRulesPath  = "/etc/sandcastle-egress.nft"
+	sidecarEgressScriptPath = "/usr/local/sbin/sandcastle-sidecar-egress"
+	sidecarEgressUnitPath   = "/etc/systemd/system/sandcastle-sidecar-egress.service"
+)
+
+// ensureV2SidecarEgress converges the sidecar's egress NAT onto the toggle:
+// enabled writes rules + script + unit and (re)starts the oneshot; disabled
+// tears all of it down. Both directions are idempotent.
+func ensureV2SidecarEgress(server TenantResourceServer, plan tenant.CreatePlanV2, egress bool) error {
+	if !egress {
+		script := strings.Join([]string{
+			"systemctl disable --now sandcastle-sidecar-egress.service 2>/dev/null || true",
+			"rm -f " + sidecarEgressUnitPath + " " + sidecarEgressScriptPath + " " + sidecarEgressRulesPath,
+			"systemctl daemon-reload 2>/dev/null || true",
+			// ip_forward stays on — the tailscaled subnet router needs it anyway.
+			"nft delete table ip sandcastle-egress 2>/dev/null || true",
+		}, "\n")
+		if err := execSidecar(server, plan.SidecarInstance, script); err != nil {
+			return fmt.Errorf("remove sidecar tailnet egress: %w", err)
+		}
+		return nil
+	}
+	files := []struct {
+		path    string
+		content string
+		mode    int
+	}{
+		{sidecarEgressRulesPath, tenant.SidecarEgressNftRuleset(plan.PrivateCIDR), 0o644},
+		{sidecarEgressScriptPath, tenant.SidecarEgressScript(), 0o755},
+		{sidecarEgressUnitPath, tenant.SidecarEgressUnit(), 0o644},
+	}
+	for _, f := range files {
+		if err := server.CreateInstanceFile(plan.SidecarInstance, f.path, incus.InstanceFileArgs{
+			Content:   strings.NewReader(f.content),
+			Type:      "file",
+			Mode:      f.mode,
+			WriteMode: "overwrite",
+		}); err != nil {
+			return fmt.Errorf("write %s to sidecar: %w", f.path, err)
+		}
+	}
+	script := strings.Join([]string{
+		"set -eu",
+		"export DEBIAN_FRONTEND=noninteractive",
+		// Stock Debian sidecars carry no nft; CoreDNS is live by now, so apt
+		// resolves normally (unlike installV2SidecarPackages' bootstrap phase).
+		"command -v nft >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq nftables; }",
+		"systemctl daemon-reload",
+		"systemctl enable sandcastle-sidecar-egress.service",
+		// restart, not start: a converge with a changed CIDR must re-apply.
+		"systemctl restart sandcastle-sidecar-egress.service",
+		"systemctl is-active sandcastle-sidecar-egress.service",
+	}, "\n")
+	if err := execSidecar(server, plan.SidecarInstance, script); err != nil {
+		return fmt.Errorf("enable sidecar tailnet egress: %w", err)
+	}
+	return nil
 }
 
 // EnsureApplianceBridge creates the per-install bridge the appliances

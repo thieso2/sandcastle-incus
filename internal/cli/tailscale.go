@@ -17,7 +17,60 @@ func newTailscaleCommand(config commandConfig, opts *rootOptions) *cobra.Command
 	command.AddCommand(newTailscaleUpCommand(config, opts))
 	command.AddCommand(newTailscaleStatusCommand(config, opts))
 	command.AddCommand(newTailscaleDownCommand(config, opts))
+	command.AddCommand(newTailscaleEgressCommand(config, opts))
 	return command
+}
+
+func newTailscaleEgressCommand(config commandConfig, opts *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "egress [tenant] [on|off]",
+		Short: "Show or toggle tailnet egress (machines reach tailnet peers via the sidecar)",
+		Long: "Tailnet egress (ADR-0026) routes machine traffic for the tailnet CGNAT range\n" +
+			"(100.64.0.0/10) through the tenant sidecar, masqueraded onto its tailnet IP.\n" +
+			"Without arguments the current setting is shown. Toggling records the setting;\n" +
+			"the mechanics are applied by the next idempotent tenant converge\n" +
+			"(`sc-adm tenant create` or the tenant's next `sc login`), and machines pick up\n" +
+			"the route on their next DHCP renewal. The tailnet ACL must additionally allow\n" +
+			"the sidecar's tag (tag:sandcastle) to reach the intended peers.",
+		Args: cobra.MaximumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var reference, mode string
+			rest := args
+			if len(rest) > 0 {
+				switch last := strings.ToLower(rest[len(rest)-1]); last {
+				case "on", "off":
+					mode = last
+					rest = rest[:len(rest)-1]
+				}
+			}
+			switch len(rest) {
+			case 0:
+			case 1:
+				reference = rest[0]
+			default:
+				return fmt.Errorf("tailnet egress mode %q: must be on or off", args[len(args)-1])
+			}
+			plan, err := tailscale.PlanEgress(cmd.Context(), config.adminConfig, config.tenantStore, tailscale.EgressRequest{
+				Reference: reference,
+				Mode:      mode,
+			})
+			if err != nil {
+				return err
+			}
+			if config.tailscale == nil {
+				return fmt.Errorf("tailscale executor is not configured")
+			}
+			runner, ok := config.tailscale.(tailscale.EgressRunner)
+			if !ok {
+				return fmt.Errorf("tailscale executor does not support egress")
+			}
+			result, err := runner.RunEgress(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			return writeOutput(config.stdout, opts.output, formatTailscaleEgress(result), result)
+		},
+	}
 }
 
 func newTailscaleUpCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -152,6 +205,22 @@ func formatTailscaleStatus(result tailscale.StatusResult) string {
 	}
 	if len(result.Tailscale.AdvertisedRoutes) > 0 {
 		fmt.Fprintf(&builder, "\nAdvertised routes: %s", strings.Join(result.Tailscale.AdvertisedRoutes, ","))
+	}
+	return builder.String()
+}
+
+func formatTailscaleEgress(result tailscale.EgressResult) string {
+	state := "off"
+	if result.Enabled {
+		state = "on"
+	}
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Tailnet egress: %s (%s)", state, result.Reference)
+	if result.Changed {
+		fmt.Fprint(&builder, "\nRecorded. Apply it with the next tenant converge (`sc-adm tenant create` or the tenant's next `sc login`); machines pick up the route on DHCP renewal.")
+		if result.Enabled {
+			fmt.Fprint(&builder, "\nRemember: the tailnet ACL must allow the sidecar's tag (tag:sandcastle) to reach the intended peers.")
+		}
 	}
 	return builder.String()
 }
