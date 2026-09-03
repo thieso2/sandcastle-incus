@@ -101,3 +101,48 @@ the recipient client "right before packets flow into the WireGuard tunnel"
 (tailscale.com/blog/choose-your-ip). Traffic the sidecar forwards and
 masquerades also enters that tunnel, so it should be translated the same
 way; confirm with the curl above.
+
+## Outcome: applied on thieso2, 2026-09-03 (option A, with the tag's benefit kept)
+
+The tag was only ever there for route auto-approval, and `autoApprovers`
+accepts a **user's login email** as well as a tag
+(docs/reference/syntax/policy-file): so a user-owned sidecar can have both.
+
+Applied: `tailscale logout` on the tenant sidecar, then
+`tailscale up --advertise-routes=10.123.0.0/24 --hostname=sc-obelix-thieso2-dev-thieso2 --accept-dns=false`
+(no `--advertise-tags`), authenticated in the browser as thies@moyn.dev,
+and the node's IPv4 kept at 100.97.217.39 in the admin console.
+`sc tailscale up --advertise-tag=""` composes the same arguments, but note
+it does not log out first, and prefs alone cannot change a registered
+node's identity: the logout (or `--force-reauth`) is the operative step.
+
+OBSERVED after the switch:
+
+- sidecar `Tags: None`, owner `thies@moyn.dev`, same IP, 18 peers (was 17);
+- `lab-edge.tail0f5253.ts.net` (100.120.192.99) now IS a peer — the share
+  is visible because the node is a user's device;
+- from the sidecar: `tailscale ping` pongs via DERP(fra), `curl` to the
+  viewer answers 200;
+- **from a tenant machine** (the devbox, no Tailscale client, routed by the
+  option-121 steer and masqueraded by `sandcastle-egress`): every lab
+  hostname answers — 200/200/200 and 401 for jot's login — with the real
+  `CN=*.lab.7os.io` Let's Encrypt certificate.
+
+That last result answers the open question in this note: the recipient-side
+1:1 NAT for a shared node also applies to traffic the sidecar **forwards**
+and masquerades, not only to traffic it originates. Tenant machines reach a
+shared node with no per-machine setup.
+
+Caveats confirmed in practice:
+
+- **Key expiry**: user-owned nodes expire, tagged ones do not. Disabling
+  expiry on the sidecar is not optional; an expired sidecar takes the whole
+  tenant off the tailnet.
+- **Auto-approval timing**: the policy entry must exist *before* the node
+  registers, because auto-approvers are evaluated when a route
+  advertisement is first received. On this switch the route came back
+  unapproved and needed one manual approval; the policy entry then covers
+  every future re-login.
+- Every machine of the tenant now acts on the tailnet as that user. Fine
+  for a personal tenant, not for one whose machines belong to several
+  people.
