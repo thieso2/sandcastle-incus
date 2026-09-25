@@ -53,7 +53,7 @@ func TestTailnetPublishAndUnpublishUseMachineHostnameLifecycle(t *testing.T) {
 	opts := &rootOptions{output: outputText}
 
 	publish := newTailnetCommand(config, opts)
-	publish.SetArgs([]string{"publish", "zp:web", "--hostname", "Internal.TC42.uk."})
+	publish.SetArgs([]string{"publish", "zp:web", "--hostname", "Internal.TC42.uk.", "--wait=false"})
 	if err := publish.Execute(); err != nil {
 		t.Fatalf("publish: %v", err)
 	}

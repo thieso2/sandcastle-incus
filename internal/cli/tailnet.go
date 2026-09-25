@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/authapp"
@@ -39,15 +40,23 @@ func newTailnetCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command := &cobra.Command{Use: "tailnet", Short: "Publish machine HTTPS services to a Tenant Tailnet"}
 	command.AddCommand(newTailnetPublishCommand(config, opts))
 	command.AddCommand(newTailnetUnpublishCommand(config, opts))
+	command.AddCommand(newTailnetStatusCommand(config, opts))
 	return command
 }
 
 func newTailnetPublishCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var hostname string
+	var wait bool
+	var waitTimeout time.Duration
 	command := &cobra.Command{
 		Use:   "publish [[remote:]project:]machine --hostname <fqdn>",
 		Short: "Publish a machine's private HTTPS endpoint on its Tenant Tailnet",
-		Args:  cobra.ExactArgs(1),
+		Long: `Publish a machine's private HTTPS endpoint under a DNS-only public
+hostname. The Auth App then converges the DNS record, the certificate and the
+machine's Caddy site; by default the command waits until the name resolves to
+the machine, the certificate is installed and HTTPS answers without error
+(progress on stderr). --wait=false returns right after the claim.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, err := authapp.NormalizeMachineHostname(hostname)
 			if err != nil {
@@ -78,10 +87,19 @@ func newTailnetPublishCommand(config commandConfig, opts *rootOptions) *cobra.Co
 			if err := setTailnetPublicationMetadata(cmd.Context(), bound, summary, project, machine, result.Hostname, true); err != nil {
 				return err
 			}
+			if wait {
+				status, err := waitForTailnetPublication(cmd.Context(), bound, summary, project, machine, result.Hostname, waitTimeout)
+				if err != nil {
+					return err
+				}
+				tailnetHostHint(bound.stderr, status)
+			}
 			return writeOutput(bound.stdout, opts.output, fmt.Sprintf("Tailnet HTTPS published: https://%s → %s:443", result.Hostname, machine), result)
 		},
 	}
 	command.Flags().StringVar(&hostname, "hostname", "", "DNS-only public hostname for Tailnet access (required)")
+	command.Flags().BoolVar(&wait, "wait", true, "wait until DNS, certificate and HTTPS are ready (--wait=false returns after the claim)")
+	command.Flags().DurationVar(&waitTimeout, "wait-timeout", tailnetDefaultWaitTimeout, "how long --wait waits before giving up")
 	_ = command.MarkFlagRequired("hostname")
 	return command
 }
