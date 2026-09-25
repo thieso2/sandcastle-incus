@@ -95,8 +95,9 @@ dig +short <machine>.<suffix>          @<tenant-cidr>.3
 ## A newly published public hostname does not resolve yet
 
 `sc tailnet publish` claims a Machine Public Hostname; the Auth App then
-asynchronously converges its DNS-only Cloudflare A record. Check the public
-record before changing anything else:
+asynchronously converges its DNS-only Cloudflare A record. `sc tailnet status
+<project>:<machine>` shows DNS, certificate state and an HTTPS probe per name
+in one line. Check the public record before changing anything else:
 
 ```bash
 dig @1.1.1.1 <hostname> A +short

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/thieso2/sandcastle-incus/internal/agentskill"
@@ -105,7 +106,13 @@ type commandConfig struct {
 	// routeHostResolver overrides the DNS probe `sc route` uses to warn about a
 	// missing wildcard. nil = a real lookup; injected in tests so they never
 	// touch the network. Mirrors authapp's RouteResolveHost seam.
-	routeHostResolver    func(context.Context, string) bool
+	routeHostResolver func(context.Context, string) bool
+	// tailnetProber overrides the DNS lookup and HTTPS probe of `sc tailnet
+	// status` and `publish --wait`; nil = the real network. Injected in tests.
+	tailnetProber tailnetProber
+	// tailnetWaitInterval overrides the `publish --wait` poll interval; zero
+	// uses tailnetWaitInterval. Tests set it to keep the loop fast.
+	tailnetWaitInterval  time.Duration
 	shareStore           share.Store
 	shareReconciler      tenantShareReconciler
 	openBrowser          func(string)
@@ -484,8 +491,35 @@ func NewRootCommand(config commandConfig) *cobra.Command {
 	root.AddCommand(newTunnelCommand(config, opts))
 	root.AddCommand(newTailnetCommand(config, opts))
 	root.AddCommand(newSSHKeyCommand(config, opts))
+	rejectUnknownSubcommands(root)
 
 	return root
+}
+
+// rejectUnknownSubcommands gives every command group without an action of its
+// own one that fails on an unknown subcommand. Cobra only checks subcommand
+// names on the root; below it, `sc tailnet ls` printed the group's help and
+// exited 0 as if a command had run. A bare group still prints its help.
+func rejectUnknownSubcommands(command *cobra.Command) {
+	for _, child := range command.Commands() {
+		rejectUnknownSubcommands(child)
+	}
+	if !command.HasParent() || !command.HasSubCommands() || command.Runnable() {
+		return
+	}
+	command.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
+		message := fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath())
+		if cmd.SuggestionsMinimumDistance <= 0 {
+			cmd.SuggestionsMinimumDistance = 2
+		}
+		if suggestions := cmd.SuggestionsFor(args[0]); len(suggestions) > 0 {
+			message += "\n\nDid you mean this?\n\t" + strings.Join(suggestions, "\n\t")
+		}
+		return fmt.Errorf("%s\nRun '%s --help' for usage", message, cmd.CommandPath())
+	}
 }
 
 func (f *outputFormat) Set(value string) error {

@@ -139,9 +139,18 @@ sc delete zp:web --dry-run
 ```bash
 sc tunnel publish <project>:<machine> --port 3000 --hostname app.example.com
 sc tunnel unpublish <project>:<machine> [--hostname 'app-*.example.com']
-sc tailnet publish <project>:<machine> --hostname internal.example.com
+sc tailnet publish <project>:<machine> --hostname internal.example.com   # waits until ready; --wait=false returns after the claim
+sc tailnet status [<project>:<machine>]                                   # alias ls: DNS, certificate, HTTPS probe, READY per name
 sc tailnet unpublish <project>:<machine> [--hostname 'internal-*.example.com']
 ```
+
+`sc tailnet publish` waits (default `--wait-timeout 5m`) until the name
+resolves to the Machine private IP, its certificate is `installed`, and HTTPS
+answers without a TLS error, on two consecutive polls; progress goes to stderr.
+An unreachable :443 (CLI host not on the Tenant Tailnet) does not block it. A
+`failed:<reason>` certificate ends the wait with an error. If the app answers
+400/403/421 for the new Host header, publish warns: add the name to the app's
+host allowlist.
 
 A Machine Tunnel is public Cloudflare ingress: it creates one dedicated tunnel
 and connector per hostname. Its systemd unit starts
