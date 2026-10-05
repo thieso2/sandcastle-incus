@@ -563,7 +563,7 @@ fi
 cat > /etc/caddy/Caddyfile <<EOF
 $FQDN, *.$FQDN {
     tls /etc/sandcastle/tls/cert.pem /etc/sandcastle/tls/key.pem
-    … handlers byte-identical to today (redir /_h, /_w; handle_path /_h/* root $HOME; /_w/* root /workspace; reverse_proxy localhost:3000) …
+    … handlers byte-identical to today (since ADR-0031 only reverse_proxy localhost:3000; the /_h and /_w file routes are gone) …
 }
 EOF
 printf '%s\n' '[Service]' 'User=root' 'Group=root' 'AmbientCapabilities=' > /etc/systemd/system/caddy.service.d/override.conf
@@ -662,8 +662,8 @@ sc create web --project zp
 #   openssl s_client -connect <bridge-ip>:443 -servername web.e2e-$RUN.$ZONE </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName -issuer
 #   shows both SANs `DNS:web.e2e-$RUN.$ZONE, DNS:*.web.e2e-$RUN.$ZONE` and an issuer from the
 #   Let's Encrypt STAGING hierarchy ("(STAGING)" in the issuer CN). Browser trust is NOT asserted.
-# PASS: `curl --resolve x.web.e2e-$RUN.$ZONE:443:<bridge-ip> -k https://x.web.e2e-$RUN.$ZONE/_w/` serves
-#       the /workspace listing (wildcard vhost reaches the same Caddy).
+# PASS: `curl --resolve x.web.e2e-$RUN.$ZONE:443:<bridge-ip> -k https://x.web.e2e-$RUN.$ZONE/` gets an
+#       HTTP status from Caddy (wildcard vhost reaches the same Caddy; ADR-0031 removed the /_w route).
 # PASS (negative): `dig web.zp.<suffix> @<sidecar-tailscale-ip>` is NXDOMAIN — a zone-mode machine has
 #       no Machine Private Hostname; `sc c web` connects and its known_hosts line is keyed
 #       `web.e2e-$RUN.$ZONE` with the `# sandcastle:` marker.

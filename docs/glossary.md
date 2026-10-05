@@ -132,8 +132,8 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
   everything under `*.default.<suffix>`. The sidecar signs any name in its own
   zone; it does not scope per machine.
 - **caddy profile** — An Incus profile that installs Caddy on a machine to
-  terminate HTTPS, force HTTP→HTTPS, reverse-proxy the app, and serve the
-  built-in `/_h` (browse `$HOME`) and `/_w` (browse `/workspace`) file routes.
+  terminate HTTPS, force HTTP→HTTPS and reverse-proxy the app. It serves no
+  file routes (ADR-0031; the `/_h` and `/_w` routes are gone).
 - **Base image** — A reusable local Incus image published from a running machine
   with `sc image save <machine> <name>`. It captures only the instance rootfs
   (installed software), not the shared `/home` / `/workspace` volumes. Launch new
@@ -195,6 +195,11 @@ The canonical domain vocabulary. Architecture overview in [`topology.md`](topolo
   only when this per-name marker exists (a legacy `MODE=`/`FQDN=` marker never
   clears the gate); Dev Image machines never write one and never get a
   certificate.
+- **Caddy Owned Marker** — `/etc/sandcastle/caddy.owned`. While it exists,
+  `caddy-setup` (first boot and `--refresh`) leaves `/etc/caddy` and the caddy
+  unit alone: no render, no drop-in, no `systemctl` call. It still writes the
+  Caddy Setup Marker (`PRIVATE=` only), so certificates keep landing under
+  `/etc/sandcastle/tls/` (ADR-0031).
 - **Zone reconciler** — The zone stage of the Auth App's DNS reconciler (30 s
   ticker + instance events + a kick from the hostname/domain endpoints),
   working per (machine, Machine Public Hostname): converges the public-name

@@ -267,6 +267,8 @@ if it is missing. An existing empty file means "no public name"; the script neve
   (`tenant.MachineTLSHostCertPath/KeyPath`, directory `MachineTLSHostDir`), pushed by the Auth App
   (`PushMachineCertificate(ctx, project, machine, hostname, cert, key)`: directory created, `.new`
   files 0644/0600 root, one exec `mv && mv && <list name> && sandcastle-caddy-setup --refresh`).
+  The render then sets every key it uses to `root:caddy` 0640 so Caddy, running as `caddy`, can
+  read it (ADR-0031).
   The private leaf is never overwritten by a push; drift is checked per name against the name's
   `cert.pem`.
 
@@ -276,19 +278,26 @@ if it is missing. An existing empty file means "no public name"; the script neve
 first boot:  install caddy · trust Tenant CA · fetch private leaf · seed hostnames (if absent)
              · render → validate → install Caddyfile · override.conf · daemon-reload · enable
              · marker · systemctl restart caddy
---refresh:   seed hostnames (if absent) · render → validate → install Caddyfile · marker
-             · reload (restart on reload failure) — or start when Caddy is inactive
+--refresh:   seed hostnames (if absent) · render → validate → install Caddyfile
+             · replace override.conf only if it is the old run-as-root form (+ daemon-reload)
+             · marker · if Caddy is active: reload (restart when the drop-in changed or the
+             reload fails); an inactive Caddy is left stopped
 ```
+
+`override.conf` runs the platform launcher as `User=caddy`, `Group=caddy` with
+`AmbientCapabilities=CAP_NET_BIND_SERVICE`. If `/etc/sandcastle/caddy.owned` exists (the Caddy
+Owned Marker, `tenant.CaddyOwnedMarkerPath`), both entry points skip the render, the drop-in and
+every `systemctl` call, and write only the marker (`PRIVATE=` + `RENDERED=`) — the machine owns
+`/etc/caddy` and the caddy unit (ADR-0031).
 
 The render is the private block always, then one block per name in the hostnames file whose
 directory holds a non-empty `cert.pem` **and** `key.pem`, in file order (sorted). Every block is the
-same `site_block NAME CERT KEY` heredoc: `NAME, *.NAME { tls CERT KEY; redir /_h /_h/; redir /_w
-/_w/; handle_path /_h/* { root * $HOME; file_server browse }; handle_path /_w/* { root * /workspace;
-file_server browse }; handle { reverse_proxy localhost:3000 } }`. It is written to
+same `site_block NAME CERT KEY` heredoc: `NAME, *.NAME { tls CERT KEY; handle { reverse_proxy
+localhost:3000 } }` — no file routes (ADR-0031). It is written to
 `/etc/caddy/Caddyfile.new`, `caddy validate`d and moved into place — a failing render leaves the
-running Caddyfile and the previous marker untouched and exits nonzero. Caddy is always enabled and
-started (the private block always has a certificate): no `ConditionPathExists` drop-in, no
-"enabled-inactive" state. `--refresh` is idempotent — the reconciler execs it after every push, and
+running Caddyfile and the previous marker untouched and exits nonzero. First boot always enables and
+starts Caddy (the private block always has a certificate): no `ConditionPathExists` drop-in. Only an
+operator stops it, and `--refresh` respects that. `--refresh` is idempotent — the reconciler execs it after every push, and
 an operator may run it by hand at any time.
 
 ### 5.5 Caddy Setup Marker

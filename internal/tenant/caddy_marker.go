@@ -22,6 +22,12 @@ const (
 	// the reconciler the machine runs the per-name contract and will honour
 	// a per-hostname certificate push followed by --refresh.
 	CaddySetupMarkerPath = "/etc/sandcastle/caddy.ready"
+	// CaddyOwnedMarkerPath is the Caddy Owned Marker (ADR-0031): when this
+	// file exists (any content) the machine owns /etc/caddy and the caddy
+	// unit. caddy-setup then renders no Caddyfile, writes no drop-in and
+	// never enables, starts or reloads Caddy; it still writes the Caddy Setup
+	// Marker so certificates keep landing under /etc/sandcastle/tls.
+	CaddyOwnedMarkerPath = "/etc/sandcastle/caddy.owned"
 	// MachineHostnamesPath lists the machine's Machine Public Hostnames, one
 	// per line: seeded at first boot from PUBLIC_HOSTNAMES= in machine.env,
 	// pushed whole by the Auth App's reconciler whenever the set changes.
@@ -36,11 +42,13 @@ const (
 	MachineTLSCertPath = MachineTLSDir + "/cert.pem"
 	MachineTLSKeyPath  = MachineTLSDir + "/key.pem"
 	// MachineEnvPath is the per-machine environment caddy-setup sources
-	// (FQDN, PUBLIC_HOSTNAMES, SIGNER, HOME), baked by cloud-init.
+	// (FQDN, PUBLIC_HOSTNAMES, SIGNER; HOME is no longer read), baked by
+	// cloud-init.
 	MachineEnvPath = "/etc/sandcastle/machine.env"
 	// CaddySetupCommand is the boot shim every machine carries; with
 	// CaddySetupRefreshFlag it re-reads the hostnames file and the per-host
-	// certificate directories, re-renders the Caddyfile and reloads Caddy.
+	// certificate directories, re-renders the Caddyfile and reloads Caddy if
+	// it is running (it never starts a stopped Caddy).
 	CaddySetupCommand     = "/usr/local/sbin/sandcastle-caddy-setup"
 	CaddySetupRefreshFlag = "--refresh"
 )

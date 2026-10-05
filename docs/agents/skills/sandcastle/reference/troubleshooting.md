@@ -204,9 +204,10 @@ public-dns-zone set-token`), `validation`, `auth-app-unreachable`, `expired`,
 - **Name listed, certificate directory complete, still not served** — run
   `sandcastle-caddy-setup --refresh` and read its output: a `caddy validate`
   failure names the offending block; the previous Caddyfile keeps serving.
-- **Caddy `inactive`** — not expected any more (the private block always has
-  a certificate). `journalctl -u caddy` for the reason; `--refresh` starts it
-  when the render validates.
+- **Caddy `inactive`** — first boot always starts it, and `--refresh` never
+  does: an operator stopped it, or it failed (`journalctl -u caddy`). Start it
+  with `systemctl start caddy`. A machine with `/etc/sandcastle/caddy.owned`
+  owns its Caddyfile and unit; caddy-setup leaves both alone.
 - **Caddy unit still starts `/usr/bin/caddy` directly** — converge the shared
   payload (`sc payload-sync`), then run `sc fix <machine> --only
   caddy-publications`; the fix rerenders the Machine-local config and installs

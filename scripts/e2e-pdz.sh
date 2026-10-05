@@ -227,9 +227,11 @@ pass "sc project status shows installed with NOT AFTER $(echo "$STATUS" | jq -r 
 
 assert_staging_cert "$IP" "$FQDN"
 pass "Caddy serves both SANs from the Let's Encrypt staging issuer"
-CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 --resolve "x.$FQDN:443:$IP" "https://x.$FQDN/_w/" || true)"
-[[ "$CODE" == "200" ]] || fail "wildcard vhost https://x.$FQDN/_w/ answered $CODE"
-pass "wildcard vhost x.$FQDN serves /_w/ over the same Caddy"
+# No file routes since ADR-0031: any HTTP status (502 with nothing on :3000)
+# proves the wildcard vhost terminated TLS on the same Caddy; 000 does not.
+CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 --resolve "x.$FQDN:443:$IP" "https://x.$FQDN/" || true)"
+[[ "$CODE" =~ ^[1-5][0-9][0-9]$ ]] || fail "wildcard vhost https://x.$FQDN/ answered $CODE"
+pass "wildcard vhost x.$FQDN answers ($CODE) over the same Caddy"
 
 # ---- 12g — explicit Machine Public Hostnames (ADR-0028) ------------------------
 step "12g explicit hostnames"

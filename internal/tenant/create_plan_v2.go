@@ -847,18 +847,20 @@ systemctl try-restart ssh >/dev/null 2>&1 || true
 `
 
 // caddyIngressSetupScript installs Caddy, trusts the Tenant CA, fetches this
-// machine's private leaf, renders the Caddyfile and enables Caddy as root. It
-// sources /etc/sandcastle/machine.env for FQDN (the Machine Private
-// Hostname), PUBLIC_HOSTNAMES (the first-boot seed of the public-name set),
-// SIGNER and HOME (ADR-0028, spec machine-hostnames §6).
+// machine's private leaf, renders the Caddyfile and enables Caddy as the
+// caddy user. It sources /etc/sandcastle/machine.env for FQDN (the Machine
+// Private Hostname), PUBLIC_HOSTNAMES (the first-boot seed of the public-name
+// set) and SIGNER (ADR-0028, spec machine-hostnames §6). Site blocks only
+// proxy to :3000; there are no file routes (ADR-0031).
 //
 // Every machine serves its private name: the leaf is fetched from the
 // sidecar signer before Caddy starts, exactly as before public names
-// existed, so Caddy is always enabled and started — there is no conditional
-// start and no MODE. On top of that the script renders one site block per
-// Machine Public Hostname listed in /etc/sandcastle/hostnames (one per line;
-// seeded from PUBLIC_HOSTNAMES when the file is absent, pushed whole by the
-// Auth App afterwards), each against /etc/sandcastle/tls/<host>/{cert,key}.pem
+// existed, so first boot always enables and starts Caddy (unless the machine
+// owns it, below) — no MODE. On top of that the script renders one site
+// block per Machine Public Hostname listed in /etc/sandcastle/hostnames (one
+// per line; seeded from PUBLIC_HOSTNAMES when the file is absent, pushed
+// whole by the Auth App afterwards), each against
+// /etc/sandcastle/tls/<host>/{cert,key}.pem
 // — rendered only once both files exist, so a name whose certificate has not
 // landed yet is simply not served rather than breaking the Caddyfile. All
 // blocks carry the same handlers; only the name and the certificate differ.
@@ -866,9 +868,14 @@ systemctl try-restart ssh >/dev/null 2>&1 || true
 // `--refresh` is the entry point the reconciler execs after pushing a
 // hostnames file or a certificate: it skips the install/trust/leaf steps,
 // re-reads the hostnames file and the per-host directories, re-renders,
-// validates, and reloads Caddy (starts it when inactive). Idempotent — safe
-// to run any number of times; a failed validation leaves the running
-// Caddyfile and the old marker untouched.
+// validates, and reloads Caddy when it is active. It never starts an
+// inactive Caddy, and it replaces the unit drop-in only when it is the old
+// run-as-root form. Idempotent — safe to run any number of times; a failed
+// validation leaves the running Caddyfile and the old marker untouched.
+//
+// The Caddy Owned Marker (CaddyOwnedMarkerPath) hands /etc/caddy and the
+// caddy unit to the machine: with it present, neither entry point renders,
+// writes the drop-in, or enables, starts or reloads Caddy (ADR-0031).
 //
 // The Caddy Setup Marker (CaddySetupMarkerPath) is written LAST, after the
 // validated Caddyfile is in place: PRIVATE=<fqdn>, one PUBLIC=<host> per
@@ -883,7 +890,7 @@ systemctl try-restart ssh >/dev/null 2>&1 || true
 // `[[`, arrays, `pipefail`, …) — TestPayloadScriptsArePOSIXSh and the sh-run
 // goldens in caddy_setup_test.go enforce that.
 const caddyIngressSetupScript = `#!/bin/sh
-# Sandcastle caddy-setup (ADR-0028): first boot, or --refresh after the Auth
+# Sandcastle caddy-setup (ADR-0028, ADR-0031): first boot, or --refresh after the Auth
 # App pushed /etc/sandcastle/hostnames or a per-hostname certificate.
 # POSIX sh only: the /usr/local/sbin/sandcastle-caddy-setup boot shim sources
 # this body with /bin/sh (dash on Debian) — no bash syntax anywhere in here.
@@ -931,27 +938,21 @@ if [ ! -e /etc/sandcastle/hostnames ]; then
 fi
 
 # site_block NAME CERT KEY: one Caddy site — HTTPS with the given
-# certificate (auto HTTP->HTTPS redirect), /_h browses the login user's
-# $HOME, /_w browses /workspace, everything else proxies to :3000 with Host
-# preserved. redir handles the bare /_h and /_w (no trailing slash). The
-# handlers are identical for every name.
+# certificate (auto HTTP->HTTPS redirect), everything proxied to :3000 with
+# Host preserved. The handlers are identical for every name. No file routes
+# (ADR-0031). Caddy runs as the caddy user, so the key is handed to the caddy
+# group (0640) — never to others.
 site_block() {
+  if getent group caddy >/dev/null 2>&1; then
+    chgrp caddy "$3"
+    chmod 0640 "$3"
+  fi
   sites="$1, *.$1"
   case "$1" in '*.'*) sites="$1" ;; esac
   [ "${4:-}" = project ] && sites="$1"
   cat <<EOF
 $sites {
     tls $2 $3
-    redir /_h /_h/
-    redir /_w /_w/
-    handle_path /_h/* {
-        root * $HOME
-        file_server browse
-    }
-    handle_path /_w/* {
-        root * /workspace
-        file_server browse
-    }
     handle {
         reverse_proxy localhost:3000
     }
@@ -959,37 +960,63 @@ $sites {
 EOF
 }
 
-# Render: the private block always, then one block per public name whose
-# certificate directory is complete. Validate before installing so a bad
-# render never replaces a working Caddyfile. The normalized names hold no
-# whitespace (DNS characters only), so a plain word-split loop over them is
-# exact — and unlike a pipe into "while read", it keeps RENDERED in this shell.
-HOSTS="$(hostnames_normalized < /etc/sandcastle/hostnames)"
-PROJECT_DOMAIN="$(cat /etc/sandcastle/project-domain 2>/dev/null || true)"
-RENDERED=""
-{
-  site_block "$FQDN" /etc/sandcastle/tls/cert.pem /etc/sandcastle/tls/key.pem
-  for host in $HOSTS; do
-    parent="${host#*.}"
-    if [ -n "$PROJECT_DOMAIN" ] && [ "$parent" = "$PROJECT_DOMAIN" ] && [ "$parent" != "$host" ] && [ "${host#\*.}" = "$host" ] && [ -s "/etc/sandcastle/tls/$parent/cert.pem" ] && [ -s "/etc/sandcastle/tls/$parent/key.pem" ]; then
-      printf '\n'
-      site_block "$host" "/etc/sandcastle/tls/$parent/cert.pem" "/etc/sandcastle/tls/$parent/key.pem" project
-      RENDERED="$RENDERED $host"
-    elif [ -s "/etc/sandcastle/tls/$host/cert.pem" ] && [ -s "/etc/sandcastle/tls/$host/key.pem" ]; then
-      printf '\n'
-      site_block "$host" "/etc/sandcastle/tls/$host/cert.pem" "/etc/sandcastle/tls/$host/key.pem"
-      RENDERED="$RENDERED $host"
-    fi
-  done
-} > /etc/caddy/Caddyfile.new
-"$CADDY" validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null
-mv -f /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
+# caddy_override prints the caddy unit drop-in: the platform launcher, run as
+# the caddy user with only the right to bind :443. "caddy_override root"
+# prints the form older payloads wrote (Caddy as root); --refresh replaces
+# exactly that file and nothing an operator wrote.
+caddy_override() {
+  printf '%s\n' '[Service]'
+  if [ "${1:-}" = root ]; then
+    printf '%s\n' 'User=root' 'Group=root' 'AmbientCapabilities='
+  else
+    printf '%s\n' 'User=caddy' 'Group=caddy' 'AmbientCapabilities=CAP_NET_BIND_SERVICE'
+  fi
+  printf '%s\n' 'ExecStart=' 'ExecStart=/.sc/platform/sbin/caddy run --environ --config /etc/caddy/Caddyfile' 'ExecReload=' 'ExecReload=/.sc/platform/sbin/caddy reload --config /etc/caddy/Caddyfile --force'
+}
 
-if [ "$REFRESH" = 0 ]; then
-  # Caddy runs as root so it can read $HOME/... regardless of owner and bind :443.
-  printf '%s\n' '[Service]' 'User=root' 'Group=root' 'AmbientCapabilities=' 'ExecStart=' 'ExecStart=/.sc/platform/sbin/caddy run --environ --config /etc/caddy/Caddyfile' 'ExecReload=' 'ExecReload=/.sc/platform/sbin/caddy reload --config /etc/caddy/Caddyfile --force' > /etc/systemd/system/caddy.service.d/override.conf
-  systemctl daemon-reload
-  systemctl enable caddy
+# The Caddy Owned Marker (ADR-0031): when /etc/sandcastle/caddy.owned exists
+# the machine owns /etc/caddy and the caddy unit. caddy-setup then renders
+# nothing, writes no drop-in and starts, enables or reloads nothing; it only
+# rewrites the readiness marker so pushed certificates keep landing for the
+# machine's own Caddyfile to use.
+OVERRIDE=/etc/systemd/system/caddy.service.d/override.conf
+UNIT_CHANGED=0
+RENDERED=""
+if [ ! -e /etc/sandcastle/caddy.owned ]; then
+  # Render: the private block always, then one block per public name whose
+  # certificate directory is complete. Validate before installing so a bad
+  # render never replaces a working Caddyfile. The normalized names hold no
+  # whitespace (DNS characters only), so a plain word-split loop over them is
+  # exact — and unlike a pipe into "while read", it keeps RENDERED in this shell.
+  HOSTS="$(hostnames_normalized < /etc/sandcastle/hostnames)"
+  PROJECT_DOMAIN="$(cat /etc/sandcastle/project-domain 2>/dev/null || true)"
+  {
+    site_block "$FQDN" /etc/sandcastle/tls/cert.pem /etc/sandcastle/tls/key.pem
+    for host in $HOSTS; do
+      parent="${host#*.}"
+      if [ -n "$PROJECT_DOMAIN" ] && [ "$parent" = "$PROJECT_DOMAIN" ] && [ "$parent" != "$host" ] && [ "${host#\*.}" = "$host" ] && [ -s "/etc/sandcastle/tls/$parent/cert.pem" ] && [ -s "/etc/sandcastle/tls/$parent/key.pem" ]; then
+        printf '\n'
+        site_block "$host" "/etc/sandcastle/tls/$parent/cert.pem" "/etc/sandcastle/tls/$parent/key.pem" project
+        RENDERED="$RENDERED $host"
+      elif [ -s "/etc/sandcastle/tls/$host/cert.pem" ] && [ -s "/etc/sandcastle/tls/$host/key.pem" ]; then
+        printf '\n'
+        site_block "$host" "/etc/sandcastle/tls/$host/cert.pem" "/etc/sandcastle/tls/$host/key.pem"
+        RENDERED="$RENDERED $host"
+      fi
+    done
+  } > /etc/caddy/Caddyfile.new
+  "$CADDY" validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null
+  mv -f /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
+
+  # First boot writes the drop-in; --refresh only replaces the old root one.
+  if [ "$REFRESH" = 0 ] || caddy_override root | cmp -s - "$OVERRIDE"; then
+    caddy_override > "$OVERRIDE"
+    systemctl daemon-reload
+    UNIT_CHANGED=1
+  fi
+  if [ "$REFRESH" = 0 ]; then
+    systemctl enable caddy
+  fi
 fi
 # Marker LAST: it asserts the Caddyfile above is in place for these names.
 {
@@ -997,12 +1024,19 @@ fi
   for host in $RENDERED; do printf 'PUBLIC=%s\n' "$host"; done
   printf 'RENDERED=%s\n' "$(date +%s)"
 } > /etc/sandcastle/caddy.ready
-if [ "$REFRESH" = 0 ]; then
+# --refresh never starts Caddy: an operator who stopped, disabled or masked
+# it keeps it that way. A running Caddy reloads, or restarts when the
+# drop-in changed.
+if [ -e /etc/sandcastle/caddy.owned ]; then
+  :
+elif [ "$REFRESH" = 0 ]; then
   systemctl restart caddy
 elif systemctl is-active --quiet caddy; then
-  systemctl reload caddy || systemctl restart caddy
-else
-  systemctl start caddy
+  if [ "$UNIT_CHANGED" = 1 ]; then
+    systemctl restart caddy
+  else
+    systemctl reload caddy || systemctl restart caddy
+  fi
 fi
 `
 
