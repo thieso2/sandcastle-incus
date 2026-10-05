@@ -196,10 +196,10 @@ func PublicHostnamesEnvLineOf(userData string) string {
 	return PublicHostnamesEnvLine("")
 }
 
-// BareMachineHome is the $HOME a bare machine hands to the caddy-setup script.
-// The Caddyfile serves $HOME at /_h, and a bare machine has no login user whose
-// home could go there. /srv exists on every Debian-family image and is empty, so
-// the handler answers 404 rather than the Caddyfile failing to load.
+// BareMachineHome is the HOME= a bare machine carries in machine.env, which has
+// no login user whose home it could name. Nothing reads it since ADR-0031 took
+// the file routes out of the Caddyfile; it stays only so the bare document keeps
+// the same shape as the profile's. Removal is tracked in #206.
 const BareMachineHome = "/srv"
 
 // V2BareUserData renders the cloud-init user-data of a BARE machine
