@@ -94,8 +94,8 @@ type ZoneMachineServer interface {
 	// PushMachineCertificate writes cert.pem.new / key.pem.new into the
 	// hostname's directory (tenant.MachineTLSHostDir) and runs the one
 	// mv + `sandcastle-caddy-setup --refresh` exec (spec §4.4, per name
-	// since ADR-0028); the refresh renders the block and reloads or starts
-	// Caddy, so there is no separate first-push start.
+	// since ADR-0028); the refresh renders the block and reloads a running
+	// Caddy. It never starts a stopped one (ADR-0031).
 	PushMachineCertificate(ctx context.Context, incusProject, name, hostname, certPEM, keyPEM string) error
 	// PushMachineHostnames writes the machine's whole public-name set to
 	// /etc/sandcastle/hostnames and runs `sandcastle-caddy-setup --refresh`

@@ -6876,3 +6876,19 @@ before cloud-init wrote the file). Alternative considered: `setcap
 cap_net_raw+ep /usr/bin/ping` — rejected, it needs libcap tools on the image
 and is lost on every iputils upgrade. Bare machines are left alone (no login
 user). Older machines backfill with the new `sc fix --only ping` fixup.
+
+## 2026-10-05 — caddy-setup: no file routes, Caddy as caddy, refresh leaves Caddy alone
+
+ADR-0031. Three choices the ADR does not spell out. (1) Existing machines
+move off root through `--refresh`, but only when `override.conf` is
+byte-for-byte the old platform drop-in: `override.conf` is also the file
+`systemctl edit caddy` writes, so anything else is treated as the
+operator's. Alternative considered: a new drop-in name and deleting the old
+file — rejected, it would also delete an operator's `systemctl edit`. (2)
+Keys go to `root:caddy` 0640 at every render rather than at push time:
+every push already ends in `--refresh`, and the render is the one place
+that knows which keys Caddy will open. The group change is skipped when no
+`caddy` group exists. (3) Ownership is a marker file, not a header line in
+the Caddyfile: platform Caddyfiles rendered before this change carry no
+header, so a header test would have treated them as hand-written and kept
+the old routes forever.

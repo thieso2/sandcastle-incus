@@ -1,6 +1,8 @@
 # Tenant TLS and Machine HTTPS Ingress
 
 > **Status: ACCEPTED** (design grilled; ready for implementation).
+> **Amended by ADR-0031:** the `/_h` and `/_w` file routes are gone and Caddy
+> runs as the `caddy` user (decisions 7 and 11 below).
 
 Sandcastle machines terminate HTTPS locally with a `caddy` profile: Caddy on the
 machine serves valid TLS for the machine's own DNS names, force-redirects
@@ -51,7 +53,8 @@ machine never holds a signing key.
 
 ## Routing / file-server decisions (locked)
 
-7. **Caddy runs as root; routes are open (no auth).** `/_h` → `file_server
+7. **Superseded by ADR-0031** (no file routes; Caddy runs as `caddy`).
+   Original text: **Caddy runs as root; routes are open (no auth).** `/_h` → `file_server
    browse` rooted at the login user's `$HOME` (`/home/<user>`); `/_w` →
    `/workspace`; everything else reverse-proxies to `localhost:3000`;
    unconditional HTTP→HTTPS. Justified by the single-owner model. **Known
@@ -90,8 +93,8 @@ machine never holds a signing key.
     `<machine>.<project>.<suffix>, *.<machine>.<project>.<suffix>`, both reverse-
     proxied to `localhost:3000`; the app vhosts on `Host`. `reverse_proxy`
     preserves the incoming `Host` by default — no `header_up Host` override, or
-    subdomains are lost. `/_h` and `/_w` take precedence over the proxy; all
-    `/_…` is reserved for Sandcastle.
+    subdomains are lost. `/_h` and `/_w` took precedence over the proxy until
+    ADR-0031 removed them; all `/_…` stays reserved for Sandcastle.
 
 ## Resulting shape
 
@@ -100,10 +103,9 @@ machine never holds a signing key.
 - **`sc login`:** installs the tenant CA (unconstrained) into the Mac system
   keychain via `sudo`.
 - **Machine (default profile cloud-init, jinja):** installs Caddy; fetches its
-  leaf (key+cert) from the sidecar before starting Caddy; runs Caddy as root
-  with a site that force-redirects HTTP→HTTPS, serves `/_h`→`$HOME` and
-  `/_w`→`/workspace` via `file_server browse`, and reverse-proxies everything
-  else (Host preserved) to `localhost:3000`.
+  leaf (key+cert) from the sidecar before starting Caddy; runs Caddy (as the
+  `caddy` user since ADR-0031) with a site that force-redirects HTTP→HTTPS
+  and reverse-proxies everything (Host preserved) to `localhost:3000`.
 
 ## Implementation notes (post-audit)
 

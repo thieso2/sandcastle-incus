@@ -63,6 +63,10 @@ _Avoid_: Zone-mode project, private-mode project, TLS mode, zone mode, private m
 The file a Machine's Caddy setup leaves behind (`/etc/sandcastle/caddy.ready`) stating which names it configured: the Machine Private Hostname (`PRIVATE=`) and every Machine Public Hostname whose certificate it rendered a site block for (`PUBLIC=`), plus when (`RENDERED=`). The Auth App delivers a certificate to a Machine only when the marker is present in this per-name form; the machine then re-renders with `sandcastle-caddy-setup --refresh`.
 _Avoid_: Setup flag, ready file
 
+**Caddy Owned Marker**:
+The file (`/etc/sandcastle/caddy.owned`) by which a Machine takes `/etc/caddy` and the caddy unit from Sandcastle. While it exists, `caddy-setup` renders no Caddyfile and never enables, starts or reloads Caddy; it still writes the Caddy Setup Marker so certificates keep arriving (ADR-0031).
+_Avoid_: Custom Caddy flag, opt-out file
+
 **Freeform Machine**:
 A Machine a Tenant creates directly with native Incus tooling instead of `sc create`. It inherits the Project's profile, so it is registered in DNS and may receive a certificate like any other Machine, but Sandcastle records nothing about it until the Auth App first sees it.
 _Avoid_: Unmanaged machine, raw instance, incus launch machine

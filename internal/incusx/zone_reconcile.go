@@ -175,8 +175,8 @@ type machineCertificatePushServer interface {
 // 0600, both root-owned; Incus creates the directory), then ONE exec swaps
 // both into place back to back, makes sure the name is listed in
 // /etc/sandcastle/hostnames, and runs `sandcastle-caddy-setup --refresh`,
-// which re-renders the Caddyfile with the new block and reloads Caddy
-// (starting it when inactive). The private leaf at the fixed
+// which re-renders the Caddyfile with the new block and reloads Caddy when
+// it is running (never starting it, ADR-0031). The private leaf at the fixed
 // /etc/sandcastle/tls/{cert,key}.pem is never touched.
 func (s ZoneMachineServer) PushMachineCertificate(ctx context.Context, incusProject, name, hostname, certPEM, keyPEM string) error {
 	return pushMachineCertificate(s.Server.UseProject(incusProject), name, hostname, certPEM, keyPEM)

@@ -11,51 +11,41 @@ import (
 )
 
 // goldenSiteBlock is one Caddy site block as caddy-setup renders it, with
-// the name, certificate paths and $HOME substituted. The handlers are the
-// ones machines ran before public names existed (ADR-0027 §5.2 "handlers
-// byte-identical") and are the same for every name (ADR-0028).
+// the name and certificate paths substituted. The handlers are the same for
+// every name (ADR-0028): proxy to :3000, no file routes (ADR-0031).
 const goldenSiteBlock = `{NAME}, *.{NAME} {
     tls {CERT} {KEY}
-    redir /_h /_h/
-    redir /_w /_w/
-    handle_path /_h/* {
-        root * {HOME}
-        file_server browse
-    }
-    handle_path /_w/* {
-        root * /workspace
-        file_server browse
-    }
     handle {
         reverse_proxy localhost:3000
     }
 }
 `
 
-func renderSiteBlock(name, cert, key, home string) string {
-	r := strings.NewReplacer("{NAME}", name, "{CERT}", cert, "{KEY}", key, "{HOME}", home)
+func renderSiteBlock(name, cert, key string) string {
+	r := strings.NewReplacer("{NAME}", name, "{CERT}", cert, "{KEY}", key)
 	return r.Replace(goldenSiteBlock)
 }
 
 // goldenCaddyfile is the whole Caddyfile: the private block first, then one
 // block per rendered public name (in hostnames-file order: sorted), blank
 // line separated.
-func goldenCaddyfile(privateFQDN, home string, publicNames ...string) string {
-	out := renderSiteBlock(privateFQDN, MachineTLSCertPath, MachineTLSKeyPath, home)
+func goldenCaddyfile(privateFQDN string, publicNames ...string) string {
+	out := renderSiteBlock(privateFQDN, MachineTLSCertPath, MachineTLSKeyPath)
 	for _, name := range publicNames {
-		out += "\n" + renderSiteBlock(name, MachineTLSHostCertPath(name), MachineTLSHostKeyPath(name), home)
+		out += "\n" + renderSiteBlock(name, MachineTLSHostCertPath(name), MachineTLSHostKeyPath(name))
 	}
 	return out
 }
 
 // Text-level contract of the script: the private leaf is always fetched,
-// Caddy is always enabled and restarted at first boot (no MODE, no
-// conditional start, no zone drop-in), --refresh skips install/trust/leaf,
-// the render is validated before it replaces the Caddyfile, and the marker
-// is written last with the PRIVATE/PUBLIC/RENDERED lines.
+// Caddy is always enabled and restarted at first boot (no MODE, no zone
+// drop-in), --refresh skips install/trust/leaf and never starts Caddy, the
+// render is validated before it replaces the Caddyfile, no file routes are
+// served, and the marker is written last with the PRIVATE/PUBLIC/RENDERED
+// lines.
 func TestCaddySetupScriptContract(t *testing.T) {
 	script := caddyIngressSetupScript
-	for _, gone := range []string{"MODE", "ConditionPathExists", "sandcastle-zone.conf", "systemctl start caddy || true"} {
+	for _, gone := range []string{"MODE", "ConditionPathExists", "sandcastle-zone.conf", "systemctl start caddy", "file_server", "/_h", "/_w", "$HOME"} {
 		if strings.Contains(script, gone) {
 			t.Fatalf("caddy-setup still carries %q:\n%s", gone, script)
 		}
@@ -65,16 +55,19 @@ func TestCaddySetupScriptContract(t *testing.T) {
 		"curl -fsS \"$SIGNER/tls/ca\" -o /usr/local/share/ca-certificates/sandcastle-tenant.crt && update-ca-certificates || true\n",
 		"  curl -fsS \"$SIGNER/tls/leaf?fqdn=$FQDN\" | python3 -c 'import json,sys;d=json.load(sys.stdin);open(\"/etc/sandcastle/tls/cert.pem\",\"w\").write(d[\"cert\"]);open(\"/etc/sandcastle/tls/key.pem\",\"w\").write(d[\"key\"])'\n  chmod 600 /etc/sandcastle/tls/key.pem\n",
 		"if [ ! -e " + MachineHostnamesPath + " ]; then\n  printf '%s\\n' \"${" + PublicHostnamesEnvKey + ":-}\" | hostnames_normalized > " + MachineHostnamesPath + "\nfi\n",
-		"\"$CADDY\" validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null\nmv -f /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile\n",
-		"'ExecStart=/.sc/platform/sbin/caddy run --environ --config /etc/caddy/Caddyfile' 'ExecReload=' 'ExecReload=/.sc/platform/sbin/caddy reload --config /etc/caddy/Caddyfile --force' > /etc/systemd/system/caddy.service.d/override.conf\n",
+		"  \"$CADDY\" validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null\n  mv -f /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile\n",
+		"'User=caddy' 'Group=caddy' 'AmbientCapabilities=CAP_NET_BIND_SERVICE'\n",
+		"'ExecStart=/.sc/platform/sbin/caddy run --environ --config /etc/caddy/Caddyfile' 'ExecReload=' 'ExecReload=/.sc/platform/sbin/caddy reload --config /etc/caddy/Caddyfile --force'\n",
+		"if [ ! -e " + CaddyOwnedMarkerPath + " ]; then\n",
+		"  if [ \"$REFRESH\" = 0 ] || caddy_override root | cmp -s - \"$OVERRIDE\"; then\n",
 		"  printf 'PRIVATE=%s\\n' \"$FQDN\"\n  for host in $RENDERED; do printf 'PUBLIC=%s\\n' \"$host\"; done\n  printf 'RENDERED=%s\\n' \"$(date +%s)\"\n} > " + CaddySetupMarkerPath + "\n",
-		"if [ \"$REFRESH\" = 0 ]; then\n  systemctl restart caddy\nelif systemctl is-active --quiet caddy; then\n  systemctl reload caddy || systemctl restart caddy\nelse\n  systemctl start caddy\nfi\n",
+		"if [ -e " + CaddyOwnedMarkerPath + " ]; then\n  :\nelif [ \"$REFRESH\" = 0 ]; then\n  systemctl restart caddy\nelif systemctl is-active --quiet caddy; then\n",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("caddy-setup missing %q:\n%s", want, script)
 		}
 	}
-	order := []string{"tls/leaf", "site_block()", "> /etc/caddy/Caddyfile.new", "\"$CADDY\" validate", "override.conf", "systemctl daemon-reload", "systemctl enable caddy", "> " + CaddySetupMarkerPath, "systemctl restart caddy"}
+	order := []string{"tls/leaf", "site_block()", "caddy_override()", "> /etc/caddy/Caddyfile.new", "\"$CADDY\" validate", "caddy_override > \"$OVERRIDE\"", "systemctl daemon-reload", "systemctl enable caddy", "> " + CaddySetupMarkerPath, "systemctl restart caddy"}
 	last := -1
 	for _, step := range order {
 		idx := strings.Index(script, step)
@@ -197,6 +190,11 @@ func newCaddySetupRoot(t *testing.T, machineEnv string) *caddySetupRoot {
 	stub("caddy", "if [ \"$1\" = validate ]; then [ -s \"$3\" ] || { echo \"validate: missing $3\" >&2; exit 1; }; fi\nexit 0\n")
 	stub("systemctl", "if [ \"$1\" = is-active ]; then [ -e \"$SC_TEST_ACTIVE\" ]; exit $?; fi\nexit 0\n")
 	stub("update-ca-certificates", "exit 0\n")
+	stub("chgrp", "exit 0\n")
+	// getent reports a caddy group without logging the lookup.
+	if err := os.WriteFile(filepath.Join(bin, "getent"), []byte("#!/bin/sh\n[ \"$*\" = \"group caddy\" ]\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	stub("apt-get", "echo 'apt-get must not run when caddy is installed' >&2; exit 1\n")
 	stub("curl", `case "$*" in
   *"/tls/leaf"*) printf '{"cert":"LEAF-CERT","key":"LEAF-KEY"}' ;;
@@ -294,9 +292,9 @@ func (r *caddySetupRoot) certDir(name string, cert, key string) {
 }
 
 // expectCaddyfile compares the rendered Caddyfile with the golden.
-func (r *caddySetupRoot) expectCaddyfile(privateFQDN, home string, publicNames ...string) {
+func (r *caddySetupRoot) expectCaddyfile(privateFQDN string, publicNames ...string) {
 	r.t.Helper()
-	if got, want := r.read("etc/caddy/Caddyfile"), r.rebased(goldenCaddyfile(privateFQDN, home, publicNames...)); got != want {
+	if got, want := r.read("etc/caddy/Caddyfile"), r.rebased(goldenCaddyfile(privateFQDN, publicNames...)); got != want {
 		r.t.Fatalf("Caddyfile:\n%s\nwant:\n%s", got, want)
 	}
 	r.absent("etc/caddy/Caddyfile.new")
@@ -340,12 +338,24 @@ const (
 	derivedEnv   = "FQDN=web.zp.acme\nPUBLIC_HOSTNAMES=web.baum.hase.de,\nSIGNER=" + testSigner + "\nHOME=" + testHome + "\n"
 	explicitEnv  = "FQDN=web.zp.acme\nPUBLIC_HOSTNAMES=web12.tc42.uk\nSIGNER=" + testSigner + "\nHOME=" + testHome + "\n"
 	mixedEnv     = "FQDN=web.zp.acme\nPUBLIC_HOSTNAMES=web.baum.hase.de,Web12.TC42.uk.,shop.tc42.uk,web.baum.hase.de\nSIGNER=" + testSigner + "\nHOME=" + testHome + "\n"
-	firstBootLog = "curl -fsS " + testSigner + "/tls/ca -o {ROOT}/usr/local/share/ca-certificates/sandcastle-tenant.crt\nupdate-ca-certificates \ncurl -fsS " + testSigner + "/tls/leaf?fqdn=web.zp.acme\ncaddy validate --config {ROOT}/etc/caddy/Caddyfile.new --adapter caddyfile\nsystemctl daemon-reload\nsystemctl enable caddy\nsystemctl restart caddy\n"
+	firstBootLog = "curl -fsS " + testSigner + "/tls/ca -o {ROOT}/usr/local/share/ca-certificates/sandcastle-tenant.crt\nupdate-ca-certificates \ncurl -fsS " + testSigner + "/tls/leaf?fqdn=web.zp.acme\nchgrp caddy {ROOT}/etc/sandcastle/tls/key.pem\n{PUBLIC}caddy validate --config {ROOT}/etc/caddy/Caddyfile.new --adapter caddyfile\nsystemctl daemon-reload\nsystemctl enable caddy\nsystemctl restart caddy\n"
 )
 
-func (r *caddySetupRoot) expectFirstBootCalls() {
+// keyGroupCalls is the chgrp each rendered public name's key gets.
+func (r *caddySetupRoot) keyGroupCalls(publicNames ...string) string {
+	out := ""
+	for _, name := range publicNames {
+		out += "chgrp caddy " + r.rebased(MachineTLSHostKeyPath(name)) + "\n"
+	}
+	return out
+}
+
+// expectFirstBootCalls checks the first-boot calls; publicNames are the
+// public names rendered (their keys are handed to the caddy group too).
+func (r *caddySetupRoot) expectFirstBootCalls(publicNames ...string) {
 	r.t.Helper()
-	if want := strings.ReplaceAll(firstBootLog, "{ROOT}", r.root); r.log != want {
+	want := strings.NewReplacer("{ROOT}", r.root, "{PUBLIC}", r.keyGroupCalls(publicNames...)).Replace(firstBootLog)
+	if r.log != want {
 		r.t.Fatalf("calls:\n%s\nwant:\n%s", r.log, want)
 	}
 }
@@ -357,7 +367,7 @@ func (r *caddySetupRoot) expectFirstBootCalls() {
 func TestCaddySetupPrivateOnly(t *testing.T) {
 	r := newCaddySetupRoot(t, privateEnv)
 	r.run(false)
-	r.expectCaddyfile("web.zp.acme", testHome)
+	r.expectCaddyfile("web.zp.acme")
 	if got := r.read("etc/sandcastle/tls/cert.pem"); got != "LEAF-CERT" {
 		t.Fatalf("leaf cert = %q", got)
 	}
@@ -367,7 +377,7 @@ func TestCaddySetupPrivateOnly(t *testing.T) {
 	if got := r.read("usr/local/share/ca-certificates/sandcastle-tenant.crt"); got != "TENANT-CA\n" {
 		t.Fatalf("tenant CA = %q", got)
 	}
-	if got := r.read("etc/systemd/system/caddy.service.d/override.conf"); got != "[Service]\nUser=root\nGroup=root\nAmbientCapabilities=\nExecStart=\nExecStart=/.sc/platform/sbin/caddy run --environ --config "+r.root+"/etc/caddy/Caddyfile\nExecReload=\nExecReload=/.sc/platform/sbin/caddy reload --config "+r.root+"/etc/caddy/Caddyfile --force\n" {
+	if got := r.read("etc/systemd/system/caddy.service.d/override.conf"); got != "[Service]\nUser=caddy\nGroup=caddy\nAmbientCapabilities=CAP_NET_BIND_SERVICE\nExecStart=\nExecStart=/.sc/platform/sbin/caddy run --environ --config "+r.root+"/etc/caddy/Caddyfile\nExecReload=\nExecReload=/.sc/platform/sbin/caddy reload --config "+r.root+"/etc/caddy/Caddyfile --force\n" {
 		t.Fatalf("override.conf = %q", got)
 	}
 	r.absent("etc/systemd/system/caddy.service.d/sandcastle-zone.conf")
@@ -387,7 +397,7 @@ func TestCaddySetupPrivateOnly(t *testing.T) {
 func TestCaddySetupLegacyEnvWithoutPublicHostnames(t *testing.T) {
 	r := newCaddySetupRoot(t, "FQDN=web.zp.acme\nSIGNER="+testSigner+"\nHOME="+testHome+"\n")
 	r.run(false)
-	r.expectCaddyfile("web.zp.acme", testHome)
+	r.expectCaddyfile("web.zp.acme")
 	if got := r.read("etc/sandcastle/hostnames"); got != "" {
 		t.Fatalf("hostnames = %q, want empty", got)
 	}
@@ -403,7 +413,7 @@ func TestCaddySetupLegacyEnvWithoutPublicHostnames(t *testing.T) {
 func TestCaddySetupDerivedOnlyBeforeCert(t *testing.T) {
 	r := newCaddySetupRoot(t, derivedEnv)
 	r.run(false)
-	r.expectCaddyfile("web.zp.acme", testHome)
+	r.expectCaddyfile("web.zp.acme")
 	if got := r.read("etc/sandcastle/hostnames"); got != "web.baum.hase.de\n" {
 		t.Fatalf("hostnames = %q", got)
 	}
@@ -421,12 +431,12 @@ func TestCaddySetupDerivedOnlyWithCert(t *testing.T) {
 	r := newCaddySetupRoot(t, derivedEnv)
 	r.certDir("web.baum.hase.de", "LE-CERT", "LE-KEY")
 	r.run(false)
-	r.expectCaddyfile("web.zp.acme", testHome, "web.baum.hase.de")
+	r.expectCaddyfile("web.zp.acme", "web.baum.hase.de")
 	marker := r.expectMarker("web.zp.acme", "web.baum.hase.de")
 	if !marker.Serves("web.baum.hase.de") {
 		t.Fatalf("marker: %+v", marker)
 	}
-	r.expectFirstBootCalls()
+	r.expectFirstBootCalls("web.baum.hase.de")
 }
 
 // Explicit-only: a machine in a project WITHOUT a domain carrying one
@@ -437,7 +447,7 @@ func TestCaddySetupExplicitOnly(t *testing.T) {
 	r := newCaddySetupRoot(t, explicitEnv)
 	r.certDir("web12.tc42.uk", "LE-CERT", "") // key missing: not rendered
 	r.run(false)
-	r.expectCaddyfile("web.zp.acme", testHome)
+	r.expectCaddyfile("web.zp.acme")
 	if got := r.read("etc/sandcastle/hostnames"); got != "web12.tc42.uk\n" {
 		t.Fatalf("hostnames = %q", got)
 	}
@@ -445,7 +455,7 @@ func TestCaddySetupExplicitOnly(t *testing.T) {
 
 	r.certDir("web12.tc42.uk", "", "LE-KEY")
 	r.run(true, "--refresh")
-	r.expectCaddyfile("web.zp.acme", testHome, "web12.tc42.uk")
+	r.expectCaddyfile("web.zp.acme", "web12.tc42.uk")
 	r.expectMarker("web.zp.acme", "web12.tc42.uk")
 }
 
@@ -460,12 +470,12 @@ func TestCaddySetupMixed(t *testing.T) {
 	if got := r.read("etc/sandcastle/hostnames"); got != "shop.tc42.uk\nweb.baum.hase.de\nweb12.tc42.uk\n" {
 		t.Fatalf("hostnames = %q", got)
 	}
-	r.expectCaddyfile("web.zp.acme", testHome, "web.baum.hase.de", "web12.tc42.uk")
+	r.expectCaddyfile("web.zp.acme", "web.baum.hase.de", "web12.tc42.uk")
 	marker := r.expectMarker("web.zp.acme", "web.baum.hase.de", "web12.tc42.uk")
 	if marker.Serves("shop.tc42.uk") || !marker.ReadyFor("shop.tc42.uk") {
 		t.Fatalf("marker: %+v", marker)
 	}
-	r.expectFirstBootCalls()
+	r.expectFirstBootCalls("web.baum.hase.de", "web12.tc42.uk")
 }
 
 // --refresh after a new hostname appears: the reconciler pushes a hostnames
@@ -476,14 +486,14 @@ func TestCaddySetupRefreshAfterNewHostname(t *testing.T) {
 	r := newCaddySetupRoot(t, derivedEnv)
 	r.certDir("web.baum.hase.de", "LE-CERT-1", "LE-KEY-1")
 	r.run(false)
-	r.expectCaddyfile("web.zp.acme", testHome, "web.baum.hase.de")
+	r.expectCaddyfile("web.zp.acme", "web.baum.hase.de")
 
 	r.write("etc/sandcastle/hostnames", "web.baum.hase.de\napi.tc42.uk\n")
 	r.certDir("api.tc42.uk", "LE-CERT-2", "LE-KEY-2")
 	log := r.run(true, "--refresh")
-	r.expectCaddyfile("web.zp.acme", testHome, "api.tc42.uk", "web.baum.hase.de")
+	r.expectCaddyfile("web.zp.acme", "api.tc42.uk", "web.baum.hase.de")
 	r.expectMarker("web.zp.acme", "api.tc42.uk", "web.baum.hase.de")
-	if want := "caddy validate --config " + r.root + "/etc/caddy/Caddyfile.new --adapter caddyfile\nsystemctl is-active --quiet caddy\nsystemctl reload caddy\n"; log != want {
+	if want := "chgrp caddy " + r.rebased(MachineTLSKeyPath) + "\n" + r.keyGroupCalls("api.tc42.uk", "web.baum.hase.de") + "caddy validate --config " + r.root + "/etc/caddy/Caddyfile.new --adapter caddyfile\nsystemctl is-active --quiet caddy\nsystemctl reload caddy\n"; log != want {
 		t.Fatalf("refresh calls:\n%s\nwant:\n%s", log, want)
 	}
 	// The hostnames file pushed by the Auth App is left as pushed — the
@@ -503,25 +513,26 @@ func TestCaddySetupRefreshAfterNewHostname(t *testing.T) {
 func TestCaddySetupRefreshAfterCertLands(t *testing.T) {
 	r := newCaddySetupRoot(t, mixedEnv)
 	r.run(false)
-	r.expectCaddyfile("web.zp.acme", testHome)
+	r.expectCaddyfile("web.zp.acme")
 	r.expectMarker("web.zp.acme")
 
 	r.certDir("shop.tc42.uk", "LE-CERT", "LE-KEY")
 	r.run(true, "--refresh")
-	r.expectCaddyfile("web.zp.acme", testHome, "shop.tc42.uk")
+	r.expectCaddyfile("web.zp.acme", "shop.tc42.uk")
 	r.expectMarker("web.zp.acme", "shop.tc42.uk")
 
 	// The name is removed from the set (sc hostname remove): its block goes
 	// with the next refresh, whatever is left in its directory.
 	r.write("etc/sandcastle/hostnames", "web.baum.hase.de\nweb12.tc42.uk\n")
 	r.run(true, "--refresh")
-	r.expectCaddyfile("web.zp.acme", testHome)
+	r.expectCaddyfile("web.zp.acme")
 	r.expectMarker("web.zp.acme")
 }
 
 // --refresh is idempotent: with nothing changed it re-renders the identical
 // Caddyfile, rewrites the marker and reloads; run any number of times. When
-// Caddy is inactive it is started instead of reloaded.
+// Caddy is inactive (an operator stopped, disabled or masked it) it stays
+// that way: no start, no reload.
 func TestCaddySetupRefreshIdempotent(t *testing.T) {
 	r := newCaddySetupRoot(t, derivedEnv)
 	r.certDir("web.baum.hase.de", "LE-CERT", "LE-KEY")
@@ -538,8 +549,8 @@ func TestCaddySetupRefreshIdempotent(t *testing.T) {
 		}
 	}
 	log := r.run(false, "--refresh")
-	if !strings.HasSuffix(log, "systemctl is-active --quiet caddy\nsystemctl start caddy\n") {
-		t.Fatalf("inactive refresh must start caddy:\n%s", log)
+	if !strings.HasSuffix(log, "systemctl is-active --quiet caddy\n") || strings.Contains(log, "start caddy") {
+		t.Fatalf("inactive refresh must leave caddy stopped:\n%s", log)
 	}
 }
 
@@ -710,5 +721,86 @@ func TestCaddySetupProjectCertificateSelection(t *testing.T) {
 	got = r.read("etc/caddy/Caddyfile")
 	if strings.Contains(got, "/baum.hase.de/cert.pem") || strings.Contains(got, "admin-web.baum.hase.de") {
 		t.Fatalf("released project cert still selected: %s", got)
+	}
+}
+
+// Caddy runs as the caddy user (ADR-0031): every key a site block uses is
+// handed to the caddy group, readable by owner and group only.
+func TestCaddySetupKeysReadableByCaddyGroupOnly(t *testing.T) {
+	r := newCaddySetupRoot(t, derivedEnv)
+	r.certDir("web.baum.hase.de", "LE-CERT", "LE-KEY")
+	r.run(false)
+	for _, key := range []string{MachineTLSKeyPath, MachineTLSHostKeyPath("web.baum.hase.de")} {
+		info, err := os.Stat(filepath.Join(r.root, key))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o640 {
+			t.Fatalf("%s mode = %o, want 640", key, got)
+		}
+	}
+}
+
+// --refresh moves a machine off the old run-as-root drop-in: it replaces
+// exactly that file, reloads systemd and restarts a running Caddy so the new
+// user takes effect. The next refresh finds nothing to migrate and reloads.
+func TestCaddySetupRefreshMigratesRootOverride(t *testing.T) {
+	r := newCaddySetupRoot(t, privateEnv)
+	r.run(false)
+	override := "etc/systemd/system/caddy.service.d/override.conf"
+	want := r.read(override)
+	r.write(override, strings.Replace(want, "User=caddy\nGroup=caddy\nAmbientCapabilities=CAP_NET_BIND_SERVICE\n", "User=root\nGroup=root\nAmbientCapabilities=\n", 1))
+	log := r.run(true, "--refresh")
+	if got := r.read(override); got != want {
+		t.Fatalf("override.conf after migration:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.Contains(log, "systemctl daemon-reload\n") || !strings.HasSuffix(log, "systemctl is-active --quiet caddy\nsystemctl restart caddy\n") {
+		t.Fatalf("migration calls:\n%s", log)
+	}
+	log = r.run(true, "--refresh")
+	if strings.Contains(log, "daemon-reload") || !strings.HasSuffix(log, "systemctl reload caddy\n") {
+		t.Fatalf("second refresh calls:\n%s", log)
+	}
+}
+
+// A drop-in the operator wrote is not the platform's: --refresh leaves it.
+func TestCaddySetupRefreshKeepsOperatorOverride(t *testing.T) {
+	r := newCaddySetupRoot(t, privateEnv)
+	r.run(false)
+	custom := "[Service]\nEnvironment=FOO=bar\n"
+	r.write("etc/systemd/system/caddy.service.d/override.conf", custom)
+	log := r.run(true, "--refresh")
+	if got := r.read("etc/systemd/system/caddy.service.d/override.conf"); got != custom {
+		t.Fatalf("operator override rewritten:\n%s", got)
+	}
+	if strings.Contains(log, "daemon-reload") {
+		t.Fatalf("refresh reloaded systemd for an operator drop-in:\n%s", log)
+	}
+}
+
+// The Caddy Owned Marker hands /etc/caddy and the caddy unit to the
+// machine: neither first boot nor --refresh renders, writes a drop-in, or
+// touches the service, whether Caddy runs or not. The readiness marker is
+// still written (private name only) so certificate delivery keeps working.
+func TestCaddySetupOwnedCaddyfileIsLeftAlone(t *testing.T) {
+	r := newCaddySetupRoot(t, derivedEnv)
+	own := "machine.example {\n    respond \"mine\"\n}\n"
+	r.write("etc/caddy/Caddyfile", own)
+	r.write(strings.TrimPrefix(CaddyOwnedMarkerPath, "/"), "")
+	r.certDir("web.baum.hase.de", "LE-CERT", "LE-KEY")
+	for _, run := range []struct {
+		active bool
+		args   []string
+	}{{false, nil}, {true, []string{"--refresh"}}, {false, []string{"--refresh"}}} {
+		log := r.run(run.active, run.args...)
+		if strings.Contains(log, "systemctl") || strings.Contains(log, "caddy validate") || strings.Contains(log, "chgrp") {
+			t.Fatalf("owned machine %v calls:\n%s", run.args, log)
+		}
+		if got := r.read("etc/caddy/Caddyfile"); got != own {
+			t.Fatalf("owned Caddyfile rewritten by %v:\n%s", run.args, got)
+		}
+		r.absent("etc/caddy/Caddyfile.new")
+		r.absent("etc/systemd/system/caddy.service.d/override.conf")
+		r.expectMarker("web.zp.acme")
 	}
 }

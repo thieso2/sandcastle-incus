@@ -1958,9 +1958,9 @@ on `<tenant .3>:9443` — it self-generates the tenant CA on first start (key st
 on the sidecar) and signs leaves for names in its zone. The **default-profile
 cloud-init** installs Caddy, fetches this machine's leaf (`GET
 /tls/leaf?fqdn=<fqdn>` → `{cert,key}`) *before* starting Caddy, and serves:
-HTTP→HTTPS redirect, `/_h`→browse the login user's `$HOME`, `/_w`→browse
-`/workspace`, everything else reverse-proxied to `localhost:3000` (Host preserved,
-so `*.<machine>` vhosts). Caddy runs as root.
+HTTP→HTTPS redirect, everything reverse-proxied to `localhost:3000` (Host
+preserved, so `*.<machine>` vhosts). No file routes. Caddy runs as the `caddy`
+user (ADR-0031).
 
 ```bash
 # On a fresh machine, from any tailnet-connected client (CA already trusted by sc login):
@@ -1968,8 +1968,8 @@ curl -sS https://<machine>.<project>.<suffix>/            # 502 until an app lis
                                                          # 200 once it does. No -k either way —
                                                          # TLS always chains to the tenant CA.
 curl -sI  http://<machine>.<project>.<suffix>/ | head -1  # 308 → https (redirect)
-curl -so /dev/null -w '%{http_code}\n' https://<machine>.<project>.<suffix>/_h/  # 200 ($HOME)
-curl -so /dev/null -w '%{http_code}\n' https://<machine>.<project>.<suffix>/_w/  # 200 (/workspace)
+curl -so /dev/null -w '%{http_code}\n' https://<machine>.<project>.<suffix>/_h/  # 502 (no file route;
+                                                         # proxied like any path)
 curl -sS https://foo.<machine>.<project>.<suffix>/         # wildcard vhost → :3000
 ```
 
@@ -1983,6 +1983,15 @@ incus exec sidecar --project <infra> -- openssl x509 -in /etc/sandcastle/ca/ca.c
 # leaf SANs cover the machine + wildcard
 incus exec <machine> --project <default> -- openssl x509 -in /etc/sandcastle/tls/cert.pem -noout -ext subjectAltName
 #   → DNS:<machine>.<project>.<suffix>, DNS:*.<machine>.<project>.<suffix>
+# Caddy runs as caddy and can read only its keys (ADR-0031)
+incus exec <machine> --project <default> -- ps -o user= -C caddy                 # → caddy
+incus exec <machine> --project <default> -- stat -c '%U:%G %a' /etc/sandcastle/tls/key.pem  # → root:caddy 640
+# --refresh leaves a stopped Caddy stopped
+incus exec <machine> --project <default> -- sh -c 'systemctl stop caddy; sandcastle-caddy-setup --refresh; systemctl is-active caddy'
+#   → inactive   (then: systemctl start caddy)
+# the Caddy Owned Marker freezes the Caddyfile
+incus exec <machine> --project <default> -- sh -c 'touch /etc/sandcastle/caddy.owned; echo "# mine" >> /etc/caddy/Caddyfile; sandcastle-caddy-setup --refresh; tail -1 /etc/caddy/Caddyfile; rm /etc/sandcastle/caddy.owned; sandcastle-caddy-setup --refresh'
+#   → # mine     (the last refresh renders the platform Caddyfile again)
 ```
 
 **PASS (validated 2026-07-08 on idefix `ct2`):** signer self-generated
@@ -1991,7 +2000,8 @@ incus exec <machine> --project <default> -- openssl x509 -in /etc/sandcastle/tls
 the CA (no `-k`), 308-redirected HTTP→HTTPS, proxied to `:3000`, vhosted
 `*.ct2.default.idefix`, and (at the time) `/_r` browsed `/` while `/_w` browsed
 `/workspace`. The file routes were later scoped to `/_h`→`$HOME` (+ `/_w`), which
-also dropped the `/`-root bind-mount workaround.
+also dropped the `/`-root bind-mount workaround, and later still removed with
+Caddy moved off root (ADR-0031).
 
 > This phase is the **Machine Private Hostname** contract (Tenant CA leaf
 > fetched from the sidecar) — every machine runs it. A machine with public
@@ -2852,7 +2862,7 @@ sc ls zp:web; sc project status zp
 #       `sc incus config get web user.sandcastle.v2.cert-state` = `web.e2e-$RUN.$ZONE=installed` (per name since
 #       ADR-0028 slice 3) and `… user.sandcastle.v2.cert-not-after` equals that NOT AFTER (RFC 3339 UTC).
 # PASS (machine side after the push): /etc/sandcastle/tls/web.e2e-$RUN.$ZONE/ holds cert.pem (0644) and key.pem
-#       (0600), no *.new leftovers; the private leaf /etc/sandcastle/tls/{cert,key}.pem is untouched;
+#       (root:caddy 0640 after the refresh), no *.new leftovers; the private leaf /etc/sandcastle/tls/{cert,key}.pem is untouched;
 #       /etc/sandcastle/caddy.ready now has `PUBLIC=web.e2e-$RUN.$ZONE` and a newer RENDERED=; the Caddyfile has
 #       a second block "web.e2e-$RUN.$ZONE, *.web.e2e-$RUN.$ZONE {" with `tls /etc/sandcastle/tls/web.e2e-$RUN.$ZONE/…`;
 #       `systemctl is-active caddy` → active; `journalctl -u caddy` shows one start and one reload
@@ -2861,8 +2871,8 @@ openssl s_client -connect <bridge-ip>:443 -servername web.e2e-$RUN.$ZONE </dev/n
   | openssl x509 -noout -ext subjectAltName -issuer
 # PASS: both SANs `DNS:web.e2e-$RUN.$ZONE, DNS:*.web.e2e-$RUN.$ZONE` and an issuer from the Let's Encrypt
 #       STAGING hierarchy ("(STAGING)" in the issuer CN). Browser trust is NOT asserted.
-curl --resolve x.web.e2e-$RUN.$ZONE:443:<bridge-ip> -k https://x.web.e2e-$RUN.$ZONE/_w/
-# PASS: the /workspace listing (wildcard vhost reaches the same Caddy).
+curl -s -o /dev/null -w '%{http_code}\n' --resolve x.web.e2e-$RUN.$ZONE:443:<bridge-ip> -k https://x.web.e2e-$RUN.$ZONE/
+# PASS: an HTTP status from Caddy (502 with nothing on :3000), not 000 — the wildcard vhost reaches the same Caddy.
 dig +short TXT _acme-challenge.web.e2e-$RUN.$ZONE @1.1.1.1
 # PASS: empty once installed (certmagic cleans up; the reconciler sweeps before every order).
 sc create --bare zp:b1
@@ -3080,7 +3090,7 @@ sc-adm public-dns-zone remove $ZONE                     # while zp is deleted bu
 sc-adm incus delete <remote>:solo --project <prefix>-<tenant>-pp     # out-of-band
 # PASS (≤ 60 s): solo-…'s A records are gone ("deleted 2 stale A record(s)"); (≤ 5 min) the auth-app log shows
 #       "pruned orphaned machine hostname solo-$RUN.$ZONE (<tenant>/pp:solo)" and the zone is removable.
-# PASS (machine side, per name): /etc/sandcastle/tls/<name>/{cert,key}.pem (0644/0600) per public name, the private
+# PASS (machine side, per name): /etc/sandcastle/tls/<name>/{cert,key}.pem (0644 / root:caddy 0640) per public name, the private
 #       leaf /etc/sandcastle/tls/{cert,key}.pem untouched; caddy.ready = PRIVATE=api.zp.<suffix> + one PUBLIC=<name>
 #       per rendered block; `sandcastle-caddy-setup --refresh` by hand is idempotent; `sc c zp:api -- true` writes ONE
 #       known_hosts line keyed `api.zp.<suffix>,api-$RUN.$ZONE,api.e2e-$RUN.$ZONE` (private name first).

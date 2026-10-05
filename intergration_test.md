@@ -33,8 +33,8 @@ VERBOSE=1 /Users/thies/Projects/GitHub/incus-sandcastle/sandcastle-incus/bin/sc 
 - DNS resolves for the created machine.
 - SSH connects to the created machine.
 - Machine HTTPS ingress (v2, ADR-0011): the sidecar leaf signer issues a
-  per-machine tenant-CA cert, Caddy serves HTTPS with HTTP→HTTPS redirect,
-  `/_r`→`/`, `/_w`→`/workspace`, and a `localhost:3000` reverse proxy. See
+  per-machine tenant-CA cert, Caddy serves HTTPS with HTTP→HTTPS redirect
+  and a `localhost:3000` reverse proxy (no file routes, ADR-0031). See
   `docs/e2e-sc2.md` Phase 8c for the full protocol.
 
 ## Results
