@@ -76,10 +76,7 @@ func (b *fakeEventBus) streams() int {
 // busy-loops forever.
 func TestUnixEventSourceResubscribeAfterDropLeavesNoWatcherBehind(t *testing.T) {
 	bus := newFakeEventBus(t)
-	source, err := NewUnixEventSource(bus.path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	source := NewUnixEventSource(bus.path)
 
 	const subscribers, drops = 4, 50
 	stop := make(chan struct{})

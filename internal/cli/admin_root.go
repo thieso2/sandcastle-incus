@@ -161,6 +161,7 @@ func ExecuteAdmin(name string, args []string) int {
 	adminShareReconciler := incusx.NewShareReconciler(adminConfig.Remote, incusx.NewHostOverrideManagerForSharedRemote(sharedRemote))
 	adminShareReconciler.Admin = adminConfig
 	var authAppSocketServer incus.InstanceServer
+	var authAppEvents incusx.EventSource
 	// Declared as the authapp interface (not incusx.ResourceCacheServer) and
 	// left nil outside the branch below: a zero-value incusx.ResourceCacheServer{}
 	// assigned unconditionally would box into a non-nil interface even with a
@@ -175,6 +176,7 @@ func ExecuteAdmin(name string, args []string) int {
 	if authAppServeArgs(args) {
 		if socketServer, err := adminSocketServer(); err == nil && socketServer != nil {
 			authAppSocketServer = socketServer
+			authAppEvents = incusx.NewUnixEventSource(adminSocketPath)
 			authAppTenants = incusx.NewTenantStoreForServer(socketServer)
 			zoneMachines := incusx.NewZoneMachineServer(socketServer, authAppTenants, adminConfig.IncusProjectPrefix)
 			authAppZoneMachines = zoneMachines
@@ -189,8 +191,8 @@ func ExecuteAdmin(name string, args []string) int {
 			authAppShareReconciler = incusx.NewShareReconcilerForServer(socketServer, authAppMachines, authAppMetadataUpdater, adminConfig)
 			adminShareStore = authAppMetadataUpdater
 			adminShareReconciler = incusx.NewShareReconcilerForServer(socketServer, incusx.NewHostOverrideManagerForServer(socketServer), adminShareStore, adminConfig)
-			authAppResourceCache = incusx.NewResourceCacheServer(socketServer).WithVerbose(verbose, os.Stderr)
-			authAppPayloadVersions = incusx.NewResourceCacheServer(socketServer).WithVerbose(verbose, os.Stderr)
+			authAppResourceCache = incusx.NewResourceCacheServer(socketServer, authAppEvents).WithVerbose(verbose, os.Stderr)
+			authAppPayloadVersions = incusx.NewResourceCacheServer(socketServer, authAppEvents).WithVerbose(verbose, os.Stderr)
 		} else if err != nil && verbose {
 			fmt.Fprintf(os.Stderr, "[verbose] auth app unix socket unavailable: %v\n", err)
 		}
@@ -279,7 +281,7 @@ func ExecuteAdmin(name string, args []string) int {
 				if authAppSocketServer == nil {
 					return
 				}
-				subscribeProjectLifecycleEvents(ctx, authAppSocketServer, notify)
+				subscribeProjectLifecycleEvents(ctx, authAppEvents, notify)
 			},
 			ZoneMachines:     authAppZoneMachines,
 			TailnetPublisher: authAppTailnetPublisher,
@@ -300,7 +302,7 @@ func ExecuteAdmin(name string, args []string) int {
 				if authAppSocketServer == nil {
 					return
 				}
-				subscribeInstanceLifecycleEvents(ctx, authAppSocketServer, notify)
+				subscribeInstanceLifecycleEvents(ctx, authAppEvents, notify)
 			},
 			Routes:            authAppRoutes,
 			RouteCaddy:        authAppRouteCaddy,
@@ -316,7 +318,7 @@ func ExecuteAdmin(name string, args []string) int {
 				if authAppSocketServer == nil {
 					return
 				}
-				subscribeInstanceLifecycleEvents(ctx, authAppSocketServer, notify)
+				subscribeInstanceLifecycleEvents(ctx, authAppEvents, notify)
 			},
 			Provisioner: authapp.Provisioner{
 				Admin:   adminConfig,
@@ -504,17 +506,19 @@ func NewAdminRootCommand(config commandConfig) *cobra.Command {
 	return root
 }
 
+const adminSocketPath = "/var/lib/incus/unix.socket"
+
 // adminSocketServer connects to the local Incus unix socket. It was named
 // routeBrokerSocketServer when the v1 route broker was its first caller; the
 // auth-app serve path is now the only one.
 func adminSocketServer() (incus.InstanceServer, error) {
-	if _, err := os.Stat("/var/lib/incus/unix.socket"); err != nil {
+	if _, err := os.Stat(adminSocketPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	server, err := incus.ConnectIncusUnix("/var/lib/incus/unix.socket", nil)
+	server, err := incus.ConnectIncusUnix(adminSocketPath, nil)
 	if err != nil {
 		return nil, err
 	}

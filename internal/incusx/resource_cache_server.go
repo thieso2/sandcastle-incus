@@ -17,17 +17,18 @@ import (
 // without that package importing the Incus client SDK directly, mirroring
 // RouteBackend/CaddyController (see routebackend.go).
 type ResourceCacheServer struct {
-	inner incus.InstanceServer
-	Log   func(string)
+	inner  incus.InstanceServer
+	events EventSource
+	Log    func(string)
 }
 
 var _ authapp.ResourceCacheServer = ResourceCacheServer{}
 
 // NewResourceCacheServer wraps server for use as the cache engine's Incus
-// source. WithVerbose enables the same "[verbose] incus api: …" trace style
-// used by the rest of incusx.
-func NewResourceCacheServer(server incus.InstanceServer) ResourceCacheServer {
-	return ResourceCacheServer{inner: server}
+// source, subscribing to the event bus through events. WithVerbose enables
+// the same "[verbose] incus api: …" trace style used by the rest of incusx.
+func NewResourceCacheServer(server incus.InstanceServer, events EventSource) ResourceCacheServer {
+	return ResourceCacheServer{inner: server, events: events}
 }
 
 // WithVerbose enables per-call "[verbose] incus api: …" tracing to w, matching
@@ -72,7 +73,7 @@ func (s ResourceCacheServer) GetImages() ([]api.Image, error) {
 }
 
 func (s ResourceCacheServer) UseProject(name string) authapp.ResourceCacheProjectServer {
-	return ResourceCacheServer{inner: s.inner.UseProject(name), Log: s.Log}
+	return ResourceCacheServer{inner: s.inner.UseProject(name), events: s.events, Log: s.Log}
 }
 
 func (s ResourceCacheServer) GetInstancesFullAllProjects(instanceType api.InstanceType) ([]api.InstanceFull, error) {
@@ -112,7 +113,7 @@ func (s ResourceCacheServer) GetImagesAllProjects() ([]api.Image, error) {
 }
 
 func (s ResourceCacheServer) GetEventsAllProjects() (*incus.EventListener, error) {
-	return s.inner.GetEventsAllProjects()
+	return s.events.GetEventsAllProjects()
 }
 
 // GetProjects lists every project with its config (authapp's optional
