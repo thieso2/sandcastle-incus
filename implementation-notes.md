@@ -6892,3 +6892,20 @@ that knows which keys Caddy will open. The group change is skipped when no
 the Caddyfile: platform Caddyfiles rendered before this change carry no
 header, so a header test would have treated them as hand-written and kept
 the old routes forever.
+
+## 2026-10-13 — auth app: one Incus connection per event subscription
+
+The obelix auth app on big burned about 1.75 cores with almost no traffic.
+perf showed the time in the Incus client's per-connection event watcher
+(`getEvents.func1`, incus v6.23.0) and in the GC churn of its `time.After`
+timers. When a stream drops, the client closes the watcher's stop channel.
+If a listener re-subscribes on the same connection before the watcher runs,
+the watcher sees a live listener, keeps looping, and its `select` on the
+closed channel never blocks again. The resource cache and three DNS/route
+event loops all re-subscribe at once on one shared socket connection, so a
+drop leaked a spinning goroutine almost every time. `incusx.UnixEventSource`
+now opens a new connection per subscription. The dropped connection then has
+no listeners, and its watcher exits. Alternative considered: a backoff before
+re-subscribing. Rejected, because it only makes the race less likely.
+Patching the vendored client was also rejected; the upstream fix belongs in
+lxc/incus.
