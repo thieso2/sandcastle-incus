@@ -927,6 +927,9 @@ func TestLoginReportsDeniedDeviceFlow(t *testing.T) {
 	_, err := executeForTestWithConfig(t, commandConfig{
 		name:       "sandcastle",
 		authDevice: client,
+		// Inject the installer so the `incus` client preflight is skipped
+		// and the test never depends on the host having incus installed.
+		loginRemote: &fakeLoginRemoteInstaller{},
 	}, "login", "https://auth.example.com")
 	if err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("err = %v", err)
@@ -948,6 +951,9 @@ func TestLoginAcceptsExplicitSSHPublicKeyPath(t *testing.T) {
 	stdout, err := executeForTestWithConfig(t, commandConfig{
 		name:       "sandcastle",
 		authDevice: client,
+		// Inject the installer so the `incus` client preflight is skipped
+		// and the test never depends on the host having incus installed.
+		loginRemote: &fakeLoginRemoteInstaller{},
 	}, "login", "--ssh-public-key", keyPath, "https://auth.example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -969,6 +975,9 @@ func TestLoginRejectsInvalidExplicitSSHPublicKeyPath(t *testing.T) {
 	_, err := executeForTestWithConfig(t, commandConfig{
 		name:       "sandcastle",
 		authDevice: client,
+		// Inject the installer so the `incus` client preflight is skipped
+		// and the test never depends on the host having incus installed.
+		loginRemote: &fakeLoginRemoteInstaller{},
 	}, "login", "--ssh-public-key", keyPath, "https://auth.example.com")
 	if err == nil || !strings.Contains(err.Error(), "parse SSH public key") {
 		t.Fatalf("error = %v", err)

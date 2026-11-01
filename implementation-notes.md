@@ -6909,3 +6909,20 @@ no listeners, and its watcher exits. Alternative considered: a backoff before
 re-subscribing. Rejected, because it only makes the race less likely.
 Patching the vendored client was also rejected; the upstream fix belongs in
 lxc/incus.
+
+## 2026-11-01 — Unit tests no longer depend on the host's tools
+
+`go test ./...` failed on a host that is itself a Sandcastle machine and has
+no `incus` or `jq`. Three test-only fixes:
+
+- `caddy_setup_test.go` rebases only the `[ -x /.sc/platform/sbin/caddy ]`
+  probe into the temp root, so the PATH `caddy` stub wins over a real
+  platform Caddy. A blanket `/.sc/` rewrite was rejected because the
+  override.conf `ExecStart` assertions check the real path verbatim. The
+  harness fails loudly if the probe text changes, so it can't silently stop
+  rebasing.
+- Four login tests inject `fakeLoginRemoteInstaller`, the existing seam that
+  skips the `incus` client preflight. The alternative, a stub `incus` on PATH,
+  would still shell out.
+- The statusline test skips when `jq` isn't in `/usr/bin` or `/bin`, which is
+  the PATH it pins, the same way it already skips without `dash`.

@@ -5,6 +5,7 @@ package dev
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"testing"
 )
@@ -24,7 +25,18 @@ func dashOrSkip(t *testing.T) string {
 	if err != nil {
 		t.Skip("dash not found on PATH; statusline-command.sh's exact byte output is dash-specific (see implementation-notes.md)")
 	}
+	// The script parses the payload with jq; runStatusline pins PATH to
+	// /usr/bin:/bin, so jq must live there. Without it every field is empty
+	// and the comparison fails for an environmental, not a code, reason.
+	if !hasExecutable("/usr/bin/jq") && !hasExecutable("/bin/jq") {
+		t.Skip("jq not found in /usr/bin or /bin; statusline-command.sh needs it")
+	}
 	return path
+}
+
+func hasExecutable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 func runStatusline(t *testing.T, dash, payload, home string) string {
