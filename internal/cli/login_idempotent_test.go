@@ -122,8 +122,9 @@ func TestLoginRefusesWhenNotTailnetNode(t *testing.T) {
 	useLoginHomeForTest(t)
 	device := &fakeAuthDeviceClient{}
 	_, err := executeForTestWithConfig(t, commandConfig{
-		name:       "sandcastle",
-		authDevice: device,
+		name:        "sandcastle",
+		authDevice:  device,
+		loginRemote: &fakeLoginRemoteInstaller{}, // skip the host `incus` preflight
 		loginTailnetPrecheck: func(context.Context) error {
 			return errors.New("this machine is not a tailnet node")
 		},

@@ -210,6 +210,15 @@ esac
 	}
 	script := strings.ReplaceAll(caddyIngressSetupScript, "/etc/", root+"/etc/")
 	script = strings.ReplaceAll(script, "/usr/local/share/", root+"/usr/local/share/")
+	// Rebase only the platform-Caddy probe, so a test host that is itself a
+	// Sandcastle machine (with a real /.sc/platform/sbin/caddy) still runs
+	// the PATH stub. The override.conf ExecStart text keeps the real path,
+	// which the assertions check verbatim.
+	const platformCaddyProbe = "[ -x /.sc/platform/sbin/caddy ]"
+	if !strings.Contains(script, platformCaddyProbe) {
+		t.Fatalf("caddy-setup script no longer contains %q; update the test harness", platformCaddyProbe)
+	}
+	script = strings.ReplaceAll(script, platformCaddyProbe, "[ -x "+root+"/.sc/platform/sbin/caddy ]")
 	scriptPath := filepath.Join(root, "caddy-setup")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
