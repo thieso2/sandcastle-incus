@@ -166,6 +166,10 @@ func (c TenantCreator) renderTenantProfilesV2(server TenantCreateServer, tenantN
 		if err != nil {
 			return err
 		}
+		if handBuiltDefaultProfile(server.UseProject(incusProject)) {
+			c.log("skip " + incusProject + ": its default profile was not rendered by Sandcastle; leaving it untouched")
+			continue
+		}
 		domain := ""
 		if app, _, err := server.GetProject(incusProject); err == nil {
 			domain = strings.TrimSpace(app.Config[meta.KeyV2Domain])
@@ -195,6 +199,19 @@ func (c TenantCreator) renderTenantProfilesV2(server TenantCreateServer, tenantN
 		}
 	}
 	return nil
+}
+
+// handBuiltDefaultProfile reports a default profile someone configured by
+// hand: it has devices but lacks the kind marker every Sandcastle render
+// writes. Re-rendering it would replace its network and storage wiring, and
+// Incus rejects the render outright when the project restricts NICs to managed
+// networks. A fresh project's empty default profile is not hand-built.
+func handBuiltDefaultProfile(server TenantResourceServer) bool {
+	current, _, err := server.GetProfile("default")
+	if err != nil || current == nil {
+		return false
+	}
+	return current.Config[meta.KeyKind] != "profile" && len(current.Devices) > 0
 }
 
 // updateTenantInfraV2 rewrites one infra-project config key (deleting it for
