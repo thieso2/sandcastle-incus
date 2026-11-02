@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -157,5 +158,37 @@ func TestV2ProfileSSHKeysReadsTheWholeList(t *testing.T) {
 	userData := tenant.V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA a\nssh-ed25519 BBBB b", "default", "acme", "http://10.249.7.3:9443")
 	if got := v2ProfileSSHKeys(userData); got != "ssh-ed25519 AAAA a\nssh-ed25519 BBBB b" {
 		t.Fatalf("v2ProfileSSHKeys = %q", got)
+	}
+}
+
+func TestAddTenantMemberV2LeavesHandBuiltDefaultProfileUntouched(t *testing.T) {
+	server := newFakeMembersServer()
+	server.projects["sc2-acme-demos"] = &api.Project{Name: "sc2-acme-demos"}
+	handBuilt := api.ProfilePut{
+		Description: "Demo containers",
+		Config:      map[string]string{},
+		Devices: map[string]map[string]string{
+			"eth0": {"type": "nic", "name": "eth0", "network": "demo0"},
+			"root": {"type": "disk", "path": "/", "pool": "default"},
+		},
+	}
+	server.resources["sc2-acme-demos"] = &fakeDomainResources{
+		profiles:  map[string]api.ProfilePut{"default": handBuilt},
+		instances: map[string]*api.Instance{},
+	}
+	creator := TenantCreator{Server: server}
+
+	if _, err := creator.AddTenantMemberV2(context.Background(), "sc2", "acme", "thieso2"); err != nil {
+		t.Fatal(err)
+	}
+	if got := profileKeys(t, server, "sc2-acme-zp"); got != "ssh-ed25519 AAAA\nssh-ed25519 THIES thies" {
+		t.Fatalf("Sandcastle project keys = %q", got)
+	}
+	res := server.resources["sc2-acme-demos"]
+	if got := res.profiles["default"]; !reflect.DeepEqual(got, handBuilt) {
+		t.Fatalf("hand-built default profile was rewritten: %+v", got)
+	}
+	if _, ok := res.profiles[tenant.V2HomeShareProfileName]; ok {
+		t.Fatal("homeshare profile was added to a project whose default profile Sandcastle does not own")
 	}
 }
