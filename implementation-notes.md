@@ -6926,3 +6926,30 @@ no `incus` or `jq`. Three test-only fixes:
   would still shell out.
 - The statusline test skips when `jq` isn't in `/usr/bin` or `/bin`, which is
   the PATH it pins, the same way it already skips without `dash`.
+
+## 2026-11-02 — Profile re-renders skip a hand-built default profile
+
+`sc-adm tenant grant skorfmann bracki` failed with `update profiles of
+obelix-skorfmann-femke-demos: … Only managed network devices are allowed`.
+That project's `default` profile was configured by hand (its `eth0` sits on
+the ACL-isolated `femke-demo0` network, and the project sets
+`restricted.devices.nic=managed`). Every grant, revoke and tenant SSH key
+change re-renders each app project's default profile with Sandcastle's
+`nictype: bridged` NIC. The render therefore failed there and aborted every
+project after it. Had Incus accepted it, the render would have moved the
+demos off their isolated network.
+
+`renderTenantProfilesV2` now skips a project whose default profile has
+devices but no `user.sandcastle.kind: profile` marker, and logs the skip.
+An empty default profile (a fresh project) is still rendered.
+
+Alternatives considered:
+
+- Adopting the profile by rendering a `network:` NIC. Rejected, because
+  that still throws away the hand-built wiring.
+- Continuing past per-project errors. Rejected, because it would still
+  overwrite hand-built profiles wherever Incus happens to accept the write.
+- Merging only the cloud-init key list into a foreign profile. Rejected,
+  because Sandcastle doesn't own that profile's cloud-init either. A member
+  who needs access to a hand-built project's machines gets it from that
+  project's owner.
