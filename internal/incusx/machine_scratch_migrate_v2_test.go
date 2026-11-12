@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/lxc/incus/v6/shared/api"
@@ -41,7 +42,7 @@ func statesByMachine(statuses []ScratchMigrationStatus) map[string]ScratchMigrat
 
 func TestScratchMigrationAttachesVolumesOnce(t *testing.T) {
 	resource, creator := scratchMigrationFixture()
-	statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", false)
+	statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", nil, false)
 	if err != nil {
 		t.Fatalf("MigrateTenantScratch: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestScratchMigrationAttachesVolumesOnce(t *testing.T) {
 	}
 
 	updates, volumes := len(resource.updatedInstances), len(resource.createdVolumes)
-	again, err := creator.MigrateTenantScratch(context.Background(), "", "acme", false)
+	again, err := creator.MigrateTenantScratch(context.Background(), "", "acme", nil, false)
 	if err != nil {
 		t.Fatalf("second run: %v", err)
 	}
@@ -87,7 +88,7 @@ func TestScratchMigrationAttachesVolumesOnce(t *testing.T) {
 
 func TestScratchMigrationCheckWritesNothing(t *testing.T) {
 	resource, creator := scratchMigrationFixture()
-	statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", true)
+	statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", nil, true)
 	if err != nil {
 		t.Fatalf("MigrateTenantScratch --check: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestScratchMigrationCheckWritesNothing(t *testing.T) {
 func TestScratchMigrationReportsAForeignVolumeAndContinues(t *testing.T) {
 	resource, creator := scratchMigrationFixture()
 	resource.volumes["vm1-scratch"] = &api.StorageVolume{Name: "vm1-scratch", Type: "custom", StorageVolumePut: api.StorageVolumePut{Config: map[string]string{}}}
-	statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", false)
+	statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", nil, false)
 	if err == nil {
 		t.Fatal("want an error for the machine that could not be migrated")
 	}
@@ -112,5 +113,31 @@ func TestScratchMigrationReportsAForeignVolumeAndContinues(t *testing.T) {
 	}
 	if resource.instances["vm1"].Devices != nil {
 		t.Fatal("vm1 got a device pointing at a foreign volume")
+	}
+}
+
+func TestScratchMigrationProjectFilter(t *testing.T) {
+	_, creator := scratchMigrationFixture()
+	server := creator.Server.(*fakeScratchServer)
+	api2 := newFakeScratchResource("tank")
+	api2.instances = map[string]*api.Instance{"worker": {Name: "worker", Type: "container", StatusCode: api.Running}}
+	server.projects["sc2-acme-api"] = &api.Project{Name: "sc2-acme-api", ProjectPut: api.ProjectPut{Config: map[string]string{meta.KeyKind: meta.KindV2Project, meta.KeyTenant: "acme"}}}
+	server.resources["sc2-acme-api"] = api2
+
+	for _, only := range [][]string{{"api"}, {"sc2-acme-api"}} {
+		statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", only, true)
+		if err != nil {
+			t.Fatalf("--project %v: %v", only, err)
+		}
+		if got := statesByMachine(statuses); !maps.Equal(got, map[string]ScratchMigrationState{"worker": ScratchPlanned}) {
+			t.Fatalf("--project %v: states = %v, want only worker", only, got)
+		}
+	}
+	statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", []string{"default", "api"}, true)
+	if err != nil || len(statuses) != 5 {
+		t.Fatalf("both projects: %d rows, %v", len(statuses), err)
+	}
+	if _, err := creator.MigrateTenantScratch(context.Background(), "", "acme", []string{"nope"}, true); err == nil || !strings.Contains(err.Error(), `"nope"`) {
+		t.Fatalf("an unknown project must fail by name, got %v", err)
 	}
 }

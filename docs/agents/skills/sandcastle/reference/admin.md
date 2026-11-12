@@ -83,6 +83,7 @@ sc-adm tenant rerender acme [project]                # re-render profiles after 
 sc-adm tenant delete acme --purge --yes              # all-or-nothing (machines, volumes, sidecar, bridge)
 sc-adm tenant payload-sync acme --check
 sc-adm tenant scratch-migrate acme --check            # machines that would get a /scratch volume
+sc-adm tenant scratch-migrate acme --project default  # one app project at a time (short or full name; repeatable)
 sc-adm tenant scratch-migrate acme                    # create + attach <m>-scratch (idempotent; never moves data)
 sc-adm tenant delete acme --purge --yes
 ```

@@ -7159,3 +7159,14 @@ payload script run late to a baked script run early.
   with size, marker and no schedule; the ZFS quota returns EDQUOT at the
   size; `sc rm` deletes the volume; `--no-scratch` creates nothing;
   `scratch-migrate --check` output.
+
+## 2026-11-12 — Machine scratch volume (#210): scratch-migrate --project
+
+Reverses the "no `--project` filter" call in the migration entry above.
+Rolling the migration out across a tenant whose machines need a restart
+afterwards is easier one project at a time, so `scratch-migrate` takes a
+repeatable `--project`. A name matches an app project either short
+(`default`) or as the full Incus project name, so an admin can paste either
+from `incus project list` or `sc project list`. A name that matches nothing
+fails the command before any write, listing the tenant's app projects; a
+silently empty sweep would read as success.

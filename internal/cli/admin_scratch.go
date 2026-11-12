@@ -11,6 +11,7 @@ import (
 type scratchMigratePayload struct {
 	Tenant   string                          `json:"tenant"`
 	Check    bool                            `json:"check"`
+	Projects []string                        `json:"projects,omitempty"`
 	Machines []incusx.ScratchMigrationStatus `json:"machines"`
 }
 
@@ -18,6 +19,7 @@ type scratchMigratePayload struct {
 // volumes existed their own /scratch volume (#210).
 func newAdminTenantScratchMigrateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var checkOnly bool
+	var projects []string
 	command := &cobra.Command{
 		Use:   "scratch-migrate tenant",
 		Short: "Attach a scratch volume to every machine of a tenant that has none",
@@ -28,13 +30,15 @@ see /scratch at once; a stopped machine on its next start; a running VM is
 reported as attached at its next restart. Inside the machine, /tmp and
 /var/tmp move onto /scratch once the sc-scratch unit runs: run
 "sc fix <machine> --only scratch" on machines created before the unit
-shipped, then restart them. With --check it only lists what it would do.`,
+shipped, then restart them. With --check it only lists what it would do.
+--project limits the run to one app project (short name such as "default", or
+the full Incus project name); repeat it for several.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tenantName := strings.TrimSpace(args[0])
-			statuses, err := config.tenantCreator.MigrateTenantScratch(cmd.Context(), config.adminConfig.IncusProjectPrefix, tenantName, checkOnly)
+			statuses, err := config.tenantCreator.MigrateTenantScratch(cmd.Context(), config.adminConfig.IncusProjectPrefix, tenantName, projects, checkOnly)
 			if statuses != nil {
-				if writeErr := writeOutput(config.stdout, opts.output, formatScratchMigration(statuses), scratchMigratePayload{Tenant: tenantName, Check: checkOnly, Machines: statuses}); writeErr != nil {
+				if writeErr := writeOutput(config.stdout, opts.output, formatScratchMigration(statuses), scratchMigratePayload{Tenant: tenantName, Check: checkOnly, Projects: projects, Machines: statuses}); writeErr != nil {
 					return writeErr
 				}
 			}
@@ -42,6 +46,7 @@ shipped, then restart them. With --check it only lists what it would do.`,
 		},
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "list the machines that would get a scratch volume without changing anything")
+	command.Flags().StringArrayVar(&projects, "project", nil, "only this app project, short or full Incus name (repeatable)")
 	return command
 }
 

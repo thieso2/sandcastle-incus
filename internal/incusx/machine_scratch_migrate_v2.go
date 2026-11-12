@@ -3,10 +3,12 @@ package incusx
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/lxc/incus/v6/shared/api"
 
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/naming"
 	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
@@ -43,10 +45,12 @@ type ScratchMigrationStatus struct {
 // MigrateTenantScratch gives every machine of a tenant that has no scratch
 // device a default-size scratch volume and attaches it. It never moves or
 // deletes data, and a second run changes nothing. With checkOnly nothing is
-// written. Sandcastle infrastructure instances (sidecars and other managed
+// written. onlyProjects, when not empty, limits the sweep to those app
+// projects, each named short ("default") or in full ("sc2-acme-default").
+// Sandcastle infrastructure instances (sidecars and other managed
 // non-machine kinds) are skipped. Per-machine failures are reported in their
 // row and make the call return an error after every machine was tried.
-func (c TenantCreator) MigrateTenantScratch(_ context.Context, installPrefix string, tenantName string, checkOnly bool) ([]ScratchMigrationStatus, error) {
+func (c TenantCreator) MigrateTenantScratch(_ context.Context, installPrefix string, tenantName string, onlyProjects []string, checkOnly bool) ([]ScratchMigrationStatus, error) {
 	server, err := c.resolveV2Server()
 	if err != nil {
 		return nil, err
@@ -54,6 +58,15 @@ func (c TenantCreator) MigrateTenantScratch(_ context.Context, installPrefix str
 	infraPool, projects, err := v2TenantAppProjects(server, installPrefix, tenantName)
 	if err != nil {
 		return nil, err
+	}
+	if len(onlyProjects) > 0 {
+		infraProject, err := naming.V2TenantInfraProjectName(naming.NormalizeV2Prefix(installPrefix), tenantName)
+		if err != nil {
+			return nil, err
+		}
+		if projects, err = selectAppProjects(projects, infraProject, onlyProjects); err != nil {
+			return nil, err
+		}
 	}
 	shifted := server.SupportsIdmappedMounts()
 	var statuses []ScratchMigrationStatus
@@ -95,6 +108,32 @@ func (c TenantCreator) MigrateTenantScratch(_ context.Context, installPrefix str
 		return statuses, fmt.Errorf("%d machine(s) could not get a scratch volume", failed)
 	}
 	return statuses, nil
+}
+
+// selectAppProjects keeps the tenant app projects named in wanted, short or
+// full, in their listed order. A name that matches none is an error, so a
+// typo never turns into a silent no-op.
+func selectAppProjects(projects []string, infraProject string, wanted []string) ([]string, error) {
+	keep := map[string]bool{}
+	for _, raw := range wanted {
+		name := strings.TrimSpace(raw)
+		found := false
+		for _, project := range projects {
+			if project == name || project == infraProject+"-"+name {
+				keep[project], found = true, true
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("tenant has no app project %q (have: %s)", name, strings.Join(projects, ", "))
+		}
+	}
+	var selected []string
+	for _, project := range projects {
+		if keep[project] {
+			selected = append(selected, project)
+		}
+	}
+	return selected, nil
 }
 
 // isScratchMigrationCandidate keeps Machines, including freeform instances a
