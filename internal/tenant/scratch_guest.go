@@ -111,7 +111,7 @@ systemctl enable --quiet ` + SCScratchUnitName + `
 if mountpoint -q ` + ScratchMountPath + `; then
   echo "scratch: unit enabled; /tmp and /var/tmp move onto ` + ScratchMountPath + ` at the next restart (now: sudo systemctl start ` + SCScratchUnitName + `)"
 else
-  echo "scratch: unit enabled; no ` + ScratchMountPath + ` volume attached, so it stays a no-op"
+  echo "scratch: unit enabled; no ` + ScratchMountPath + ` volume attached, so it stays a no-op until an admin runs sc-adm tenant scratch-migrate"
 fi
 `
 }

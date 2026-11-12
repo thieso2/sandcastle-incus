@@ -3294,7 +3294,8 @@ Live run 2026-09-21 (`big:sc-shared-e2e`, client `big:e2e-pdz-client`, branch
 Every new machine gets a custom volume `<m>-scratch` at `/scratch`, carrying
 `/tmp`, `/var/tmp` and the XDG cache, never snapshotted or backed up. Run on
 the enrolled client of a `--simulate-github-token` install, in project
-`default`. Unit coverage: `go test ./internal/tenant -run Scratch` and
+`default`, after `sc payload-sync` with this binary: the guest unit skips
+itself until the project's payload ships `scratch/setup.sh`. Unit coverage: `go test ./internal/tenant -run Scratch` and
 `go test ./internal/incusx -run 'Scratch|CreateMachine|MachineDelete'`.
 
 | Step | PASS criteria |
@@ -3308,3 +3309,4 @@ the enrolled client of a `--simulate-github-token` install, in project
 | **15g** delete | `sc delete s1 --yes` removes `s1` and `s1-scratch`; `incus storage volume list <pool> --project <p>` shows no `*-scratch` orphan. With a scratch volume that cannot be deleted (e.g. attached to a second instance by hand), `sc delete` exits non-zero naming the volume and the `incus storage volume delete` command |
 | **15h** opt-out and legacy | `sc create s3 --no-scratch` creates no volume, `/tmp` stays on the root disk, `systemctl --failed` lists nothing, and `systemctl status sc-scratch` exits 0 (the unit ran and found no volume); `sc create s4 --scratch-size lots` fails before anything is created; a machine created by an older binary (no unit) boots unchanged with no failed units |
 | **15i** project delete | a project holding machines with scratch volumes is deleted by `sc project delete` without a volume-in-use or volume-left error |
+| **15j** migration | on a tenant with a machine `old` created by a pre-#210 binary (container, running) and a stopped VM `oldvm`: `sc-adm tenant scratch-migrate <tenant> --check` lists both as `would attach` and creates nothing (`incus storage volume list` unchanged); the real run reports `old` as `attached (live)` and `oldvm` as `attached (mounted at next start)`, and `old` sees `/scratch` without a restart; a second run reports every machine as `already has scratch` and changes nothing; the sidecar is never listed. Then `sc fix old --only scratch` and `sc restart old`: `findmnt /tmp` shows the bind. Data in the old `/tmp` is not moved and nothing is deleted |

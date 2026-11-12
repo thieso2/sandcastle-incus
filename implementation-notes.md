@@ -7072,3 +7072,35 @@ key, so it is an external contract.
   volume is never deleted by a failed create.
 - **Bare machines** get the device merged into `v2BareInstanceDevices()`,
   next to the `home`/`workspace` masks.
+
+## 2026-11-12 — Machine scratch volume (#210): migrating existing machines
+
+- **Command placement.** The issue asked for
+  `sc-adm machine scratch-migrate [--project …] [--dry-run]`. There is no
+  admin `machine` parent command, and the closest existing operation,
+  `sc-adm tenant payload-sync <tenant> [--check]`, is a per-tenant sweep with
+  the same shape. So the command is `sc-adm tenant scratch-migrate <tenant>
+  [--check]`, with `--check` instead of `--dry-run` to match payload-sync.
+  There is no `--project` filter; a whole tenant at a time is what the
+  payload sync does and is enough for an idempotent sweep.
+- **What counts as a machine.** Every instance in the tenant's app projects
+  whose `user.sandcastle.kind` is empty (a freeform machine) or `machine`.
+  Any other kind is Sandcastle infrastructure and is skipped. A machine with
+  any device named `scratch`, own or from a profile and of any type, is left
+  alone, which is also what makes a second run a no-op.
+- **Pool.** The default profile's pool (`v2ProfileStoragePool`), as create
+  uses, falling back to the infra project's `user.sandcastle.v2.pool`.
+- **Per-machine failures** (for example a same-name volume without the
+  marker) are reported in that machine's row; the sweep continues and the
+  command exits non-zero at the end.
+- **VMs.** A running VM is reported as `attached-next-restart`, per the
+  brief. The Incus v6.23.0 source suggests this is conservative: a virtiofs
+  disk can be hotplugged into a running VM (`disk.CanHotPlug`) and the agent
+  mounts hotplugged shares (`cmd/incus-agent/events.go`). Not verified live.
+- **Guest unit.** The migration only adds the volume and device. The
+  `sc-scratch` unit on such a machine comes from `sc fix --only scratch`,
+  and `/tmp` moves at the next restart. Folding the unit install into the
+  admin command would mean an exec into every guest from the admin path,
+  which payload-sync deliberately avoids.
+- `v2TenantAppProjects` now owns the tenant app-project enumeration that
+  `SyncTenantPlatformPayload` had inline; both sweeps use it.

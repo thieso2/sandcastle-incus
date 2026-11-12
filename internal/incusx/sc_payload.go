@@ -35,45 +35,17 @@ type SCPayloadProjectStatus struct {
 // and its content-derived version — comes from the binary). With checkOnly the
 // volumes are only read, reporting drift per project.
 func (c TenantCreator) SyncTenantPlatformPayload(_ context.Context, installPrefix string, tenantName string, checkOnly bool) ([]SCPayloadProjectStatus, error) {
-	if err := naming.ValidateTenantName(tenantName); err != nil {
-		return nil, err
-	}
 	server, err := c.resolveV2Server()
 	if err != nil {
 		return nil, err
 	}
-	infraProject, err := naming.V2TenantInfraProjectName(naming.NormalizeV2Prefix(installPrefix), tenantName)
+	pool, names, err := v2TenantAppProjects(server, installPrefix, tenantName)
 	if err != nil {
 		return nil, err
-	}
-	infra, _, err := server.GetProject(infraProject)
-	if err != nil {
-		return nil, fmt.Errorf("tenant %q infra project %s not found: %w", tenantName, infraProject, err)
-	}
-	pool := strings.TrimSpace(infra.Config[keyV2Pool])
-	if pool == "" {
-		pool = "default"
-	}
-	names, err := server.GetProjectNames()
-	if err != nil {
-		return nil, fmt.Errorf("list Incus projects: %w", err)
 	}
 	target := tenant.PlatformPayloadVersion()
 	statuses := make([]SCPayloadProjectStatus, 0, 2)
 	for _, name := range names {
-		// This install's app projects only: name-scoped to the tenant AND
-		// metadata-confirmed (a same-named tenant of another install has a
-		// different prefix; a non-Sandcastle project fails the kind check).
-		if !strings.HasPrefix(name, infraProject+"-") {
-			continue
-		}
-		project, _, err := server.GetProject(name)
-		if err != nil {
-			return statuses, fmt.Errorf("get project %s: %w", name, err)
-		}
-		if !isV2AppProjectOfTenant(project.Config, tenantName) {
-			continue
-		}
 		resource := server.UseProject(name)
 		if !checkOnly {
 			// Legacy onboarding (#132): a project provisioned before /.sc has
@@ -97,10 +69,50 @@ func (c TenantCreator) SyncTenantPlatformPayload(_ context.Context, installPrefi
 		}
 		statuses = append(statuses, status)
 	}
-	if len(statuses) == 0 {
-		return nil, fmt.Errorf("tenant %q has no app projects under install prefix %q", tenantName, installPrefix)
-	}
 	return statuses, nil
+}
+
+// v2TenantAppProjects returns this install's app projects of a tenant and the
+// storage pool its infra project records. Name-scoped to the tenant AND
+// metadata-confirmed: a same-named tenant of another install has a different
+// prefix, and a non-Sandcastle project fails the kind check.
+func v2TenantAppProjects(server TenantCreateServer, installPrefix string, tenantName string) (string, []string, error) {
+	if err := naming.ValidateTenantName(tenantName); err != nil {
+		return "", nil, err
+	}
+	infraProject, err := naming.V2TenantInfraProjectName(naming.NormalizeV2Prefix(installPrefix), tenantName)
+	if err != nil {
+		return "", nil, err
+	}
+	infra, _, err := server.GetProject(infraProject)
+	if err != nil {
+		return "", nil, fmt.Errorf("tenant %q infra project %s not found: %w", tenantName, infraProject, err)
+	}
+	pool := strings.TrimSpace(infra.Config[keyV2Pool])
+	if pool == "" {
+		pool = "default"
+	}
+	names, err := server.GetProjectNames()
+	if err != nil {
+		return "", nil, fmt.Errorf("list Incus projects: %w", err)
+	}
+	var projects []string
+	for _, name := range names {
+		if !strings.HasPrefix(name, infraProject+"-") {
+			continue
+		}
+		project, _, err := server.GetProject(name)
+		if err != nil {
+			return "", nil, fmt.Errorf("get project %s: %w", name, err)
+		}
+		if isV2AppProjectOfTenant(project.Config, tenantName) {
+			projects = append(projects, name)
+		}
+	}
+	if len(projects) == 0 {
+		return "", nil, fmt.Errorf("tenant %q has no app projects under install prefix %q", tenantName, installPrefix)
+	}
+	return pool, projects, nil
 }
 
 // EnsureProjectPlatformPayload converges ONE app project's sc-platform volume

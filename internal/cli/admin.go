@@ -69,6 +69,7 @@ func newAdminTenantCommand(config commandConfig, opts *rootOptions) *cobra.Comma
 	command.AddCommand(newAdminTenantRerenderCommand(config))
 	command.AddCommand(newAdminTenantRemoveSSHKeyCommand(config))
 	command.AddCommand(newAdminTenantPayloadSyncCommand(config, opts))
+	command.AddCommand(newAdminTenantScratchMigrateCommand(config, opts))
 	return command
 }
 
