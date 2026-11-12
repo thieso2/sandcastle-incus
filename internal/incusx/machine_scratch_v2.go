@@ -42,7 +42,7 @@ func ensureMachineScratchVolume(server TenantResourceServer, scratch tenant.Mach
 	}
 	if existing != nil {
 		if !tenant.IsScratchVolume(existing.Config) {
-			return false, fmt.Errorf("custom volume %s already exists and is not a Sandcastle scratch volume (no %s marker): rename it, or create the machine with --no-scratch", name, meta.KeyScratch)
+			return false, foreignScratchVolumeError(name)
 		}
 		return false, reconcileScratchVolume(server, scratch.Pool, name, scratch.Size)
 	}
@@ -53,6 +53,10 @@ func ensureMachineScratchVolume(server TenantResourceServer, scratch tenant.Mach
 		return false, err
 	}
 	return true, nil
+}
+
+func foreignScratchVolumeError(name string) error {
+	return fmt.Errorf("custom volume %s already exists and is not a Sandcastle scratch volume (no %s marker): rename it, or create the machine with --no-scratch", name, meta.KeyScratch)
 }
 
 // reconcileScratchVolume removes a snapshot schedule the volume inherited

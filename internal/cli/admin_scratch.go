@@ -30,12 +30,18 @@ see /scratch at once; a stopped machine on its next start; a running VM is
 reported as attached at its next restart. Inside the machine, /tmp and
 /var/tmp move onto /scratch once the sc-scratch unit runs: run
 "sc fix <machine> --only scratch" on machines created before the unit
-shipped, then restart them. With --check it only lists what it would do.
+shipped, then restart them. A --bare machine has no login for sc fix and is
+skipped; re-create it to get scratch. With --check it only lists what it
+would do, including the machines a same-name foreign volume would fail.
 --project limits the run to one app project (short name such as "default", or
 the full Incus project name); repeat it for several.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tenantName := strings.TrimSpace(args[0])
+			config, err := detectAdminPrefix(cmd.Context(), config, tenantName)
+			if err != nil {
+				return err
+			}
 			statuses, err := config.tenantCreator.MigrateTenantScratch(cmd.Context(), config.adminConfig.IncusProjectPrefix, tenantName, projects, checkOnly)
 			if statuses != nil {
 				if writeErr := writeOutput(config.stdout, opts.output, formatScratchMigration(statuses), scratchMigratePayload{Tenant: tenantName, Check: checkOnly, Projects: projects, Machines: statuses}); writeErr != nil {
@@ -80,6 +86,8 @@ func scratchMigrationLabel(state incusx.ScratchMigrationState) string {
 		return "attached (mounted at next start)"
 	case incusx.ScratchAttachedNextRestart:
 		return "attached (VM: restart to mount)"
+	case incusx.ScratchSkippedBare:
+		return "skipped (bare machine: re-create it to get scratch)"
 	case incusx.ScratchFailed:
 		return "FAILED"
 	default:

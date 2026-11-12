@@ -141,3 +141,53 @@ func TestScratchMigrationProjectFilter(t *testing.T) {
 		t.Fatalf("an unknown project must fail by name, got %v", err)
 	}
 }
+
+func TestScratchMigrationCheckReportsAForeignVolume(t *testing.T) {
+	resource, creator := scratchMigrationFixture()
+	resource.volumes["vm1-scratch"] = &api.StorageVolume{Name: "vm1-scratch", Type: "custom", StorageVolumePut: api.StorageVolumePut{Config: map[string]string{}}}
+	checked, checkErr := creator.MigrateTenantScratch(context.Background(), "", "acme", nil, true)
+	if len(resource.createdVolumes) != 0 || len(resource.updatedInstances) != 0 {
+		t.Fatal("--check wrote to Incus")
+	}
+	applied, applyErr := creator.MigrateTenantScratch(context.Background(), "", "acme", nil, false)
+	if checkErr == nil || applyErr == nil {
+		t.Fatalf("both runs must fail for the foreign volume: check %v, apply %v", checkErr, applyErr)
+	}
+	byMachine := func(statuses []ScratchMigrationStatus) ScratchMigrationStatus {
+		for _, status := range statuses {
+			if status.Machine == "vm1" {
+				return status
+			}
+		}
+		return ScratchMigrationStatus{}
+	}
+	check, apply := byMachine(checked), byMachine(applied)
+	if check.State != ScratchFailed || check.State != apply.State || check.Error != apply.Error {
+		t.Fatalf("--check reported %s %q, the real run %s %q", check.State, check.Error, apply.State, apply.Error)
+	}
+	if got := statesByMachine(checked); got["web"] != ScratchPlanned {
+		t.Fatalf("check states = %v, want web still planned", got)
+	}
+}
+
+func TestScratchMigrationSkipsBareMachines(t *testing.T) {
+	for _, bare := range []map[string]string{
+		{meta.KeyV2Bare: "true"},
+		{"cloud-init.user-data": "#cloud-config\nusers: []\n"},
+	} {
+		for _, checkOnly := range []bool{true, false} {
+			resource, creator := scratchMigrationFixture()
+			resource.instances["edge"] = &api.Instance{Name: "edge", Type: "container", StatusCode: api.Running, InstancePut: api.InstancePut{Config: bare}}
+			statuses, err := creator.MigrateTenantScratch(context.Background(), "", "acme", nil, checkOnly)
+			if err != nil {
+				t.Fatalf("check=%v: %v", checkOnly, err)
+			}
+			if got := statesByMachine(statuses)["edge"]; got != ScratchSkippedBare {
+				t.Fatalf("check=%v: bare machine state = %s, want %s", checkOnly, got, ScratchSkippedBare)
+			}
+			if resource.instances["edge"].Devices != nil || resource.volumes["edge-scratch"] != nil {
+				t.Fatalf("check=%v: the bare machine got a scratch volume", checkOnly)
+			}
+		}
+	}
+}

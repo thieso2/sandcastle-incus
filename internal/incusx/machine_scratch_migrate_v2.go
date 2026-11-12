@@ -3,6 +3,7 @@ package incusx
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/lxc/incus/v6/shared/api"
@@ -28,7 +29,12 @@ const (
 	// ScratchAttachedNextRestart: a running VM is reported as needing a
 	// restart; Incus may hotplug the share, but only a boot is certain.
 	ScratchAttachedNextRestart ScratchMigrationState = "attached-next-restart"
-	// ScratchFailed: the volume or device could not be added; Error says why.
+	// ScratchSkippedBare: a --bare machine without scratch is left alone; it
+	// has no login for `sc fix` to install the guest unit, so a volume would
+	// never carry /tmp.
+	ScratchSkippedBare ScratchMigrationState = "skipped-bare"
+	// ScratchFailed: the volume or device could not be added, or with --check
+	// would not be; Error says why.
 	ScratchFailed ScratchMigrationState = "failed"
 )
 
@@ -92,8 +98,14 @@ func (c TenantCreator) MigrateTenantScratch(_ context.Context, installPrefix str
 			switch {
 			case hasScratchDevice(instance):
 				status.State, status.Volume = ScratchPresent, instance.Devices[tenant.ScratchDeviceName]["source"]
+			case instanceIsBareV2(instance.Config):
+				status.State, status.Volume = ScratchSkippedBare, ""
 			case checkOnly:
 				status.State = ScratchPlanned
+				if err := checkScratchVolumeAdoptable(resource, scratch); err != nil {
+					status.State, status.Error = ScratchFailed, err.Error()
+					failed++
+				}
 			default:
 				status.State, err = attachScratch(resource, instance.Name, scratch, shifted)
 				if err != nil {
@@ -149,6 +161,23 @@ func hasScratchDevice(instance api.Instance) bool {
 	_, own := instance.Devices[tenant.ScratchDeviceName]
 	_, expanded := instance.ExpandedDevices[tenant.ScratchDeviceName]
 	return own || expanded
+}
+
+// checkScratchVolumeAdoptable is the read-only half of
+// ensureMachineScratchVolume: it fails where that would, on a same-name
+// volume without the scratch marker.
+func checkScratchVolumeAdoptable(server TenantResourceServer, scratch tenant.MachineScratch) error {
+	volume, _, err := server.GetStoragePoolVolume(scratch.Pool, "custom", scratch.VolumeName())
+	switch {
+	case api.StatusErrorCheck(err, http.StatusNotFound):
+		return nil
+	case err != nil:
+		return fmt.Errorf("read scratch volume %s: %w", scratch.VolumeName(), err)
+	case !tenant.IsScratchVolume(volume.Config):
+		return foreignScratchVolumeError(scratch.VolumeName())
+	default:
+		return nil
+	}
 }
 
 func attachScratch(server TenantResourceServer, machine string, scratch tenant.MachineScratch, shifted bool) (ScratchMigrationState, error) {

@@ -94,7 +94,9 @@ running container, at the next start for a stopped machine, at the next
 restart for a running VM. `/tmp` and `/var/tmp` move onto it only once the
 guest unit runs, so follow with `sc fix <machine> --only scratch` and a
 restart. A same-name volume without the `user.sandcastle.scratch` marker is
-reported as `FAILED` and never adopted.
+reported as `FAILED` and never adopted, by `--check` too. A `--bare` machine
+without scratch is reported as `skipped (bare machine: re-create it to get
+scratch)`: it has no login for `sc fix` to install the guest unit.
 
 Normal tenants are provisioned automatically by the Auth App on a user's first
 `sc login`; `sc-adm tenant create` is the admin-minted path. `--dry-run` renders
