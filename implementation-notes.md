@@ -6953,3 +6953,24 @@ Alternatives considered:
   because Sandcastle doesn't own that profile's cloud-init either. A member
   who needs access to a hand-built project's machines gets it from that
   project's owner.
+
+## 2026-11-12 — Machine scratch volume (#210): the spec
+
+`internal/tenant/scratch.go` owns the whole scratch domain as pure data:
+`MachineScratch{Machine, Pool, Size}` renders the volume name, its config,
+the instance device, and `IsScratchVolume` reads the marker. incusx and the
+CLI only consume it. The marker key is `user.sandcastle.scratch=true`
+(`meta.KeyScratch`); the host snapshot script and backupd read that exact
+key, so it is an external contract.
+
+- Volume name. Incus limits custom volume names to 64 characters
+  (`validate.IsAPIName`), and a machine name may be 63, so
+  `<machine>-scratch` can be 71. Names that fit keep the plain form. Longer
+  ones become `<first 47 chars>-<8 hex of sha256(machine)>-scratch`, which
+  is deterministic and does not collide for two names sharing a prefix.
+  Delete does not recompute the name anyway; it follows the instance's own
+  `scratch` device (see the delete entry).
+- Volume root. Root-owned 0755 (`initial.uid/gid=0`, `initial.mode=0755`),
+  per the brief. The guest setup creates the writable subdirectories.
+- Size. Validated with Incus's own unit parser (`shared/units`), positive
+  only, so `--scratch-size lots` fails at the CLI instead of at the API.
