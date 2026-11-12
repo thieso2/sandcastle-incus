@@ -61,8 +61,9 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
   `/var/tmp` are bind mounts of `/scratch/tmp` and `/scratch/var-tmp`
   (`sc-scratch.service` running the baked `/usr/local/sbin/sc-scratch-setup`
   before `sysinit.target`; on a VM it mounts the `incus_scratch` virtiofs share
-  itself), and interactive and login shells set
-  `XDG_CACHE_HOME=/scratch/cache/<user>` (`shell/rc.sh`,
+  itself; on the first bind it copies the content of an existing `/var/tmp`
+  onto the empty volume, `/tmp` is not copied), and interactive and login
+  shells set `XDG_CACHE_HOME=/scratch/cache/<user>` (`shell/rc.sh`,
   `/etc/profile.d/sc-scratch.sh`). What is kept and what is not:
 
   | Path | Volume | Snapshotted, backed up |

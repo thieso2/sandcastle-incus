@@ -24,6 +24,10 @@ const (
 // from it. A VM's scratch share is mounted here for the same reason; the
 // agent then finds /scratch mounted and leaves it alone.
 //
+// /var/tmp promises its files survive a reboot, so on the first bind of an
+// existing machine its content is copied onto the still empty volume rather
+// than hidden; /tmp makes no such promise and is not copied.
+//
 // --restart-private-tmp is the first-boot mode. cloud-init runs after
 // sysinit, so services with PrivateTmp=yes already hold a private dir in the
 // old /tmp that the bind hides; they are restarted when something was bound.
@@ -39,8 +43,15 @@ mkdir -p "$S/tmp" "$S/var-tmp" "$S/cache" && chmod 1777 "$S/tmp" "$S/var-tmp" "$
 rc=0
 bound=0
 for pair in "tmp:${SC_SCRATCH_TMP:-/tmp}" "var-tmp:${SC_SCRATCH_VAR_TMP:-/var/tmp}"; do
-  src="$S/${pair%%:*}"; dst="${pair#*:}"
+  name="${pair%%:*}"; src="$S/$name"; dst="${pair#*:}"
   [ "$(stat -L -c %d:%i "$src")" = "$(stat -L -c %d:%i "$dst" 2>/dev/null)" ] && continue
+  if [ "$name" = var-tmp ] && [ -z "$(ls -A "$src")" ] && [ -n "$(ls -A "$dst" 2>/dev/null)" ]; then
+    if ! cp -a "$dst/." "$src/"; then
+      rc=1
+      continue
+    fi
+    echo "sc-scratch: copied the content of $dst onto $src"
+  fi
   if mount --bind "$src" "$dst"; then
     echo "sc-scratch: $dst is now $src"
     bound=1
@@ -83,12 +94,13 @@ WantedBy=sysinit.target
 // scratchCacheSnippet is both /etc/profile.d/sc-scratch.sh (login shells) and
 // part of the payload's shell/rc.sh (interactive shells); whichever runs
 // second sees XDG_CACHE_HOME set and leaves it. A cache directory someone
-// else created is not adopted: -O requires the user to own it.
+// else created is not adopted: -O requires the user to own it. mkdir -m does
+// not tighten one the user made earlier, so chmod does.
 const scratchCacheSnippet = `# Sandcastle scratch: keep the XDG cache (Go build cache, uv, pip,
 # huggingface) on the machine's scratch volume, never snapshotted or backed up.
 if [ -z "${XDG_CACHE_HOME:-}" ] && [ -d /scratch/cache ]; then
   __sc_cache="/scratch/cache/${USER:-$(id -un 2>/dev/null)}"
-  if mkdir -p -m 700 "$__sc_cache" 2>/dev/null && [ -O "$__sc_cache" ]; then
+  if mkdir -p -m 700 "$__sc_cache" 2>/dev/null && [ -O "$__sc_cache" ] && chmod 700 "$__sc_cache" 2>/dev/null; then
     export XDG_CACHE_HOME="$__sc_cache"
   fi
   unset __sc_cache

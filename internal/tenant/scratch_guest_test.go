@@ -209,6 +209,40 @@ func TestScratchSetupBindsTmpAndVarTmp(t *testing.T) {
 	}
 }
 
+func TestScratchSetupCopiesVarTmpOntoAnEmptyVolume(t *testing.T) {
+	h := newScratchSetupHarness(t, scratchMachine{scratchMounted: true})
+	if err := os.WriteFile(filepath.Join(h.varTmp, "keep"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.tmp, "ephemeral"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for run := 0; run < 2; run++ {
+		if out, err := h.run(t); err != nil {
+			t.Fatalf("setup run %d: %v\n%s", run, err, out)
+		}
+		if run == 0 {
+			if err := os.WriteFile(filepath.Join(h.varTmp, "later"), []byte("y"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	copied := filepath.Join(h.root, "var-tmp", "keep")
+	data, err := os.ReadFile(copied)
+	if err != nil || string(data) != "data" {
+		t.Fatalf("/var/tmp content not copied onto the volume: %q %v", data, err)
+	}
+	if info, _ := os.Stat(copied); info.Mode().Perm() != 0o600 {
+		t.Fatalf("copied file mode = %v, want 0600 preserved", info.Mode())
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "var-tmp", "later")); !os.IsNotExist(err) {
+		t.Fatal("a volume that already has content was copied onto again")
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "tmp", "ephemeral")); !os.IsNotExist(err) {
+		t.Fatal("/tmp content was copied; it is ephemeral by contract")
+	}
+}
+
 func TestScratchSetupMountsTheVMShareItself(t *testing.T) {
 	h := newScratchSetupHarness(t, scratchMachine{vm: true, virtiofsOK: true})
 	if out, err := h.run(t); err != nil {
@@ -381,6 +415,15 @@ func TestScratchCacheSnippetPointsXDGAtScratch(t *testing.T) {
 	info, err := os.Stat(filepath.Join(cache, "alice"))
 	if err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("per-user cache dir: %v %v, want mode 0700", info, err)
+	}
+	if err := os.Mkdir(filepath.Join(cache, "bob"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := run("USER=bob"); got != filepath.Join(cache, "bob") {
+		t.Fatalf("an existing own cache dir was not used: %q", got)
+	}
+	if info, err := os.Stat(filepath.Join(cache, "bob")); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("an existing 0755 cache dir was not tightened: %v %v", info, err)
 	}
 	if got := run("XDG_CACHE_HOME=/elsewhere; export XDG_CACHE_HOME"); got != "/elsewhere" {
 		t.Fatalf("a preset XDG_CACHE_HOME was replaced with %q", got)
