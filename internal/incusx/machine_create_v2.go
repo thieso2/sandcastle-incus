@@ -62,6 +62,13 @@ type CreateMachineV2Request struct {
 	// second round trip, and no window between asking and creating.
 	// CreateMachineV2 ignores it — an explicit create is its own confirmation.
 	ConfirmCreate func() error
+	// NoScratch skips the machine's scratch volume. It is an opt-out so the
+	// zero value creates one: every path that creates a machine (sc create,
+	// connect, fix, mkdir) gets the volume unless the caller says otherwise.
+	NoScratch bool
+	// ScratchSize is the scratch volume quota; "" means
+	// tenant.DefaultScratchSize.
+	ScratchSize string
 }
 
 // v2MachineProfiles returns the profile list a machine is created with:
@@ -105,6 +112,10 @@ type CreateMachineV2Result struct {
 	// the single-name JSON field.
 	PublicHostname  string   `json:"publicHostname,omitempty"`
 	PublicHostnames []string `json:"publicHostnames,omitempty"`
+	// ScratchVolume and ScratchSize name the machine's scratch volume at
+	// /scratch; both are empty for a --no-scratch machine.
+	ScratchVolume string `json:"scratchVolume,omitempty"`
+	ScratchSize   string `json:"scratchSize,omitempty"`
 }
 
 // v2InstanceConfigWithPublicHostnames returns config with the
@@ -213,6 +224,28 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 		}
 		instanceConfig[meta.KeyV2CertNotAfter] = ""
 	}
+	rollbackNewScratch := func(err error) error { return err }
+	if !request.NoScratch {
+		scratch, err := v2MachineScratch(project, request)
+		if err != nil {
+			return CreateMachineV2Result{}, err
+		}
+		c.log("ensure scratch volume " + scratch.VolumeName() + " (" + scratch.Size + ") in " + request.IncusProject)
+		created, err := ensureMachineScratchVolume(project, scratch, server.SupportsIdmappedMounts())
+		if err != nil {
+			return CreateMachineV2Result{}, err
+		}
+		if created {
+			rollbackNewScratch = func(err error) error {
+				return rollbackMachineScratchVolume(project, request.Name, scratch, err)
+			}
+		}
+		if instanceDevices == nil {
+			instanceDevices = api.DevicesMap{}
+		}
+		instanceDevices[tenant.ScratchDeviceName] = scratch.Device()
+		result.ScratchVolume, result.ScratchSize = scratch.VolumeName(), scratch.Size
+	}
 	c.log("launching " + result.Type + " " + request.Name + " from " + request.Image + " into " + request.IncusProject)
 	op, err := project.CreateInstance(api.InstancesPost{
 		Name:   request.Name,
@@ -226,10 +259,10 @@ func (c TenantCreator) CreateMachineV2(ctx context.Context, request CreateMachin
 		},
 	})
 	if err != nil {
-		return CreateMachineV2Result{}, fmt.Errorf("create machine %s: %w", request.Name, err)
+		return CreateMachineV2Result{}, rollbackNewScratch(fmt.Errorf("create machine %s: %w", request.Name, err))
 	}
 	if err := op.Wait(); err != nil && !isAlreadyRunning(err) {
-		return CreateMachineV2Result{}, fmt.Errorf("wait for machine %s: %w", request.Name, err)
+		return CreateMachineV2Result{}, rollbackNewScratch(fmt.Errorf("wait for machine %s: %w", request.Name, err))
 	}
 	result.PrivateIP, result.PrivateCIDR = waitForV2InstanceIPv4(ctx, project, request.Name, v2MachineIPTimeout(request.VM))
 	return result, nil

@@ -3288,3 +3288,23 @@ coverage: `go test ./internal/cli -run 'TestCdPwdLs|TestPathToMachine|TestResolv
 
 Live run 2026-09-21 (`big:sc-shared-e2e`, client `big:e2e-pdz-client`, branch
 `feat/path-navigation`): see `docs/e2e-runs/2026-09-21-phase14-path-navigation.md`.
+
+## Phase 15 — Per-machine scratch volume (`/scratch`, #210) ⚠️ not yet run
+
+Every new machine gets a custom volume `<m>-scratch` at `/scratch`, carrying
+`/tmp`, `/var/tmp` and the XDG cache, never snapshotted or backed up. Run on
+the enrolled client of a `--simulate-github-token` install, in project
+`default`. Unit coverage: `go test ./internal/tenant -run Scratch` and
+`go test ./internal/incusx -run 'Scratch|CreateMachine|MachineDelete'`.
+
+| Step | PASS criteria |
+|---|---|
+| **15a** container | `sc create s1` prints a `Scratch: /scratch on volume s1-scratch (100GiB)` line; `incus storage volume show <pool> s1-scratch --project <p>` shows `user.sandcastle.scratch: "true"`, `size: 100GiB`, no `snapshots.schedule` value, and `used_by` lists only `s1`; `incus config device show s1` has a `scratch` disk at `/scratch` with that source |
+| **15b** VM | `sc create s2 --vm --scratch-size 20GiB`: the volume has `size: 20GiB`; inside, `findmnt /scratch` shows `virtiofs` and `touch /scratch/tmp/x` works as the login user |
+| **15c** guest binds | inside `s1` and `s2`: `findmnt /tmp` and `findmnt /var/tmp` show bind mounts whose source path ends in `/tmp` and `/var-tmp` of the scratch volume; `stat -c %a /tmp /var/tmp` prints `1777` twice; `systemctl is-active sc-scratch` is `active`; after `sc restart s1`, `findmnt /tmp` still shows the bind |
+| **15d** caches | a fresh login shell has `XDG_CACHE_HOME=/scratch/cache/<user>` (dir mode 700, owned by the user); after `go build` of any module, `uv pip install --system` / `pip install --user` of any package, `du -s /scratch/cache/<user>/{go-build,uv,pip}` is non-zero; `XDG_CACHE_HOME=/elsewhere zsh -lic 'echo $XDG_CACHE_HOME'` prints `/elsewhere` |
+| **15e** quota | in `s2` (20GiB), `dd if=/dev/urandom of=/scratch/tmp/big bs=1M count=21000` fails (urandom, because ZFS compression stores zeros as nothing) with `No space left on device`; `df /home /` before and after shows no change in free space |
+| **15f** snapshots | `incus snapshot create s1` (or waiting for a scheduled run) creates no snapshot of `s1-scratch` (`incus storage volume snapshot list <pool> s1-scratch --project <p>` is empty); a pool with `volume.snapshots.schedule` set still gives the new volume no schedule |
+| **15g** delete | `sc delete s1 --yes` removes `s1` and `s1-scratch`; `incus storage volume list <pool> --project <p>` shows no `*-scratch` orphan. With a scratch volume that cannot be deleted (e.g. attached to a second instance by hand), `sc delete` exits non-zero naming the volume and the `incus storage volume delete` command |
+| **15h** opt-out and legacy | `sc create s3 --no-scratch` creates no volume, `/tmp` stays on the root disk, `systemctl --failed` lists nothing, and `systemctl status sc-scratch` exits 0 (the unit ran and found no volume); `sc create s4 --scratch-size lots` fails before anything is created; a machine created by an older binary (no unit) boots unchanged with no failed units |
+| **15i** project delete | a project holding machines with scratch volumes is deleted by `sc project delete` without a volume-in-use or volume-left error |

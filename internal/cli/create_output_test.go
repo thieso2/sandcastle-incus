@@ -38,6 +38,19 @@ func TestFormatCreateMachineV2Golden(t *testing.T) {
 		want     string
 	}{
 		{
+			name: "with a scratch volume", project: "plain",
+			result: func() incusx.CreateMachineV2Result {
+				r := base()
+				r.ScratchVolume, r.ScratchSize = "web-scratch", "100GiB"
+				return r
+			}(),
+			want: "Machine /obelix/acme/plain/web created (container, image images:debian/13/cloud).\n" +
+				"Storage: shared /workspace, machine-local /home (add --home-share for a shared /home).\n" +
+				"Scratch: /scratch on volume web-scratch (100GiB) holds /tmp, /var/tmp and the XDG cache; it is never snapshotted or backed up.\n" +
+				"IP: 10.249.7.9   DNS: web.plain.acme (auto-registers within seconds)\n" +
+				"SSH: ssh dev@10.249.7.9   (cloud-init may still be installing sshd)",
+		},
+		{
 			name: "private with IP", project: "plain", result: base(),
 			want: "Machine /obelix/acme/plain/web created (container, image images:debian/13/cloud).\n" +
 				"Storage: shared /workspace, machine-local /home (add --home-share for a shared /home).\n" +

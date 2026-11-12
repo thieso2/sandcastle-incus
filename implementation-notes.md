@@ -7036,3 +7036,39 @@ key, so it is an external contract.
   herdr sessions; the bind happens at the next restart, or now with
   `sudo systemctl start sc-scratch`. Fresh machines start it from cloud-init
   `runcmd`, before any login exists.
+
+## 2026-11-12 — Machine scratch volume (#210): create, default on
+
+- **Default on, authorized.** The user decided that new machines get a
+  scratch volume by default, which changes existing `sc create` behaviour,
+  so it needed that explicit authorization under the repo's additive rule.
+  `sc create --no-scratch` opts out, and `--scratch-size` (default `100GiB`)
+  sets the quota. Existing machines change only through the explicit
+  migration command.
+- **Request shape.** `CreateMachineV2Request` carries `NoScratch bool` and
+  `ScratchSize string` rather than a `*tenant.MachineScratch`. With a pointer,
+  a caller that forgets the field silently creates a machine without scratch;
+  with an opt-out bool the zero value is the default, so `sc connect`,
+  `sc fix` (both through `EnsureMachineV2`) and `sc mkdir` get the volume
+  without touching them, and "no scratch" has to be said.
+- **Pool.** Read off the project's default profile with
+  `v2ProfileStoragePool`, the scan `sc fix` already used for the payload. A
+  restricted tenant certificate cannot read the infra project's pool key, so
+  the profile is the one source both the CLI and the admin paths can see. A
+  profile with no pool-carrying device refuses the create and names
+  `--no-scratch`.
+- **Existing volumes.** A same-name volume WITH the marker is reused (a
+  leftover of an earlier failed attempt). One WITHOUT the marker is somebody
+  else's data: the create fails before any instance exists.
+- **Snapshot schedule.** Incus copies the pool's `volume.*` keys into every
+  empty key of a new volume (`fillVolumeConfig`, incus v6.23.0), so the
+  explicit `snapshots.schedule=""` does not survive a pool that sets
+  `volume.snapshots.schedule` (the host snapshot script's `POOL_DEFAULTS=1`
+  mode does). After creating the volume the creator reads it back and, when
+  a schedule was inherited, removes the key with an update. If that update
+  fails the new volume is deleted and the create fails.
+- **Rollback.** When `CreateInstance` or its operation fails and the
+  instance does not exist, the volume this call created is deleted. A reused
+  volume is never deleted by a failed create.
+- **Bare machines** get the device merged into `v2BareInstanceDevices()`,
+  next to the `home`/`workspace` masks.

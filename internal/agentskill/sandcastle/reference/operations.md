@@ -22,12 +22,25 @@ for `tenant switch` / `project switch`.
 - `--bare` creates a machine with no login user, no SSH key, and no sshd: just a
   hostname and a Caddy serving its tenant-CA leaf. `sc connect` reaches a bare
   machine over `incus exec` as root instead of SSH.
+- `--scratch-size <size>` sets the quota of the machine's own `/scratch` volume
+  (Incus units, default `100GiB`); `--no-scratch` creates none.
 - `--dry-run` renders the plan without creating anything.
 - `--background` / `--detach` are deprecated no-ops; creation never attaches.
 
 `/workspace` is shared across every machine in the project and is writable by the
 login user. It survives machine deletion. `/home` is machine-local unless
 `--home-share`.
+
+`/scratch` is the machine's own volume `<machine>-scratch`, never snapshotted
+or backed up. `/tmp` and `/var/tmp` are bind mounts of `/scratch/tmp` and
+`/scratch/var-tmp` (`sc-scratch.service`), and login shells set
+`XDG_CACHE_HOME=/scratch/cache/<user>` unless it is already set, so Go, uv,
+pip and huggingface caches land there. Put nothing there that must survive:
+`sc delete` removes the volume with the machine. Cargo `target/` stays in the
+project tree unless `~/.cargo/config.toml` sets
+`[build] target-dir = "/scratch/cache/<user>/cargo-target"`. The `scratch`
+fixup (`sc fix <m> --only scratch`) installs the unit on an older machine;
+the bind takes effect at its next restart.
 
 `sc connect` resolves cache-first: when the machine is cached as running with an
 address and `known_hosts` already pins its host key, it is one auth-app request
