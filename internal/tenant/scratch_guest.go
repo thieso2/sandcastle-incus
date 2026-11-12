@@ -133,6 +133,8 @@ func ScratchBackfillScript() string {
 	}
 	b.WriteString(`systemctl daemon-reload
 systemctl enable --quiet ` + SCScratchUnitName + `
+# sc restart force-stops the machine; without sync a VM loses these writes.
+sync
 if mountpoint -q ` + ScratchMountPath + `; then
   echo "scratch: unit enabled; /tmp and /var/tmp move onto ` + ScratchMountPath + ` at the next restart"
 else

@@ -391,3 +391,14 @@ func TestScratchCacheSnippetPointsXDGAtScratch(t *testing.T) {
 		t.Fatalf("without /scratch/cache XDG_CACHE_HOME must stay unset, got %q %v", out, err)
 	}
 }
+
+func TestScratchBackfillSyncsBeforeTheForcedRestart(t *testing.T) {
+	script := ScratchBackfillScript()
+	syncAt := strings.Index(script, "\nsync\n")
+	if syncAt < 0 {
+		t.Fatalf("backfill never syncs; a force-stopped VM loses the written files:\n%s", script)
+	}
+	if enableAt := strings.Index(script, "systemctl enable"); enableAt > syncAt {
+		t.Fatalf("sync runs before the unit is enabled:\n%s", script)
+	}
+}
