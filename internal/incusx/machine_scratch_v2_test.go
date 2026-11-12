@@ -51,6 +51,7 @@ type fakeScratchResource struct {
 
 	createInstanceErr error
 	getVolumeErr      error
+	updateVolumeErr   error
 	deleteVolumeErr   error
 
 	createdInstances []api.InstancesPost
@@ -148,6 +149,9 @@ func (r *fakeScratchResource) CreateStoragePoolVolume(_ string, post api.Storage
 }
 
 func (r *fakeScratchResource) UpdateStoragePoolVolume(_ string, _ string, name string, put api.StorageVolumePut, _ string) error {
+	if r.updateVolumeErr != nil {
+		return r.updateVolumeErr
+	}
 	r.volumes[name].StorageVolumePut = put
 	return nil
 }

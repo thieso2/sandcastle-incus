@@ -106,11 +106,33 @@ func TestCreateMachineRefusesAnUnmarkedSameNameVolume(t *testing.T) {
 func TestCreateMachineReusesAMarkedVolume(t *testing.T) {
 	resource, creator, ctx := scratchCreateFixture(t)
 	resource.volumes["web-scratch"] = markedScratchVolume("5GiB")
-	if _, err := creator.CreateMachineV2(ctx, scratchRequest()); err != nil {
+	resource.volumes["web-scratch"].Config["snapshots.schedule"] = "17 * * * *"
+	result, err := creator.CreateMachineV2(ctx, scratchRequest())
+	if err != nil {
 		t.Fatalf("CreateMachineV2: %v", err)
 	}
 	if len(resource.createdVolumes) != 0 || len(resource.createdInstances) != 1 {
 		t.Fatalf("want the marked volume reused: volumes=%v instances=%d", resource.createdVolumes, len(resource.createdInstances))
+	}
+	config := resource.volumes["web-scratch"].Config
+	if config["size"] != tenant.DefaultScratchSize || result.ScratchSize != tenant.DefaultScratchSize {
+		t.Fatalf("reused volume size = %q, reported %q, want both %s", config["size"], result.ScratchSize, tenant.DefaultScratchSize)
+	}
+	if config["snapshots.schedule"] != "" {
+		t.Fatalf("reused volume kept the snapshot schedule %q", config["snapshots.schedule"])
+	}
+}
+
+func TestCreateMachineFailsWhenAReusedVolumeCannotBeReconciled(t *testing.T) {
+	resource, creator, ctx := scratchCreateFixture(t)
+	resource.volumes["web-scratch"] = markedScratchVolume("5GiB")
+	resource.updateVolumeErr = errors.New("quota below usage")
+	_, err := creator.CreateMachineV2(ctx, scratchRequest())
+	if err == nil || !strings.Contains(err.Error(), "quota below usage") {
+		t.Fatalf("want the quota update error, got %v", err)
+	}
+	if len(resource.createdInstances) != 0 {
+		t.Fatal("the machine was created on a volume with the wrong quota")
 	}
 }
 

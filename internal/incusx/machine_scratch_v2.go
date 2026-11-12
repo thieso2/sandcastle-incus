@@ -2,6 +2,7 @@ package incusx
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 
 	"github.com/lxc/incus/v6/shared/api"
@@ -30,8 +31,9 @@ func v2MachineScratch(project TenantResourceServer, request CreateMachineV2Reque
 
 // ensureMachineScratchVolume gets or creates the scratch volume and reports
 // whether this call created it. An existing marked volume is reused (a
-// leftover of an earlier attempt); an existing unmarked one is someone
-// else's data and is never adopted.
+// leftover of an earlier attempt) once its quota and snapshot schedule match
+// what a new one would get; an existing unmarked one is someone else's data
+// and is never adopted.
 func ensureMachineScratchVolume(server TenantResourceServer, scratch tenant.MachineScratch, shifted bool) (bool, error) {
 	name := scratch.VolumeName()
 	existing, err := getOrCreateV2Volume(server, scratch.Pool, name, scratch.Description(), scratch.VolumeConfig(shifted))
@@ -42,9 +44,9 @@ func ensureMachineScratchVolume(server TenantResourceServer, scratch tenant.Mach
 		if !tenant.IsScratchVolume(existing.Config) {
 			return false, fmt.Errorf("custom volume %s already exists and is not a Sandcastle scratch volume (no %s marker): rename it, or create the machine with --no-scratch", name, meta.KeyScratch)
 		}
-		return false, nil
+		return false, reconcileScratchVolume(server, scratch.Pool, name, scratch.Size)
 	}
-	if err := clearInheritedSnapshotSchedule(server, scratch.Pool, name); err != nil {
+	if err := reconcileScratchVolume(server, scratch.Pool, name, scratch.Size); err != nil {
 		if cleanup := ignoreNotFound(server.DeleteStoragePoolVolume(scratch.Pool, "custom", name)); cleanup != nil {
 			return false, fmt.Errorf("%w (and could not remove the new volume: %v)", err, cleanup)
 		}
@@ -53,22 +55,28 @@ func ensureMachineScratchVolume(server TenantResourceServer, scratch tenant.Mach
 	return true, nil
 }
 
-// clearInheritedSnapshotSchedule removes a snapshot schedule the new volume
-// inherited from its pool: Incus fills every empty key of a new volume from
-// the pool's volume.* defaults, so an explicit empty snapshots.schedule does
-// not survive a pool with volume.snapshots.schedule set.
-func clearInheritedSnapshotSchedule(server TenantResourceServer, pool string, name string) error {
+// reconcileScratchVolume removes a snapshot schedule the volume inherited
+// from its pool and sets its quota to size. Incus fills every empty key of a
+// new volume from the pool's volume.* defaults, so an explicit empty
+// snapshots.schedule does not survive a pool with volume.snapshots.schedule
+// set; a volume reused from an earlier attempt may also carry another quota.
+func reconcileScratchVolume(server TenantResourceServer, pool string, name string, size string) error {
 	volume, etag, err := server.GetStoragePoolVolume(pool, "custom", name)
 	if err != nil {
 		return fmt.Errorf("read scratch volume %s: %w", name, err)
 	}
-	if volume.Config["snapshots.schedule"] == "" {
+	if volume.Config["snapshots.schedule"] == "" && volume.Config["size"] == size {
 		return nil
 	}
 	put := volume.Writable()
+	put.Config = maps.Clone(put.Config)
+	if put.Config == nil {
+		put.Config = map[string]string{}
+	}
 	delete(put.Config, "snapshots.schedule")
+	put.Config["size"] = size
 	if err := server.UpdateStoragePoolVolume(pool, "custom", name, put, etag); err != nil {
-		return fmt.Errorf("clear the inherited snapshot schedule of scratch volume %s: %w", name, err)
+		return fmt.Errorf("update the quota and snapshot schedule of scratch volume %s: %w", name, err)
 	}
 	return nil
 }
