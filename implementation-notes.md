@@ -7170,3 +7170,47 @@ repeatable `--project`. A name matches an app project either short
 from `incus project list` or `sc project list`. A name that matches nothing
 fails the command before any write, listing the tenant's app projects; a
 silently empty sweep would read as success.
+
+## 2026-11-12 — Machine scratch volume (#210): review fixes
+
+Fixes from the PR #211 review, each verified against the code first.
+
+- A. Docs give the rollout order for an older machine: `sc-adm tenant
+  scratch-migrate <tenant> --project <p>` adds the volume, then `sc fix <m>
+  --only scratch` installs the unit, then a restart binds. The fixup alone
+  installs a unit that finds no volume.
+- B. e2e step 15d installs `golang-go` and `python3-pip` first, because the
+  default profile ships neither, and checks with bash instead of zsh. uv is
+  dropped from the step: it would need its own installer, and pip and Go
+  already prove `XDG_CACHE_HOME` reaches a tool.
+- C. The Cargo override is shown as two TOML lines (`[build]`, then
+  `target-dir = …`); the one-line form is invalid TOML.
+- D. `scratch-migrate` resolves the tenant's install with `detectAdminPrefix`
+  like the other tenant commands. Without it, a run without
+  `SANDCASTLE_INCUS_PROJECT_PREFIX` failed on obelix with "infra project
+  sc2-thieso2 not found". The command test reproduces that error without
+  the call.
+- E. `--check` reads a same-name volume (read-only) and reports the row
+  `FAILED` with the error the real run gives, and counts it, so `--check`
+  exits non-zero exactly when the real run would.
+- F. A `--bare` machine without a scratch device is skipped
+  (`skipped-bare`, "re-create it to get scratch"), in `--check` too: `sc fix`
+  refuses bare machines, so a volume would never carry `/tmp`. A bare
+  machine created by this release already has the device and stays
+  `present`. The skip is not a failure.
+- G+H. A reused marked volume (leftover of a failed create) now goes through
+  the same `reconcileScratchVolume` as a new one: the pool-inherited
+  snapshot schedule is removed and `size` is set to the requested quota,
+  and an update error fails the create. Reconciling beats rejecting: the
+  volume is Sandcastle's own and holds nothing yet. A shrink below usage
+  fails in Incus and surfaces as that error.
+- J. The setup script copies `/var/tmp` (`cp -a`) onto `/scratch/var-tmp`
+  when the volume side is empty and `/var/tmp` is not, before the bind, so
+  the first bind on an existing machine hides nothing. A failed copy skips
+  that bind and fails the unit. `/tmp` is not copied: it is ephemeral by
+  contract. The emptiness test keeps reruns from copying again.
+- K. The cache snippet chmods the per-user cache dir to 700 after the `-O`
+  check: `mkdir -p -m 700` leaves a dir the user created earlier at 0755.
+- Dismissed: the 60-second VM mount wait (that code is gone since the baked
+  early unit), and a foreign mount at `/scratch` on a `--no-scratch` machine
+  (`/scratch` is reserved; topology and usage now say so).
