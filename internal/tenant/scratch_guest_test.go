@@ -12,7 +12,12 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-func TestEveryUserDataVariantBakesTheScratchUnit(t *testing.T) {
+func TestEveryUserDataVariantBakesTheScratchFilesAndRunsThemLast(t *testing.T) {
+	want := map[string][2]string{
+		"/usr/local/sbin/sc-scratch-setup":       {"0755", scScratchSetupScript},
+		"/etc/systemd/system/sc-scratch.service": {"0644", scScratchUnit},
+		"/etc/profile.d/sc-scratch.sh":           {"0644", scratchCacheSnippet},
+	}
 	for name, data := range map[string]string{
 		"caddy":     V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "default", "acme", "http://10.0.0.3:9443"),
 		"no-signer": V2DefaultProfileUserData("dev", "ssh-ed25519 AAAA", "", "", ""),
@@ -22,44 +27,41 @@ func TestEveryUserDataVariantBakesTheScratchUnit(t *testing.T) {
 		rendered := strings.ReplaceAll(data, "{{ v1.local_hostname }}", "machine")
 		var doc struct {
 			WriteFiles []struct {
-				Path    string `yaml:"path"`
-				Content string `yaml:"content"`
+				Path        string `yaml:"path"`
+				Permissions string `yaml:"permissions"`
+				Content     string `yaml:"content"`
 			} `yaml:"write_files"`
 			Runcmd []any `yaml:"runcmd"`
 		}
 		if err := yaml.Unmarshal([]byte(rendered), &doc); err != nil {
 			t.Fatalf("%s: user-data is not valid YAML: %v\n%s", name, err, data)
 		}
-		unit := ""
+		got := map[string][2]string{}
 		for _, f := range doc.WriteFiles {
-			if f.Path == "/etc/systemd/system/sc-scratch.service" {
-				unit = f.Content
+			if _, ok := want[f.Path]; ok {
+				got[f.Path] = [2]string{f.Permissions, f.Content}
 			}
 		}
-		if unit != scScratchUnit {
-			t.Fatalf("%s: write_files must carry the sc-scratch unit verbatim, got %q", name, unit)
-		}
-		enabled := false
-		for _, cmd := range doc.Runcmd {
-			if fmt.Sprint(cmd) == "[systemctl enable --now sc-scratch.service]" {
-				enabled = true
+		for path, file := range want {
+			if got[path] != file {
+				t.Fatalf("%s: write_files %s = %q, want %q", name, path, got[path], file)
 			}
 		}
-		if !enabled {
-			t.Fatalf("%s: runcmd does not enable the unit: %v", name, doc.Runcmd)
+		n := len(doc.Runcmd)
+		if n < 2 || fmt.Sprint(doc.Runcmd[n-2]) != "[systemctl enable sc-scratch.service]" ||
+			fmt.Sprint(doc.Runcmd[n-1]) != "[/usr/local/sbin/sc-scratch-setup --restart-private-tmp]" {
+			t.Fatalf("%s: runcmd must end by enabling the unit and running the setup with --restart-private-tmp: %v", name, doc.Runcmd)
 		}
 	}
 }
 
-func TestScratchUnitRunsThePayloadScriptOnlyWhenPresent(t *testing.T) {
+func TestScratchUnitRunsBeforeSysinit(t *testing.T) {
 	for _, want := range []string{
-		"ConditionPathExists=/.sc/platform/scratch/setup.sh",
-		"ExecStart=/bin/sh /.sc/platform/scratch/setup.sh",
-		"After=local-fs.target incus-agent.service",
-		"Before=systemd-user-sessions.service multi-user.target",
-		"Type=oneshot",
-		"RemainAfterExit=yes",
-		"WantedBy=multi-user.target",
+		"DefaultDependencies=no",
+		"Before=sysinit.target systemd-tmpfiles-setup.service shutdown.target",
+		"ConditionPathExists=/usr/local/sbin/sc-scratch-setup",
+		"ExecStart=/usr/local/sbin/sc-scratch-setup\n",
+		"WantedBy=sysinit.target",
 	} {
 		if !strings.Contains(scScratchUnit, want) {
 			t.Fatalf("unit lacks %q:\n%s", want, scScratchUnit)
@@ -67,79 +69,100 @@ func TestScratchUnitRunsThePayloadScriptOnlyWhenPresent(t *testing.T) {
 	}
 }
 
-func TestScratchFixScriptsParse(t *testing.T) {
-	for name, script := range map[string]string{"setup": scratchSetupScript, "backfill": ScratchBackfillScript(), "check": ScratchCheckScript(), "rc": scratchCacheSnippet} {
+func TestScratchScriptsParse(t *testing.T) {
+	for name, script := range map[string]string{"setup": scScratchSetupScript, "backfill": ScratchBackfillScript(), "check": ScratchCheckScript(), "snippet": scratchCacheSnippet} {
 		if out, err := exec.Command("sh", "-n", "-c", script).CombinedOutput(); err != nil {
 			t.Fatalf("%s script does not parse: %v\n%s", name, err, out)
 		}
 	}
 }
 
-// scratchSetupHarness runs setup.sh against temp dirs with stub mountpoint,
-// mount, systemd-detect-virt and systemd-tmpfiles commands on PATH.
-type scratchSetupHarness struct {
-	root, tmp, varTmp, agentMounts, log string
-	env                                 []string
-}
-
-func newScratchSetupHarness(t *testing.T, scratchMounted bool, container bool, mountExit int) scratchSetupHarness {
+// scratchStubs writes stub commands into a fresh bin dir and returns a PATH
+// with it first. Each stub body may append to log.
+func scratchStubs(t *testing.T, dir string, stubs map[string]string) string {
 	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("setup.sh uses GNU stat")
-	}
-	dir := t.TempDir()
-	h := scratchSetupHarness{
-		root:        filepath.Join(dir, "scratch"),
-		tmp:         filepath.Join(dir, "tmp"),
-		varTmp:      filepath.Join(dir, "var", "tmp"),
-		agentMounts: filepath.Join(dir, "agent-mounts.json"),
-		log:         filepath.Join(dir, "calls.log"),
-	}
 	bin := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mounted := "1"
-	if scratchMounted {
-		mounted = `[ "$2" = "` + h.root + `" ] && exit 0; exit 1`
-	}
-	virt := "exit 1"
-	if container {
-		virt = "exit 0"
-	}
-	stubs := map[string]string{
-		"mountpoint":          mounted,
-		"systemd-detect-virt": virt,
-		"mount":               `echo "mount $*" >> "` + h.log + `"; exit ` + fmt.Sprint(mountExit),
-		"systemd-tmpfiles":    `echo "tmpfiles $*" >> "` + h.log + `"`,
-		"sleep":               `echo sleep >> "` + h.log + `"`,
-	}
 	for name, body := range stubs {
-		if body == "1" {
-			body = "exit 1"
-		}
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if scratchMounted {
+	return "PATH=" + bin + ":" + os.Getenv("PATH")
+}
+
+// scratchSetupHarness runs sc-scratch-setup against temp dirs with stub
+// mountpoint, mount, systemd-detect-virt and systemctl commands on PATH.
+type scratchSetupHarness struct {
+	root, tmp, varTmp, log string
+	env                    []string
+}
+
+type scratchMachine struct {
+	vm             bool
+	scratchMounted bool
+	// virtiofsOK: the VM has an incus_scratch share to mount.
+	virtiofsOK bool
+	bindExit   int
+}
+
+func newScratchSetupHarness(t *testing.T, m scratchMachine) scratchSetupHarness {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("sc-scratch-setup uses GNU stat")
+	}
+	dir := t.TempDir()
+	h := scratchSetupHarness{
+		root:   filepath.Join(dir, "scratch"),
+		tmp:    filepath.Join(dir, "tmp"),
+		varTmp: filepath.Join(dir, "var-tmp"),
+		log:    filepath.Join(dir, "calls.log"),
+	}
+	for _, d := range []string{h.tmp, h.varTmp} {
+		if err := os.MkdirAll(d, 0o1777); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mountpoint := "exit 1"
+	if m.scratchMounted {
+		mountpoint = "exit 0"
 		if err := os.MkdirAll(h.root, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	h.env = append(os.Environ(),
-		"PATH="+bin+":"+os.Getenv("PATH"),
+	virt := "exit 1"
+	if m.vm {
+		virt = "exit 0"
+	}
+	virtiofsExit := 32
+	if m.virtiofsOK {
+		virtiofsExit = 0
+	}
+	path := scratchStubs(t, dir, map[string]string{
+		"mountpoint":          mountpoint,
+		"systemd-detect-virt": virt,
+		"mount": fmt.Sprintf(`echo "mount $*" >> %q
+[ "$1" = -t ] && exit %d
+exit %d`, h.log, virtiofsExit, m.bindExit),
+		"systemctl": fmt.Sprintf(`echo "systemctl $*" >> %q
+case "$1" in
+list-units) printf 'a.service loaded active running A\nb.service loaded active running B\n' ;;
+show) [ "$5" = a.service ] && echo yes || echo no ;;
+esac`, h.log),
+	})
+	h.env = append(os.Environ(), path,
 		"SC_SCRATCH_ROOT="+h.root,
 		"SC_SCRATCH_TMP="+h.tmp,
 		"SC_SCRATCH_VAR_TMP="+h.varTmp,
-		"SC_SCRATCH_AGENT_MOUNTS="+h.agentMounts,
 	)
 	return h
 }
 
-func (h scratchSetupHarness) run(t *testing.T) (string, error) {
+func (h scratchSetupHarness) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", scratchSetupScript)
+	cmd := exec.Command("sh", append([]string{"-c", scScratchSetupScript, "sc-scratch-setup"}, args...)...)
 	cmd.Env = h.env
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -154,10 +177,17 @@ func (h scratchSetupHarness) calls(t *testing.T) string {
 	return string(data)
 }
 
+func (h scratchSetupHarness) bindCalls() []string {
+	return []string{
+		"mount --bind " + filepath.Join(h.root, "tmp") + " " + h.tmp,
+		"mount --bind " + filepath.Join(h.root, "var-tmp") + " " + h.varTmp,
+	}
+}
+
 func TestScratchSetupBindsTmpAndVarTmp(t *testing.T) {
-	h := newScratchSetupHarness(t, true, true, 0)
+	h := newScratchSetupHarness(t, scratchMachine{scratchMounted: true})
 	if out, err := h.run(t); err != nil {
-		t.Fatalf("setup.sh: %v\n%s", err, out)
+		t.Fatalf("setup: %v\n%s", err, out)
 	}
 	for _, sub := range []string{"tmp", "var-tmp", "cache"} {
 		info, err := os.Stat(filepath.Join(h.root, sub))
@@ -169,70 +199,161 @@ func TestScratchSetupBindsTmpAndVarTmp(t *testing.T) {
 		}
 	}
 	calls := h.calls(t)
-	for _, want := range []string{
-		"mount --bind " + filepath.Join(h.root, "tmp") + " " + h.tmp,
-		"mount --bind " + filepath.Join(h.root, "var-tmp") + " " + h.varTmp,
-		"tmpfiles --create --prefix=/tmp --prefix=/var/tmp",
-	} {
+	for _, want := range h.bindCalls() {
+		if !strings.Contains(calls, want) {
+			t.Fatalf("missing %q in calls:\n%s", want, calls)
+		}
+	}
+	if strings.Contains(calls, "systemctl") {
+		t.Fatalf("the boot-time unit must not touch other services, got:\n%s", calls)
+	}
+}
+
+func TestScratchSetupMountsTheVMShareItself(t *testing.T) {
+	h := newScratchSetupHarness(t, scratchMachine{vm: true, virtiofsOK: true})
+	if out, err := h.run(t); err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	calls := h.calls(t)
+	for _, want := range append([]string{"mount -t virtiofs incus_scratch " + h.root}, h.bindCalls()...) {
 		if !strings.Contains(calls, want) {
 			t.Fatalf("missing %q in calls:\n%s", want, calls)
 		}
 	}
 }
 
-func TestScratchSetupIsIdempotentOnceBound(t *testing.T) {
-	h := newScratchSetupHarness(t, true, true, 0)
-	if err := os.MkdirAll(filepath.Join(h.root, "tmp"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(h.root, "var-tmp"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(h.varTmp), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// A symlink resolves to the same device and inode, which is how an
-	// existing bind mount looks to the script.
-	if err := os.Symlink(filepath.Join(h.root, "tmp"), h.tmp); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(h.root, "var-tmp"), h.varTmp); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := h.run(t); err != nil {
-		t.Fatalf("setup.sh: %v\n%s", err, out)
-	}
-	if calls := h.calls(t); calls != "" {
-		t.Fatalf("an already bound machine must not be mounted again, got:\n%s", calls)
+func TestScratchSetupIsANoOpWithoutTheVolume(t *testing.T) {
+	for name, m := range map[string]scratchMachine{
+		"container": {},
+		"vm":        {vm: true},
+	} {
+		h := newScratchSetupHarness(t, m)
+		if out, err := h.run(t, "--restart-private-tmp"); err != nil {
+			t.Fatalf("%s: setup must exit 0 without a volume: %v\n%s", name, err, out)
+		}
+		if calls := h.calls(t); strings.Contains(calls, "--bind") || strings.Contains(calls, "systemctl") {
+			t.Fatalf("%s: nothing may be bound or restarted, got:\n%s", name, calls)
+		}
+		if _, err := os.Stat(filepath.Join(h.root, "tmp")); !os.IsNotExist(err) {
+			t.Fatalf("%s: setup populated %s on a machine without the volume", name, h.root)
+		}
 	}
 }
 
-func TestScratchSetupIsANoOpWithoutTheVolume(t *testing.T) {
-	for name, h := range map[string]scratchSetupHarness{
-		"container": newScratchSetupHarness(t, false, true, 0),
-		"vm":        newScratchSetupHarness(t, false, false, 0),
-	} {
-		if name == "vm" {
-			if err := os.WriteFile(h.agentMounts, []byte(`[{"source":"sc-platform","target":"/.sc/platform","fstype":"virtiofs"}]`), 0o644); err != nil {
-				t.Fatal(err)
-			}
+func TestScratchSetupIsIdempotentOnceBound(t *testing.T) {
+	h := newScratchSetupHarness(t, scratchMachine{scratchMounted: true})
+	for _, pair := range [][2]string{{"tmp", h.tmp}, {"var-tmp", h.varTmp}} {
+		if err := os.MkdirAll(filepath.Join(h.root, pair[0]), 0o755); err != nil {
+			t.Fatal(err)
 		}
-		if out, err := h.run(t); err != nil {
-			t.Fatalf("%s: setup.sh must exit 0 without a volume: %v\n%s", name, err, out)
+		// A symlink resolves to the same device and inode, which is how an
+		// existing bind mount looks to the script.
+		if err := os.Remove(pair[1]); err != nil {
+			t.Fatal(err)
 		}
-		if calls := h.calls(t); calls != "" {
-			t.Fatalf("%s: no mount and no wait expected, got:\n%s", name, calls)
+		if err := os.Symlink(filepath.Join(h.root, pair[0]), pair[1]); err != nil {
+			t.Fatal(err)
 		}
-		if _, err := os.Stat(h.root); !os.IsNotExist(err) {
-			t.Fatalf("%s: setup.sh created %s on a machine without the volume", name, h.root)
-		}
+	}
+	if out, err := h.run(t, "--restart-private-tmp"); err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	if calls := h.calls(t); calls != "" {
+		t.Fatalf("an already bound machine must be neither mounted again nor restarted, got:\n%s", calls)
+	}
+}
+
+func TestScratchSetupRestartsOnlyPrivateTmpServicesAfterBinding(t *testing.T) {
+	h := newScratchSetupHarness(t, scratchMachine{scratchMounted: true})
+	if out, err := h.run(t, "--restart-private-tmp"); err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	calls := h.calls(t)
+	if !strings.Contains(calls, "systemctl try-restart a.service") {
+		t.Fatalf("a PrivateTmp service was not restarted:\n%s", calls)
+	}
+	if strings.Contains(calls, "try-restart b.service") {
+		t.Fatalf("a service without PrivateTmp was restarted:\n%s", calls)
 	}
 }
 
 func TestScratchSetupFailsWhenTheBindFails(t *testing.T) {
-	h := newScratchSetupHarness(t, true, true, 32)
-	if out, err := h.run(t); err == nil {
+	h := newScratchSetupHarness(t, scratchMachine{scratchMounted: true, bindExit: 32})
+	if out, err := h.run(t, "--restart-private-tmp"); err == nil {
 		t.Fatalf("a failed bind mount must fail the unit, got success:\n%s", out)
+	}
+	if calls := h.calls(t); strings.Contains(calls, "systemctl") {
+		t.Fatalf("nothing was bound, so nothing may be restarted:\n%s", calls)
+	}
+}
+
+func TestScratchBackfillInstallsWhatTheCheckAccepts(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls.log")
+	enabled := filepath.Join(dir, "enabled")
+	path := scratchStubs(t, dir, map[string]string{
+		"mountpoint": "exit 0",
+		"systemctl": fmt.Sprintf(`echo "systemctl $*" >> %q
+case "$1" in
+enable) touch %q ;;
+is-enabled) [ -e %q ] ;;
+esac`, log, enabled, enabled),
+	})
+	paths := map[string]string{}
+	relocate := func(script string) string {
+		for _, f := range scratchGuestFiles {
+			script = strings.ReplaceAll(script, f.path, paths[f.path])
+		}
+		return script
+	}
+	for _, f := range scratchGuestFiles {
+		paths[f.path] = filepath.Join(dir, filepath.Base(f.path))
+	}
+	run := func(script string) string {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", relocate(script))
+		cmd.Env = append(os.Environ(), path)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("script failed: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+	if got := run(ScratchCheckScript()); got != "scratch: NEEDS FIX\n" {
+		t.Fatalf("check on a bare machine = %q", got)
+	}
+	run(ScratchBackfillScript())
+	for _, f := range scratchGuestFiles {
+		data, err := os.ReadFile(paths[f.path])
+		if err != nil || string(data) != relocate(f.content) {
+			t.Fatalf("%s not installed verbatim: %v\n%s", f.path, err, data)
+		}
+	}
+	if calls, _ := os.ReadFile(log); strings.Contains(string(calls), "start") {
+		t.Fatalf("the backfill must enable the unit, never start it:\n%s", calls)
+	}
+	if got := run(ScratchCheckScript()); got != "scratch: OK\n" {
+		t.Fatalf("check after backfill = %q", got)
+	}
+	if err := os.Chmod(paths[scScratchSetupPath], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(ScratchCheckScript()); got != "scratch: NEEDS FIX\n" {
+		t.Fatalf("check with a non-executable setup script = %q", got)
+	}
+	run(ScratchBackfillScript())
+	if err := os.WriteFile(paths[scScratchProfilePath], []byte("# old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(ScratchCheckScript()); got != "scratch: NEEDS FIX\n" {
+		t.Fatalf("check with a stale profile.d file = %q", got)
+	}
+	run(ScratchBackfillScript())
+	if err := os.Remove(enabled); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(ScratchCheckScript()); got != "scratch: NEEDS FIX\n" {
+		t.Fatalf("check with the unit disabled = %q", got)
 	}
 }
 

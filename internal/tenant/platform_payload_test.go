@@ -36,9 +36,10 @@ func TestPlatformPayloadFilesAndVersion(t *testing.T) {
 		t.Fatalf("payload shell rc must be the shared consume snippet plus the scratch cache snippet, got:\n%s", shellRC.Content)
 	}
 
-	scratch, ok := byPath[SCPayloadScratchSetupPath]
-	if !ok || scratch.Mode != 0o755 || scratch.Content != scratchSetupScript {
-		t.Fatalf("payload missing the executable scratch setup %s: %#v", SCPayloadScratchSetupPath, scratch)
+	for path := range byPath {
+		if strings.HasPrefix(path, "scratch/") {
+			t.Fatalf("the scratch setup is baked into the machine, not shipped in the payload: %s", path)
+		}
 	}
 
 	cloudflared, ok := byPath[SCPayloadCloudflaredPath]

@@ -33,14 +33,16 @@ login user. It survives machine deletion. `/home` is machine-local unless
 
 `/scratch` is the machine's own volume `<machine>-scratch`, never snapshotted
 or backed up. `/tmp` and `/var/tmp` are bind mounts of `/scratch/tmp` and
-`/scratch/var-tmp` (`sc-scratch.service`), and login shells set
-`XDG_CACHE_HOME=/scratch/cache/<user>` unless it is already set, so Go, uv,
-pip and huggingface caches land there. Put nothing there that must survive:
+`/scratch/var-tmp` (`sc-scratch.service`, early in boot), and interactive and
+login shells set `XDG_CACHE_HOME=/scratch/cache/<user>` unless it is already
+set, so Go, uv, pip and huggingface caches land there. A non-interactive
+`ssh host cmd` does not get it. Put nothing there that must survive:
 `sc delete` removes the volume with the machine. Cargo `target/` stays in the
 project tree unless `~/.cargo/config.toml` sets
 `[build] target-dir = "/scratch/cache/<user>/cargo-target"`. The `scratch`
 fixup (`sc fix <m> --only scratch`) installs the unit on an older machine;
-the bind takes effect at its next restart.
+the bind takes effect at its next restart. In a project rendered by an older
+release, new machines lack the unit until `sc project rerender <project>`.
 
 `sc connect` resolves cache-first: when the machine is cached as running with an
 address and `known_hosts` already pins its host key, it is one auth-app request

@@ -134,15 +134,15 @@ packages:
     encoding: b64
     content: %s
 runcmd:
-`+pingRuncmd+scScratchRuncmd+`  - [/usr/local/sbin/sandcastle-generalize]
+`+pingRuncmd+`  - [/usr/local/sbin/sandcastle-generalize]
   - [systemctl, enable, --now, ssh]
   - [/usr/local/sbin/sandcastle-caddy-setup]
-`, project, suffix, PublicHostnamesEnvLine(projectDomain), signerURL, user, generalize, script)
+`+scScratchRuncmd, project, suffix, PublicHostnamesEnvLine(projectDomain), signerURL, user, generalize, script)
 		return header + identity + body
 	}
 
-	return header + identity + body + "write_files:\n" + scShimWriteFiles + pingWriteFiles + scScratchWriteFiles + "runcmd:\n" + pingRuncmd + scScratchRuncmd + `  - [systemctl, enable, --now, ssh]
-`
+	return header + identity + body + "write_files:\n" + scShimWriteFiles + pingWriteFiles + scScratchWriteFiles + "runcmd:\n" + pingRuncmd + `  - [systemctl, enable, --now, ssh]
+` + scScratchRuncmd
 }
 
 // PublicHostnamesEnvKey is the machine.env variable caddy-setup seeds
@@ -258,12 +258,12 @@ write_files:
     encoding: b64
     content: %s
 %sruncmd:
-%s  - [/usr/local/sbin/sandcastle-generalize]
+  - [/usr/local/sbin/sandcastle-generalize]
   # Belt and braces: nothing here installs sshd, but an image that ships one
   # enabled would quietly make "no ssh" untrue.
   - [sh, -c, "systemctl disable --now ssh 2>/dev/null || true"]
   - [/usr/local/sbin/sandcastle-caddy-setup]
-`, domain, domain, publicHostnamesEnvLine, signerURL, BareMachineHome, generalize, caddy, scScratchWriteFiles, scScratchRuncmd)
+%s`, domain, domain, publicHostnamesEnvLine, signerURL, BareMachineHome, generalize, caddy, scScratchWriteFiles, scScratchRuncmd)
 }
 
 // V2DevUserData renders the cloud-init user-data of a Dev Image machine: one
@@ -301,8 +301,8 @@ packages:
   - zsh
 write_files:
 `, domain, user, sshAuthorizedKeysYAML(sshKey))
-	return body + scShimWriteFiles + pingWriteFiles + scScratchWriteFiles + "runcmd:\n" + pingRuncmd + scScratchRuncmd + `  - [systemctl, enable, --now, ssh]
-`
+	return body + scShimWriteFiles + pingWriteFiles + scScratchWriteFiles + "runcmd:\n" + pingRuncmd + `  - [systemctl, enable, --now, ssh]
+` + scScratchRuncmd
 }
 
 // The forwarded-agent indirection. Two guards must be exactly this way — the

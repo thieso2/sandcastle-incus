@@ -85,10 +85,12 @@ var machineFixups = []machineFixup{
 		check:   tenant.PingCheckScript,
 	},
 	{
-		name:            "scratch",
-		summary:         "install the sc-scratch unit that moves /tmp and /var/tmp onto the machine's /scratch volume (from the next restart)",
-		apply:           tenant.ScratchBackfillScript,
-		check:           tenant.ScratchCheckScript,
+		name:    "scratch",
+		summary: "install the sc-scratch unit and setup that move /tmp and /var/tmp onto the machine's /scratch volume (from the next restart), and the login-shell XDG cache file",
+		apply:   tenant.ScratchBackfillScript,
+		check:   tenant.ScratchCheckScript,
+		// The baked files need no payload, but interactive shells get
+		// XDG_CACHE_HOME from the payload's shell/rc.sh.
 		requiresPayload: true,
 	},
 }

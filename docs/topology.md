@@ -59,9 +59,11 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
   profile cannot carry it, because a profile device names one volume that every
   machine using the profile would share. Inside the machine `/tmp` and
   `/var/tmp` are bind mounts of `/scratch/tmp` and `/scratch/var-tmp`
-  (`sc-scratch.service` running `/.sc/platform/scratch/setup.sh`), and login
-  shells set `XDG_CACHE_HOME=/scratch/cache/<user>`. What is kept and what is
-  not:
+  (`sc-scratch.service` running the baked `/usr/local/sbin/sc-scratch-setup`
+  before `sysinit.target`; on a VM it mounts the `incus_scratch` virtiofs share
+  itself), and interactive and login shells set
+  `XDG_CACHE_HOME=/scratch/cache/<user>` (`shell/rc.sh`,
+  `/etc/profile.d/sc-scratch.sh`). What is kept and what is not:
 
   | Path | Volume | Snapshotted, backed up |
   |---|---|---|

@@ -72,7 +72,6 @@ func PlatformPayload() ([]PlatformPayloadFile, string) {
 		{Path: SCPayloadCloudflaredPath, Mode: 0o755, Content: cloudflaredPlatformLauncher},
 		{Path: SCPayloadInstallAgenticPath, Mode: 0o755, Content: installAgenticScript},
 		{Path: SCPayloadHerdrConfigPath, Mode: 0o644, Content: herdrConfigTOML},
-		{Path: SCPayloadScratchSetupPath, Mode: 0o755, Content: scratchSetupScript},
 	}
 	version := platformPayloadVersion(files)
 	files = append(files, PlatformPayloadFile{Path: PlatformPayloadVersionFile, Mode: 0o644, Content: version + "\n"})

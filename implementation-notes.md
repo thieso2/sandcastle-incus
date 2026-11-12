@@ -7104,3 +7104,58 @@ key, so it is an external contract.
   which payload-sync deliberately avoids.
 - `v2TenantAppProjects` now owns the tenant app-project enumeration that
   `SyncTenantPlatformPayload` had inline; both sweeps use it.
+
+## 2026-11-12 — Machine scratch volume (#210): live test findings
+
+A live run on a real Incus (Ubuntu 26.04, container and VM) found four
+problems with the guest side described above. The design moved from a
+payload script run late to a baked script run early.
+
+- **The unit ran too late.** `After=incus-agent.service`,
+  `Before=systemd-user-sessions.service` let every `PrivateTmp=` service that
+  starts earlier (`systemd-hostnamed`, logind, resolved, caddy) create its
+  `/tmp/systemd-private-*` dir in the old `/tmp`. The bind then hid it, and
+  the next activation failed with `226/NAMESPACE`. The unit now has
+  `DefaultDependencies=no`, runs after `local-fs.target` and before
+  `sysinit.target` and `systemd-tmpfiles-setup.service`, so nothing has
+  used `/tmp` yet and tmpfiles populates the new one. The `systemd-tmpfiles`
+  rerun in the old script is gone with it.
+- **A VM's payload arrives too late to run from.** `/.sc/platform` is itself
+  a virtiofs share that `incus-agent` mounts, and the agent starts well after
+  `sysinit.target`. So the script cannot live in the payload. It is baked as
+  `/usr/local/sbin/sc-scratch-setup` by cloud-init and by
+  `sc fix --only scratch`, which also means a fix to it reaches existing
+  machines only through `sc fix`, not `payload-sync`. On a VM the script
+  mounts the scratch share itself (`mount -t virtiofs incus_scratch
+  /scratch`, the tag the agent's `agent-mounts.json` names); the agent then
+  sees `/scratch` mounted and does not mount it again (one mount observed
+  live). The 60 s wait and the `agent-mounts.json` probe are gone: a failed
+  virtiofs mount means the VM has no scratch share.
+- **First boot.** cloud-init runs after sysinit, so starting the unit from
+  `runcmd` had the same problem. The last two `runcmd` entries now enable the
+  unit for later boots and run `sc-scratch-setup --restart-private-tmp`,
+  which, only when it bound something, `systemctl try-restart`s every active
+  service whose `PrivateTmp` is `yes`. No user session exists yet on first
+  boot. It runs last so services started by earlier entries (caddy) are
+  covered. `disconnected` (newer systemd) is left alone, because it does not
+  live under `/tmp`.
+- **XDG_CACHE_HOME was interactive-only.** `/etc/bash.bashrc` sources
+  `rc.sh` for interactive shells; `bash -l` and `ssh host cmd` did not get
+  it. `/etc/profile.d/sc-scratch.sh` now carries the same snippet (one Go
+  constant for both) for login shells. A non-interactive `ssh host cmd` reads
+  neither and keeps the default cache; that is documented, not fixed.
+- **Older projects.** cloud-init comes from the project profile, rendered by
+  the Auth App. A project rendered by an older release gives new machines the
+  volume but no unit. `sc project rerender <project>` re-renders the profile
+  with the Auth App's binary (checked: it calls `RenderProjectProfilesV2`,
+  which renders `V2DefaultProfileUserData`), so it fixes new machines once
+  the Auth App runs this release; `sc fix --only scratch` fixes one machine.
+- The three baked files are one table (`scratchGuestFiles`), from which the
+  cloud-init fragment, the backfill and the check are rendered, so they
+  cannot drift. The check compares content and mode of all three and the
+  enabled state. `sc fix --only scratch` still converges the payload first,
+  because interactive shells get the XDG export from `shell/rc.sh`.
+- Verified live and unchanged: a restricted certificate creates the volume
+  with size, marker and no schedule; the ZFS quota returns EDQUOT at the
+  size; `sc rm` deletes the volume; `--no-scratch` creates nothing;
+  `scratch-migrate --check` output.
