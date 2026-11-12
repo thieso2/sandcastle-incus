@@ -38,11 +38,20 @@ login shells set `XDG_CACHE_HOME=/scratch/cache/<user>` unless it is already
 set, so Go, uv, pip and huggingface caches land there. A non-interactive
 `ssh host cmd` does not get it. Put nothing there that must survive:
 `sc delete` removes the volume with the machine. Cargo `target/` stays in the
-project tree unless `~/.cargo/config.toml` sets
-`[build] target-dir = "/scratch/cache/<user>/cargo-target"`. The `scratch`
-fixup (`sc fix <m> --only scratch`) installs the unit on an older machine;
-the bind takes effect at its next restart. In a project rendered by an older
-release, new machines lack the unit until `sc project rerender <project>`.
+project tree unless `~/.cargo/config.toml` moves it:
+
+```toml
+[build]
+target-dir = "/scratch/cache/<user>/cargo-target"
+```
+
+A machine created before scratch volumes existed needs three steps, in this
+order: an admin runs `sc-adm tenant scratch-migrate <tenant> --project <p>` to
+add the volume, `sc fix <m> --only scratch` installs the unit, and
+`sc restart <m>` makes the bind take effect. In a project rendered by an older
+release, new machines have the volume but lack the unit until
+`sc project rerender <project>`, or until `sc fix <m> --only scratch` and a
+restart.
 
 `sc connect` resolves cache-first: when the machine is cached as running with an
 address and `known_hosts` already pins its host key, it is one auth-app request

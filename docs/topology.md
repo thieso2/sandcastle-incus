@@ -76,9 +76,19 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
   snapshot script and backupd skip, and no snapshot schedule; its `size` is a
   hard ZFS quota, so a runaway cache fills `/scratch` and not the pool. Cargo
   `target/` directories stay in the project tree unless the user opts in with
-  `[build] target-dir = "/scratch/cache/<user>/cargo-target"` in
-  `~/.cargo/config.toml`. `sc delete` removes the volume with the machine, and
-  deleting a project sweeps every marked volume in it.
+  two lines in `~/.cargo/config.toml`:
+
+  ```toml
+  [build]
+  target-dir = "/scratch/cache/<user>/cargo-target"
+  ```
+
+  `sc delete` removes the volume with the machine, and deleting a project
+  sweeps every marked volume in it. `/scratch` is a Sandcastle-reserved path:
+  do not mount anything else there, also not on a `--no-scratch` machine. A
+  machine created before scratch volumes existed gets its volume from
+  `sc-adm tenant scratch-migrate`, then the unit from
+  `sc fix <m> --only scratch`, and the bind at its next restart.
 - **One shared network per tenant** (`sc2-<tenant>` bridge in `default`);
   projects are not network-isolated from each other (single owner).
 - **Per-tenant tailnet, subnet-router sidecar.** Machines are **not** tailnet
