@@ -84,6 +84,15 @@ var machineFixups = []machineFixup{
 		apply:   tenant.PingBackfillScript,
 		check:   tenant.PingCheckScript,
 	},
+	{
+		name:    "scratch",
+		summary: "install the sc-scratch unit and setup that move /tmp and /var/tmp onto the machine's /scratch volume (from the next restart), and the login-shell XDG cache file",
+		apply:   tenant.ScratchBackfillScript,
+		check:   tenant.ScratchCheckScript,
+		// The baked files need no payload, but interactive shells get
+		// XDG_CACHE_HOME from the payload's shell/rc.sh.
+		requiresPayload: true,
+	},
 }
 
 func newFixCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -105,7 +114,8 @@ Fixups:
   agent-forwarding     forwarded SSH agent survives herdr/tmux panes
   caddy-publications   refresh Caddy readiness for Tailnet/public certificates
   cloudflared          restore an already-installed Cloudflare connector
-  ping                 let every user ping without sudo`,
+  ping                 let every user ping without sudo
+  scratch              install the unit that puts /tmp, /var/tmp on /scratch`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			selected, err := selectFixups(only)

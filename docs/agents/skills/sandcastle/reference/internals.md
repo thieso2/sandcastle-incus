@@ -49,7 +49,8 @@ Tenant
  └── <prefix>-<tenant>-<project>    app Incus project (features.networks=false)
        ├── default profile          shared /workspace volume, bridge NIC, cloud-init login
        ├── homeshare profile        shared /home volume (opt-in, --home-share)
-       └── machines
+       ├── machines
+       └── <machine>-scratch        per-machine /scratch volume (instance device, user.sandcastle.scratch=true)
 ```
 
 - **Incus Reach** — the sidecar's `tailscale serve` proxy forwards its tailnet

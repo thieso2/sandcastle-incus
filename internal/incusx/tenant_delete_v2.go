@@ -134,6 +134,9 @@ func (d TenantDeleter) deleteV2AppProject(server TenantDeleteServer, projectName
 	if err := d.clearVolumeDevicesFromProfiles(projectServer, projectName, volumes); err != nil {
 		return err
 	}
+	if err := d.deleteScratchVolumes(projectServer, projectName, pool); err != nil {
+		return err
+	}
 	for _, volume := range volumes {
 		d.log("delete shared volume " + volume + " in " + projectName)
 		if err := ignoreNotFound(projectServer.DeleteStoragePoolVolume(pool, "custom", volume)); err != nil {

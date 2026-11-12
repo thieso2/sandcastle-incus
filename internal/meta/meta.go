@@ -75,6 +75,12 @@ const (
 	// user, no SSH key, no sshd. `sc connect` reads it to pick an Incus exec
 	// session over SSH, which on such a machine could only ever time out.
 	KeyV2Bare = Prefix + "v2.bare"
+	// KeyScratch marks a custom volume as a Machine's scratch volume
+	// (/tmp, /var/tmp, the XDG cache): disposable data. Snapshot and backup
+	// tooling outside this repo (the host snapshot script, backupd) skips
+	// volumes carrying it, and machine/project delete removes only volumes
+	// carrying it, so the exact key name is an external contract.
+	KeyScratch = Prefix + "scratch"
 	// KeyV2Domain holds a project's Project Domain (ADR-0027), normalized, on
 	// its own kind=project Incus project. Written by the Auth App when the
 	// domain is claimed (`sc project create --domain`, `set-domain`), removed

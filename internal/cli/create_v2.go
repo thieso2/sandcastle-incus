@@ -403,12 +403,23 @@ type createV2Options struct {
 	// claim for the machine — before it exists — and stamp in the create call.
 	Hostnames []string
 	Aliases   []string
+	// NoScratch and ScratchSize shape the machine's scratch volume
+	// (default on, tenant.DefaultScratchSize).
+	NoScratch   bool
+	ScratchSize string
 }
 
 func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOptions, summary tenant.Summary, reference string, options createV2Options) error {
 	project, machine, err := resolveV2MachineReference(summary, reference, config.adminConfig.Project)
 	if err != nil {
 		return err
+	}
+	scratchSize, err := tenant.ParseScratchSize(options.ScratchSize)
+	if err != nil {
+		return err
+	}
+	if options.NoScratch && strings.TrimSpace(options.ScratchSize) != "" {
+		return fmt.Errorf("--scratch-size and --no-scratch cannot be combined")
 	}
 	image := strings.TrimSpace(options.Image)
 	if image != "" {
@@ -467,6 +478,8 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 		DevImage:        devImage,
 		PublicHostnames: publicHostnames,
 		ProjectDomain:   strings.TrimPrefix(derived, machine+"."),
+		NoScratch:       options.NoScratch,
+		ScratchSize:     scratchSize,
 	}
 	outcomes := map[string]machineCertificateOutcome{}
 	if derived != "" {
@@ -487,6 +500,10 @@ func runCreateMachineV2(ctx context.Context, config commandConfig, opts *rootOpt
 		payload := incusx.CreateMachineV2Result{Name: machine, Type: machineTypeLabel(options.VM), Project: request.IncusProject, Image: image, HomeShare: options.HomeShare, Bare: options.Bare, DevImage: request.DevImage && !options.Bare, PublicHostnames: publicHostnames}
 		if len(publicHostnames) > 0 {
 			payload.PublicHostname = publicHostnames[0]
+		}
+		if !options.NoScratch {
+			payload.ScratchVolume = tenant.MachineScratch{Machine: machine}.VolumeName()
+			payload.ScratchSize = scratchSize
 		}
 		payload.CertificateDecisions = createCertificateDecisions(publicHostnames, outcomes)
 		payload.Path = machinePath(config.adminConfig.Remote, summary.Tenant, project, payload.Name)
@@ -836,6 +853,9 @@ func formatCreateMachineV2(remote string, summary tenant.Summary, project string
 		fmt.Fprintf(&builder, "Storage: shared /workspace + shared /home (homeshare profile).\n")
 	} else {
 		fmt.Fprintf(&builder, "Storage: shared /workspace, machine-local /home (add --home-share for a shared /home).\n")
+	}
+	if result.ScratchVolume != "" {
+		fmt.Fprintf(&builder, "Scratch: /scratch on volume %s (%s) holds /tmp, /var/tmp and the XDG cache; it is never snapshotted or backed up.\n", result.ScratchVolume, result.ScratchSize)
 	}
 	// Canonical Machine Private Hostname; the default project also answers at
 	// the short alias (ADR-0018). Public names come on top, never instead.

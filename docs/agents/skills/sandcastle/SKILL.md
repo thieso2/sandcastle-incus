@@ -122,6 +122,7 @@ sc ls -l -a                 # the table: PROJECT MACHINE TYPE FQDN … CREATED R
 sc create dev               # create a container in the active project
 sc create dev --vm          # …a VM instead
 sc create web --image mybase --home-share
+sc create build --scratch-size 300GiB      # every machine gets its own /scratch (/tmp, /var/tmp, caches; not backed up); --no-scratch opts out
 sc create zp:web --hostname web12.tc42.uk   # …with an explicit public hostname (repeatable; --fqdn alias)
 sc hostname add zp:web api.tc42.uk          # claim another public name later; list / remove likewise
 sc c dev                    # interactive shell as the login user

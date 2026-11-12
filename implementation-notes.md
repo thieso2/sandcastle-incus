@@ -6953,3 +6953,264 @@ Alternatives considered:
   because Sandcastle doesn't own that profile's cloud-init either. A member
   who needs access to a hand-built project's machines gets it from that
   project's owner.
+
+## 2026-11-12 — Machine scratch volume (#210): the spec
+
+`internal/tenant/scratch.go` owns the whole scratch domain as pure data:
+`MachineScratch{Machine, Pool, Size}` renders the volume name, its config,
+the instance device, and `IsScratchVolume` reads the marker. incusx and the
+CLI only consume it. The marker key is `user.sandcastle.scratch=true`
+(`meta.KeyScratch`); the host snapshot script and backupd read that exact
+key, so it is an external contract.
+
+- Volume name. Incus limits custom volume names to 64 characters
+  (`validate.IsAPIName`), and a machine name may be 63, so
+  `<machine>-scratch` can be 71. Names that fit keep the plain form. Longer
+  ones become `<first 47 chars>-<8 hex of sha256(machine)>-scratch`, which
+  is deterministic and does not collide for two names sharing a prefix.
+  Delete does not recompute the name anyway; it follows the instance's own
+  `scratch` device (see the delete entry).
+- Volume root. Root-owned 0755 (`initial.uid/gid=0`, `initial.mode=0755`),
+  per the brief. The guest setup creates the writable subdirectories.
+- Size. Validated with Incus's own unit parser (`shared/units`), positive
+  only, so `--scratch-size lots` fails at the CLI instead of at the API.
+
+## 2026-11-12 — Machine scratch volume (#210): delete paths
+
+- `sc delete <m>` deletes the instance first, then the volume its own
+  `scratch` device names (pool and source read off the instance before the
+  delete). It does not recompute `<m>-scratch`: the device is the record of
+  which volume belongs to the machine, and it already carries the pool. A
+  volume without the `user.sandcastle.scratch` marker is never deleted,
+  even when the device points at it. A missing volume is fine. Any other
+  error fails the command after the instance is gone, with the
+  `incus storage volume delete` line to finish by hand.
+- Project and tenant delete (`deleteV2AppProject`, also behind
+  `sc project delete`) sweep every custom volume carrying the marker after
+  the instances are gone. Incus refuses to delete a project that still holds
+  volumes, and a scratch volume left by a failed machine delete would
+  otherwise block it. The sweep keys on the marker, not the `-scratch`
+  suffix, so a tenant volume that merely ends in `-scratch` survives.
+- `v2ProfileStoragePool` is the one place that reads an app project's pool
+  off its default profile; `sc fix`'s payload path used to inline the scan.
+
+## 2026-11-12 — Machine scratch volume (#210): the guest side
+
+- One oneshot unit instead of the issue's two systemd mount units.
+  `sc-scratch.service` is baked by cloud-init into all four user-data
+  documents (profile with and without ingress, `--bare`, Dev Image) and runs
+  `/.sc/platform/scratch/setup.sh`, so the logic updates centrally with the
+  payload like every other platform script (ADR-0022). Mount units would
+  have to be baked per machine and could not express "only if /scratch is a
+  mountpoint" without a generator.
+- Ordering. `After=local-fs.target incus-agent.service`,
+  `Before=systemd-user-sessions.service multi-user.target`. Checked in the
+  Incus v6.23.0 source: the agent mounts every virtiofs share listed in
+  `agent-mounts.json` before it sends `READY=1` (`cmd/incus-agent/main_agent.go`),
+  so `After=incus-agent.service` sees both `/scratch` and `/.sc` on a VM,
+  and `ConditionPathExists=/.sc/platform/scratch/setup.sh` is evaluated after
+  the payload mount. The condition skips the unit (not a failure) while a
+  project's payload predates the script.
+- VM wait. setup.sh still waits up to 60 s for `/scratch` as the brief asked,
+  but exits at once when the wait cannot help: in a container (disks are
+  mounted before init), or on a VM whose `/run/incus_agent/agent-mounts.json`
+  does not list `/scratch`. A `--no-scratch` VM therefore boots without the
+  60 s stall.
+- `/scratch/cache` is 1777, not the brief's 0755. A root-owned 0755 dir
+  makes the rc snippet's `mkdir -p -m 700 /scratch/cache/$USER` fail for
+  every non-root user. Sticky 1777 lets each user create their own 0700
+  dir, and the snippet only exports it when the user owns it (`[ -O ]`), so
+  a directory pre-created by someone else is never adopted.
+- After binding, setup.sh reruns `systemd-tmpfiles --create` for `/tmp` and
+  `/var/tmp`, because sysinit populated the root-disk `/tmp` that the bind
+  now hides.
+- `rc.sh`, not `profile.d`. The XDG export rides the existing
+  `shell/rc.sh` payload script, which every machine already sources through
+  the stable shim in `/etc/bash.bashrc` and `/etc/zsh/zshrc`. A
+  `profile.d` file would have to be baked per machine and would miss
+  non-login herdr/tmux panes. No `GOCACHE`: Go's `os.UserCacheDir` returns
+  `$XDG_CACHE_HOME` when set, and `GOCACHE` defaults to `<that>/go-build`.
+  uv, pip and huggingface also follow `XDG_CACHE_HOME`.
+- `sc fix --only scratch` enables the unit but does not start it. Binding
+  `/tmp` under a running machine would hide the sockets of live tmux or
+  herdr sessions; the bind happens at the next restart, or now with
+  `sudo systemctl start sc-scratch`. Fresh machines start it from cloud-init
+  `runcmd`, before any login exists.
+
+## 2026-11-12 — Machine scratch volume (#210): create, default on
+
+- **Default on, authorized.** The user decided that new machines get a
+  scratch volume by default, which changes existing `sc create` behaviour,
+  so it needed that explicit authorization under the repo's additive rule.
+  `sc create --no-scratch` opts out, and `--scratch-size` (default `100GiB`)
+  sets the quota. Existing machines change only through the explicit
+  migration command.
+- **Request shape.** `CreateMachineV2Request` carries `NoScratch bool` and
+  `ScratchSize string` rather than a `*tenant.MachineScratch`. With a pointer,
+  a caller that forgets the field silently creates a machine without scratch;
+  with an opt-out bool the zero value is the default, so `sc connect`,
+  `sc fix` (both through `EnsureMachineV2`) and `sc mkdir` get the volume
+  without touching them, and "no scratch" has to be said.
+- **Pool.** Read off the project's default profile with
+  `v2ProfileStoragePool`, the scan `sc fix` already used for the payload. A
+  restricted tenant certificate cannot read the infra project's pool key, so
+  the profile is the one source both the CLI and the admin paths can see. A
+  profile with no pool-carrying device refuses the create and names
+  `--no-scratch`.
+- **Existing volumes.** A same-name volume WITH the marker is reused (a
+  leftover of an earlier failed attempt). One WITHOUT the marker is somebody
+  else's data: the create fails before any instance exists.
+- **Snapshot schedule.** Incus copies the pool's `volume.*` keys into every
+  empty key of a new volume (`fillVolumeConfig`, incus v6.23.0), so the
+  explicit `snapshots.schedule=""` does not survive a pool that sets
+  `volume.snapshots.schedule` (the host snapshot script's `POOL_DEFAULTS=1`
+  mode does). After creating the volume the creator reads it back and, when
+  a schedule was inherited, removes the key with an update. If that update
+  fails the new volume is deleted and the create fails.
+- **Rollback.** When `CreateInstance` or its operation fails and the
+  instance does not exist, the volume this call created is deleted. A reused
+  volume is never deleted by a failed create.
+- **Bare machines** get the device merged into `v2BareInstanceDevices()`,
+  next to the `home`/`workspace` masks.
+
+## 2026-11-12 — Machine scratch volume (#210): migrating existing machines
+
+- **Command placement.** The issue asked for
+  `sc-adm machine scratch-migrate [--project …] [--dry-run]`. There is no
+  admin `machine` parent command, and the closest existing operation,
+  `sc-adm tenant payload-sync <tenant> [--check]`, is a per-tenant sweep with
+  the same shape. So the command is `sc-adm tenant scratch-migrate <tenant>
+  [--check]`, with `--check` instead of `--dry-run` to match payload-sync.
+  There is no `--project` filter; a whole tenant at a time is what the
+  payload sync does and is enough for an idempotent sweep.
+- **What counts as a machine.** Every instance in the tenant's app projects
+  whose `user.sandcastle.kind` is empty (a freeform machine) or `machine`.
+  Any other kind is Sandcastle infrastructure and is skipped. A machine with
+  any device named `scratch`, own or from a profile and of any type, is left
+  alone, which is also what makes a second run a no-op.
+- **Pool.** The default profile's pool (`v2ProfileStoragePool`), as create
+  uses, falling back to the infra project's `user.sandcastle.v2.pool`.
+- **Per-machine failures** (for example a same-name volume without the
+  marker) are reported in that machine's row; the sweep continues and the
+  command exits non-zero at the end.
+- **VMs.** A running VM is reported as `attached-next-restart`, per the
+  brief. The Incus v6.23.0 source suggests this is conservative: a virtiofs
+  disk can be hotplugged into a running VM (`disk.CanHotPlug`) and the agent
+  mounts hotplugged shares (`cmd/incus-agent/events.go`). Not verified live.
+- **Guest unit.** The migration only adds the volume and device. The
+  `sc-scratch` unit on such a machine comes from `sc fix --only scratch`,
+  and `/tmp` moves at the next restart. Folding the unit install into the
+  admin command would mean an exec into every guest from the admin path,
+  which payload-sync deliberately avoids.
+- `v2TenantAppProjects` now owns the tenant app-project enumeration that
+  `SyncTenantPlatformPayload` had inline; both sweeps use it.
+
+## 2026-11-12 — Machine scratch volume (#210): live test findings
+
+A live run on a real Incus (Ubuntu 26.04, container and VM) found four
+problems with the guest side described above. The design moved from a
+payload script run late to a baked script run early.
+
+- **The unit ran too late.** `After=incus-agent.service`,
+  `Before=systemd-user-sessions.service` let every `PrivateTmp=` service that
+  starts earlier (`systemd-hostnamed`, logind, resolved, caddy) create its
+  `/tmp/systemd-private-*` dir in the old `/tmp`. The bind then hid it, and
+  the next activation failed with `226/NAMESPACE`. The unit now has
+  `DefaultDependencies=no`, runs after `local-fs.target` and before
+  `sysinit.target` and `systemd-tmpfiles-setup.service`, so nothing has
+  used `/tmp` yet and tmpfiles populates the new one. The `systemd-tmpfiles`
+  rerun in the old script is gone with it.
+- **A VM's payload arrives too late to run from.** `/.sc/platform` is itself
+  a virtiofs share that `incus-agent` mounts, and the agent starts well after
+  `sysinit.target`. So the script cannot live in the payload. It is baked as
+  `/usr/local/sbin/sc-scratch-setup` by cloud-init and by
+  `sc fix --only scratch`, which also means a fix to it reaches existing
+  machines only through `sc fix`, not `payload-sync`. On a VM the script
+  mounts the scratch share itself (`mount -t virtiofs incus_scratch
+  /scratch`, the tag the agent's `agent-mounts.json` names); the agent then
+  sees `/scratch` mounted and does not mount it again (one mount observed
+  live). The 60 s wait and the `agent-mounts.json` probe are gone: a failed
+  virtiofs mount means the VM has no scratch share.
+- **First boot.** cloud-init runs after sysinit, so starting the unit from
+  `runcmd` had the same problem. The last two `runcmd` entries now enable the
+  unit for later boots and run `sc-scratch-setup --restart-private-tmp`,
+  which, only when it bound something, `systemctl try-restart`s every active
+  service whose `PrivateTmp` is `yes`. No user session exists yet on first
+  boot. It runs last so services started by earlier entries (caddy) are
+  covered. `disconnected` (newer systemd) is left alone, because it does not
+  live under `/tmp`.
+- **XDG_CACHE_HOME was interactive-only.** `/etc/bash.bashrc` sources
+  `rc.sh` for interactive shells; `bash -l` and `ssh host cmd` did not get
+  it. `/etc/profile.d/sc-scratch.sh` now carries the same snippet (one Go
+  constant for both) for login shells. A non-interactive `ssh host cmd` reads
+  neither and keeps the default cache; that is documented, not fixed.
+- **Older projects.** cloud-init comes from the project profile, rendered by
+  the Auth App. A project rendered by an older release gives new machines the
+  volume but no unit. `sc project rerender <project>` re-renders the profile
+  with the Auth App's binary (checked: it calls `RenderProjectProfilesV2`,
+  which renders `V2DefaultProfileUserData`), so it fixes new machines once
+  the Auth App runs this release; `sc fix --only scratch` fixes one machine.
+- The three baked files are one table (`scratchGuestFiles`), from which the
+  cloud-init fragment, the backfill and the check are rendered, so they
+  cannot drift. The check compares content and mode of all three and the
+  enabled state. `sc fix --only scratch` still converges the payload first,
+  because interactive shells get the XDG export from `shell/rc.sh`.
+- Verified live and unchanged: a restricted certificate creates the volume
+  with size, marker and no schedule; the ZFS quota returns EDQUOT at the
+  size; `sc rm` deletes the volume; `--no-scratch` creates nothing;
+  `scratch-migrate --check` output.
+
+## 2026-11-12 — Machine scratch volume (#210): scratch-migrate --project
+
+Reverses the "no `--project` filter" call in the migration entry above.
+Rolling the migration out across a tenant whose machines need a restart
+afterwards is easier one project at a time, so `scratch-migrate` takes a
+repeatable `--project`. A name matches an app project either short
+(`default`) or as the full Incus project name, so an admin can paste either
+from `incus project list` or `sc project list`. A name that matches nothing
+fails the command before any write, listing the tenant's app projects; a
+silently empty sweep would read as success.
+
+## 2026-11-12 — Machine scratch volume (#210): review fixes
+
+Fixes from the PR #211 review, each verified against the code first.
+
+- A. Docs give the rollout order for an older machine: `sc-adm tenant
+  scratch-migrate <tenant> --project <p>` adds the volume, then `sc fix <m>
+  --only scratch` installs the unit, then a restart binds. The fixup alone
+  installs a unit that finds no volume.
+- B. e2e step 15d installs `golang-go` and `python3-pip` first, because the
+  default profile ships neither, and checks with bash instead of zsh. uv is
+  dropped from the step: it would need its own installer, and pip and Go
+  already prove `XDG_CACHE_HOME` reaches a tool.
+- C. The Cargo override is shown as two TOML lines (`[build]`, then
+  `target-dir = …`); the one-line form is invalid TOML.
+- D. `scratch-migrate` resolves the tenant's install with `detectAdminPrefix`
+  like the other tenant commands. Without it, a run without
+  `SANDCASTLE_INCUS_PROJECT_PREFIX` failed on obelix with "infra project
+  sc2-thieso2 not found". The command test reproduces that error without
+  the call.
+- E. `--check` reads a same-name volume (read-only) and reports the row
+  `FAILED` with the error the real run gives, and counts it, so `--check`
+  exits non-zero exactly when the real run would.
+- F. A `--bare` machine without a scratch device is skipped
+  (`skipped-bare`, "re-create it to get scratch"), in `--check` too: `sc fix`
+  refuses bare machines, so a volume would never carry `/tmp`. A bare
+  machine created by this release already has the device and stays
+  `present`. The skip is not a failure.
+- G+H. A reused marked volume (leftover of a failed create) now goes through
+  the same `reconcileScratchVolume` as a new one: the pool-inherited
+  snapshot schedule is removed and `size` is set to the requested quota,
+  and an update error fails the create. Reconciling beats rejecting: the
+  volume is Sandcastle's own and holds nothing yet. A shrink below usage
+  fails in Incus and surfaces as that error.
+- J. The setup script copies `/var/tmp` (`cp -a`) onto `/scratch/var-tmp`
+  when the volume side is empty and `/var/tmp` is not, before the bind, so
+  the first bind on an existing machine hides nothing. A failed copy skips
+  that bind and fails the unit. `/tmp` is not copied: it is ephemeral by
+  contract. The emptiness test keeps reruns from copying again.
+- K. The cache snippet chmods the per-user cache dir to 700 after the `-O`
+  check: `mkdir -p -m 700` leaves a dir the user created earlier at 0755.
+- Dismissed: the 60-second VM mount wait (that code is gone since the baked
+  early unit), and a foreign mount at `/scratch` on a `--no-scratch` machine
+  (`/scratch` is reserved; topology and usage now say so).

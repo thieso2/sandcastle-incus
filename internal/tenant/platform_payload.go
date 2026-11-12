@@ -65,7 +65,7 @@ const (
 func PlatformPayload() ([]PlatformPayloadFile, string) {
 	files := []PlatformPayloadFile{
 		{Path: SCPayloadSSHRCPath, Mode: 0o755, Content: sshAgentRepublishScript},
-		{Path: SCPayloadShellRCPath, Mode: 0o644, Content: sshAgentConsumeSnippet},
+		{Path: SCPayloadShellRCPath, Mode: 0o644, Content: sshAgentConsumeSnippet + scratchCacheSnippet},
 		{Path: SCPayloadGeneralizePath, Mode: 0o755, Content: machineGeneralizeScript},
 		{Path: SCPayloadCaddySetupPath, Mode: 0o755, Content: caddyIngressSetupScript},
 		{Path: SCPayloadCaddyPath, Mode: 0o755, Content: caddyPlatformLauncher},

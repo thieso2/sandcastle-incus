@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
@@ -15,6 +17,8 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	var bare bool
 	var hostnames []string
 	var aliases []string
+	var noScratch bool
+	var scratchSize string
 	command := &cobra.Command{
 		Use:               "create [[remote:]project:]machine",
 		Aliases:           []string{"new"},
@@ -35,13 +39,15 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 				return err
 			}
 			return runCreateMachineV2(cmd.Context(), config, opts, summary, reference, createV2Options{
-				Image:     image,
-				VM:        vm,
-				DryRun:    dryRun,
-				HomeShare: homeShare,
-				Bare:      bare,
-				Hostnames: hostnames,
-				Aliases:   aliases,
+				Image:       image,
+				VM:          vm,
+				DryRun:      dryRun,
+				HomeShare:   homeShare,
+				Bare:        bare,
+				Hostnames:   hostnames,
+				Aliases:     aliases,
+				NoScratch:   noScratch,
+				ScratchSize: scratchSize,
 			})
 		},
 	}
@@ -66,6 +72,8 @@ func newCreateCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 	command.Flags().Var(&appendStringFlag{target: &aliases}, "alias", "one-label alias under the Project Domain (repeatable; uses the project certificate)")
 	command.Flags().Var(&appendStringFlag{target: &hostnames}, "hostname", "explicit public hostname under a registered Public DNS Zone (repeatable; alias --fqdn); claimed before the machine is created")
 	command.Flags().Var(&appendStringFlag{target: &hostnames}, "fqdn", "alias of --hostname")
+	command.Flags().BoolVar(&noScratch, "no-scratch", false, "create no per-machine scratch volume; /tmp, /var/tmp and the XDG cache stay on the snapshotted disks")
+	command.Flags().StringVar(&scratchSize, "scratch-size", "", "quota of the machine's /scratch volume, in Incus units (default "+tenant.DefaultScratchSize+")")
 	return command
 }
 

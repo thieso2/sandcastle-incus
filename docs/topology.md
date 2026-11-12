@@ -38,7 +38,9 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
  ├── sc2-<tenant>-default    Incus project (features.networks=false → shared bridge)
  │     ├── default profile   = shared /workspace volume + cloud-init login
  │     ├── homeshare profile = shared /home volume (opt-in: sc create --home-share)
- │     └── machines: dev, web, …   → dev.default.<suffix>  (+ short  dev.<suffix>)
+ │     ├── machines: dev, web, …   → dev.default.<suffix>  (+ short  dev.<suffix>)
+ │     └── volumes dev-scratch, web-scratch, …  one per machine at /scratch
+ │                             (instance device; never snapshotted or backed up)
  │
  └── sc2-<tenant>-<project>  Incus project   (a second project; same shape)
        └── machines: dev1, …          → dev1.<project>.<suffix>   (no short form)
@@ -51,6 +53,42 @@ Tenant  (the ownership/identity/infra boundary; handle = GitHub username for
   Each project carries its own shared `/home` + `/workspace` volumes and the
   tenant's login profile — `/workspace` on every machine, `/home` only on
   machines created with `--home-share` (the `homeshare` profile).
+- **One scratch volume per machine (#210).** `sc create` adds the custom volume
+  `<machine>-scratch` (default `100GiB`, `--scratch-size`, opt out with
+  `--no-scratch`) as the machine's own `scratch` disk device at `/scratch`. A
+  profile cannot carry it, because a profile device names one volume that every
+  machine using the profile would share. Inside the machine `/tmp` and
+  `/var/tmp` are bind mounts of `/scratch/tmp` and `/scratch/var-tmp`
+  (`sc-scratch.service` running the baked `/usr/local/sbin/sc-scratch-setup`
+  before `sysinit.target`; on a VM it mounts the `incus_scratch` virtiofs share
+  itself; on the first bind it copies the content of an existing `/var/tmp`
+  onto the empty volume, `/tmp` is not copied), and interactive and login
+  shells set `XDG_CACHE_HOME=/scratch/cache/<user>` (`shell/rc.sh`,
+  `/etc/profile.d/sc-scratch.sh`). What is kept and what is not:
+
+  | Path | Volume | Snapshotted, backed up |
+  |---|---|---|
+  | `/` (root disk) | instance root | yes |
+  | `/home`, `/workspace` | project shared volumes | yes |
+  | `/tmp`, `/var/tmp`, `~/.cache` via `XDG_CACHE_HOME` | `<machine>-scratch` | no |
+
+  The volume carries `user.sandcastle.scratch=true`, the marker the host
+  snapshot script and backupd skip, and no snapshot schedule; its `size` is a
+  hard ZFS quota, so a runaway cache fills `/scratch` and not the pool. Cargo
+  `target/` directories stay in the project tree unless the user opts in with
+  two lines in `~/.cargo/config.toml`:
+
+  ```toml
+  [build]
+  target-dir = "/scratch/cache/<user>/cargo-target"
+  ```
+
+  `sc delete` removes the volume with the machine, and deleting a project
+  sweeps every marked volume in it. `/scratch` is a Sandcastle-reserved path:
+  do not mount anything else there, also not on a `--no-scratch` machine. A
+  machine created before scratch volumes existed gets its volume from
+  `sc-adm tenant scratch-migrate`, then the unit from
+  `sc fix <m> --only scratch`, and the bind at its next restart.
 - **One shared network per tenant** (`sc2-<tenant>` bridge in `default`);
   projects are not network-isolated from each other (single owner).
 - **Per-tenant tailnet, subnet-router sidecar.** Machines are **not** tailnet
