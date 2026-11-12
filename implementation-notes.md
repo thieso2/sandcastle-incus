@@ -6974,3 +6974,22 @@ key, so it is an external contract.
   per the brief. The guest setup creates the writable subdirectories.
 - Size. Validated with Incus's own unit parser (`shared/units`), positive
   only, so `--scratch-size lots` fails at the CLI instead of at the API.
+
+## 2026-11-12 — Machine scratch volume (#210): delete paths
+
+- `sc delete <m>` deletes the instance first, then the volume its own
+  `scratch` device names (pool and source read off the instance before the
+  delete). It does not recompute `<m>-scratch`: the device is the record of
+  which volume belongs to the machine, and it already carries the pool. A
+  volume without the `user.sandcastle.scratch` marker is never deleted,
+  even when the device points at it. A missing volume is fine. Any other
+  error fails the command after the instance is gone, with the
+  `incus storage volume delete` line to finish by hand.
+- Project and tenant delete (`deleteV2AppProject`, also behind
+  `sc project delete`) sweep every custom volume carrying the marker after
+  the instances are gone. Incus refuses to delete a project that still holds
+  volumes, and a scratch volume left by a failed machine delete would
+  otherwise block it. The sweep keys on the marker, not the `-scratch`
+  suffix, so a tenant volume that merely ends in `-scratch` survives.
+- `v2ProfileStoragePool` is the one place that reads an app project's pool
+  off its default profile; `sc fix`'s payload path used to inline the scan.

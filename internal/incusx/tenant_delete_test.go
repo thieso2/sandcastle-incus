@@ -33,6 +33,9 @@ func (s *fakeDeleteServer) DeleteStoragePool(name string) error {
 	return nil
 }
 
+func (s *fakeDeleteServer) GetCertificates() ([]api.Certificate, error) { return nil, nil }
+func (s *fakeDeleteServer) DeleteCertificate(string) error              { return nil }
+
 func (s *fakeDeleteServer) UseProject(name string) TenantDeleteResourceServer {
 	if s.resources != nil {
 		if resource := s.resources[name]; resource != nil {
@@ -48,8 +51,13 @@ type fakeDeleteResourceServer struct {
 	stoppedInstances []string
 	deletedNetwork   string
 	deletedVolumes   []string
+	volumes          []api.StorageVolume
 	images           []api.Image
 	deletedImages    []string
+}
+
+func (s *fakeDeleteResourceServer) GetStoragePoolVolumes(string) ([]api.StorageVolume, error) {
+	return append([]api.StorageVolume{}, s.volumes...), nil
 }
 
 func (s *fakeDeleteResourceServer) GetInstances(instanceType api.InstanceType) ([]api.Instance, error) {

@@ -490,12 +490,20 @@ func ensureV2SCVolumes(server TenantResourceServer, pool string, shifted bool) e
 }
 
 func ensureV2SharedVolume(server TenantResourceServer, pool string, name string, description string, config map[string]string) error {
-	if _, _, err := server.GetStoragePoolVolume(pool, "custom", name); err == nil {
-		return nil
+	_, err := getOrCreateV2Volume(server, pool, name, description, config)
+	return err
+}
+
+// getOrCreateV2Volume returns the existing custom volume, or creates it and
+// returns nil. Callers that must not adopt a foreign volume inspect the
+// returned one.
+func getOrCreateV2Volume(server TenantResourceServer, pool string, name string, description string, config map[string]string) (*api.StorageVolume, error) {
+	if existing, _, err := server.GetStoragePoolVolume(pool, "custom", name); err == nil {
+		return existing, nil
 	} else if !api.StatusErrorCheck(err, http.StatusNotFound) {
-		return fmt.Errorf("get %s volume: %w", name, err)
+		return nil, fmt.Errorf("get %s volume: %w", name, err)
 	}
-	return server.CreateStoragePoolVolume(pool, api.StorageVolumesPost{
+	return nil, server.CreateStoragePoolVolume(pool, api.StorageVolumesPost{
 		Name: name,
 		Type: "custom",
 		StorageVolumePut: api.StorageVolumePut{

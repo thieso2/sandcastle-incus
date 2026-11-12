@@ -520,12 +520,19 @@ func (c TenantCreator) MachineLifecycleV2(ctx context.Context, incusProject stri
 				_ = op.Wait()
 			}
 		}
+		scratchPool, scratchVolume, hasScratch := instanceScratchVolume(instance)
 		op, err := project.DeleteInstance(name)
 		if err != nil {
 			return fmt.Errorf("delete machine %s: %w", name, err)
 		}
 		if err := op.Wait(); err != nil {
 			return fmt.Errorf("wait for machine %s deletion: %w", name, err)
+		}
+		if hasScratch {
+			if err := deleteMachineScratchVolume(project, scratchPool, scratchVolume); err != nil {
+				return fmt.Errorf("machine %s was deleted, but its scratch volume was not (remove it with `incus storage volume delete %s %s --project %s`): %w",
+					name, scratchPool, scratchVolume, incusProject, err)
+			}
 		}
 		return nil
 	case "start", "stop", "restart":

@@ -27,6 +27,7 @@ type TenantDeleteResourceServer interface {
 	DeleteInstance(name string) (incus.Operation, error)
 	DeleteNetwork(name string) error
 	DeleteStoragePoolVolume(pool string, volType string, name string) error
+	GetStoragePoolVolumes(pool string) ([]api.StorageVolume, error)
 	GetImages() ([]api.Image, error)
 	DeleteImage(fingerprint string) (incus.Operation, error)
 	GetProfiles() ([]api.Profile, error)
@@ -183,6 +184,9 @@ func (s sdkDeleteResourceServer) DeleteInstance(name string) (incus.Operation, e
 func (s sdkDeleteResourceServer) DeleteNetwork(name string) error { return s.inner.DeleteNetwork(name) }
 func (s sdkDeleteResourceServer) DeleteStoragePoolVolume(pool string, volType string, name string) error {
 	return s.inner.DeleteStoragePoolVolume(pool, volType, name)
+}
+func (s sdkDeleteResourceServer) GetStoragePoolVolumes(pool string) ([]api.StorageVolume, error) {
+	return s.inner.GetStoragePoolVolumes(pool)
 }
 func (s sdkDeleteResourceServer) GetImages() ([]api.Image, error) {
 	return s.inner.GetImages()

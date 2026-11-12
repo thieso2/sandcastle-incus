@@ -176,16 +176,7 @@ func ensureProjectPlatformPayload(server TenantCreateServer, incusProject string
 	if err != nil {
 		return SCPayloadProjectStatus{}, fmt.Errorf("get default profile of %s: %w", incusProject, err)
 	}
-	// The storage pool comes from whichever shared-volume device already
-	// exists — sc-platform on current projects, workspace/root on legacy ones
-	// (which then get onboarded below).
-	pool := ""
-	for _, name := range []string{"sc-platform", "workspace", "root"} {
-		if device, ok := profile.Devices[name]; ok && device["pool"] != "" {
-			pool = device["pool"]
-			break
-		}
-	}
+	pool := v2ProfileStoragePool(profile)
 	if pool == "" {
 		return SCPayloadProjectStatus{}, fmt.Errorf("project %s: cannot determine the storage pool from the default profile — re-run `sc login` (or have the admin run `sc-adm tenant payload-sync`)", incusProject)
 	}
@@ -209,6 +200,23 @@ func ensureProjectPlatformPayload(server TenantCreateServer, incusProject string
 		status.Changed = changed
 	}
 	return status, nil
+}
+
+// v2ProfileStoragePool is an app project's storage pool, read off its default
+// profile: whichever shared-volume device exists names it (sc-platform on
+// current projects, workspace or root on legacy ones), "" when none does. A
+// restricted tenant certificate can read the profile but not the infra
+// project that records the pool, so this is the one source every caller has.
+func v2ProfileStoragePool(profile *api.Profile) string {
+	if profile == nil {
+		return ""
+	}
+	for _, name := range []string{"sc-platform", "workspace", "root"} {
+		if device, ok := profile.Devices[name]; ok && device["pool"] != "" {
+			return device["pool"]
+		}
+	}
+	return ""
 }
 
 // ensureSCVolumesAndDevices onboards a (possibly pre-/.sc) app project: it

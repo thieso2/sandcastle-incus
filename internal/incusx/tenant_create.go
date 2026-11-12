@@ -33,6 +33,9 @@ type TenantResourceServer interface {
 	UpdateNetwork(name string, network api.NetworkPut, ETag string) error
 	GetStoragePoolVolume(pool string, volType string, name string) (*api.StorageVolume, string, error)
 	CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error
+	UpdateStoragePoolVolume(pool string, volType string, name string, volume api.StorageVolumePut, ETag string) error
+	DeleteStoragePoolVolume(pool string, volType string, name string) error
+	GetStoragePoolVolumes(pool string) ([]api.StorageVolume, error)
 	GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error)
 	CreateStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string, args incus.InstanceFileArgs) error
 	GetProfile(name string) (*api.Profile, string, error)
@@ -263,6 +266,18 @@ func (s sdkResourceServer) GetStoragePoolVolume(pool string, volType string, nam
 
 func (s sdkResourceServer) CreateStoragePoolVolume(pool string, volume api.StorageVolumesPost) error {
 	return s.inner.CreateStoragePoolVolume(pool, volume)
+}
+
+func (s sdkResourceServer) UpdateStoragePoolVolume(pool string, volType string, name string, volume api.StorageVolumePut, etag string) error {
+	return s.inner.UpdateStoragePoolVolume(pool, volType, name, volume, etag)
+}
+
+func (s sdkResourceServer) DeleteStoragePoolVolume(pool string, volType string, name string) error {
+	return s.inner.DeleteStoragePoolVolume(pool, volType, name)
+}
+
+func (s sdkResourceServer) GetStoragePoolVolumes(pool string) ([]api.StorageVolume, error) {
+	return s.inner.GetStoragePoolVolumes(pool)
 }
 
 func (s sdkResourceServer) GetStorageVolumeFile(pool string, volumeType string, volumeName string, filePath string) (io.ReadCloser, *incus.InstanceFileResponse, error) {
