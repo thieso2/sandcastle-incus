@@ -6993,3 +6993,46 @@ key, so it is an external contract.
   suffix, so a tenant volume that merely ends in `-scratch` survives.
 - `v2ProfileStoragePool` is the one place that reads an app project's pool
   off its default profile; `sc fix`'s payload path used to inline the scan.
+
+## 2026-11-12 — Machine scratch volume (#210): the guest side
+
+- One oneshot unit instead of the issue's two systemd mount units.
+  `sc-scratch.service` is baked by cloud-init into all four user-data
+  documents (profile with and without ingress, `--bare`, Dev Image) and runs
+  `/.sc/platform/scratch/setup.sh`, so the logic updates centrally with the
+  payload like every other platform script (ADR-0022). Mount units would
+  have to be baked per machine and could not express "only if /scratch is a
+  mountpoint" without a generator.
+- Ordering. `After=local-fs.target incus-agent.service`,
+  `Before=systemd-user-sessions.service multi-user.target`. Checked in the
+  Incus v6.23.0 source: the agent mounts every virtiofs share listed in
+  `agent-mounts.json` before it sends `READY=1` (`cmd/incus-agent/main_agent.go`),
+  so `After=incus-agent.service` sees both `/scratch` and `/.sc` on a VM,
+  and `ConditionPathExists=/.sc/platform/scratch/setup.sh` is evaluated after
+  the payload mount. The condition skips the unit (not a failure) while a
+  project's payload predates the script.
+- VM wait. setup.sh still waits up to 60 s for `/scratch` as the brief asked,
+  but exits at once when the wait cannot help: in a container (disks are
+  mounted before init), or on a VM whose `/run/incus_agent/agent-mounts.json`
+  does not list `/scratch`. A `--no-scratch` VM therefore boots without the
+  60 s stall.
+- `/scratch/cache` is 1777, not the brief's 0755. A root-owned 0755 dir
+  makes the rc snippet's `mkdir -p -m 700 /scratch/cache/$USER` fail for
+  every non-root user. Sticky 1777 lets each user create their own 0700
+  dir, and the snippet only exports it when the user owns it (`[ -O ]`), so
+  a directory pre-created by someone else is never adopted.
+- After binding, setup.sh reruns `systemd-tmpfiles --create` for `/tmp` and
+  `/var/tmp`, because sysinit populated the root-disk `/tmp` that the bind
+  now hides.
+- `rc.sh`, not `profile.d`. The XDG export rides the existing
+  `shell/rc.sh` payload script, which every machine already sources through
+  the stable shim in `/etc/bash.bashrc` and `/etc/zsh/zshrc`. A
+  `profile.d` file would have to be baked per machine and would miss
+  non-login herdr/tmux panes. No `GOCACHE`: Go's `os.UserCacheDir` returns
+  `$XDG_CACHE_HOME` when set, and `GOCACHE` defaults to `<that>/go-build`.
+  uv, pip and huggingface also follow `XDG_CACHE_HOME`.
+- `sc fix --only scratch` enables the unit but does not start it. Binding
+  `/tmp` under a running machine would hide the sockets of live tmux or
+  herdr sessions; the bind happens at the next restart, or now with
+  `sudo systemctl start sc-scratch`. Fresh machines start it from cloud-init
+  `runcmd`, before any login exists.
