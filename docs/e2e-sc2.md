@@ -2152,6 +2152,25 @@ path and end state as Phase 9a.
 
 ---
 
+### Phase 9c — OIDC browser login beside GitHub (opt-in) 🚧 not yet run
+Deploy (or redeploy) the auth-app with `--oidc-issuer <issuer> --oidc-client-id <id>
+--oidc-display-name Ring --bootstrap-oidc-admin <key>=<email>`, with the client's
+redirect URI set to `https://$PUBIC_URL/oauth/oidc/callback`.
+
+```bash
+curl -s https://$PUBIC_URL/login | grep -E 'login/(oidc|github)'
+curl -s -o /dev/null -w '%{redirect_url}\n' https://$PUBIC_URL/login/oidc
+```
+
+**PASS:** `journalctl -u sandcastle-auth-app` shows `OIDC login: provider <issuer> ready`.
+`/login` lists "Sign in with Ring" and (with GitHub credentials) "Sign in with GitHub".
+`/login/oidc` redirects to the provider's authorize endpoint with `state`, `nonce`,
+`code_challenge_method=S256` and the callback `redirect_uri`. `sc login https://$PUBIC_URL`
+opens the device page, which sends a signed-out browser to `/login?next=/device?...`;
+signing in at the provider as the bootstrap admin returns to the device page and approves
+the login. `/admin/allowlist` shows the admin's email as `(bound)`. Without OIDC flags,
+`/login` and `/login/oidc` answer 404 and the device page still redirects to `/login/github`.
+
 ## Phase 8d — Base images from a running machine (`sc image`) ✅
 
 Turn a hand-customized machine into a reusable base, no image build recipe

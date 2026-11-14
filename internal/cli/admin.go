@@ -1356,6 +1356,7 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	var defaultUnixUser string
 	var tailscaleAuthKey string
 	var acmeDirectory string
+	var oidcLogin oidcLoginFlags
 	command := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the Sandcastle Auth App",
@@ -1373,6 +1374,11 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 				DefaultUnixUser:     defaultUnixUser,
 				TailscaleAuthKey:    tailscaleAuthKey,
 				ACMEDirectory:       acmeDirectory,
+				OIDCIssuer:          oidcLogin.issuer,
+				OIDCClientID:        oidcLogin.clientID,
+				OIDCClientSecret:    oidcLogin.clientSecret,
+				OIDCDisplayName:     oidcLogin.displayName,
+				BootstrapOIDCAdmins: oidcLogin.admins(),
 			})
 			if err != nil {
 				return err
@@ -1394,6 +1400,7 @@ func newAdminAuthAppServeCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix username for newly provisioned Personal Tenant machines")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "Tailscale auth key returned to approved CLI device logins for unattended tenant attachment")
 	command.Flags().StringVar(&acmeDirectory, "acme-directory", "", "ACME directory URL for Machine Certificates (Public DNS Zones); default Let's Encrypt production, "+authapp.LetsEncryptStagingDirectory+" for staging")
+	oidcLogin.register(command)
 	_ = command.MarkFlagRequired("database")
 	return command
 }

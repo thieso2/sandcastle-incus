@@ -109,3 +109,40 @@ func TestValidateRouteDNSConfig(t *testing.T) {
 		})
 	}
 }
+
+// OIDC login is opt-in: the env always defines the variables (empty = off)
+// and the unit passes each one as a single argument.
+func TestAuthAppEnvAndUnitCarryOIDCLogin(t *testing.T) {
+	out := authAppEnv(BootstrapAuthAppRequest{
+		OIDCIssuer:          " https://ring.example.com ",
+		OIDCClientID:        "sandcastle",
+		OIDCClientSecret:    "s3cret",
+		OIDCDisplayName:     "Ring",
+		BootstrapOIDCAdmins: []string{"thies=thies@example.com", "enno=enno@example.com"},
+	})
+	for _, want := range []string{
+		"SANDCASTLE_AUTH_OIDC_ISSUER='https://ring.example.com'",
+		"SANDCASTLE_AUTH_OIDC_CLIENT_ID='sandcastle'",
+		"SANDCASTLE_AUTH_OIDC_CLIENT_SECRET='s3cret'",
+		"SANDCASTLE_AUTH_OIDC_DISPLAY_NAME='Ring'",
+		"SANDCASTLE_AUTH_OIDC_BOOTSTRAP_ADMINS='thies=thies@example.com,enno=enno@example.com'",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("auth-app env missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(authAppEnv(BootstrapAuthAppRequest{}), "SANDCASTLE_AUTH_OIDC_ISSUER=''") {
+		t.Fatal("auth-app env must always define SANDCASTLE_AUTH_OIDC_ISSUER (empty = OIDC login off)")
+	}
+	for _, want := range []string{
+		" --oidc-issuer ${SANDCASTLE_AUTH_OIDC_ISSUER}",
+		" --oidc-client-id ${SANDCASTLE_AUTH_OIDC_CLIENT_ID}",
+		" --oidc-client-secret ${SANDCASTLE_AUTH_OIDC_CLIENT_SECRET}",
+		" --oidc-display-name ${SANDCASTLE_AUTH_OIDC_DISPLAY_NAME}",
+		" --bootstrap-oidc-admin ${SANDCASTLE_AUTH_OIDC_BOOTSTRAP_ADMINS}\n",
+	} {
+		if !strings.Contains(authAppUnit(), want) {
+			t.Fatalf("auth-app unit missing %q:\n%s", want, authAppUnit())
+		}
+	}
+}

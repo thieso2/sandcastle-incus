@@ -30,6 +30,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 		routeIngress, routeBaseDomain, routeCNAMETarget, routeFront, routeTLS string
 		routeDNSCloudflareAPIToken                                            string
 		routeDNSCloudflareWildcards                                           []string
+		oidcLogin                                                             oidcLoginFlags
 	)
 	command := &cobra.Command{
 		Use:   "deploy",
@@ -53,20 +54,36 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 			// GitHub logins offline, so a real OAuth app (client id/secret) is not
 			// needed — skip prompting for and requiring them.
 			simulate := strings.TrimSpace(simulateGitHubToken) != ""
+			// With OIDC login configured, GitHub OAuth is optional, and OIDC
+			// bootstrap admins stand in for admin GitHub users.
+			if err := oidcLogin.validate(); err != nil {
+				return err
+			}
+			needGitHub := !simulate && !oidcLogin.configured()
+			needAdminUsers := len(oidcLogin.admins()) == 0
+			if oidcLogin.configured() {
+				if err := checkGitHubWithOIDC(githubClientID, githubClientSecret); err != nil {
+					return err
+				}
+			}
 
 			in := bufio.NewReader(config.stdin)
 			hostname = promptIfBlank(config.stdout, in, hostname, "Auth Hostname (e.g. sc2.thieso2.dev)")
-			if !simulate {
+			if needGitHub {
 				githubClientID = promptIfBlank(config.stdout, in, githubClientID, "GitHub OAuth client id")
 				githubClientSecret = promptIfBlank(config.stdout, in, githubClientSecret, "GitHub OAuth client secret")
 			}
-			adminUsers = promptIfBlank(config.stdout, in, adminUsers, "Admin GitHub users (comma-separated)")
+			if needAdminUsers {
+				adminUsers = promptIfBlank(config.stdout, in, adminUsers, "Admin GitHub users (comma-separated)")
+			}
 
 			required := map[string]string{
-				"auth-hostname":      hostname,
-				"admin-github-users": adminUsers,
+				"auth-hostname": hostname,
 			}
-			if !simulate {
+			if needAdminUsers {
+				required["admin-github-users"] = adminUsers
+			}
+			if needGitHub {
 				required["github-client-id"] = githubClientID
 				required["github-client-secret"] = githubClientSecret
 			}
@@ -102,6 +119,11 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 				TailscaleAuthKey:           tailscaleAuthKey,
 				DebugDeviceUser:            debugDeviceUser,
 				SimulateGitHubToken:        simulateGitHubToken,
+				OIDCIssuer:                 oidcLogin.issuer,
+				OIDCClientID:               oidcLogin.clientID,
+				OIDCClientSecret:           oidcLogin.clientSecret,
+				OIDCDisplayName:            oidcLogin.displayName,
+				BootstrapOIDCAdmins:        oidcLogin.admins(),
 				CIDRPool:                   cidrPool,
 				ProjectPrefix:              projectPrefix,
 				InfraProject:               infraProject,
@@ -162,6 +184,7 @@ func newAdminAuthAppDeployCommand(config commandConfig) *cobra.Command {
 	_ = command.Flags().MarkHidden("route-tls")
 	command.Flags().StringVar(&routeDNSCloudflareAPIToken, "route-dns-cloudflare-api-token", "", "Cloudflare API token with zone DNS edit access; wildcard public routes use one DNS-01 certificate instead of issuing a certificate per subdomain")
 	command.Flags().StringSliceVar(&routeDNSCloudflareWildcards, "route-dns-cloudflare-wildcard", nil, "exact leading-wildcard Public Route hostname authorized for Cloudflare DNS-01 (repeat for multiple hostnames)")
+	oidcLogin.register(command)
 	return command
 }
 

@@ -493,7 +493,9 @@ _Avoid_: Projectless mode
 - A **User** has one **Sandcastle User Key**.
 - A **Sandcastle User Key** is the allowlisted **Normalized GitHub Username** in v1.
 - A **GitHub Username** rename requires explicit future migration code.
-- GitHub is the only external login provider in v1.
+- GitHub is the default external login provider. An install may add one OIDC Identity Provider for browser login beside it (**OIDC Login**).
+- An OIDC-only **User** has a **Sandcastle User Key** chosen by an admin under GitHub username rules; it is also the Personal Tenant name. Such a user cannot sign in through GitHub.
+- **OIDC Login** allowlists an email; the first login binds the provider's subject, and later logins match the subject only.
 - Sandcastle v1 has no password login for the Auth App.
 - **GitHub Email** may be stored but is not used for notifications in v1.
 - **GitHub Email** is not used for identity, allowlisting, tenant names, or OIDC subject claims.

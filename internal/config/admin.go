@@ -69,6 +69,7 @@ type Admin struct {
 	AuthAdminGitHubUsers   []string
 	AuthDebugDeviceUser    string
 	AuthTailscaleAuthKey   string
+	AuthOIDC               AuthOIDCLogin
 	// ProjectImage is the image a new project is given at creation
 	// (SANDCASTLE_DEFAULT_PROJECT_IMAGE; DefaultProjectImage when unset).
 	ProjectImage           string
@@ -78,6 +79,44 @@ type Admin struct {
 	AllowedDomainSuffixes  []string
 	DeniedDomainSuffixes   []string
 	Images                 Images
+}
+
+// AuthOIDCLogin is the Auth App's opt-in OIDC login beside GitHub
+// (SANDCASTLE_AUTH_OIDC_*). BootstrapAdmins entries are "<user_key>=<email>".
+type AuthOIDCLogin struct {
+	Issuer          string
+	ClientID        string
+	ClientSecret    string
+	DisplayName     string
+	BootstrapAdmins []string
+}
+
+func authOIDCLoginFromEnv(env map[string]string) AuthOIDCLogin {
+	return AuthOIDCLogin{
+		Issuer:          strings.TrimSpace(env["SANDCASTLE_AUTH_OIDC_ISSUER"]),
+		ClientID:        strings.TrimSpace(env["SANDCASTLE_AUTH_OIDC_CLIENT_ID"]),
+		ClientSecret:    strings.TrimSpace(env["SANDCASTLE_AUTH_OIDC_CLIENT_SECRET"]),
+		DisplayName:     strings.TrimSpace(env["SANDCASTLE_AUTH_OIDC_DISPLAY_NAME"]),
+		BootstrapAdmins: splitListFrom(env, "SANDCASTLE_AUTH_OIDC_BOOTSTRAP_ADMINS"),
+	}
+}
+
+func mergeAuthOIDCLogin(base AuthOIDCLogin, overrides AuthOIDCLogin) AuthOIDCLogin {
+	out := base
+	for target, value := range map[*string]string{
+		&out.Issuer:       overrides.Issuer,
+		&out.ClientID:     overrides.ClientID,
+		&out.ClientSecret: overrides.ClientSecret,
+		&out.DisplayName:  overrides.DisplayName,
+	} {
+		if strings.TrimSpace(value) != "" {
+			*target = strings.TrimSpace(value)
+		}
+	}
+	if len(overrides.BootstrapAdmins) > 0 {
+		out.BootstrapAdmins = append([]string{}, overrides.BootstrapAdmins...)
+	}
+	return out
 }
 
 type Images struct {
@@ -130,6 +169,7 @@ func adminOverridesFromEnv(env map[string]string) Admin {
 		AuthAdminGitHubUsers:   splitListFrom(env, "SANDCASTLE_AUTH_ADMIN_GITHUB_USERS"),
 		AuthDebugDeviceUser:    strings.TrimSpace(env["SANDCASTLE_AUTH_DEBUG_DEVICE_USER"]),
 		AuthTailscaleAuthKey:   authTailscaleAuthKeyFromEnv(env),
+		AuthOIDC:               authOIDCLoginFromEnv(env),
 		AuthToken:              strings.TrimSpace(env["SANDCASTLE_AUTH_TOKEN"]),
 		Broker:                 strings.TrimSpace(env["SANDCASTLE_BROKER"]),
 		RouteBrokerIncusSocket: strings.TrimSpace(env["SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET"]),
@@ -196,6 +236,7 @@ func MergeAdmin(base Admin, overrides Admin) Admin {
 	if strings.TrimSpace(overrides.AuthDebugDeviceUser) != "" {
 		out.AuthDebugDeviceUser = strings.TrimSpace(overrides.AuthDebugDeviceUser)
 	}
+	out.AuthOIDC = mergeAuthOIDCLogin(out.AuthOIDC, overrides.AuthOIDC)
 	if strings.TrimSpace(overrides.AuthTailscaleAuthKey) != "" {
 		out.AuthTailscaleAuthKey = strings.TrimSpace(overrides.AuthTailscaleAuthKey)
 	}

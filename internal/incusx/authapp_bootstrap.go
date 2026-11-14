@@ -55,6 +55,14 @@ type BootstrapAuthAppRequest struct {
 	DebugDeviceUser     string   // enable debug device approval as this user (optional)
 	SimulateGitHubToken string   // DEV ONLY: enable simulated-GitHub auth gated by this token (optional)
 
+	// OIDC login (optional): an external Identity Provider beside GitHub.
+	// BootstrapOIDCAdmins entries are "<user_key>=<email>".
+	OIDCIssuer          string
+	OIDCClientID        string
+	OIDCClientSecret    string
+	OIDCDisplayName     string
+	BootstrapOIDCAdmins []string
+
 	// Integrated ingress (see authapp_ingress.go): "none" (default, BYO edge),
 	// "acme" (host :80/:443 + Let's Encrypt), or "cloudflare" (outbound tunnel,
 	// no inbound ports; TunnelToken required).
@@ -436,6 +444,11 @@ func authAppEnv(req BootstrapAuthAppRequest) string {
 		"SANDCASTLE_AUTH_SIMULATE_GITHUB_TOKEN=" + q(strings.TrimSpace(req.SimulateGitHubToken)),
 		"SANDCASTLE_AUTH_DEFAULT_UNIX_USER=" + q(strings.TrimSpace(req.DefaultUnixUser)),
 		"SANDCASTLE_AUTH_TAILSCALE_AUTHKEY=" + q(strings.TrimSpace(req.TailscaleAuthKey)),
+		"SANDCASTLE_AUTH_OIDC_ISSUER=" + q(strings.TrimSpace(req.OIDCIssuer)),
+		"SANDCASTLE_AUTH_OIDC_CLIENT_ID=" + q(strings.TrimSpace(req.OIDCClientID)),
+		"SANDCASTLE_AUTH_OIDC_CLIENT_SECRET=" + q(strings.TrimSpace(req.OIDCClientSecret)),
+		"SANDCASTLE_AUTH_OIDC_DISPLAY_NAME=" + q(strings.TrimSpace(req.OIDCDisplayName)),
+		"SANDCASTLE_AUTH_OIDC_BOOTSTRAP_ADMINS=" + q(strings.Join(req.BootstrapOIDCAdmins, ",")),
 		// Public Routes (Spec #111): the running auth-app needs the Auth Hostname's
 		// own ingress mode (to render its Caddy site), the ACME email, and — for
 		// coexistence — whether native-ACME route ingress is on plus the route base
@@ -492,7 +505,12 @@ func authAppUnit() string {
 		" --simulate-github-token ${SANDCASTLE_AUTH_SIMULATE_GITHUB_TOKEN}" +
 		" --default-unix-user ${SANDCASTLE_AUTH_DEFAULT_UNIX_USER}" +
 		" --tailscale-auth-key ${SANDCASTLE_AUTH_TAILSCALE_AUTHKEY}" +
-		" --acme-directory ${SANDCASTLE_AUTH_ACME_DIRECTORY}\n" +
+		" --acme-directory ${SANDCASTLE_AUTH_ACME_DIRECTORY}" +
+		" --oidc-issuer ${SANDCASTLE_AUTH_OIDC_ISSUER}" +
+		" --oidc-client-id ${SANDCASTLE_AUTH_OIDC_CLIENT_ID}" +
+		" --oidc-client-secret ${SANDCASTLE_AUTH_OIDC_CLIENT_SECRET}" +
+		" --oidc-display-name ${SANDCASTLE_AUTH_OIDC_DISPLAY_NAME}" +
+		" --bootstrap-oidc-admin ${SANDCASTLE_AUTH_OIDC_BOOTSTRAP_ADMINS}\n" +
 		"Restart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n"
 }
 

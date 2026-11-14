@@ -37,13 +37,17 @@ func (h handler) adminAllowlist(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		users, err := ListUsers(r.Context(), h.db)
+		entries, err := listAllowlistEntries(r.Context(), h.db)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		page := allowlistPage{Entries: entries}
+		if h.oidcLogin != nil {
+			page.OIDCName = h.oidcLogin.DisplayName()
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = allowlistTemplate.Execute(w, users)
+		_ = allowlistTemplate.Execute(w, page)
 	case http.MethodPost:
 		username := strings.TrimSpace(r.FormValue("github_username"))
 		if err := ValidateGitHubUsername(username); err != nil {
@@ -63,6 +67,24 @@ func (h handler) adminAllowlist(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// adminAllowlistOIDC adds or links a user for OIDC login. The user key
+// becomes the Personal Tenant name, so it follows GitHub username rules.
+func (h handler) adminAllowlistOIDC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, err := h.requireAdmin(r); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if _, err := AllowlistOIDCUser(r.Context(), h.db, h.oidcLogin.config.Issuer, r.FormValue("user_key"), r.FormValue("email"), false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/admin/allowlist", http.StatusSeeOther)
 }
 
 func (h handler) adminAllowlistRemove(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +139,11 @@ func (h handler) revokeMachineSSHAccessFromAllTenants(r *http.Request, userKey s
 	return nil
 }
 
+type allowlistPage struct {
+	Entries  []allowlistEntry
+	OIDCName string // "" when OIDC login is not configured
+}
+
 var allowlistTemplate = template.Must(template.New("allowlist").Parse(`<!doctype html>
 <html lang="en">
 <head>
@@ -132,14 +159,24 @@ var allowlistTemplate = template.Must(template.New("allowlist").Parse(`<!doctype
       <label>GitHub Username <input name="github_username"></label>
       <button type="submit">Add</button>
     </form>
+    {{if .OIDCName}}
+    <h2>Add {{.OIDCName}} user</h2>
+    <form method="post" action="/admin/allowlist/oidc">
+      <label>User key <input name="user_key"></label>
+      <label>Email <input name="email" type="email"></label>
+      <button type="submit">Add</button>
+    </form>
+    <p>The user key is the Personal Tenant name. An existing user key keeps its GitHub login and gains {{.OIDCName}} login.</p>
+    {{end}}
     <table>
-      <thead><tr><th>User</th><th>GitHub ID</th><th>Email</th><th>Admin</th><th>Allowlisted</th></tr></thead>
+      <thead><tr><th>User</th><th>GitHub ID</th><th>Email</th>{{if .OIDCName}}<th>GitHub login</th><th>{{.OIDCName}} email</th>{{end}}<th>Admin</th><th>Allowlisted</th></tr></thead>
       <tbody>
-        {{range .}}
+        {{range .Entries}}
         <tr>
           <td>{{.GitHubUsernameNormalized}}</td>
           <td>{{.GitHubAccountID}}</td>
           <td>{{.GitHubEmail}}</td>
+          {{if $.OIDCName}}<td>{{.GitHubLogin}}</td><td>{{.OIDCEmail}}{{if .OIDCEmail}}{{if .OIDCBound}} (bound){{else}} (not yet signed in){{end}}{{end}}</td>{{end}}
           <td>{{.SandcastleAdmin}}</td>
           <td>{{.Allowlisted}}</td>
         </tr>
