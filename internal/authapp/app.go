@@ -39,20 +39,32 @@ type ServeRequest struct {
 	// ACMEDirectory is the install-level ACME directory URL for Machine
 	// Certificates (ADR-0027); empty selects Let's Encrypt production.
 	ACMEDirectory string
+	// OIDC login (optional): an external Identity Provider beside GitHub.
+	// BootstrapOIDCAdmins entries are "<user_key>=<email>".
+	OIDCIssuer          string
+	OIDCClientID        string
+	OIDCClientSecret    string
+	OIDCDisplayName     string
+	BootstrapOIDCAdmins []string
 }
 
 type ServePlan struct {
-	Address             string   `json:"address"`
-	DatabasePath        string   `json:"databasePath"`
-	AuthHostname        string   `json:"authHostname"`
-	GitHubClientID      string   `json:"githubClientID,omitempty"`
-	GitHubClientSecret  string   `json:"-"`
-	BootstrapAdminUsers []string `json:"bootstrapAdminUsers,omitempty"`
-	DebugDeviceUser     string   `json:"debugDeviceUser,omitempty"`
-	SimulateGitHubToken string   `json:"-"`
-	DefaultUnixUser     string   `json:"defaultUnixUser,omitempty"`
-	TailscaleAuthKey    string   `json:"-"`
-	ACMEDirectory       string   `json:"acmeDirectory,omitempty"`
+	Address             string      `json:"address"`
+	DatabasePath        string      `json:"databasePath"`
+	AuthHostname        string      `json:"authHostname"`
+	GitHubClientID      string      `json:"githubClientID,omitempty"`
+	GitHubClientSecret  string      `json:"-"`
+	BootstrapAdminUsers []string    `json:"bootstrapAdminUsers,omitempty"`
+	DebugDeviceUser     string      `json:"debugDeviceUser,omitempty"`
+	SimulateGitHubToken string      `json:"-"`
+	DefaultUnixUser     string      `json:"defaultUnixUser,omitempty"`
+	TailscaleAuthKey    string      `json:"-"`
+	ACMEDirectory       string      `json:"acmeDirectory,omitempty"`
+	OIDCIssuer          string      `json:"oidcIssuer,omitempty"`
+	OIDCClientID        string      `json:"oidcClientID,omitempty"`
+	OIDCClientSecret    string      `json:"-"`
+	OIDCDisplayName     string      `json:"oidcDisplayName,omitempty"`
+	BootstrapOIDCAdmins []OIDCAdmin `json:"bootstrapOIDCAdmins,omitempty"`
 }
 
 type Runner interface {
@@ -239,11 +251,39 @@ func PlanServe(request ServeRequest) (ServePlan, error) {
 	if err != nil {
 		return ServePlan{}, err
 	}
+	authHostname := strings.Trim(strings.TrimSpace(request.AuthHostname), ".")
+	oidcIssuer := strings.TrimSpace(request.OIDCIssuer)
+	oidcClientID := strings.TrimSpace(request.OIDCClientID)
+	var oidcAdmins []OIDCAdmin
+	for _, value := range request.BootstrapOIDCAdmins {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		admin, err := ParseOIDCAdmin(value)
+		if err != nil {
+			return ServePlan{}, err
+		}
+		oidcAdmins = append(oidcAdmins, admin)
+	}
+	if oidcIssuer == "" {
+		if oidcClientID != "" || len(oidcAdmins) > 0 {
+			return ServePlan{}, fmt.Errorf("OIDC client id and bootstrap OIDC admins need an OIDC issuer")
+		}
+	} else {
+		if _, err := NewOIDCLogin(OIDCLoginConfig{Issuer: oidcIssuer, ClientID: oidcClientID, RedirectURL: oidcRedirectURL(authHostname)}); err != nil {
+			return ServePlan{}, err
+		}
+	}
 	return ServePlan{
+		OIDCIssuer:          oidcIssuer,
+		OIDCClientID:        oidcClientID,
+		OIDCClientSecret:    strings.TrimSpace(request.OIDCClientSecret),
+		OIDCDisplayName:     strings.TrimSpace(request.OIDCDisplayName),
+		BootstrapOIDCAdmins: oidcAdmins,
 		ACMEDirectory:       acmeDirectory,
 		Address:             address,
 		DatabasePath:        databasePath,
-		AuthHostname:        strings.Trim(strings.TrimSpace(request.AuthHostname), "."),
+		AuthHostname:        authHostname,
 		GitHubClientID:      strings.TrimSpace(request.GitHubClientID),
 		GitHubClientSecret:  strings.TrimSpace(request.GitHubClientSecret),
 		BootstrapAdminUsers: NormalizeGitHubUsernames(request.BootstrapAdminUsers),
@@ -277,6 +317,30 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 	if err := BootstrapAdmins(ctx, db, plan.BootstrapAdminUsers); err != nil {
 		return err
 	}
+	var oidcLogin *OIDCLogin
+	if plan.OIDCIssuer != "" {
+		oidcLogin, err = NewOIDCLogin(OIDCLoginConfig{
+			Issuer:       plan.OIDCIssuer,
+			ClientID:     plan.OIDCClientID,
+			ClientSecret: plan.OIDCClientSecret,
+			DisplayName:  plan.OIDCDisplayName,
+			RedirectURL:  oidcRedirectURL(plan.AuthHostname),
+		})
+		if err != nil {
+			return err
+		}
+		if err := BootstrapOIDCAdmins(ctx, db, plan.OIDCIssuer, plan.BootstrapOIDCAdmins); err != nil {
+			return err
+		}
+		// An unreachable provider must not keep the Auth App (device login,
+		// DNS, workload tokens, GitHub login) down; OIDC login retries
+		// discovery on each attempt and answers 503 until it succeeds.
+		if _, err := oidcLogin.Discover(ctx); err != nil {
+			logger.Message(ctx, "WARN", "OIDC login: %v (retrying on first sign-in)", err)
+		} else {
+			logger.Message(ctx, "INFO", "OIDC login: provider %s ready", plan.OIDCIssuer)
+		}
+	}
 	provisioner := injectServeDependencies(r.Provisioner, db, plan.DefaultUnixUser)
 	// Built before the handler (rather than started alongside DNSReconcile
 	// below) so GET /api/resources can be wired to it: a nil cache here is
@@ -308,6 +372,7 @@ func (r HTTPRunner) Serve(ctx context.Context, plan ServePlan) error {
 			AuthHostname:                 plan.AuthHostname,
 			GitHubClientID:               plan.GitHubClientID,
 			GitHubClientSecret:           plan.GitHubClientSecret,
+			OIDCLogin:                    oidcLogin,
 			RestrictedUsers:              r.RestrictedUsers,
 			Provisioner:                  provisioner,
 			Admin:                        r.Admin,
@@ -798,6 +863,13 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 	if err := ensureColumn(ctx, db, "users", "client_certificate_pem", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	// Existing rows predate OIDC login and were all GitHub users.
+	if err := ensureColumn(ctx, db, "users", "github_login", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := migrateOIDCLogin(ctx, db); err != nil {
+		return err
+	}
 	if err := ensureColumn(ctx, db, "oidc_signing_keys", "tenant", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -1022,6 +1094,9 @@ type HandlerOptions struct {
 	TailnetIssuer    certIssuer
 	// CloudflareBaseURL is a test seam; production uses Cloudflare's API.
 	CloudflareBaseURL string
+	// OIDCLogin, when set, adds browser login through an external OIDC
+	// Identity Provider next to GitHub.
+	OIDCLogin *OIDCLogin
 }
 
 // TenantProjectCreator creates an app project for a tenant and extends the
@@ -1042,6 +1117,7 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 		authHostname:          strings.Trim(strings.TrimSpace(handlerOptions.AuthHostname), "."),
 		githubClient:          handlerOptions.GitHub,
 		githubOAuth:           GitHubOAuth{ClientID: handlerOptions.GitHubClientID, ClientSecret: handlerOptions.GitHubClientSecret},
+		oidcLogin:             handlerOptions.OIDCLogin,
 		restricted:            handlerOptions.RestrictedUsers,
 		provisioner:           handlerOptions.Provisioner,
 		admin:                 handlerOptions.Admin,
@@ -1105,6 +1181,12 @@ func NewHandler(db *sql.DB, options any) http.Handler {
 	mux.HandleFunc("/machines", app.machinesWeb)
 	mux.HandleFunc("/login/github", app.githubLogin)
 	mux.HandleFunc("/oauth/github/callback", app.githubCallback)
+	if app.oidcLogin != nil {
+		mux.HandleFunc("/login", app.loginChooser)
+		mux.HandleFunc("/login/oidc", app.oidcLoginStart)
+		mux.HandleFunc("/oauth/oidc/callback", app.oidcLoginCallback)
+		mux.HandleFunc("/admin/allowlist/oidc", app.adminAllowlistOIDC)
+	}
 	mux.HandleFunc("/admin/allowlist", app.adminAllowlist)
 	mux.HandleFunc("/admin/allowlist/remove", app.adminAllowlistRemove)
 	mux.HandleFunc("/admin/access", app.adminTenantAccess)
@@ -1189,6 +1271,7 @@ type handler struct {
 	authHostname          string
 	githubClient          GitHubClient
 	githubOAuth           GitHubOAuth
+	oidcLogin             *OIDCLogin
 	restricted            RestrictedUserRevoker
 	provisioner           PersonalTenantProvisioner
 	admin                 config.Admin
@@ -1392,8 +1475,10 @@ func (h handler) status(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = statusTemplate.Execute(w, struct {
 		AuthHostname string
+		LoginURL     string
+		LoginLabel   string
 		VersionCard  versionCard
-	}{AuthHostname: h.authHostname, VersionCard: h.releases.card(h.version)})
+	}{AuthHostname: h.authHostname, LoginURL: h.loginURL(""), LoginLabel: h.loginLabel(), VersionCard: h.releases.card(h.version)})
 }
 
 type onboardingPage struct {
@@ -1447,7 +1532,7 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
     <h1>Sandcastle Auth</h1>
     <p>Status: ok</p>
     {{if .AuthHostname}}<p>Auth Hostname: {{.AuthHostname}}</p>{{end}}
-    <p><a href="/login/github">Sign in with GitHub</a></p>
+    <p><a href="{{.LoginURL}}">{{.LoginLabel}}</a></p>
 ` + versionCardHTML + `  </main>
 </body>
 </html>

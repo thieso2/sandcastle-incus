@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -533,9 +532,9 @@ type deviceFormData struct {
 func (h handler) deviceApproveForm(w http.ResponseWriter, r *http.Request) {
 	user, err := h.requireAllowlistedSession(r)
 	if err != nil {
-		// Come back HERE (with the user_code) after the GitHub login —
-		// otherwise the user lands on the start page and the code is lost.
-		http.Redirect(w, r, "/login/github?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+		// Come back HERE (with the user_code) after the login — otherwise
+		// the user lands on the start page and the code is lost.
+		http.Redirect(w, r, h.loginURL(r.URL.RequestURI()), http.StatusFound)
 		return
 	}
 	data := deviceFormData{

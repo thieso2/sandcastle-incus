@@ -23,10 +23,15 @@ func (h handler) githubLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Remember where to land after the OAuth roundtrip (e.g. the device
-	// approval page with its user_code). A short-lived cookie survives the
-	// redirect to GitHub and back; only local paths are accepted.
-	if next := safeLocalRedirect(r.URL.Query().Get("next")); next != "" {
+	setLoginNextCookie(w, r.URL.Query().Get("next"))
+	http.Redirect(w, r, GitHubAuthorizeURL(h.githubOAuth.ClientID, state), http.StatusFound)
+}
+
+// setLoginNextCookie remembers where to land after the login roundtrip (e.g.
+// the device approval page with its user_code). A short-lived cookie survives
+// the redirect to the provider and back; only local paths are accepted.
+func setLoginNextCookie(w http.ResponseWriter, value string) {
+	if next := safeLocalRedirect(value); next != "" {
 		http.SetCookie(w, &http.Cookie{
 			Name:     loginNextCookie,
 			Value:    next,
@@ -36,7 +41,6 @@ func (h handler) githubLogin(w http.ResponseWriter, r *http.Request) {
 			Expires:  time.Now().Add(10 * time.Minute),
 		})
 	}
-	http.Redirect(w, r, GitHubAuthorizeURL(h.githubOAuth.ClientID, state), http.StatusFound)
 }
 
 // loginNextCookie carries the post-login destination across the OAuth
@@ -88,7 +92,13 @@ func (h handler) githubCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sessionID, err := CreateSession(r.Context(), h.db, user.UserKey, time.Now())
+	h.startWebSession(w, r, user.UserKey)
+}
+
+// startWebSession signs the browser in as userKey and sends it to the
+// remembered post-login destination.
+func (h handler) startWebSession(w http.ResponseWriter, r *http.Request, userKey string) {
+	sessionID, err := CreateSession(r.Context(), h.db, userKey, time.Now())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

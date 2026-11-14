@@ -62,6 +62,19 @@ func BootstrapAdmins(ctx context.Context, db *sql.DB, usernames []string) error 
 		}); err != nil {
 			return err
 		}
+		if err := enableGitHubLogin(ctx, db, username); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// enableGitHubLogin is the explicit admin act that lets a GitHub account with
+// the user key's login sign in. UpsertUser never touches github_login, so an
+// OIDC-only user cannot gain GitHub login as a side effect.
+func enableGitHubLogin(ctx context.Context, db *sql.DB, userKey string) error {
+	if _, err := db.ExecContext(ctx, "UPDATE users SET github_login = 1 WHERE user_key = ?", NormalizeGitHubUsername(userKey)); err != nil {
+		return fmt.Errorf("enable GitHub login for %s: %w", userKey, err)
 	}
 	return nil
 }
@@ -107,7 +120,7 @@ func FindLoginUser(ctx context.Context, db *sql.DB, normalizedUsername string) (
 	row := db.QueryRowContext(ctx, `
 SELECT user_key, github_username, github_username_normalized, github_account_id, github_email, allowlisted, sandcastle_admin
 FROM users
-WHERE github_username_normalized = ? AND allowlisted = 1
+WHERE github_username_normalized = ? AND allowlisted = 1 AND github_login = 1
 `, normalized)
 	var user User
 	var allowlisted int
@@ -146,6 +159,9 @@ func AllowlistGitHubUser(ctx context.Context, db *sql.DB, profile GitHubProfile)
 		Allowlisted:              true,
 	}
 	if err := UpsertUser(ctx, db, user); err != nil {
+		return User{}, err
+	}
+	if err := enableGitHubLogin(ctx, db, normalized); err != nil {
 		return User{}, err
 	}
 	return FindUser(ctx, db, normalized)
