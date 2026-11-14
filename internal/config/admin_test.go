@@ -89,6 +89,9 @@ func TestLoadAdminFromEnvOverridesTrimScalars(t *testing.T) {
 	t.Setenv("SANDCASTLE_AUTH_GITHUB_CLIENT_ID", " github-client ")
 	t.Setenv("SANDCASTLE_AUTH_GITHUB_CLIENT_SECRET", " github-secret ")
 	t.Setenv("SANDCASTLE_AUTH_ADMIN_GITHUB_USERS", "OctoCat, hubot ")
+	t.Setenv("SANDCASTLE_AUTH_OIDC_ISSUER", " https://ring.example.com ")
+	t.Setenv("SANDCASTLE_AUTH_OIDC_CLIENT_ID", " sandcastle ")
+	t.Setenv("SANDCASTLE_AUTH_OIDC_BOOTSTRAP_ADMINS", "thies=thies@example.com, enno=enno@example.com")
 	t.Setenv("SANDCASTLE_ROUTE_BROKER_INCUS_SOCKET", " /var/lib/incus/unix.socket ")
 	t.Setenv("SANDCASTLE_ALLOWED_DOMAIN_SUFFIXES", "lab.example, test ")
 	t.Setenv("SANDCASTLE_DENIED_DOMAIN_SUFFIXES", "corp.example, internal.example ")
@@ -122,6 +125,10 @@ func TestLoadAdminFromEnvOverridesTrimScalars(t *testing.T) {
 	}
 	if strings.Join(config.AuthAdminGitHubUsers, ",") != "OctoCat,hubot" {
 		t.Fatalf("AuthAdminGitHubUsers = %#v", config.AuthAdminGitHubUsers)
+	}
+	if config.AuthOIDC.Issuer != "https://ring.example.com" || config.AuthOIDC.ClientID != "sandcastle" ||
+		strings.Join(config.AuthOIDC.BootstrapAdmins, ",") != "thies=thies@example.com,enno=enno@example.com" {
+		t.Fatalf("AuthOIDC = %#v", config.AuthOIDC)
 	}
 	if config.RouteBrokerIncusSocket != "/var/lib/incus/unix.socket" {
 		t.Fatalf("RouteBrokerIncusSocket = %q", config.RouteBrokerIncusSocket)
@@ -282,6 +289,9 @@ func clearAdminEnvForTest(t *testing.T) {
 		"SANDCASTLE_TENANT",
 		"SANDCASTLE_PROJECT",
 		"SANDCASTLE_REMOTE",
+		"SANDCASTLE_AUTH_OIDC_ISSUER",
+		"SANDCASTLE_AUTH_OIDC_CLIENT_ID",
+		"SANDCASTLE_AUTH_OIDC_BOOTSTRAP_ADMINS",
 		"SANDCASTLE_STORAGE_POOL",
 		"SANDCASTLE_CIDR_POOL",
 		"SANDCASTLE_PROJECT_PREFIX",

@@ -56,6 +56,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 		routeIngress, routeBaseDomain, routeCNAMETarget, routeFront, routeTLS  string
 		routeDNSCloudflareAPIToken                                             string
 		routeDNSCloudflareWildcards                                            []string
+		oidcLogin                                                              oidcLoginFlags
 	)
 	command := &cobra.Command{
 		Use:   "install",
@@ -94,18 +95,32 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				binaryPath = exe
 			}
 			simulate := strings.TrimSpace(simulateGitHubToken) != ""
+			// With OIDC login configured, GitHub OAuth is optional, and OIDC
+			// bootstrap admins stand in for admin GitHub users.
+			if err := oidcLogin.validate(); err != nil {
+				return err
+			}
+			needGitHub := !simulate && !oidcLogin.configured()
+			needAdminUsers := len(oidcLogin.admins()) == 0
+			if oidcLogin.configured() {
+				if err := checkGitHubWithOIDC(githubClientID, githubClientSecret); err != nil {
+					return err
+				}
+			}
 			in := bufio.NewReader(config.stdin)
 			hostname = promptIfBlank(config.stdout, in, hostname, "Auth Hostname (e.g. sc2.thieso2.dev)")
-			if !simulate {
+			if needGitHub {
 				githubClientID = promptIfBlank(config.stdout, in, githubClientID, "GitHub OAuth client id")
 				githubClientSecret = promptIfBlank(config.stdout, in, githubClientSecret, "GitHub OAuth client secret")
 			}
-			adminUsers = promptIfBlank(config.stdout, in, adminUsers, "Admin GitHub users (comma-separated)")
-			if strings.TrimSpace(hostname) == "" || strings.TrimSpace(adminUsers) == "" {
+			if needAdminUsers {
+				adminUsers = promptIfBlank(config.stdout, in, adminUsers, "Admin GitHub users (comma-separated)")
+			}
+			if strings.TrimSpace(hostname) == "" || (needAdminUsers && strings.TrimSpace(adminUsers) == "") {
 				return fmt.Errorf("auth-hostname and admin-github-users are required")
 			}
-			if !simulate && (strings.TrimSpace(githubClientID) == "" || strings.TrimSpace(githubClientSecret) == "") {
-				return fmt.Errorf("github-client-id and github-client-secret are required (or use --simulate-github-token for dev)")
+			if needGitHub && (strings.TrimSpace(githubClientID) == "" || strings.TrimSpace(githubClientSecret) == "") {
+				return fmt.Errorf("github-client-id and github-client-secret are required (or use --oidc-issuer, or --simulate-github-token for dev)")
 			}
 
 			// Ingress: resolve the tunnel token (cloudflare mode) and preflight
@@ -189,6 +204,11 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 				DefaultUnixUser:            defaultUnixUser,
 				TailscaleAuthKey:           tailscaleAuthKey,
 				SimulateGitHubToken:        simulateGitHubToken,
+				OIDCIssuer:                 oidcLogin.issuer,
+				OIDCClientID:               oidcLogin.clientID,
+				OIDCClientSecret:           oidcLogin.clientSecret,
+				OIDCDisplayName:            oidcLogin.displayName,
+				BootstrapOIDCAdmins:        oidcLogin.admins(),
 				CIDRPool:                   cidrPool,
 				ProjectPrefix:              prefix,
 				TLSMode:                    tlsMode,
@@ -292,6 +312,7 @@ func newAdminInstallCommand(config commandConfig) *cobra.Command {
 	command.Flags().StringVar(&githubClientSecret, "github-client-secret", "", "GitHub OAuth client secret; prompted if empty")
 	command.Flags().StringVar(&adminUsers, "admin-github-users", "", "comma-separated admin GitHub usernames; prompted if empty")
 	command.Flags().StringVar(&simulateGitHubToken, "simulate-github-token", "", "DEV ONLY: simulated-GitHub mode gated by this shared secret (no real OAuth app)")
+	oidcLogin.register(command)
 	command.Flags().StringVar(&defaultUnixUser, "default-unix-user", "", "default Unix login for provisioned machines")
 	command.Flags().StringVar(&tailscaleAuthKey, "tailscale-auth-key", "", "OPTIONAL default Tailscale auth key for tenants that don't bring their own (tenants normally supply theirs at sc login)")
 	command.Flags().StringVar(&baseImage, "base-image", incusx.DefaultApplianceImage, "system-container base image for the appliances")
