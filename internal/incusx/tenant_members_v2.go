@@ -401,7 +401,7 @@ func (c TenantCreator) SidecarTailnetIPV2(_ context.Context, installPrefix strin
 	script := "tailscale ip -4 2>/dev/null | head -1"
 	if gateway, err := gatewayIPFromCIDR(infra.Config[keyV2CIDR]); err == nil && gateway != "" {
 		script = "if tailscale ip -4 >/dev/null 2>&1; then " +
-			"tailscale serve status 2>/dev/null | grep -q ':8443' || tailscale serve --bg --tcp=8443 tcp://" + gateway + ":8443 >/dev/null 2>&1; " +
+			"tailscale serve status 2>/dev/null | grep -q ':8443' || " + incusReachCommand(gateway, hostIncusPort(server)) + " >/dev/null 2>&1; " +
 			"fi; " + script
 	}
 	out, err := execSidecarCapture(server.UseProject(infraProject), naming.V2SidecarInstanceName, script)

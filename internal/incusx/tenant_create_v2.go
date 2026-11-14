@@ -1025,7 +1025,7 @@ func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, tailne
 		"tailscale ip -4 >/dev/null 2>&1 || { echo 'tailscale did not connect' >&2; tailscale status >&2; exit 1; }",
 		// Incus Reach (ADR-0017): proxy the host's Incus API onto the tenant
 		// tailnet — raw TCP, TLS passes through so the host cert is pinned.
-		"tailscale serve --bg --tcp=8443 tcp://" + gateway + ":8443",
+		incusReachCommand(gateway, incusPort),
 		// Emit the sidecar's tailnet IPv4 for the caller (the client's remote addr).
 		"printf 'TSIP=%s\\n' \"$(tailscale ip -4 | head -1)\"",
 	}, "\n")
