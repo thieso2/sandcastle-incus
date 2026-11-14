@@ -155,7 +155,7 @@ func (c TenantCreator) UpdateTenantSidecar(prefix, tenantName string, binary []b
 		return ComponentVersion{}, fmt.Errorf("restart %s on sidecar of %s: %w", TLSSignUnit, tenantName, err)
 	}
 	c.log("ensure Incus Reach on sidecar " + infraProject + "/" + instance)
-	if err := execSidecar(psrv, instance, "tailscale serve --bg --tcp=8443 tcp://"+gateway+":8443"); err != nil {
+	if err := execSidecar(psrv, instance, incusReachCommand(gateway, hostIncusPort(server))); err != nil {
 		return ComponentVersion{}, fmt.Errorf("ensure Incus Reach on sidecar of %s: %w", tenantName, err)
 	}
 	version := update.NormalizeTag(binaryVersion)
