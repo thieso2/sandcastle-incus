@@ -18,14 +18,20 @@ func incusReachCommand(gateway string, hostPort string) string {
 	return "tailscale serve --bg --tcp=8443 tcp://" + net.JoinHostPort(gateway, hostPort)
 }
 
+type serverConfigReader interface {
+	GetServer() (*api.Server, string, error)
+}
+
+// The admin paths hand hostIncusPort this wrapper, so it must pass the
+// server config through.
+var _ serverConfigReader = sdkTenantCreateServer{}
+
 // hostIncusPort reads the port of the host's core.https_address. Hosts such as
 // IncusOS installs that serve the API on :443 would otherwise get a Reach that
 // forwards to a closed port. Servers that cannot report their config keep the
 // default.
 func hostIncusPort(server any) string {
-	getter, ok := server.(interface {
-		GetServer() (*api.Server, string, error)
-	})
+	getter, ok := server.(serverConfigReader)
 	if !ok {
 		return defaultIncusPort
 	}
@@ -42,4 +48,8 @@ func listenAddressPort(address string) string {
 		return port
 	}
 	return defaultIncusPort
+}
+
+func (s sdkTenantCreateServer) GetServer() (*api.Server, string, error) {
+	return s.inner.GetServer()
 }
