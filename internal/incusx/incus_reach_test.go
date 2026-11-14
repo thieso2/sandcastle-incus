@@ -6,6 +6,7 @@ import (
 
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/thieso2/sandcastle-incus/internal/meta"
+	"github.com/thieso2/sandcastle-incus/internal/tenant"
 )
 
 func TestListenAddressPort(t *testing.T) {
@@ -61,4 +62,20 @@ func TestUpdateTenantSidecarReachFollowsHostListener(t *testing.T) {
 		}
 	}
 	t.Fatalf("Incus Reach does not forward to the host listener :443; commands: %q", resource.execs)
+}
+
+func TestTailscaleUpWithAuthKeyForwardsToHostListener(t *testing.T) {
+	resource := &fakeBinaryUpdateResource{instance: &api.Instance{}}
+	plan := tenant.CreatePlanV2{PrivateCIDR: "10.125.0.0/24", SidecarInstance: "sidecar"}
+
+	if _, _, err := v2TailscaleUp(resource, plan, "sc-test", "tskey-test", "443"); err != nil {
+		t.Fatalf("v2TailscaleUp: %v", err)
+	}
+	script := strings.Join(resource.execs, "\n")
+	if !strings.Contains(script, "tailscale serve --bg --tcp=8443 tcp://10.125.0.1:443") {
+		t.Fatalf("auth-key join does not forward the Reach to the host listener :443; script: %q", script)
+	}
+	if strings.Contains(script, "tcp://10.125.0.1:8443") {
+		t.Fatalf("auth-key join still forwards to :8443; script: %q", script)
+	}
 }
