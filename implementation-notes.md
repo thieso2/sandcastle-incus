@@ -7214,3 +7214,40 @@ Fixes from the PR #211 review, each verified against the code first.
 - Dismissed: the 60-second VM mount wait (that code is gone since the baked
   early unit), and a foreign mount at `/scratch` on a `--no-scratch` machine
   (`/scratch` is reserved; topology and usage now say so).
+
+## 2026-11-14 — OIDC browser login beside GitHub
+
+The brief fixed the data shape (`users.github_login`, `oidc_identities`,
+bind-on-first-login by email). Decisions it left open:
+
+- Discovery is lazy, not startup-fatal. `Serve` tries discovery once at
+  start and logs `INFO`/`WARN`; `/login/oidc` retries it on every attempt
+  and answers 503 ("Ring sign-in is unavailable: …") until it succeeds. A
+  fatal check would let an IdP outage take down device login, DNS,
+  workload tokens and GitHub login with it, and systemd would restart-loop.
+  Config errors (bad URL, missing client id, bootstrap admins without an
+  issuer, missing Auth Hostname) still fail `PlanServe` at startup.
+- PKCE verifier and nonce live on `oauth_states` (two new columns). One
+  table keeps the 10-minute expiry and single use the GitHub state already
+  has. The OIDC callback consumes only rows with a verifier
+  (`DELETE … RETURNING`), so a GitHub state cannot complete an OIDC login.
+- The ID token verifier is stdlib (`crypto/ecdsa`, `crypto/rsa`), about
+  200 lines, ES256 and RS256 only, RSA keys of 2048 bits or more. Promoting
+  go-jose would not have removed the JWKS cache or the claim checks, which
+  are most of the code. The JWKS is refetched on an unknown `kid` at most
+  once a minute.
+- `UpsertUser` never writes `github_login`. New rows take the column
+  default 1 (only GitHub paths call it), and `AllowlistGitHubUser` and
+  `BootstrapAdmins` set it to 1 explicitly. `RecordGitHubLogin` cannot flip
+  it because `FindLoginUser` already requires it.
+- Re-adding an OIDC identity with a different email (or after the issuer
+  changed) clears the bound subject, so the next login binds afresh. Same
+  email is a no-op, which keeps `--bootstrap-oidc-admin` idempotent.
+- A token with `email_verified: false` never binds by email. Ring omits the
+  claim; absent means trusted, as the brief requires for Ring.
+- `http://` issuers are accepted only on loopback, for the test fake and
+  local smoke runs.
+- The OIDC admin form posts to `/admin/allowlist/oidc`, registered only
+  with OIDC configured, rather than branching inside `/admin/allowlist`.
+- The Onboarding Page still labels the user key "GitHub Username" for
+  OIDC-only users. Left as is to keep the diff focused.
