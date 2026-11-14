@@ -210,7 +210,7 @@ func runTenantSwitch(ctx context.Context, config commandConfig, tenantName strin
 		}
 	}
 	if enrolled != "" {
-		fmt.Fprintf(notes, "Incus remote %q points at shared tenant %s (project %s).\n", enrolled, tenantName, cfg.Project)
+		fmt.Fprintf(notes, "Incus remote %q points at shared tenant %s (project %s) on %s.\n", enrolled, tenantName, cfg.Project, firstNonEmptyString(cfg.AuthHostnameForRemote(enrolled), commandAuthHostname(config, "")))
 	}
 	result := tenantSwitchOutput{
 		Tenant:     tenantName,
@@ -280,6 +280,16 @@ func ensureSharedTenantRemote(ctx context.Context, config commandConfig, cfg *sc
 	if remoteName == "" {
 		remoteName = tenantName
 	}
+	// The Auth Hostname the CLI actually talks to (installs[<active remote>]
+	// first), never the top-level config value — that can be a stale
+	// placeholder from an old login (auth.example.com), and recording it
+	// would make every later switch to this remote ask a host that does not
+	// exist.
+	authHost := firstNonEmptyString(commandAuthHostname(config, ""), config.adminConfig.AuthHostname, cfg.AuthHostname)
+	if name := installRemoteName(*cfg, remoteName, authHost); name != remoteName {
+		fmt.Fprintf(config.stdout, "Incus remote %q belongs to another install (%s); using %q for %s.\n", remoteName, cfg.AuthHostnameForRemote(remoteName), name, normalizeAuthHostname(authHost))
+		remoteName = name
+	}
 	incusDir, _ := scconfig.SharedIncusDirExplained()
 	address := strings.TrimSpace(access.IncusRemoteAddress)
 	// Re-point a remote whose recorded address drifted: a sidecar that
@@ -314,12 +324,6 @@ func ensureSharedTenantRemote(ctx context.Context, config commandConfig, cfg *sc
 	// user's token.
 	token := firstNonEmptyString(config.adminConfig.AuthToken, cfg.AuthToken)
 	broker := firstNonEmptyString(config.adminConfig.Broker, cfg.Broker)
-	// The Auth Hostname the CLI actually talks to (installs[<active remote>]
-	// first), never the top-level config value — that can be a stale
-	// placeholder from an old login (auth.example.com), and recording it
-	// would make every later switch to this remote ask a host that does not
-	// exist.
-	authHost := firstNonEmptyString(commandAuthHostname(config, ""), config.adminConfig.AuthHostname, cfg.AuthHostname)
 	recordFor(&cfg.RemoteTenants, remoteName, tenantName)
 	recordFor(&cfg.RemoteAuthTokens, remoteName, token)
 	recordFor(&cfg.RemoteBrokers, remoteName, broker)
