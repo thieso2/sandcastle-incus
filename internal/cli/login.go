@@ -722,6 +722,14 @@ func newLoginCommand(config commandConfig, opts *rootOptions) *cobra.Command {
 					case <-time.After(time.Duration(interval) * time.Second):
 					}
 				case authapp.DeviceStatusApproved:
+					if cfg, err := scconfig.LoadSandcastleConfig(scconfig.DefaultConfigPath()); err == nil {
+						if name := installRemoteName(cfg, result.RemoteName, args[0]); name != result.RemoteName {
+							if !approvedAnnounced {
+								fmt.Fprintf(config.stdout, "Incus remote %q belongs to another install (%s); using %q for %s.\n", result.RemoteName, cfg.AuthHostnameForRemote(result.RemoteName), name, normalizeAuthHostname(args[0]))
+							}
+							result.RemoteName = name
+						}
+					}
 					if !approvedAnnounced {
 						if result.UserKey != "" {
 							fmt.Fprintf(config.stdout, "Approved as %s.\n", result.UserKey)
