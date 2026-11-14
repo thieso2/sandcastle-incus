@@ -265,24 +265,30 @@ func ensureTenantRouting(ctx context.Context, stdout io.Writer, cidr string) err
 	// stay unreachable. Only a connection whose local endpoint is this machine's
 	// Tailscale address (CGNAT 100.64.0.0/10) proves the packet egressed over the
 	// tenant's approved subnet route.
-	target := net.JoinHostPort(gateway, "8443")
+	// The gateway is the host, so the probe needs the host Incus listener:
+	// 8443 by default, 443 on hosts that serve the API there (IncusOS).
+	targets := []string{net.JoinHostPort(gateway, "8443"), net.JoinHostPort(gateway, "443")}
+	target := targets[0]
 	deadline := time.Now().Add(20 * time.Second)
 	var lastDialErr error
 	var lastLANAddr string
 	for {
-		conn, err := net.DialTimeout("tcp", target, 4*time.Second)
-		if err == nil {
+		for _, candidate := range targets {
+			conn, err := net.DialTimeout("tcp", candidate, 4*time.Second)
+			if err != nil {
+				lastDialErr = err
+				continue
+			}
 			viaTailnet := connEgressedViaTailnet(conn)
 			local := conn.LocalAddr().String()
 			_ = conn.Close()
 			if viaTailnet {
-				check(true, "probe to %s connected via this machine's tailnet address", target)
+				check(true, "probe to %s connected via this machine's tailnet address", candidate)
 				return nil
 			}
+			target = candidate
 			lastLANAddr = local
 			lastDialErr = nil
-		} else {
-			lastDialErr = err
 		}
 		if !time.Now().Before(deadline) {
 			break
@@ -320,7 +326,7 @@ func ensureTenantRouting(ctx context.Context, stdout io.Writer, cidr string) err
 	default:
 		return fail("    • The route looks healthy but the tenant gateway did not answer. Check the\n" +
 			"      sidecar is running and reachable (its Incus API listens on the gateway\n" +
-			"      address, port 8443), and that no firewall drops tailnet subnet traffic.")
+			"      address, port 8443 or 443), and that no firewall drops tailnet subnet traffic.")
 	}
 }
 
