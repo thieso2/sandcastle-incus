@@ -127,7 +127,7 @@ func (c TenantCreator) CreateTenantV2(ctx context.Context, plan tenant.CreatePla
 		tailnetHostname = plan.InfraProject
 	}
 	c.log("tailscale up (advertise " + plan.PrivateCIDR + ", hostname " + tailnetHostname + ")")
-	loginURL, sidecarIP, err := v2TailscaleUp(server.UseProject(plan.InfraProject), plan, tailnetHostname, strings.TrimSpace(opts.TailscaleAuthKey))
+	loginURL, sidecarIP, err := v2TailscaleUp(server.UseProject(plan.InfraProject), plan, tailnetHostname, strings.TrimSpace(opts.TailscaleAuthKey), hostIncusPort(server))
 	if err != nil {
 		return err
 	}
@@ -960,7 +960,7 @@ func configureV2TLSSigner(server TenantResourceServer, plan tenant.CreatePlanV2)
 // removing the need for manual admin approval or a Tailscale API key.
 const sidecarTailnetTag = "tag:sandcastle"
 
-func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, tailnetHostname string, authKey string) (string, string, error) {
+func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, tailnetHostname string, authKey string, incusPort string) (string, string, error) {
 	base := "--advertise-routes=" + plan.PrivateCIDR + " --hostname=" + tailnetHostname + " --accept-dns=false --advertise-tags=" + sidecarTailnetTag
 	gateway, err := gatewayIPFromCIDR(plan.PrivateCIDR)
 	if err != nil {
@@ -971,7 +971,7 @@ func v2TailscaleUp(server TenantResourceServer, plan tenant.CreatePlanV2, tailne
 	// sidecar's tailnet IPv4 for the caller. Shared by both branches so a
 	// BYO-tailnet interactive join completes the Reach on the next
 	// provisioning pass (login re-polls until this reports an IP).
-	finish := "tailscale serve --bg --tcp=8443 tcp://" + gateway + ":8443\n" +
+	finish := incusReachCommand(gateway, incusPort) + "\n" +
 		"printf 'TSIP=%s\\n' \"$(tailscale ip -4 | head -1)\""
 	if authKey == "" {
 		const log = "/var/lib/sandcastle-tsup.log"
